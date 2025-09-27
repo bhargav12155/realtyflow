@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real Estate AI Demo - Animated</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+        
+        .demo-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .demo-frame {
+            width: 1200px;
+            height: 675px;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .scene {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            opacity: 0;
+            transform: translateX(100px);
+            transition: all 1s ease-in-out;
+        }
+        
+        .scene.active {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        
+        .scene.exiting {
+            opacity: 0;
+            transform: translateX(-100px);
+        }
+        
+        /* Title Scene */
+        .title-scene {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 60px;
+        }
+        
+        .title-scene h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            animation: slideInUp 1s ease-out;
+        }
+        
+        .title-scene .subtitle {
+            font-size: 24px;
+            margin-bottom: 40px;
+            animation: slideInUp 1s ease-out 0.3s both;
+        }
+        
+        .features-showcase {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-top: 40px;
+            animation: slideInUp 1s ease-out 0.6s both;
+        }
+        
+        .feature-item {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            font-size: 18px;
+        }
+        
+        /* App Demo Scenes */
+        .app-scene {
+            background: #f7fafc;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .app-header {
+            background: white;
+            padding: 20px 40px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .app-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        
+        .app-content {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            gap: 30px;
+        }
+        
+        .sidebar-demo {
+            width: 250px;
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .main-demo {
+            flex: 1;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        
+        .demo-action {
+            background: #667eea;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            margin: 10px 0;
+            animation: pulse 2s infinite;
+        }
+        
+        .typing-animation {
+            border-right: 2px solid #667eea;
+            animation: typing 3s steps(40) 1s both, blink 1s infinite;
+        }
+        
+        /* CTA Scene */
+        .cta-scene {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 60px;
+        }
+        
+        .cta-scene h1 {
+            font-size: 36px;
+            margin-bottom: 30px;
+        }
+        
+        .benefits-list {
+            list-style: none;
+            padding: 0;
+            margin: 30px 0;
+        }
+        
+        .benefits-list li {
+            margin: 15px 0;
+            font-size: 20px;
+            animation: slideInLeft 0.8s ease-out var(--delay) both;
+        }
+        
+        .benefits-list li:nth-child(1) { --delay: 0.2s; }
+        .benefits-list li:nth-child(2) { --delay: 0.4s; }
+        .benefits-list li:nth-child(3) { --delay: 0.6s; }
+        .benefits-list li:nth-child(4) { --delay: 0.8s; }
+        
+        .contact-box {
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 20px;
+            margin-top: 30px;
+            backdrop-filter: blur(10px);
+        }
+        
+        /* Progress bar */
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: #ff6b6b;
+            transition: width 1s ease-in-out;
+            z-index: 1000;
+        }
+        
+        /* Animations */
+        @keyframes slideInUp {
+            from {
+                opacity: 0;
+                transform: translateY(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+        
+        @keyframes typing {
+            from {
+                width: 0;
+            }
+            to {
+                width: 100%;
+            }
+        }
+        
+        @keyframes blink {
+            0%, 50% {
+                border-color: transparent;
+            }
+            51%, 100% {
+                border-color: #667eea;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <div class="demo-frame">
+            <!-- Scene 1: Title -->
+            <div class="scene title-scene active" data-duration="5000">
+                <h1>🏠 Real Estate AI Dashboard</h1>
+                <p class="subtitle">Automate Your Marketing in Minutes, Not Hours</p>
+                <div class="features-showcase">
+                    <div class="feature-item">✓ AI Content Generation</div>
+                    <div class="feature-item">✓ Multi-Platform Posting</div>
+                    <div class="feature-item">✓ SEO Optimization</div>
+                    <div class="feature-item">✓ YouTube Integration</div>
+                </div>
+            </div>
+            
+            <!-- Scene 2: AI Content Demo -->
+            <div class="scene app-scene" data-duration="8000">
+                <div class="app-header">
+                    <div class="app-title">AI Content Generator</div>
+                    <div style="color: #667eea; font-weight: bold;">Real Estate AI Dashboard</div>
+                </div>
+                <div class="app-content">
+                    <div class="sidebar-demo">
+                        <div style="padding: 10px; background: #667eea; color: white; border-radius: 8px; margin-bottom: 10px;">
+                            🤖 AI Content
+                        </div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">Social Media</div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">SEO Tools</div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">Analytics</div>
+                    </div>
+                    <div class="main-demo">
+                        <h3>Generate Real Estate Content</h3>
+                        <div style="margin: 20px 0;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: bold;">Property Details:</label>
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; margin: 10px 0; border: 2px solid #e2e8f0;">
+                                <div class="typing-animation" style="overflow: hidden; white-space: nowrap;">
+                                    New listing in Benson neighborhood - 3BR ranch home with updated kitchen
+                                </div>
+                            </div>
+                        </div>
+                        <div class="demo-action">🎯 Generate AI Content</div>
+                        <div style="margin-top: 20px; padding: 20px; background: #e6fffa; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                            <strong>✨ AI Generated Content:</strong><br><br>
+                            🏠 <strong>NEW LISTING ALERT!</strong><br><br>
+                            Beautiful 3-bedroom ranch in the desirable Benson neighborhood! This gem features updated kitchen, gorgeous hardwood floors, and is perfect for first-time buyers.
+                            <br><br>
+                            💰 <strong>Price:</strong> $285,000<br>
+                            📍 <strong>Location:</strong> Benson, Omaha<br>
+                            🔑 <strong>Perfect for:</strong> First-time homebuyers
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Scene 3: Social Media Demo -->
+            <div class="scene app-scene" data-duration="8000">
+                <div class="app-header">
+                    <div class="app-title">Social Media Manager</div>
+                    <div style="color: #667eea; font-weight: bold;">Real Estate AI Dashboard</div>
+                </div>
+                <div class="app-content">
+                    <div class="sidebar-demo">
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">AI Content</div>
+                        <div style="padding: 10px; background: #667eea; color: white; border-radius: 8px; margin-bottom: 10px;">
+                            📱 Social Media
+                        </div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">SEO Tools</div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">Analytics</div>
+                    </div>
+                    <div class="main-demo">
+                        <h3>Multi-Platform Posting</h3>
+                        <div style="margin: 20px 0;">
+                            <label style="display: block; margin-bottom: 15px; font-weight: bold;">Select Platforms:</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div style="padding: 15px; background: #3b82f6; color: white; border-radius: 8px; text-align: center;">
+                                    ✓ Facebook
+                                </div>
+                                <div style="padding: 15px; background: #e1306c; color: white; border-radius: 8px; text-align: center;">
+                                    ✓ Instagram
+                                </div>
+                                <div style="padding: 15px; background: #1da1f2; color: white; border-radius: 8px; text-align: center;">
+                                    ✓ Twitter
+                                </div>
+                                <div style="padding: 15px; background: #ff0000; color: white; border-radius: 8px; text-align: center;">
+                                    ✓ YouTube
+                                </div>
+                            </div>
+                        </div>
+                        <div style="background: #fef2f2; border: 2px dashed #f56565; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: center;">
+                            🎥 <strong>YouTube Video Upload:</strong><br>
+                            <span style="color: #38a169;">✓ demo-property-tour.mp4 uploaded</span>
+                        </div>
+                        <div class="demo-action">🚀 Post to All Platforms Now</div>
+                        <div style="margin-top: 15px; padding: 15px; background: #f0fff4; border-radius: 8px; text-align: center; color: #38a169; font-weight: bold;">
+                            ✅ Successfully posted to 4 platforms!
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Scene 4: SEO Demo -->
+            <div class="scene app-scene" data-duration="6000">
+                <div class="app-header">
+                    <div class="app-title">SEO Optimizer</div>
+                    <div style="color: #667eea; font-weight: bold;">Real Estate AI Dashboard</div>
+                </div>
+                <div class="app-content">
+                    <div class="sidebar-demo">
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">AI Content</div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">Social Media</div>
+                        <div style="padding: 10px; background: #667eea; color: white; border-radius: 8px; margin-bottom: 10px;">
+                            📊 SEO Tools
+                        </div>
+                        <div style="padding: 10px; margin-bottom: 10px; color: #4a5568;">Analytics</div>
+                    </div>
+                    <div class="main-demo">
+                        <h3>Local SEO Optimization</h3>
+                        <div style="margin: 20px 0;">
+                            <label style="display: block; margin-bottom: 15px; font-weight: bold;">Site Performance:</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                                <div style="text-align: center; padding: 15px; background: #f0fff4; border-radius: 8px;">
+                                    <div style="font-size: 24px; font-weight: bold; color: #38a169;">85</div>
+                                    <div style="color: #4a5568; font-size: 14px;">Mobile Score</div>
+                                </div>
+                                <div style="text-align: center; padding: 15px; background: #f0fff4; border-radius: 8px;">
+                                    <div style="font-size: 24px; font-weight: bold; color: #38a169;">92</div>
+                                    <div style="color: #4a5568; font-size: 14px;">Desktop Score</div>
+                                </div>
+                                <div style="text-align: center; padding: 15px; background: #f0fff4; border-radius: 8px;">
+                                    <div style="font-size: 24px; font-weight: bold; color: #38a169;">2.3s</div>
+                                    <div style="color: #4a5568; font-size: 14px;">Load Time</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="background: #edf2f7; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                            <strong>🎯 Keyword Rankings:</strong><br>
+                            • "Omaha real estate" - Rank #12<br>
+                            • "Benson homes" - Rank #8<br>
+                            • "Ranch style" - Rank #6
+                        </div>
+                        <div style="background: #e6fffa; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                            <strong>📈 Local SEO Focus:</strong> Omaha neighborhoods optimized
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Scene 5: CTA -->
+            <div class="scene cta-scene" data-duration="6000">
+                <h1>Ready to Transform Your Marketing?</h1>
+                <ul class="benefits-list">
+                    <li>✓ Save 10+ hours per week on content creation</li>
+                    <li>✓ Increase social media engagement by 300%</li>
+                    <li>✓ Boost local SEO rankings</li>
+                    <li>✓ Streamline your entire marketing workflow</li>
+                </ul>
+                <div class="contact-box">
+                    <h3>Contact Mike Bjork</h3>
+                    <p><strong>Berkshire Hathaway HomeServices</strong></p>
+                    <p>📧 mike.bjork@bhhsambassador.com</p>
+                    <p>📱 (402) 555-0123</p>
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3);">
+                        <strong>Powered by My Golden Brick LLC</strong><br>
+                        <small>Visit: mygoldenbrick.com</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="progress-bar" id="progress"></div>
+    </div>
+
+    <script>
+        const scenes = document.querySelectorAll('.scene');
+        const progressBar = document.getElementById('progress');
+        let currentScene = 0;
+        let totalDuration = 0;
+        let currentTime = 0;
+        
+        // Calculate total duration
+        scenes.forEach(scene => {
+            totalDuration += parseInt(scene.dataset.duration);
+        });
+        
+        function showNextScene() {
+            if (currentScene < scenes.length - 1) {
+                scenes[currentScene].classList.remove('active');
+                scenes[currentScene].classList.add('exiting');
+                
+                currentScene++;
+                setTimeout(() => {
+                    scenes[currentScene].classList.add('active');
+                    scenes[currentScene - 1].classList.remove('exiting');
+                }, 500);
+            } else {
+                // Loop back to start
+                scenes[currentScene].classList.remove('active');
+                currentScene = 0;
+                currentTime = 0;
+                setTimeout(() => {
+                    scenes[currentScene].classList.add('active');
+                }, 500);
+            }
+        }
+        
+        function updateProgress() {
+            currentTime += 100;
+            const progress = (currentTime / totalDuration) * 100;
+            progressBar.style.width = progress + '%';
+            
+            if (currentTime >= totalDuration) {
+                currentTime = 0;
+            }
+        }
+        
+        // Auto-advance scenes
+        let sceneTimer;
+        function startDemo() {
+            let sceneIndex = 0;
+            const sceneDurations = Array.from(scenes).map(s => parseInt(s.dataset.duration));
+            
+            function nextScene() {
+                if (sceneIndex < scenes.length - 1) {
+                    sceneIndex++;
+                    showNextScene();
+                    sceneTimer = setTimeout(nextScene, sceneDurations[sceneIndex]);
+                } else {
+                    // Restart demo
+                    setTimeout(() => {
+                        sceneIndex = 0;
+                        currentScene = 0;
+                        currentTime = 0;
+                        scenes.forEach(s => s.classList.remove('active', 'exiting'));
+                        scenes[0].classList.add('active');
+                        sceneTimer = setTimeout(nextScene, sceneDurations[0]);
+                    }, 2000);
+                }
+            }
+            
+            sceneTimer = setTimeout(nextScene, sceneDurations[0]);
+        }
+        
+        // Start the demo
+        startDemo();
+        
+        // Update progress bar
+        setInterval(updateProgress, 100);
+        
+        // Allow manual navigation with arrow keys
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') {
+                clearTimeout(sceneTimer);
+                showNextScene();
+            }
+        });
+    </script>
+</body>
+</html>

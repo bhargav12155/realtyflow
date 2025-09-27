@@ -1,0 +1,29 @@
+You need to realign the other app so all MLS / agent / address flows hit the correct primary endpoint and only fall back when needed.
+
+Priority actions:
+
+Frontend MLS searches: Point them to http://gbcma.us-east-2.elasticbeanstalk.com/api/property-search-new?mls_number=XXXXX (stop using details-by-address for MLS numbers).
+Address lookups: Keep using Simple-CMA only when the user enters a full or near-full address AND GBCMA (property-search-new with address=) returns 0.
+Agent searches: Use listing_agent_name (or add an alias in GBCMA to accept agent= and map to listing_agent_name for backward compatibility).
+Normalize params: In your backend API layer create a small mapper: agent -> listing_agent_name; mls -> mls_number; city stays city.
+Fallback order (MLS): GBCMA -> Paragon MLSService -> IDXService (broad/active data) -> Simple-CMA (only if you can’t resolve by MLS but have address).
+Fallback order (Address): GBCMA (address=) -> Simple-CMA -> Paragon (address) -> IDX (city/state + address contains).
+Add a unified internal helper getPropertyByMLS(mls): returns {source, data}; logs each step; caches success for (e.g.) 15 min in memory (key mls_number).
+Update UI logic: If user enters 100% digits length 7–9 => treat as MLS first; else treat as address. Offer a “Search by Agent” mode that hits listing_agent_name.
+Add health checks: Periodically test GBCMA /api/health and downgrade to fallback automatically if it fails N times.
+Telemetry: Log which source ultimately served each query to spot systematic issues.
+Optional quick backend tweaks (GBCMA side):
+
+Accept agent= as alias (if 'agent' in req.query && no listing_agent_name).
+When listing_agent_name / buyer_agent_name present, include agent fields in $select.
+Minimal alias patch (conceptual): if (req.query.agent && !req.query.listing_agent_name) req.query.listing_agent_name = req.query.agent;
+
+Rollout checklist:
+
+Implement alias + agent field select (conditional).
+Deploy GBCMA.
+Update other app’s config/ENV for BASE_GBCMA_URL.
+Swap frontend MLS search to property-search-new.
+Add fallback chain.
+Monitor logs for 48h.
+Tell me if you want the alias + conditional agent-field patch next.

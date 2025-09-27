@@ -1,0 +1,161 @@
+Get Started
+This document explains how to successfully call the Pages API to post to your Page.
+
+Before You Start
+You will need the following:
+
+A Facebook Page, this can be an unpublished or published Page on which you can perform the CREATE_CONTENT task.
+A Page access token for the Page
+The following permissions:
+pages_manage_metadata
+pages_manage_posts
+pages_manage_read_engagement
+pages_show_list
+Best Practices
+When testing an API call, you can include the access_token parameter set to your access token. However, when making secure calls from your app, use the access token class.
+
+Step 1. Get Your Page ID
+To get a list of IDs and Page access tokens for Facebook Pages on which you can perform a task, send a GET request to /user_id/accounts endpoint where user_id is your user ID.
+
+Example Request
+Formatted for readability. Replace bold, italics values, such as page_id, with your values.
+curl -i -X GET "https://graph.facebook.com/v23.0/user_id/accounts?access_token=user_access_token"
+On success, your app receives the following JSON response that includes an array of objects. Each object contains information about a specific Page including the name, ID, a short-lived Page access token, tasks you can perform on the Page, and more:
+
+{
+  "data": [
+    {
+      "access_token": "page_access_token",
+      "category": "Internet Company",
+      "category_list": [
+        {
+          "id": "2256",
+          "name": "Internet Company"
+        }
+      ],
+      "name": "Name of this Page",
+      "id": "page_id",
+      "tasks": [
+        "ANALYZE",
+        "ADVERTISE",
+        "MODERATE",
+        "CREATE_CONTENT"
+      ]
+    },
+...
+Step 2. Publish a post
+To publish a post, send a POST request to the /page_id/feed endpoint, where page_id is the ID for the Page you are publishing to, with the message parameter set to your message content and the access_token parameter set to the Page access token:
+
+Example Request
+Formatted for readability. Replace bold, italics values, such as page_id, with your values.
+curl -X POST "https://graph.facebook.com/v23.0/page_id/feed" \
+     -H "Content-Type: application/json" \
+     -d '{
+           "message":"your_message_text",
+           "access_token":"page_access_token",
+         }'
+Your post will be published immediately.
+
+On success, your app receives the following JSON response with the ID for the post:
+
+{
+  "id": "page_post_id" 
+}
+Visit your Facebook Page  to view the post.
+
+Step 3. Verify Your Post
+To verify that the post was published to your Page, send a GET request to the /page_id/feed endpoint:
+
+Example Request
+Formatted for readability. Replace bold, italics values, such as page_id, with your values.
+      curl -i -X GET "https://graph.facebook.com/v23.0/page_id/feed?access_token=page_access_token"
+On success, your app will receive the following JSON response with an array of objects. Each object includes the post ID, the message content, and the time the post was created:
+
+{
+  "data": [
+    {
+      "created_time": "2020-03-25T17:33:34+0000",
+      "message": "Hello World!",
+      "id": "422575694827569_917077345377399"  
+    },
+...
+  ]
+}
+Use the Graph Explorer
+The Graph Explorer tool is a UI that allows you to experiment with Facebook APIs without adding code to your app or website. You can select permissions, get access tokens, test GET, POST, and DELETE methods, and get code snippets of these queries for Android, iOS, JavaScript, PHP, and cURL.
+
+Note, you will need a Facebook App ID to use the Graph Explorer.
+
+Step 1. Get Your Page ID
+Select the the pages_manage_metadata, pages_manage_posts, pages_manage_read_engagement, and pages_show_list permissions, which ever appear within the Permission dropdown menu, set the GET request to the /me/accounts endpoint in the query box, and click Submit.
+
+
+Click on the ID of your Page, displayed directly beneath the name of your Page, to move the ID to the query box.
+
+Step 2. Post as a Page
+Under the User or Page drop down menu, select the Page access token for your Page. Next, set the method to POST with a request to the /{page-id}/feed endpoint, then set the Params key to message and the value to your post text. Click Submit.
+
+On success, the Graph Explorer will show the ID of the Page post.
+
+
+Visit your Facebook Page to view the post.
+
+Step 3. Verify Your Post
+Send a GET request to the /page-id/feed endpoint.
+
+On success, the Graph Explorer will display the time the post was created, the text of the post, and the ID of the Page post.
+
+
+Next steps
+Learn how to get and update information about your Facebook Page include Page details, access tokens, blocked users, and user recommendations, using the Manage a Facebook Page guide.
+
+Learn how to publish links, photos, and videos to your Page.
+
+See Also
+Graph API guides
+Access Tokens 
+Graph API User Guide 
+Graph Explorer User Guide 
+Pages API Overview – Tasks 
+References
+Page Reference 
+Page Feed Reference 
+Page Post Reference 
+Permissions Reference 
+User Accounts Reference 
+On This Page
+Get Started
+Before You Start
+Best Practices
+Step 1. Get Your Page ID
+Step 2. Publish a post
+Step 3. Verify Your Post
+Use the Graph Explorer
+Step 1. Get Your Page ID
+Step 2. Post as a Page
+Step 3. Verify Your Post
+Next steps
+See Also
+
+
+Build with Meta
+AI
+Meta Horizon OS
+Social technologies
+Wearables
+News
+Meta for Developers
+Blog
+Success stories
+Support
+Developer support
+Bug tool
+Platform status
+Developer community forum
+Report an incident
+Terms and policies
+Responsible platform initiatives
+Platform terms
+Developer policies
+© 2025 Meta
+About

@@ -1,0 +1,665 @@
+
+Docs
+Instagram Platform
+API Reference
+IG Media
+Insights
+Instagram Platform
+Overview
+Webhooks
+Create an App
+Instagram API with Instagram Login
+Instagram API with Facebook Login
+Publish Content
+Comment Moderation
+Private Replies
+Insights
+Sharing to Feed
+Sharing to Stories
+oEmbed
+Embed Button
+API Reference
+Error Codes
+Access Token
+IG Comment
+IG Container
+IG Hashtag Search
+IG Hashtag
+IG Media
+Children
+Collaborators
+Comments
+Insights
+Product Tags
+IG User
+/me
+Oauth Authorize
+Page
+Refresh Access Token
+App Review
+Support
+Changelog
+Instagram Media Insights
+Represents social interaction metrics on your app user's Instagram Media object.
+
+Instagram Insights are now available for Instagram API with Instagram Login. Learn more.
+
+Introducing the views metric for FEED, STORY, and REELS media product types.
+
+The following metrics have been deprecated for v22.0 and will be deprecated for all versions on April 21, 2025:
+
+plays
+clips_replays_count
+ig_reels_aggregated_all_plays_count
+impressions
+Note: API requests with the impressions metric will continue to return data for media created on or before July 1, 2024 for v21.0 and older. API requests made after April 21, 2025 for media created on or after July 2, 2024 will return an error.
+
+The video_views metric has been deprecated.
+
+Visit the Instagram Platform Changelog for more information.
+
+Creating
+This operation is not supported.
+
+Reading
+GET /<INSTAGRAM_MEDIA_ID>/insights
+
+Get insights data on an Instagram Media object.
+
+Limitations
+If insights data you are requesting does not exist or is currently unavailable, the API returns an empty data set instead of 0 for individual metrics.
+Data used to calculate metrics can be delayed up to 48 hours.
+Metrics data is stored for up to 2 years.
+The API only reports organic interaction metrics; interactions on ads containing a media object are not counted.
+Album metrics
+Insights data is not available for any media within an Instagram Media album.
+Story media metrics
+Story media metrics are only available for 24 hours.
+Set up Instagram webhooks and subscribe to the story_insights field to get story insights for a story before they expire. You may receive data after the story expires if the story is added to a highlight. This may return different results for API calls, webhook notifications, and UIs.
+Story media metrics with values less than 5 return an error code 10 with the message (#10) Not enough viewers for the media to show insights.
+For Stories created by users in Europe and Japan, the replies metric now returns a value of 0.
+Replies made by users in Europe and Japan are not included in replies calculations for story media metrics.
+Webhooks
+Insights webhook for Instagram API with Instagram Login is not supported.
+Requirements
+Instagram API with Instagram Login	Instagram API with Facebook Login
+Access Tokens
+
+Instagram User access token
+Facebook User access token
+Host URL
+
+graph.instagram.com
+
+graph.facebook.com
+
+Login Type
+
+Business Login for Instagram
+
+Facebook Login for Business
+
+Permissions	
+instagram_business_basic
+instagram_business_manage_insights
+instagram_basic
+instagram_manage_insights
+pages_read_engagement
+If the app user was granted a role on the Page connected to your app user's Instagram professional account via the Business Manager, your app will also need:
+
+ads_management
+ads_read
+Request syntax
+GET "https://<HOST_URL>/<API_VERSION>/<INSTAGRAM_MEDIA_ID>/insights
+  ?metric=<LIST_OF_METRICS>
+  &period=<LIST_OF_TIME_PERIODS>
+  &breakdown=<LIST_OF_BREAKDOWNS>
+  &access_token=<ACCESS_TOKEN>"
+Path parameters
+
+Placeholder	Value
+<API_VERSION>
+
+The latest version is: v23.0	
+The API version your app is using. If not specified in your API calls this will be the latest version at the time you created your Meta app or, if that version is no longer available, the oldest version available. Learn more about versioning.
+
+<HOST_URL>
+
+The host URL your app is using to query the endpoint.
+
+<INSTAGRAM_MEDIA_ID>
+
+Required. The Instagram Media ID.
+
+Query string parameters
+
+Key	Placeholder	Value
+access_token
+
+<ACCESS_TOKEN>
+
+Required. The app user's Facebook or Instagram User access token.
+
+breakdown
+
+<LIST_OF_BREAKDOWNS>
+
+Designates how to break down results into subsets.
+
+metric
+
+<LIST_OF_METRICS>
+
+Required. Comma-separated list of metrics you want returned.
+
+period
+
+<LIST_OF_TIME_PERIODS>
+
+Comma-separated list of time periods you want returned. Values can be:
+
+day
+week
+days_28
+month
+lifetime
+total_over_range
+Metrics
+The following table shows the metrics and the media object types the are available on.
+
+Metric	Media Product Type
+clips_replays_count
+
+Deprecated for v22.0 and for all versions on April 21, 2025.
+
+The number of times your reel starts to play again after an initial play of your video. This is defined as replays of 1ms or more in the same reel session.
+
+REELS
+
+comments
+
+
+Number of comments on the media object.
+
+FEED (posts)
+REELS
+
+follows
+
+
+The number of Instagram users following your app user's Instagram professional account.
+
+FEED (posts)
+STORY
+
+ig_reels_aggregated_all_plays_count
+
+Deprecated for v22.0 and for all versions on April 21, 2025.
+
+The number of times your reel starts to play or replay after an impression is already counted. This is defined as plays of 1ms or more. Replays are counted after the initial play in the same reel session.
+
+Note that this count may be greater than the sum of clips_replays_count and plays. This is because clips_replays_count and plays only count plays in the Instagram app, while ig_reels_aggregated_all_plays_count also includes plays in the Facebook app through Cross App Recommendation (XAR).
+
+REELS
+
+ig_reels_avg_watch_time
+
+
+The average amount of time spent playing the reel.
+
+REELS
+
+ig_reels_video_view_total_time
+
+
+The total amount of time the reel was played, including any time spent replaying the reel. Metric in development.
+
+REELS
+
+impressions
+
+For media created after July 2, 2024, this metric is deprecated for v22.0+ and will be deprecated for all versions on April 21, 2025. For media created before July 2, 2024, this metric will still be available.
+
+Total number of times your app user's Instagram Media object has been seen.
+
+FEED (posts)
+STORY
+
+likes
+
+
+Number of likes on the media object.
+
+FEED (posts)
+REELS
+
+navigation
+
+
+This is the total number of actions taken from your story. These are made up of metrics like exited, forward, back and next story.
+
+
+Available breakdown: story_navigation_action_type
+
+STORY
+
+plays
+
+Deprecated for v22.0 and for all versions on April 21, 2025.
+
+Number of times the reels starts to play after an impression is already counted. This is defined as video sessions with 1 ms or more of playback and excludes replays.
+
+REELS
+
+profile_activity
+
+
+The number of actions people take when they visit your profile after engaging with your post.
+
+
+Available breakdown: action_type (Available for media created after October 26, 2017.)
+
+FEED (posts)
+STORY
+
+profile_visits
+
+
+The number of times your profile was visited.
+
+FEED (posts)
+STORY
+
+reach
+
+
+Number of unique Instagram users that have seen the reel at least once. Reach is different from impressions, which can include multiple views of a reel by the same account. Metric is estimated.
+
+FEED (posts)
+REELS STORY
+
+replies
+
+
+Total number of replies (IG Comments) on the story IG Media object. Value does not include replies made by users in some regions. These regions include: Europe starting December 1, 2020 and Japan starting April 14, 2021. If the Story was created by a user in one of these regions, returns a value of 0.
+
+STORY
+
+saved
+
+
+Number of time your app user's Instagram media was saved by an Instagram user.
+
+FEED (posts)
+REELS
+
+shares
+
+
+Number of shares of the reel.
+
+FEED (posts)
+REELS STORY
+
+total_interactions
+
+
+Number of likes, saves, comments, and shares on the reel, minus the number of unlikes, unsaves, and deleted comments. Metric in development.
+
+FEED (posts)
+REELS STORY
+
+views
+
+
+Total number of times the video IG Media has been seen.
+
+Metric in development.
+
+FEED (posts)
+REELS STORY
+
+Breakdowns
+You can also include the breakdown parameter for specific metrics to divide data into smaller sets based on the specified breakdown value. Values can be:
+
+breakdown value	Response values
+action_type
+
+Only compatible with the profile_activity metric.
+
+Break down results by the profile component within the native app that viewers tapped or clicked after viewing the app user's profile.
+
+BIO_LINK_CLICKED
+CALL
+DIRECTION
+EMAIL
+OTHER
+TEXT
+story_navigation_action_type
+
+Only compatible with the navigation metric.
+
+Break down results by navigation action taken by the viewer upon viewing the media within the native app. Adding all of these action types will give you the total navigation insights.
+
+SWIPE_FORWARD equals "Next Story"
+TAP_BACK equals "Back"
+TAP_EXIT equals "Exit"
+TAP_FORWARD equals "Forward"
+NOTE: If you request a metric that doesn't support breakdowns, the API will return an error ("An unknown error has occurred."), so be careful if requesting multiple metrics in a single query.
+
+Response syntax
+On success your app receives a JSON object containing the results of your query. Results can include the following data, based on your query specifications:
+
+{
+  "data": [
+    {
+      "name": "<NAME>",
+      "period": "<PERIOD>",
+      "values": [
+        {
+          "value": <VALUE>
+        }
+      ],
+      "title": "<TITLE>",
+      "description": "<DESCRIPTION>",
+      "total_value": {
+        "value":<VALUE>,
+        "breakdowns": [
+          {
+            "dimension_keys": [
+              "<DIMENSION_KEY_1>",
+              "<DIMENSION_KEY_2>"
+              ...
+            ],
+            "results": [
+              {
+                "dimension_values": [
+                  "<DIMENSION_VALUE_1>",
+                  "<DIMENSION_VALUE_2>"
+                  ...
+                ],
+                "value": <VALUE>
+              },
+              ...
+            ]
+          }
+        ]
+      },
+      "id": "<ID>"
+    }
+  ]
+}
+Response contents
+Property	Value Type	Description
+data
+
+Array
+
+An array containing an object describing your request results.
+
+name
+
+String
+
+Metric name.
+
+period
+
+String
+
+Period requested. Period is automatically set to lifetime in the request and cannot be changed, so this value will always be lifetime.
+
+values
+
+Array
+
+An array containing an object describing requested metric values.
+
+value
+
+Integer
+
+For data.values.value, sum of requested metric values.
+
+
+For data.total_value.value, sum of requested breakdown values.
+
+
+For data.total_value.breakdowns.results.value, sum of breakdown set values.
+
+title
+
+String
+
+Metric title.
+
+description
+
+String
+
+Metric description.
+
+id
+
+String
+
+A string describing the query's path parameters.
+
+total_value
+
+Object
+
+Object describing requested breakdown values (if breakdowns were requested).
+
+breakdowns
+
+Array
+
+An array of objects describing the breakdowns requested and their results.
+
+dimension_keys
+
+Array
+
+Array of strings describing breakdowns requested.
+
+results
+
+Array
+
+An array of objects describing each breakdown set.
+
+dimension_values
+
+String
+
+An array of strings describing breakdown set values. Values can be mapped to dimension_keys.
+
+paging
+
+Object
+
+An object containing URLs used to request the next set of results. See Paginated Results for more information.
+
+previous
+
+String
+
+URL to retrieve the previous page of results. See Paginated Results for more information.
+
+next
+
+String
+
+URL to retrieve the next page of results. See Paginated Results for more information.
+
+Examples
+Sample post metric request
+The following is a request from an app that uses Facebook Login.
+
+curl -i -X GET \
+ "https://graph.facebook.com/v23.0/17932174733377207/insights?metric=profile_activity&breakdown=action_type&access_token=EAAOc..."
+Sample post metric response
+{
+  "data": [
+    {
+      "name": "profile_activity",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 4
+        }
+      ],
+      "title": "Profile activity",
+      "description": "[IG Insights] This header is the name of a metric that appears on an educational info sheet for a particular post, story, video or promotion. This metric is the sum of all profile actions people take when they engage with this content.",
+      "total_value": {
+        "value": 4,
+        "breakdowns": [
+          {
+            "dimension_keys": [
+              "action_type"
+            ],
+            "results": [
+              {
+                "dimension_values": [
+                  "email"
+                ],
+                "value": 1
+              },
+              {
+                "dimension_values": [
+                  "text"
+                ],
+                "value": 1
+              },
+              {
+                "dimension_values": [
+                  "direction"
+                ],
+                "value": 1
+              },
+              {
+                "dimension_values": [
+                  "bio_link_clicked"
+                ],
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "id": "17932174733377207/insights/profile_activity/lifetime"
+    }
+  ]
+}
+Sample story metric request
+The following is a request from an app that uses Instagram Login.
+
+curl -i -X GET \
+ "https://graph.instagram.com/v23.0/17969782069736348/insights?metric=navigation&breakdown=story_navigation_action_type&access_token=EAAOc..."
+Sample story metric response
+{
+  "data": [
+    {
+      "name": "navigation",
+      "period": "lifetime",
+      "values": [
+        {
+          "value": 25
+        }
+      ],
+      "title": "Navigation",
+      "description": "This is the total number of actions taken from your story. These are made up of metrics like exited, forward, back and next story.",
+      "total_value": {
+        "value": 25,
+        "breakdowns": [
+          {
+            "dimension_keys": [
+              "story_navigation_action_type"
+            ],
+            "results": [
+              {
+                "dimension_values": [
+                  "tap_forward"
+                ],
+                "value": 19
+              },
+              {
+                "dimension_values": [
+                  "tap_back"
+                ],
+                "value": 4
+              },
+              {
+                "dimension_values": [
+                  "tap_exit"
+                ],
+                "value": 1
+              },
+              {
+                "dimension_values": [
+                  "swipe_forward"
+                ],
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "id": "17969782069736348/insights/navigation/lifetime"
+    }
+  ]
+}
+Updating
+This operation is not supported.
+
+Deleting
+This operation is not supported.
+
+On This Page
+Instagram Media Insights
+Creating
+Reading
+Limitations
+Requirements
+Request syntax
+Metrics
+Breakdowns
+Response syntax
+Examples
+Updating
+Deleting
+
+
+Build with Meta
+AI
+Meta Horizon OS
+Social technologies
+Wearables
+News
+Meta for Developers
+Blog
+Success stories
+Support
+Developer support
+Bug tool
+Platform status
+Developer community forum
+Report an incident
+Terms and policies
+Responsible platform initiatives
+Platform terms
+Developer policies
+© 2025 Meta
+About
+Careers
+Privacy Policy
+Cookies
+Terms
+
+English (US)
+
+English (US)
+Was this document helpful?
+YesNo
+Remove

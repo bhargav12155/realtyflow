@@ -1,0 +1,169 @@
+import { Sidebar } from "@/components/layout/sidebar";
+import { OverviewCards } from "@/components/dashboard/overview-cards";
+import { AIContentGenerator } from "@/components/dashboard/ai-content-generator";
+import { SocialMediaManager } from "@/components/dashboard/social-media-manager";
+import { SEOOptimizer } from "@/components/dashboard/seo-optimizer";
+import { ContentCalendar } from "@/components/dashboard/content-calendar";
+import { LocalMarketTools } from "@/components/dashboard/local-market-tools";
+import { ScheduledPostsManager } from "@/components/dashboard/scheduled-posts-manager";
+import { VideoGenerator } from "@/components/dashboard/video-generator";
+import { AISearchOptimizer } from "@/components/dashboard/ai-search-optimizer";
+import { BrandSettings } from "@/components/dashboard/brand-settings";
+import { APIKeyManager } from "@/components/dashboard/api-key-manager";
+import { StreamingAvatar } from "@/components/dashboard/streaming-avatar";
+import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
+import { TemplateManager } from "@/components/dashboard/template-manager";
+import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
+import { Sparkles, Bell } from "lucide-react";
+
+export default function Dashboard() {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [activeView, setActiveView] = useState("dashboard");
+
+  const handleGenerateContent = () => {
+    setIsGenerating(true);
+    // This will be handled by the AI Content Generator component
+    setTimeout(() => setIsGenerating(false), 2000);
+  };
+
+  // Handle hash navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // Remove the '#' 
+      if (hash) {
+        setActiveView(hash);
+      } else {
+        setActiveView("dashboard");
+      }
+    };
+
+    // Set initial view from URL hash
+    handleHashChange();
+    
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
+
+  const renderActiveView = () => {
+    switch (activeView) {
+      case "ai-content":
+        return <AIContentGenerator isGenerating={isGenerating} />;
+      case "ai-video":
+        return <VideoGenerator />;
+      case "streaming-avatar":
+        return <StreamingAvatar />;
+      case "photo-avatars":
+        return <PhotoAvatarManager />;
+      case "templates":
+        return <TemplateManager />;
+      case "social":
+        return <SocialMediaManager />;
+      case "seo":
+        return <SEOOptimizer />;
+      case "calendar":
+        return <ContentCalendar />;
+      case "market":
+        return <LocalMarketTools />;
+      case "brand-settings":
+        return <BrandSettings />;
+      case "analytics":
+        return (
+          <div className="p-6">
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-semibold mb-2">Analytics Dashboard</h2>
+                <p className="text-muted-foreground">Monitor your API usage, system health, and performance metrics</p>
+              </div>
+              <AISearchOptimizer />
+              <APIKeyManager />
+            </div>
+          </div>
+        );
+      default: // "dashboard"
+        return (
+          <>
+            <OverviewCards />
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <AIContentGenerator isGenerating={isGenerating} />
+              </div>
+              <div>
+                <SocialMediaManager />
+              </div>
+            </div>
+
+            <VideoGenerator />
+
+            <AISearchOptimizer />
+
+            <ScheduledPostsManager />
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SEOOptimizer />
+              <ContentCalendar />
+            </div>
+
+            <LocalMarketTools />
+          </>
+        );
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-background">
+      <Sidebar activeView={activeView} />
+      
+      <main className="flex-1 overflow-auto">
+        {/* Header */}
+        <header className="bg-card border-b border-border px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground">AI SEO & Social Media Dashboard</h1>
+              <p className="text-sm text-muted-foreground">Automated content generation for Omaha real estate market</p>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Button 
+                onClick={handleGenerateContent}
+                disabled={isGenerating}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+                data-testid="button-generate-content"
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {isGenerating ? "Generating..." : "Generate Content"}
+              </Button>
+              <div className="relative">
+                <Button variant="ghost" size="icon" data-testid="button-notifications">
+                  <Bell className="h-5 w-5" />
+                  <span className="absolute top-0 right-0 w-2 h-2 bg-destructive rounded-full"></span>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Dashboard Content */}
+        <div className="p-6 space-y-6">
+          {renderActiveView()}
+        </div>
+      </main>
+
+      {/* Loading Overlay */}
+      {isGenerating && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-card p-6 rounded-lg border border-border shadow-lg">
+            <div className="flex items-center space-x-3">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+              <span className="text-foreground font-medium">Generating AI content...</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

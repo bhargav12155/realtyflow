@@ -1,10 +1,25 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, integer, boolean, real } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  timestamp,
+  jsonb,
+  integer,
+  boolean,
+  real,
+  unique,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// =====================================================
+// 1. USERS TABLE
+// =====================================================
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   name: text("name").notNull(),
@@ -13,8 +28,33 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// =====================================================
+// PUBLIC USERS TABLE (for multi-user support)
+// =====================================================
+export const publicUsers = pgTable(
+  "public_users",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    email: text("email").notNull(),
+    name: text("name"),
+    agentSlug: text("agent_slug").notNull(),
+    preferences: jsonb("preferences"), // Store user preferences
+    lastLogin: timestamp("last_login"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    // Composite unique constraint: one email per agent
+    uniqueAgentClient: unique().on(table.agentSlug, table.email),
+  })
+);
+
+// =====================================================
+// 2. CONTENT PIECES TABLE (AI Generated Content)
+// =====================================================
 export const contentPieces = pgTable("content_pieces", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   type: text("type").notNull(), // 'blog', 'social', 'property_feature'
   title: text("title").notNull(),
@@ -30,11 +70,16 @@ export const contentPieces = pgTable("content_pieces", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// =====================================================
+// 3. SCHEDULED POSTS TABLE (Social Media)
+// =====================================================
 export const scheduledPosts = pgTable("scheduled_posts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   platform: text("platform").notNull(), // 'facebook', 'instagram', 'linkedin', 'x'
-  postType: text("post_type"), // 'open_houses', 'just_listed', 'just_sold', 'price_improvement', 'local_market', 'moving_guide'
+  postType: text("post_type"), // 'open_houses', 'just_listed', 'just_sold', etc.
   content: text("content").notNull(),
   hashtags: text("hashtags").array(),
   scheduledFor: timestamp("scheduled_for").notNull(),
@@ -48,8 +93,13 @@ export const scheduledPosts = pgTable("scheduled_posts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// =====================================================
+// 4. AVATARS TABLE (HeyGen Integration)
+// =====================================================
 export const avatars = pgTable("avatars", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   name: text("name").notNull(),
   description: text("description"),
@@ -62,15 +112,20 @@ export const avatars = pgTable("avatars", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// =====================================================
+// 5. VIDEO CONTENT TABLE (YouTube & Video)
+// =====================================================
 export const videoContent = pgTable("video_content", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   avatarId: varchar("avatar_id"),
   title: text("title").notNull(),
   script: text("script").notNull(),
   topic: text("topic"), // Generated topic or custom topic
   neighborhood: text("neighborhood"),
-  videoType: text("video_type"), // 'market_update', 'neighborhood_tour', 'buyer_tips', 'seller_guide', 'moving_guide'
+  videoType: text("video_type"), // 'market_update', 'neighborhood_tour', 'buyer_tips', etc.
   platform: text("platform").default("youtube"), // 'youtube', 'reels', 'story'
   duration: integer("duration"), // in seconds
   thumbnailUrl: text("thumbnail_url"),
@@ -85,8 +140,13 @@ export const videoContent = pgTable("video_content", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// =====================================================
+// 6. SOCIAL MEDIA ACCOUNTS TABLE (Platform Connections)
+// =====================================================
 export const socialMediaAccounts = pgTable("social_media_accounts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   platform: text("platform").notNull(), // 'facebook', 'instagram', 'linkedin', 'x'
   accountId: text("account_id").notNull(),
@@ -98,8 +158,13 @@ export const socialMediaAccounts = pgTable("social_media_accounts", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// =====================================================
+// 7. SEO KEYWORDS TABLE (Keyword Tracking)
+// =====================================================
 export const seoKeywords = pgTable("seo_keywords", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   keyword: text("keyword").notNull(),
   currentRank: integer("current_rank"),
@@ -111,8 +176,13 @@ export const seoKeywords = pgTable("seo_keywords", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// =====================================================
+// 8. MARKET DATA TABLE (Real Estate Market)
+// =====================================================
 export const marketData = pgTable("market_data", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   neighborhood: text("neighborhood").notNull(),
   avgPrice: integer("avg_price"),
   daysOnMarket: integer("days_on_market"),
@@ -122,8 +192,13 @@ export const marketData = pgTable("market_data", {
   lastUpdated: timestamp("last_updated").defaultNow(),
 });
 
+// =====================================================
+// 9. ANALYTICS TABLE (Performance Tracking)
+// =====================================================
 export const analytics = pgTable("analytics", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   metric: text("metric").notNull(),
   value: integer("value").notNull(),
@@ -131,9 +206,13 @@ export const analytics = pgTable("analytics", {
   metadata: jsonb("metadata"),
 });
 
-// Property listings from MLS/IDX feeds
+// =====================================================
+// 10. PROPERTIES TABLE (MLS/Property Listings)
+// =====================================================
 export const properties = pgTable("properties", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   mlsId: text("mls_id").notNull(),
   listPrice: integer("list_price").notNull(),
   address: text("address").notNull(),
@@ -175,7 +254,9 @@ export const insertContentPieceSchema = createInsertSchema(contentPieces).omit({
   createdAt: true,
 });
 
-export const insertSocialMediaAccountSchema = createInsertSchema(socialMediaAccounts).omit({
+export const insertSocialMediaAccountSchema = createInsertSchema(
+  socialMediaAccounts
+).omit({
   id: true,
   createdAt: true,
 });
@@ -193,10 +274,17 @@ export const insertAnalyticsSchema = createInsertSchema(analytics).omit({
   id: true,
 });
 
-export const insertScheduledPostSchema = createInsertSchema(scheduledPosts).omit({
+export const insertScheduledPostSchema = createInsertSchema(
+  scheduledPosts
+).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+});
+
+export const insertPublicUserSchema = createInsertSchema(publicUsers).omit({
+  id: true,
+  createdAt: true,
 });
 
 export const insertAvatarSchema = createInsertSchema(avatars).omit({
@@ -219,12 +307,16 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type PublicUser = typeof publicUsers.$inferSelect;
+export type InsertPublicUser = typeof publicUsers.$inferInsert;
 
 export type ContentPiece = typeof contentPieces.$inferSelect;
 export type InsertContentPiece = z.infer<typeof insertContentPieceSchema>;
 
 export type SocialMediaAccount = typeof socialMediaAccounts.$inferSelect;
-export type InsertSocialMediaAccount = z.infer<typeof insertSocialMediaAccountSchema>;
+export type InsertSocialMediaAccount = z.infer<
+  typeof insertSocialMediaAccountSchema
+>;
 
 export type SeoKeyword = typeof seoKeywords.$inferSelect;
 export type InsertSeoKeyword = z.infer<typeof insertSeoKeywordSchema>;

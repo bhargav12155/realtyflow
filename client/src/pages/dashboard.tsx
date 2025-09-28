@@ -13,6 +13,7 @@ import { APIKeyManager } from "@/components/dashboard/api-key-manager";
 import { StreamingAvatar } from "@/components/dashboard/streaming-avatar";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
 import { TemplateManager } from "@/components/dashboard/template-manager";
+import UserMenu from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { Sparkles, Bell } from "lucide-react";
@@ -30,7 +31,7 @@ export default function Dashboard() {
   // Handle hash navigation
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash.slice(1); // Remove the '#' 
+      const hash = window.location.hash.slice(1); // Remove the '#'
       if (hash) {
         setActiveView(hash);
       } else {
@@ -40,12 +41,12 @@ export default function Dashboard() {
 
     // Set initial view from URL hash
     handleHashChange();
-    
+
     // Listen for hash changes
-    window.addEventListener('hashchange', handleHashChange);
-    
+    window.addEventListener("hashchange", handleHashChange);
+
     return () => {
-      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener("hashchange", handleHashChange);
     };
   }, []);
 
@@ -76,8 +77,12 @@ export default function Dashboard() {
           <div className="p-6">
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-semibold mb-2">Analytics Dashboard</h2>
-                <p className="text-muted-foreground">Monitor your API usage, system health, and performance metrics</p>
+                <h2 className="text-2xl font-semibold mb-2">
+                  Analytics Dashboard
+                </h2>
+                <p className="text-muted-foreground">
+                  Monitor your API usage, system health, and performance metrics
+                </p>
               </div>
               <AISearchOptimizer />
               <APIKeyManager />
@@ -88,7 +93,7 @@ export default function Dashboard() {
         return (
           <>
             <OverviewCards />
-            
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
                 <AIContentGenerator isGenerating={isGenerating} />
@@ -118,17 +123,21 @@ export default function Dashboard() {
   return (
     <div className="flex h-screen bg-background">
       <Sidebar activeView={activeView} />
-      
+
       <main className="flex-1 overflow-auto">
         {/* Header */}
         <header className="bg-card border-b border-border px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-foreground">AI SEO & Social Media Dashboard</h1>
-              <p className="text-sm text-muted-foreground">Automated content generation for Omaha real estate market</p>
+              <h1 className="text-2xl font-semibold text-foreground">
+                AI SEO & Social Media Dashboard
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Automated content generation for Omaha real estate market
+              </p>
             </div>
             <div className="flex items-center space-x-4">
-              <Button 
+              <Button
                 onClick={handleGenerateContent}
                 disabled={isGenerating}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
@@ -138,19 +147,22 @@ export default function Dashboard() {
                 {isGenerating ? "Generating..." : "Generate Content"}
               </Button>
               <div className="relative">
-                <Button variant="ghost" size="icon" data-testid="button-notifications">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  data-testid="button-notifications"
+                >
                   <Bell className="h-5 w-5" />
                   <span className="absolute top-0 right-0 w-2 h-2 bg-destructive rounded-full"></span>
                 </Button>
               </div>
+              <UserMenu />
             </div>
           </div>
         </header>
 
         {/* Dashboard Content */}
-        <div className="p-6 space-y-6">
-          {renderActiveView()}
-        </div>
+        <div className="p-6 space-y-6">{renderActiveView()}</div>
       </main>
 
       {/* Loading Overlay */}
@@ -159,7 +171,9 @@ export default function Dashboard() {
           <div className="bg-card p-6 rounded-lg border border-border shadow-lg">
             <div className="flex items-center space-x-3">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-              <span className="text-foreground font-medium">Generating AI content...</span>
+              <span className="text-foreground font-medium">
+                Generating AI content...
+              </span>
             </div>
           </div>
         </div>

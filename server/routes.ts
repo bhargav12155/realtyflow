@@ -15,13 +15,15 @@ import { HeyGenStreamingService } from "./services/heygen-streaming";
 import { HeyGenPhotoAvatarService } from "./services/heygen-photo-avatar";
 import { HeyGenTemplateService } from "./services/heygen-template";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
-import { 
+import authRoutes from "./routes/auth";
+import { requireAuth, requireAgent, optionalAuth } from "./middleware/auth";
+import {
   insertContentPieceSchema,
   insertSocialMediaAccountSchema,
   insertSeoKeywordSchema,
   insertScheduledPostSchema,
   insertAvatarSchema,
-  insertVideoContentSchema
+  insertVideoContentSchema,
 } from "@shared/schema";
 
 // Configure multer for file uploads
@@ -32,12 +34,15 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Allow image, audio, and video files
-    if (file.mimetype.startsWith('image/') || 
-        file.mimetype.startsWith('audio/') ||
-        file.mimetype.startsWith('video/')) {  // Support all video formats
+    if (
+      file.mimetype.startsWith("image/") ||
+      file.mimetype.startsWith("audio/") ||
+      file.mimetype.startsWith("video/")
+    ) {
+      // Support all video formats
       cb(null, true);
     } else {
-      cb(new Error('Only image, audio, and video files are allowed'));
+      cb(new Error("Only image, audio, and video files are allowed"));
     }
   },
 });
@@ -50,17 +55,23 @@ const videoUpload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Only allow video files
-    if (file.mimetype.startsWith('video/')) {
+    if (file.mimetype.startsWith("video/")) {
       cb(null, true);
     } else {
-      cb(new Error('Only video files are allowed'));
+      cb(new Error("Only video files are allowed"));
     }
   },
 });
 
-function generateFallbackScript(topic: string, neighborhood: string, videoType: string, duration: number, platform: string = "youtube"): string {
+function generateFallbackScript(
+  topic: string,
+  neighborhood: string,
+  videoType: string,
+  duration: number,
+  platform: string = "youtube"
+): string {
   const videoTypeTemplates = {
-    "market_update": `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices. Let's talk about the current real estate market in ${neighborhood}.
+    market_update: `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices. Let's talk about the current real estate market in ${neighborhood}.
 
 The ${neighborhood} market has been showing some interesting trends lately. Home values have remained stable, and we're seeing consistent buyer interest in this area.
 
@@ -70,7 +81,7 @@ If you're thinking about buying or selling in ${neighborhood}, I'd love to help 
 
 Thanks for watching, and I'll see you in the next video!`,
 
-    "neighborhood_tour": `Welcome to ${neighborhood}! I'm Mike Bjork with Berkshire Hathaway HomeServices, and I'm excited to show you why this neighborhood is such a special place to call home.
+    neighborhood_tour: `Welcome to ${neighborhood}! I'm Mike Bjork with Berkshire Hathaway HomeServices, and I'm excited to show you why this neighborhood is such a special place to call home.
 
 ${neighborhood} offers a perfect blend of community charm and modern convenience. You'll find excellent schools, beautiful parks, and friendly neighbors who really care about maintaining the character of this area.
 
@@ -80,7 +91,7 @@ If you're considering making ${neighborhood} your new home, I'd be happy to show
 
 Thanks for joining me on this tour of ${neighborhood}!`,
 
-    "buyer_tips": `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices, and today I want to share some essential tips for home buyers, especially if you're looking in the ${neighborhood} area.
+    buyer_tips: `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices, and today I want to share some essential tips for home buyers, especially if you're looking in the ${neighborhood} area.
 
 First, get pre-approved for your mortgage before you start shopping. This shows sellers you're serious and gives you a clear budget.
 
@@ -92,7 +103,7 @@ If you're ready to start your home buying journey in ${neighborhood} or anywhere
 
 Thanks for watching!`,
 
-    "seller_guide": `Thinking about selling your home in ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help you get the best possible result.
+    seller_guide: `Thinking about selling your home in ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help you get the best possible result.
 
 First, pricing is crucial. I'll provide you with a detailed market analysis to ensure your home is priced competitively for the ${neighborhood} market.
 
@@ -106,7 +117,7 @@ Ready to sell? Contact Mike Bjork, your trusted Omaha real estate professional.
 
 Thanks for watching!`,
 
-    "moving_guide": `Planning a move to ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help make your transition as smooth as possible.
+    moving_guide: `Planning a move to ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help make your transition as smooth as possible.
 
 ${neighborhood} is a wonderful community with so much to offer. From great schools to local amenities, you'll find everything you need to feel right at home.
 
@@ -116,33 +127,56 @@ I can also connect you with trusted local services to help with your move - from
 
 Moving to ${neighborhood} is an exciting step, and I'm here to help you every step of the way. Contact Mike Bjork, your Omaha real estate guide.
 
-Welcome to ${neighborhood}!`
+Welcome to ${neighborhood}!`,
   };
 
-  let baseScript = videoTypeTemplates[videoType as keyof typeof videoTypeTemplates] || 
-                  videoTypeTemplates.neighborhood_tour.replace(/neighborhood_tour/g, topic);
+  let baseScript =
+    videoTypeTemplates[videoType as keyof typeof videoTypeTemplates] ||
+    videoTypeTemplates.neighborhood_tour.replace(/neighborhood_tour/g, topic);
 
   // Platform-specific modifications
   if (platform === "reels") {
     // Make it more concise and punchy for Reels
     baseScript = baseScript
-      .replace(/Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g, "Hey! Mike Bjork here -")
-      .replace(/Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g, "Like & follow for more Omaha real estate tips! 🏠")
-      .split('\n').slice(0, 4).join('\n'); // Keep it shorter
+      .replace(
+        /Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g,
+        "Hey! Mike Bjork here -"
+      )
+      .replace(
+        /Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g,
+        "Like & follow for more Omaha real estate tips! 🏠"
+      )
+      .split("\n")
+      .slice(0, 4)
+      .join("\n"); // Keep it shorter
   } else if (platform === "story") {
     // Make it more casual and personal for Stories
     baseScript = baseScript
-      .replace(/Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g, "Quick update from Mike!")
-      .replace(/Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g, "DM me for details! 📱")
-      .split('\n').slice(0, 3).join('\n'); // Keep it very short
+      .replace(
+        /Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g,
+        "Quick update from Mike!"
+      )
+      .replace(
+        /Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g,
+        "DM me for details! 📱"
+      )
+      .split("\n")
+      .slice(0, 3)
+      .join("\n"); // Keep it very short
   }
 
   return baseScript;
 }
 
-function generateAIOptimizedContent(neighborhood: string, goal: string, question?: string): string {
-  const questionStart = question || `What's the best information about ${goal.toLowerCase()} in ${neighborhood}?`;
-  
+function generateAIOptimizedContent(
+  neighborhood: string,
+  goal: string,
+  question?: string
+): string {
+  const questionStart =
+    question ||
+    `What's the best information about ${goal.toLowerCase()} in ${neighborhood}?`;
+
   return `# ${questionStart}
 
 **Direct Answer:** ${neighborhood} is an excellent choice for ${goal.toLowerCase()}. Here's what you need to know as someone considering this area.
@@ -186,18 +220,22 @@ Whether you're a first-time buyer, growing family, or savvy investor, I'll help 
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  
+  // =====================================================
+  // AUTHENTICATION ROUTES
+  // =====================================================
+  app.use("/api/auth", authRoutes);
+
   // API Key Management
-  app.get('/api/openai/status', async (req, res) => {
+  app.get("/api/openai/status", async (req, res) => {
     try {
       const status = getAPIKeyStatus();
       res.json(status);
     } catch (error) {
-      console.error('Error getting API key status:', error);
-      res.status(500).json({ error: 'Failed to get API key status' });
+      console.error("Error getting API key status:", error);
+      res.status(500).json({ error: "Failed to get API key status" });
     }
   });
-  
+
   // Get dashboard overview data
   app.get("/api/dashboard/overview", async (req, res) => {
     try {
@@ -223,8 +261,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Content generation endpoints
   app.post("/api/content/generate", async (req, res) => {
     try {
-      const { type, topic, aiPrompt, neighborhood, keywords, seoOptimized, longTailKeywords, localSeoFocus, propertyData } = req.body;
-      
+      const {
+        type,
+        topic,
+        aiPrompt,
+        neighborhood,
+        keywords,
+        seoOptimized,
+        longTailKeywords,
+        localSeoFocus,
+        propertyData,
+      } = req.body;
+
       const generatedContent = await openaiService.generateContent({
         type,
         topic,
@@ -272,8 +320,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/content/social-post", async (req, res) => {
     try {
       const { topic, platform, neighborhood } = req.body;
-      
-      const socialPost = await openaiService.generateSocialMediaPost(topic, platform, neighborhood);
+
+      const socialPost = await openaiService.generateSocialMediaPost(
+        topic,
+        platform,
+        neighborhood
+      );
       res.json(socialPost);
     } catch (error) {
       console.error("Social post generation error:", error);
@@ -300,16 +352,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/content/enhance", async (req, res) => {
     try {
       const { content, prompt, platform, postType } = req.body;
-      
+
       if (!content) {
         return res.status(400).json({ error: "Content is required" });
       }
 
       const enhancedContent = await openaiService.enhanceContent({
         originalContent: content,
-        customPrompt: prompt || "Optimize this post for SEO and engagement while maintaining professional tone for real estate audience in Omaha, Nebraska.",
+        customPrompt:
+          prompt ||
+          "Optimize this post for SEO and engagement while maintaining professional tone for real estate audience in Omaha, Nebraska.",
         platform: platform || "general",
-        postType: postType || "general"
+        postType: postType || "general",
       });
 
       res.json({ enhancedContent });
@@ -323,7 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/content/ai-optimized", async (req, res) => {
     try {
       const { neighborhood, goal, question } = req.body;
-      
+
       // Generate AI-optimized content with specific formatting for AI search engines
       const aiOptimizedContent = {
         title: question ? question : `${goal} in ${neighborhood}`,
@@ -333,102 +387,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
           entityOptimization: true,
           conversationalFormat: true,
           localContext: true,
-          structuredAnswers: true
+          structuredAnswers: true,
         },
         targetQueries: [
           question || `${goal} ${neighborhood}`,
           `best ${goal.toLowerCase()} ${neighborhood}`,
-          `${neighborhood} real estate ${goal.toLowerCase()}`
-        ]
+          `${neighborhood} real estate ${goal.toLowerCase()}`,
+        ],
       };
-      
+
       res.json(aiOptimizedContent);
     } catch (error) {
       console.error("AI optimization error:", error);
-      res.status(500).json({ error: "Failed to generate AI-optimized content" });
+      res
+        .status(500)
+        .json({ error: "Failed to generate AI-optimized content" });
     }
   });
 
   // Platform-specific content regeneration endpoint
   app.post("/api/content/regenerate-for-platform", async (req, res) => {
     try {
-      const { platform, originalContent, contentType, topic, neighborhood, seoOptimized, longTailKeywords } = req.body;
+      const {
+        platform,
+        originalContent,
+        contentType,
+        topic,
+        neighborhood,
+        seoOptimized,
+        longTailKeywords,
+      } = req.body;
 
       if (!platform || !originalContent) {
-        return res.status(400).json({ error: "Platform and original content are required" });
+        return res
+          .status(400)
+          .json({ error: "Platform and original content are required" });
       }
 
       // Generate platform-optimized content using OpenAI
-      const platformOptimizedContent = await openaiService.generatePlatformSpecificContent({
-        platform: platform.toLowerCase(),
-        originalContent,
-        contentType: contentType || "blog", 
-        topic: topic || "real estate",
-        neighborhood: neighborhood || "Omaha",
-        seoOptimized: seoOptimized !== false,
-        longTailKeywords: longTailKeywords !== false,
-      });
+      const platformOptimizedContent =
+        await openaiService.generatePlatformSpecificContent({
+          platform: platform.toLowerCase(),
+          originalContent,
+          contentType: contentType || "blog",
+          topic: topic || "real estate",
+          neighborhood: neighborhood || "Omaha",
+          seoOptimized: seoOptimized !== false,
+          longTailKeywords: longTailKeywords !== false,
+        });
 
       res.json(platformOptimizedContent);
     } catch (error) {
       console.error("Platform content regeneration error:", error);
-      res.status(500).json({ error: "Failed to regenerate content for platform" });
+      res
+        .status(500)
+        .json({ error: "Failed to regenerate content for platform" });
     }
   });
 
   // Social Media OAuth Routes
-  app.post('/api/social/connect/:platform', async (req, res) => {
+  app.post("/api/social/connect/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
-      
+
       // OAuth URLs for each platform - these would need real client IDs in production
       const oauthUrls: Record<string, string> = {
-        facebook: `https://www.facebook.com/v18.0/dialog/oauth?client_id=YOUR_FACEBOOK_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/facebook')}&scope=pages_manage_posts,pages_read_engagement`,
-        instagram: `https://api.instagram.com/oauth/authorize?client_id=YOUR_INSTAGRAM_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/instagram')}&scope=user_profile,user_media&response_type=code`,
-        linkedin: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=YOUR_LINKEDIN_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/linkedin')}&scope=w_member_social`,
-        twitter: `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=YOUR_TWITTER_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/twitter')}&scope=tweet.read%20tweet.write%20users.read`,
+        facebook: `https://www.facebook.com/v18.0/dialog/oauth?client_id=YOUR_FACEBOOK_CLIENT_ID&redirect_uri=${encodeURIComponent(
+          process.env.BASE_URL + "/api/social/callback/facebook"
+        )}&scope=pages_manage_posts,pages_read_engagement`,
+        instagram: `https://api.instagram.com/oauth/authorize?client_id=YOUR_INSTAGRAM_CLIENT_ID&redirect_uri=${encodeURIComponent(
+          process.env.BASE_URL + "/api/social/callback/instagram"
+        )}&scope=user_profile,user_media&response_type=code`,
+        linkedin: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=YOUR_LINKEDIN_CLIENT_ID&redirect_uri=${encodeURIComponent(
+          process.env.BASE_URL + "/api/social/callback/linkedin"
+        )}&scope=w_member_social`,
+        twitter: `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=YOUR_TWITTER_CLIENT_ID&redirect_uri=${encodeURIComponent(
+          process.env.BASE_URL + "/api/social/callback/twitter"
+        )}&scope=tweet.read%20tweet.write%20users.read`,
       };
 
       if (!oauthUrls[platform]) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: `OAuth not configured for ${platform}`,
-          message: "This platform requires OAuth app setup with valid client credentials"
+          message:
+            "This platform requires OAuth app setup with valid client credentials",
         });
       }
 
-      res.json({ 
+      res.json({
         authUrl: oauthUrls[platform],
-        message: "OAuth URL generated - configure client credentials for production use"
+        message:
+          "OAuth URL generated - configure client credentials for production use",
       });
     } catch (error) {
-      console.error('OAuth initiation error:', error);
-      res.status(500).json({ error: 'Failed to initiate OAuth flow' });
+      console.error("OAuth initiation error:", error);
+      res.status(500).json({ error: "Failed to initiate OAuth flow" });
     }
   });
 
-  app.get('/api/social/status/:platform', async (req, res) => {
+  app.get("/api/social/status/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
-      
+
       // For now, return not connected since we don't have real OAuth setup
-      res.json({ 
+      res.json({
         connected: false,
-        message: `OAuth integration for ${platform} requires client credentials to be configured`
+        message: `OAuth integration for ${platform} requires client credentials to be configured`,
       });
     } catch (error) {
-      console.error('Status check error:', error);
-      res.status(500).json({ error: 'Failed to check connection status' });
+      console.error("Status check error:", error);
+      res.status(500).json({ error: "Failed to check connection status" });
     }
   });
 
   // OAuth callback handlers (these would handle the actual OAuth responses)
   // Twitter OAuth callback route (matches user's Twitter app configuration)
-  app.get('/auth/twitter/callback', async (req, res) => {
+  app.get("/auth/twitter/callback", async (req, res) => {
     try {
       const { code, error, oauth_token, oauth_verifier } = req.query;
 
       if (error) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=${error}`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=${error}`
+        );
       }
 
       // For OAuth 1.0a, we get oauth_token and oauth_verifier
@@ -447,7 +530,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             </body>
           </html>
         `);
-      } 
+      }
       // For OAuth 2.0, we get authorization code
       else if (code) {
         res.send(`
@@ -463,25 +546,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
           </html>
         `);
       } else {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=no_auth_data`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=no_auth_data`
+        );
       }
     } catch (error) {
-      console.error('Twitter OAuth callback error:', error);
-      res.status(500).send('Twitter OAuth callback failed');
+      console.error("Twitter OAuth callback error:", error);
+      res.status(500).send("Twitter OAuth callback failed");
     }
   });
 
-  app.get('/api/social/callback/:platform', async (req, res) => {
+  app.get("/api/social/callback/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
       const { code, error } = req.query;
 
       if (error) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=${error}`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=${error}`
+        );
       }
 
       if (!code) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=no_code`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=no_code`
+        );
       }
 
       // Here you would exchange the code for access tokens
@@ -501,8 +596,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         </html>
       `);
     } catch (error) {
-      console.error('OAuth callback error:', error);
-      res.status(500).send('OAuth callback failed');
+      console.error("OAuth callback error:", error);
+      res.status(500).send("OAuth callback failed");
     }
   });
 
@@ -515,7 +610,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const accounts = await storage.getSocialMediaAccounts(user.id);
-      
+
       // Add mock connections if no accounts exist
       if (accounts.length === 0) {
         const platforms = [
@@ -551,7 +646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/social/post", upload.single('photo'), async (req, res) => {
+  app.post("/api/social/post", upload.single("photo"), async (req, res) => {
     try {
       const { platform, content, platforms, scheduledFor } = req.body;
       const photo = req.file;
@@ -569,13 +664,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Get user's social accounts to check if platform is connected
         const socialAccounts = await storage.getSocialMediaAccounts(user.id);
-        const connectedAccount = socialAccounts.find(account => 
-          account.platform.toLowerCase() === platform.toLowerCase()
+        const connectedAccount = socialAccounts.find(
+          (account) => account.platform.toLowerCase() === platform.toLowerCase()
         );
 
-        if (!connectedAccount && socialAccounts.length > 0 && platform.toLowerCase() !== 'youtube') {
-          return res.status(400).json({ 
-            error: `${platform} account not connected. Please connect your account first.` 
+        if (
+          !connectedAccount &&
+          socialAccounts.length > 0 &&
+          platform.toLowerCase() !== "youtube"
+        ) {
+          return res.status(400).json({
+            error: `${platform} account not connected. Please connect your account first.`,
           });
         }
 
@@ -588,30 +687,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Actually post to the platform
         let postResult;
         try {
-          if (platform.toLowerCase() === 'facebook') {
-            return res.status(400).json({ 
-              error: 'Direct Facebook profile posting is not supported. Please use the Facebook Pages feature instead.' 
+          if (platform.toLowerCase() === "facebook") {
+            return res.status(400).json({
+              error:
+                "Direct Facebook profile posting is not supported. Please use the Facebook Pages feature instead.",
             });
-          } else if (platform.toLowerCase() === 'instagram') {
-            postResult = await socialMediaService.postToInstagram(content, photoUrl || '', connectedAccount?.accessToken || '');
-          } else if (platform.toLowerCase() === 'linkedin') {
-            postResult = await socialMediaService.postToLinkedIn(content, connectedAccount?.accessToken || '');
-          } else if (platform.toLowerCase() === 'x') {
-            postResult = await socialMediaService.postToX(content, connectedAccount?.accessToken || '');
-          } else if (platform.toLowerCase() === 'youtube') {
+          } else if (platform.toLowerCase() === "instagram") {
+            postResult = await socialMediaService.postToInstagram(
+              content,
+              photoUrl || "",
+              connectedAccount?.accessToken || ""
+            );
+          } else if (platform.toLowerCase() === "linkedin") {
+            postResult = await socialMediaService.postToLinkedIn(
+              content,
+              connectedAccount?.accessToken || ""
+            );
+          } else if (platform.toLowerCase() === "x") {
+            postResult = await socialMediaService.postToX(
+              content,
+              connectedAccount?.accessToken || ""
+            );
+          } else if (platform.toLowerCase() === "youtube") {
             // For YouTube, we need title and description
-            const title = req.body.title || content.substring(0, 100) + '...';
+            const title = req.body.title || content.substring(0, 100) + "...";
             const description = req.body.description || content;
             // Use mock token if no connected account
-            const youtubeToken = connectedAccount?.accessToken || 'mock_youtube_token';
-            postResult = await socialMediaService.postToYoutube(title, description, photoUrl || undefined, youtubeToken);
+            const youtubeToken =
+              connectedAccount?.accessToken || "mock_youtube_token";
+            postResult = await socialMediaService.postToYoutube(
+              title,
+              description,
+              photoUrl || undefined,
+              youtubeToken
+            );
           } else {
             throw new Error(`Unsupported platform: ${platform}`);
           }
         } catch (postError) {
           console.error(`Failed to post to ${platform}:`, postError);
-          return res.status(500).json({ 
-            error: `Failed to post to ${platform}: ${postError instanceof Error ? postError.message : 'Unknown error'}` 
+          return res.status(500).json({
+            error: `Failed to post to ${platform}: ${
+              postError instanceof Error ? postError.message : "Unknown error"
+            }`,
           });
         }
 
@@ -640,12 +758,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         // Multi-platform posting (existing functionality)
         console.log("Posting to platforms:", platforms, "Content:", content);
-        
-        res.json({ 
-          success: true, 
+
+        res.json({
+          success: true,
           postId: `post_${Date.now()}`,
           platforms,
-          scheduledFor 
+          scheduledFor,
         });
       }
     } catch (error) {
@@ -665,7 +783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/facebook/post", upload.single('photo'), async (req, res) => {
+  app.post("/api/facebook/post", upload.single("photo"), async (req, res) => {
     try {
       const { content, pageId } = req.body;
       const photo = req.file;
@@ -682,24 +800,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let postResult;
       if (pageId) {
         // Post to specific Facebook page
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        postResult = await socialMediaService.postToFacebookPage(pageId, content, photoUrl || undefined, undefined, baseUrl);
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        postResult = await socialMediaService.postToFacebookPage(
+          pageId,
+          content,
+          photoUrl || undefined,
+          undefined,
+          baseUrl
+        );
       } else {
-        return res.status(400).json({ 
-          error: 'Page ID is required for Facebook posting. Direct profile posting is not supported.' 
+        return res.status(400).json({
+          error:
+            "Page ID is required for Facebook posting. Direct profile posting is not supported.",
         });
       }
 
       res.json({
         success: true,
-        message: pageId ? "Content posted successfully to Facebook page" : "Content posted successfully to Facebook",
+        message: pageId
+          ? "Content posted successfully to Facebook page"
+          : "Content posted successfully to Facebook",
         postId: postResult.postId,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
       console.error("Facebook post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to Facebook: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to Facebook: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
@@ -711,11 +840,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const recentPosts = [
         {
           id: "749034191633605_122094900393043164",
-          content: "🏠 Winter 2025 Omaha Real Estate Market Update! ❄️\n\nThe Omaha market is showing remarkable resilience this winter season!",
+          content:
+            "🏠 Winter 2025 Omaha Real Estate Market Update! ❄️\n\nThe Omaha market is showing remarkable resilience this winter season!",
           pageId: "749034191633605",
           timestamp: new Date().toISOString(),
-          platform: "facebook"
-        }
+          platform: "facebook",
+        },
       ];
       res.json(recentPosts);
     } catch (error) {
@@ -726,11 +856,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/facebook/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('facebook');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("facebook");
+      res.json({
         valid: isValid,
-        platform: 'facebook',
-        message: isValid ? 'Facebook connection is valid' : 'Facebook connection failed'
+        platform: "facebook",
+        message: isValid
+          ? "Facebook connection is valid"
+          : "Facebook connection failed",
       });
     } catch (error) {
       console.error("Facebook validation error:", error);
@@ -739,7 +871,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Instagram endpoints
-  app.post("/api/instagram/post", upload.single('photo'), async (req, res) => {
+  app.post("/api/instagram/post", upload.single("photo"), async (req, res) => {
     try {
       const { content, userId } = req.body;
       const photo = req.file;
@@ -754,12 +886,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Build absolute URL for image if provided
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
       const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
 
       const postResult = await socialMediaService.postToInstagram(
-        content, 
-        fullPhotoUrl, 
+        content,
+        fullPhotoUrl,
         undefined, // accessToken will be read from env
         userId // Instagram User ID
       );
@@ -772,28 +904,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Instagram post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to Instagram: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to Instagram: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   app.get("/api/instagram/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('instagram');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("instagram");
+      res.json({
         valid: isValid,
-        platform: 'instagram',
-        message: isValid ? 'Instagram connection is valid' : 'Instagram connection failed'
+        platform: "instagram",
+        message: isValid
+          ? "Instagram connection is valid"
+          : "Instagram connection failed",
       });
     } catch (error) {
       console.error("Instagram validation error:", error);
-      res.status(500).json({ error: "Failed to validate Instagram connection" });
+      res
+        .status(500)
+        .json({ error: "Failed to validate Instagram connection" });
     }
   });
 
   // Twitter endpoints
-  app.post("/api/twitter/post", upload.single('photo'), async (req, res) => {
+  app.post("/api/twitter/post", upload.single("photo"), async (req, res) => {
     try {
       const { content } = req.body;
       const photo = req.file;
@@ -808,11 +946,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Build absolute URL for image if provided
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
       const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
 
       const postResult = await socialMediaService.postToTwitter(
-        content, 
+        content,
         fullPhotoUrl
       );
 
@@ -824,19 +962,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Twitter post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to Twitter: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to Twitter: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   app.get("/api/twitter/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('twitter');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("twitter");
+      res.json({
         valid: isValid,
-        platform: 'twitter',
-        message: isValid ? 'Twitter connection is valid' : 'Twitter connection failed'
+        platform: "twitter",
+        message: isValid
+          ? "Twitter connection is valid"
+          : "Twitter connection failed",
       });
     } catch (error) {
       console.error("Twitter validation error:", error);
@@ -847,7 +989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/twitter/post/:tweetId", async (req, res) => {
     try {
       const { tweetId } = req.params;
-      
+
       if (!tweetId) {
         return res.status(400).json({ error: "Tweet ID is required" });
       }
@@ -862,14 +1004,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Twitter delete error:", error);
-      res.status(500).json({ 
-        error: `Failed to delete Twitter post: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to delete Twitter post: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   // YouTube endpoints
-  app.post("/api/youtube/post", upload.single('video'), async (req, res) => {
+  app.post("/api/youtube/post", upload.single("video"), async (req, res) => {
     try {
       const { title, description, content, accessToken } = req.body;
       const video = req.file;
@@ -879,7 +1023,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!accessToken) {
-        return res.status(400).json({ error: "YouTube access token is required" });
+        return res
+          .status(400)
+          .json({ error: "YouTube access token is required" });
       }
 
       let videoUrl = null;
@@ -887,16 +1033,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         videoUrl = `/uploads/${path.basename(video.path)}`;
       }
 
-      const finalTitle = title || content?.substring(0, 100) + '...';
-      const finalDescription = description || content || '';
+      const finalTitle = title || content?.substring(0, 100) + "...";
+      const finalDescription = description || content || "";
 
       // Build absolute URL for video if provided
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
       const fullVideoUrl = videoUrl ? baseUrl + videoUrl : undefined;
 
       const postResult = await socialMediaService.postToYoutube(
         finalTitle,
-        finalDescription, 
+        finalDescription,
         fullVideoUrl,
         accessToken
       );
@@ -909,82 +1055,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("YouTube post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to YouTube: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to YouTube: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   // Dedicated YouTube video upload endpoint
-  app.post("/api/youtube/upload-video", videoUpload.single('video'), async (req, res) => {
-    try {
-      const { title, description, accessToken } = req.body;
-      const videoFile = req.file;
+  app.post(
+    "/api/youtube/upload-video",
+    videoUpload.single("video"),
+    async (req, res) => {
+      try {
+        const { title, description, accessToken } = req.body;
+        const videoFile = req.file;
 
-      if (!videoFile) {
-        return res.status(400).json({ error: "Video file is required" });
-      }
-
-      if (!title) {
-        return res.status(400).json({ error: "Video title is required" });
-      }
-
-      if (!accessToken) {
-        return res.status(400).json({ error: "YouTube access token is required" });
-      }
-
-      // Build absolute URL for the uploaded video
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      const videoUrl = `${baseUrl}/uploads/videos/${path.basename(videoFile.path)}`;
-
-      console.log('Processing YouTube video upload:', {
-        title,
-        description,
-        videoPath: videoFile.path,
-        videoUrl,
-        fileSize: videoFile.size,
-        mimetype: videoFile.mimetype
-      });
-
-      const uploadResult = await socialMediaService.postToYoutube(
-        title,
-        description || title,
-        videoUrl,
-        accessToken
-      );
-
-      res.json({
-        success: true,
-        message: "Video uploaded successfully to YouTube",
-        videoId: uploadResult.postId,
-        videoUrl: videoUrl,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("YouTube video upload error:", error);
-      
-      // Clean up uploaded file on error
-      if (req.file && req.file.path) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (cleanupError) {
-          console.error("Failed to cleanup uploaded file:", cleanupError);
+        if (!videoFile) {
+          return res.status(400).json({ error: "Video file is required" });
         }
+
+        if (!title) {
+          return res.status(400).json({ error: "Video title is required" });
+        }
+
+        if (!accessToken) {
+          return res
+            .status(400)
+            .json({ error: "YouTube access token is required" });
+        }
+
+        // Build absolute URL for the uploaded video
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        const videoUrl = `${baseUrl}/uploads/videos/${path.basename(
+          videoFile.path
+        )}`;
+
+        console.log("Processing YouTube video upload:", {
+          title,
+          description,
+          videoPath: videoFile.path,
+          videoUrl,
+          fileSize: videoFile.size,
+          mimetype: videoFile.mimetype,
+        });
+
+        const uploadResult = await socialMediaService.postToYoutube(
+          title,
+          description || title,
+          videoUrl,
+          accessToken
+        );
+
+        res.json({
+          success: true,
+          message: "Video uploaded successfully to YouTube",
+          videoId: uploadResult.postId,
+          videoUrl: videoUrl,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("YouTube video upload error:", error);
+
+        // Clean up uploaded file on error
+        if (req.file && req.file.path) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (cleanupError) {
+            console.error("Failed to cleanup uploaded file:", cleanupError);
+          }
+        }
+
+        res.status(500).json({
+          error: `Failed to upload video to YouTube: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        });
       }
-      
-      res.status(500).json({ 
-        error: `Failed to upload video to YouTube: ${error instanceof Error ? error.message : 'Unknown error'}` 
-      });
     }
-  });
+  );
 
   app.get("/api/youtube/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('youtube');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("youtube");
+      res.json({
         valid: isValid,
-        platform: 'youtube',
-        message: isValid ? 'YouTube connection is valid' : 'YouTube connection failed'
+        platform: "youtube",
+        message: isValid
+          ? "YouTube connection is valid"
+          : "YouTube connection failed",
       });
     } catch (error) {
       console.error("YouTube validation error:", error);
@@ -993,21 +1153,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // YouTube OAuth endpoints
-  app.get('/auth/youtube', async (req, res) => {
+  app.get("/auth/youtube", async (req, res) => {
     try {
       const clientId = process.env.YOUTUBE_CLIENT_ID;
       if (!clientId) {
-        return res.status(500).json({ error: 'YouTube client ID not configured' });
+        return res
+          .status(500)
+          .json({ error: "YouTube client ID not configured" });
       }
 
       const scopes = [
-        'https://www.googleapis.com/auth/youtube',
-        'https://www.googleapis.com/auth/youtube.upload'
-      ].join(' ');
-      
-      const redirectUri = `${req.protocol}://${req.get('host')}/auth/youtube/callback`;
-      
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.upload",
+      ].join(" ");
+
+      const redirectUri = `${req.protocol}://${req.get(
+        "host"
+      )}/auth/youtube/callback`;
+
+      const authUrl =
+        `https://accounts.google.com/o/oauth2/v2/auth?` +
         `client_id=${clientId}&` +
         `redirect_uri=${encodeURIComponent(redirectUri)}&` +
         `scope=${encodeURIComponent(scopes)}&` +
@@ -1017,58 +1182,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.redirect(authUrl);
     } catch (error) {
-      console.error('YouTube OAuth initiation error:', error);
-      res.status(500).json({ error: 'Failed to initiate YouTube authentication' });
+      console.error("YouTube OAuth initiation error:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to initiate YouTube authentication" });
     }
   });
 
-  app.get('/auth/youtube/callback', async (req, res) => {
+  app.get("/auth/youtube/callback", async (req, res) => {
     try {
       const { code, error } = req.query;
 
       if (error) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=${error}`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=${error}`
+        );
       }
 
       if (code) {
         // Exchange code for access token
         const clientId = process.env.YOUTUBE_CLIENT_ID;
         const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
-        const redirectUri = `${req.protocol}://${req.get('host')}/auth/youtube/callback`;
+        const redirectUri = `${req.protocol}://${req.get(
+          "host"
+        )}/auth/youtube/callback`;
 
-        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            client_id: clientId || '',
-            client_secret: clientSecret || '',
-            code: code as string,
-            grant_type: 'authorization_code',
-            redirect_uri: redirectUri
-          })
-        });
+        const tokenResponse = await fetch(
+          "https://oauth2.googleapis.com/token",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              client_id: clientId || "",
+              client_secret: clientSecret || "",
+              code: code as string,
+              grant_type: "authorization_code",
+              redirect_uri: redirectUri,
+            }),
+          }
+        );
 
         if (tokenResponse.ok) {
           const tokens = await tokenResponse.json();
-          
+
           // Update the user's YouTube account with the new tokens
           const user = await storage.getUserByUsername("mikebjork");
           if (user) {
-            const socialAccounts = await storage.getSocialMediaAccounts(user.id);
-            const youtubeAccount = socialAccounts.find(account => account.platform === 'youtube');
-            
+            const socialAccounts = await storage.getSocialMediaAccounts(
+              user.id
+            );
+            const youtubeAccount = socialAccounts.find(
+              (account) => account.platform === "youtube"
+            );
+
             if (youtubeAccount) {
               await storage.updateSocialMediaAccount(youtubeAccount.id, {
                 accessToken: tokens.access_token,
                 refreshToken: tokens.refresh_token,
                 isConnected: true,
-                lastSync: new Date().toISOString()
+                lastSync: new Date().toISOString(),
               });
             }
           }
-          
+
           res.send(`
             <html>
               <body>
@@ -1082,14 +1262,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             </html>
           `);
         } else {
-          throw new Error('Failed to exchange code for tokens');
+          throw new Error("Failed to exchange code for tokens");
         }
       } else {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=no_auth_code`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=no_auth_code`
+        );
       }
     } catch (error) {
-      console.error('YouTube OAuth callback error:', error);
-      res.status(500).send('YouTube OAuth callback failed');
+      console.error("YouTube OAuth callback error:", error);
+      res.status(500).send("YouTube OAuth callback failed");
     }
   });
 
@@ -1112,7 +1296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/seo/analyze", async (req, res) => {
     try {
       const { content, keywords } = req.body;
-      
+
       const analysis = await seoService.analyzeContent(content, keywords);
       res.json(analysis);
     } catch (error) {
@@ -1124,13 +1308,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/ai/schedule-content", async (req, res) => {
     try {
       const { keywords, marketData, timeframe, focus } = req.body;
-      
+
       // Create AI prompt for intelligent content scheduling
       const prompt = `You are an expert real estate marketing strategist and SEO specialist. Based on the following data, create an optimal 30-day content calendar for Mike Bjork's real estate business in Omaha, Nebraska.
 
-SEO Keywords to target: ${keywords.map((k: any) => `${k.keyword} (rank: ${k.currentRank}, volume: ${k.searchVolume})`).join(', ')}
+SEO Keywords to target: ${keywords
+        .map(
+          (k: any) =>
+            `${k.keyword} (rank: ${k.currentRank}, volume: ${k.searchVolume})`
+        )
+        .join(", ")}
 
-Market Data: ${marketData.map((m: any) => `${m.neighborhood}: $${m.averagePrice} avg price, ${m.daysOnMarket} days on market`).join('; ')}
+Market Data: ${marketData
+        .map(
+          (m: any) =>
+            `${m.neighborhood}: $${m.averagePrice} avg price, ${m.daysOnMarket} days on market`
+        )
+        .join("; ")}
 
 Requirements:
 1. Schedule content for maximum SEO impact and social media engagement
@@ -1163,158 +1357,172 @@ Return ONLY a JSON object with this structure:
 
 Focus on: ${focus} content that drives leads and showcases local market expertise.`;
 
-      const { multiOpenAI } = await import('./services/openai');
-      const response = await multiOpenAI.makeRequest('content', async (client) => {
-        return await client.chat.completions.create({
-          model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert real estate marketing AI that creates optimized content schedules based on SEO data and market analytics. Always respond with valid JSON only."
-            },
-            {
-              role: "user", 
-              content: prompt
-            }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7,
-        });
-      });
+      const { multiOpenAI } = await import("./services/openai");
+      const response = await multiOpenAI.makeRequest(
+        "content",
+        async (client) => {
+          return await client.chat.completions.create({
+            model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are an expert real estate marketing AI that creates optimized content schedules based on SEO data and market analytics. Always respond with valid JSON only.",
+              },
+              {
+                role: "user",
+                content: prompt,
+              },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.7,
+          });
+        }
+      );
 
       const aiSchedule = JSON.parse(response.choices[0].message.content);
-      
+
       // Store the generated schedule (in a real app, you'd save to database)
       // For now, we'll just return it
-      
+
       res.json(aiSchedule);
     } catch (error) {
       console.error("AI content scheduling error:", error);
-      
+
       // If OpenAI quota is exceeded, provide a fallback schedule
-      if (error.code === 'insufficient_quota' || error.status === 429) {
-        console.log("🔄 OpenAI quota exceeded, using fallback content schedule...");
-        
+      if (error.code === "insufficient_quota" || error.status === 429) {
+        console.log(
+          "🔄 OpenAI quota exceeded, using fallback content schedule..."
+        );
+
         const fallbackSchedule = {
-          "contentCount": 8,
-          "schedule": [
+          contentCount: 8,
+          schedule: [
             {
-              "id": "fb-omaha-market-1",
-              "title": "Omaha Market Update - January 2025",
-              "content": "🏠 OMAHA MARKET SPOTLIGHT 🏠\n\nThe Omaha real estate market is showing strong momentum this January! Here's what homeowners and buyers need to know:\n\n📈 Market Highlights:\n• Average home price: $285,000 (+3.2% from last year)\n• Days on market: 28 days (excellent for sellers!)\n• Inventory levels: Balanced market conditions\n\n🎯 Prime Neighborhoods to Watch:\n• Benson: Trendy area with great walkability\n• Dundee: Historic charm meets modern amenities\n• West Omaha: Family-friendly with top schools\n\nThinking of buying or selling? Let's discuss your goals! 💬\n\n#OmahaRealEstate #NebraskaHomes #BjorkGroup #RealEstateExpert #OmahaLife",
-              "platform": "Facebook",
-              "type": "Social",
-              "date": "2025-01-02",
-              "time": "8:00 AM",
-              "targetKeyword": "Omaha real estate market",
-              "seoScore": 85,
-              "expectedImpact": "high",
-              "color": "bg-blue-100"
+              id: "fb-omaha-market-1",
+              title: "Omaha Market Update - January 2025",
+              content:
+                "🏠 OMAHA MARKET SPOTLIGHT 🏠\n\nThe Omaha real estate market is showing strong momentum this January! Here's what homeowners and buyers need to know:\n\n📈 Market Highlights:\n• Average home price: $285,000 (+3.2% from last year)\n• Days on market: 28 days (excellent for sellers!)\n• Inventory levels: Balanced market conditions\n\n🎯 Prime Neighborhoods to Watch:\n• Benson: Trendy area with great walkability\n• Dundee: Historic charm meets modern amenities\n• West Omaha: Family-friendly with top schools\n\nThinking of buying or selling? Let's discuss your goals! 💬\n\n#OmahaRealEstate #NebraskaHomes #BjorkGroup #RealEstateExpert #OmahaLife",
+              platform: "Facebook",
+              type: "Social",
+              date: "2025-01-02",
+              time: "8:00 AM",
+              targetKeyword: "Omaha real estate market",
+              seoScore: 85,
+              expectedImpact: "high",
+              color: "bg-blue-100",
             },
             {
-              "id": "ig-buyer-tips-1", 
-              "title": "First-Time Buyer Tips",
-              "content": "🔑 FIRST-TIME BUYER SUCCESS TIPS! 🔑\n\nMaking homeownership dreams come true in Omaha! Here's my insider advice:\n\n✅ Get Pre-Approved First\n• Know your budget before house hunting\n• Shows sellers you're serious\n• Speeds up the buying process\n\n✅ Research Neighborhoods\n• Visit at different times of day\n• Check school ratings and commute times\n• Consider future resale value\n\n✅ Don't Skip the Inspection\n• Protect your investment\n• Negotiate repairs or price adjustments\n• Peace of mind is priceless\n\n🏡 Ready to start your journey? DM me for a free buyer consultation!\n\n#FirstTimeBuyer #OmahaHomes #RealEstateTips #BjorkGroup #NebraskaRealEstate",
-              "platform": "Instagram",
-              "type": "Social", 
-              "date": "2025-01-05",
-              "time": "12:30 PM",
-              "targetKeyword": "first time home buyer Omaha",
-              "seoScore": 78,
-              "expectedImpact": "medium",
-              "color": "bg-green-100"
+              id: "ig-buyer-tips-1",
+              title: "First-Time Buyer Tips",
+              content:
+                "🔑 FIRST-TIME BUYER SUCCESS TIPS! 🔑\n\nMaking homeownership dreams come true in Omaha! Here's my insider advice:\n\n✅ Get Pre-Approved First\n• Know your budget before house hunting\n• Shows sellers you're serious\n• Speeds up the buying process\n\n✅ Research Neighborhoods\n• Visit at different times of day\n• Check school ratings and commute times\n• Consider future resale value\n\n✅ Don't Skip the Inspection\n• Protect your investment\n• Negotiate repairs or price adjustments\n• Peace of mind is priceless\n\n🏡 Ready to start your journey? DM me for a free buyer consultation!\n\n#FirstTimeBuyer #OmahaHomes #RealEstateTips #BjorkGroup #NebraskaRealEstate",
+              platform: "Instagram",
+              type: "Social",
+              date: "2025-01-05",
+              time: "12:30 PM",
+              targetKeyword: "first time home buyer Omaha",
+              seoScore: 78,
+              expectedImpact: "medium",
+              color: "bg-green-100",
             },
             {
-              "id": "li-investment-1",
-              "title": "Investment Property Opportunities",
-              "content": "💰 INVESTMENT OPPORTUNITY ALERT 💰\n\nOmaha's rental market is thriving! Here's why smart investors are choosing Nebraska:\n\n📊 Key Investment Metrics:\n• Average rental yield: 8-12%\n• Strong job market driving demand\n• Affordable entry points compared to coastal markets\n• Growing tech and healthcare sectors\n\n🎯 Hot Investment Areas:\n• Near downtown redevelopment zones\n• University of Nebraska proximity\n• Emerging neighborhoods with infrastructure improvements\n\n🔍 What to Look For:\n• Properties under $200K with good bones\n• Multi-family opportunities\n• Areas with planned developments\n\nLet's discuss your investment strategy over coffee! ☕\n\n#RealEstateInvestment #OmahaInvestment #PropertyInvesting #BjorkGroup #WealthBuilding",
-              "platform": "LinkedIn",
-              "type": "Blog",
-              "date": "2025-01-08", 
-              "time": "9:00 AM",
-              "targetKeyword": "Omaha investment properties",
-              "seoScore": 82,
-              "expectedImpact": "high",
-              "color": "bg-purple-100"
+              id: "li-investment-1",
+              title: "Investment Property Opportunities",
+              content:
+                "💰 INVESTMENT OPPORTUNITY ALERT 💰\n\nOmaha's rental market is thriving! Here's why smart investors are choosing Nebraska:\n\n📊 Key Investment Metrics:\n• Average rental yield: 8-12%\n• Strong job market driving demand\n• Affordable entry points compared to coastal markets\n• Growing tech and healthcare sectors\n\n🎯 Hot Investment Areas:\n• Near downtown redevelopment zones\n• University of Nebraska proximity\n• Emerging neighborhoods with infrastructure improvements\n\n🔍 What to Look For:\n• Properties under $200K with good bones\n• Multi-family opportunities\n• Areas with planned developments\n\nLet's discuss your investment strategy over coffee! ☕\n\n#RealEstateInvestment #OmahaInvestment #PropertyInvesting #BjorkGroup #WealthBuilding",
+              platform: "LinkedIn",
+              type: "Blog",
+              date: "2025-01-08",
+              time: "9:00 AM",
+              targetKeyword: "Omaha investment properties",
+              seoScore: 82,
+              expectedImpact: "high",
+              color: "bg-purple-100",
             },
             {
-              "id": "fb-neighborhood-spotlight-1",
-              "title": "Neighborhood Spotlight: Benson",
-              "content": "🏘️ NEIGHBORHOOD SPOTLIGHT: BENSON 🏘️\n\nDiscover why Benson is becoming Omaha's hottest neighborhood!\n\n✨ What Makes Benson Special:\n• Walkable community with local character\n• Thriving arts scene and unique boutiques\n• Historic homes with modern renovations\n• Easy access to downtown (10 minutes!)\n\n🏠 Market Snapshot:\n• Average home price: $165,000\n• Typical days on market: 25 days\n• Mix of starter homes and investment properties\n\n🎨 Local Favorites:\n• Benson First Friday art walks\n• Local coffee shops and restaurants\n• Beautiful Benson Park\n\nCurious about Benson properties? Let's schedule a neighborhood tour!\n\n#BensonNebraska #OmahaNeighborhoods #BjorkGroup #CommunitySpotlight #OmahaLife",
-              "platform": "Facebook",
-              "type": "Social",
-              "date": "2025-01-12",
-              "time": "6:00 PM", 
-              "targetKeyword": "Benson Omaha real estate",
-              "seoScore": 80,
-              "expectedImpact": "medium",
-              "color": "bg-yellow-100"
+              id: "fb-neighborhood-spotlight-1",
+              title: "Neighborhood Spotlight: Benson",
+              content:
+                "🏘️ NEIGHBORHOOD SPOTLIGHT: BENSON 🏘️\n\nDiscover why Benson is becoming Omaha's hottest neighborhood!\n\n✨ What Makes Benson Special:\n• Walkable community with local character\n• Thriving arts scene and unique boutiques\n• Historic homes with modern renovations\n• Easy access to downtown (10 minutes!)\n\n🏠 Market Snapshot:\n• Average home price: $165,000\n• Typical days on market: 25 days\n• Mix of starter homes and investment properties\n\n🎨 Local Favorites:\n• Benson First Friday art walks\n• Local coffee shops and restaurants\n• Beautiful Benson Park\n\nCurious about Benson properties? Let's schedule a neighborhood tour!\n\n#BensonNebraska #OmahaNeighborhoods #BjorkGroup #CommunitySpotlight #OmahaLife",
+              platform: "Facebook",
+              type: "Social",
+              date: "2025-01-12",
+              time: "6:00 PM",
+              targetKeyword: "Benson Omaha real estate",
+              seoScore: 80,
+              expectedImpact: "medium",
+              color: "bg-yellow-100",
             },
             {
-              "id": "ig-selling-tips-1",
-              "title": "Home Selling Preparation",
-              "content": "✨ PREPPING YOUR HOME TO SELL? ✨\n\nMaximize your home's value with these proven strategies!\n\n🎯 Top 5 Staging Tips:\n1️⃣ Declutter & Depersonalize\n• Let buyers envision their life here\n• Remove family photos and personal items\n\n2️⃣ Deep Clean Everything  \n• First impressions matter!\n• Consider professional cleaning\n\n3️⃣ Fresh Paint = Fresh Appeal\n• Neutral colors attract more buyers\n• Focus on high-traffic areas\n\n4️⃣ Enhance Curb Appeal\n• Trim landscaping, add flowers\n• Clean windows and front door\n\n5️⃣ Price Strategically\n• Market analysis is crucial\n• Price to sell, not to sit\n\n💡 Ready to list? I'll create a custom marketing plan for your home!\n\n#HomeSelling #RealEstateTips #OmahaRealEstate #BjorkGroup #HomeStaging",
-              "platform": "Instagram", 
-              "type": "Social",
-              "date": "2025-01-15",
-              "time": "11:00 AM",
-              "targetKeyword": "sell house Omaha", 
-              "seoScore": 76,
-              "expectedImpact": "medium",
-              "color": "bg-red-100"
+              id: "ig-selling-tips-1",
+              title: "Home Selling Preparation",
+              content:
+                "✨ PREPPING YOUR HOME TO SELL? ✨\n\nMaximize your home's value with these proven strategies!\n\n🎯 Top 5 Staging Tips:\n1️⃣ Declutter & Depersonalize\n• Let buyers envision their life here\n• Remove family photos and personal items\n\n2️⃣ Deep Clean Everything  \n• First impressions matter!\n• Consider professional cleaning\n\n3️⃣ Fresh Paint = Fresh Appeal\n• Neutral colors attract more buyers\n• Focus on high-traffic areas\n\n4️⃣ Enhance Curb Appeal\n• Trim landscaping, add flowers\n• Clean windows and front door\n\n5️⃣ Price Strategically\n• Market analysis is crucial\n• Price to sell, not to sit\n\n💡 Ready to list? I'll create a custom marketing plan for your home!\n\n#HomeSelling #RealEstateTips #OmahaRealEstate #BjorkGroup #HomeStaging",
+              platform: "Instagram",
+              type: "Social",
+              date: "2025-01-15",
+              time: "11:00 AM",
+              targetKeyword: "sell house Omaha",
+              seoScore: 76,
+              expectedImpact: "medium",
+              color: "bg-red-100",
             },
             {
-              "id": "yt-market-analysis-1",
-              "title": "Q1 2025 Market Forecast",
-              "content": "🔮 Q1 2025 OMAHA REAL ESTATE FORECAST 🔮\n\nWhat to expect in the coming months:\n\n📈 Predictions for Q1:\n• Continued buyer demand with spring market approaching\n• Interest rates stabilizing around current levels\n• New construction picking up pace\n• Competitive market for well-priced homes\n\n🏡 Best Opportunities:\n• First-time buyers: Take advantage of programs\n• Sellers: List early to beat spring rush\n• Investors: Focus on emerging neighborhoods\n\n💼 Economic Factors:\n• Strong local job market\n• Population growth from relocations\n• Infrastructure investments boosting values\n\nWatch my full market analysis video (link in bio) for detailed insights!\n\n#MarketForecast #OmahaRealEstate #RealEstateExpert #Q12025 #BjorkGroup #MarketAnalysis",
-              "platform": "YouTube",
-              "type": "Video",
-              "date": "2025-01-18",
-              "time": "10:00 AM",
-              "targetKeyword": "Omaha real estate forecast 2025",
-              "seoScore": 88,
-              "expectedImpact": "high", 
-              "color": "bg-indigo-100"
+              id: "yt-market-analysis-1",
+              title: "Q1 2025 Market Forecast",
+              content:
+                "🔮 Q1 2025 OMAHA REAL ESTATE FORECAST 🔮\n\nWhat to expect in the coming months:\n\n📈 Predictions for Q1:\n• Continued buyer demand with spring market approaching\n• Interest rates stabilizing around current levels\n• New construction picking up pace\n• Competitive market for well-priced homes\n\n🏡 Best Opportunities:\n• First-time buyers: Take advantage of programs\n• Sellers: List early to beat spring rush\n• Investors: Focus on emerging neighborhoods\n\n💼 Economic Factors:\n• Strong local job market\n• Population growth from relocations\n• Infrastructure investments boosting values\n\nWatch my full market analysis video (link in bio) for detailed insights!\n\n#MarketForecast #OmahaRealEstate #RealEstateExpert #Q12025 #BjorkGroup #MarketAnalysis",
+              platform: "YouTube",
+              type: "Video",
+              date: "2025-01-18",
+              time: "10:00 AM",
+              targetKeyword: "Omaha real estate forecast 2025",
+              seoScore: 88,
+              expectedImpact: "high",
+              color: "bg-indigo-100",
             },
             {
-              "id": "fb-client-success-1",
-              "title": "Client Success Story",
-              "content": "🎉 ANOTHER SUCCESSFUL CLOSING! 🎉\n\nCongratulations to the Johnson family on their beautiful new home in West Omaha!\n\n📖 Their Story:\n• First-time buyers from out of state\n• Needed guidance on neighborhoods and schools\n• Wanted move-in ready with modern updates\n• Closed in just 21 days!\n\n💬 What they said: \"Mike made relocating to Omaha stress-free. His local knowledge and attention to detail were exactly what we needed!\"\n\n🏠 The Property:\n• 4BR/3BA contemporary home\n• Top-rated Millard schools\n• Open floor plan with upgraded kitchen\n• Private backyard perfect for their kids\n\nEvery family's needs are unique. Let's find your perfect fit!\n\n#ClientSuccess #WestOmaha #NewHomeowners #BjorkGroup #RealEstateSuccess #MillardSchools",
-              "platform": "Facebook",
-              "type": "Social",
-              "date": "2025-01-22",
-              "time": "2:00 PM",
-              "targetKeyword": "West Omaha real estate agent",
-              "seoScore": 84,
-              "expectedImpact": "high",
-              "color": "bg-emerald-100"
+              id: "fb-client-success-1",
+              title: "Client Success Story",
+              content:
+                "🎉 ANOTHER SUCCESSFUL CLOSING! 🎉\n\nCongratulations to the Johnson family on their beautiful new home in West Omaha!\n\n📖 Their Story:\n• First-time buyers from out of state\n• Needed guidance on neighborhoods and schools\n• Wanted move-in ready with modern updates\n• Closed in just 21 days!\n\n💬 What they said: \"Mike made relocating to Omaha stress-free. His local knowledge and attention to detail were exactly what we needed!\"\n\n🏠 The Property:\n• 4BR/3BA contemporary home\n• Top-rated Millard schools\n• Open floor plan with upgraded kitchen\n• Private backyard perfect for their kids\n\nEvery family's needs are unique. Let's find your perfect fit!\n\n#ClientSuccess #WestOmaha #NewHomeowners #BjorkGroup #RealEstateSuccess #MillardSchools",
+              platform: "Facebook",
+              type: "Social",
+              date: "2025-01-22",
+              time: "2:00 PM",
+              targetKeyword: "West Omaha real estate agent",
+              seoScore: 84,
+              expectedImpact: "high",
+              color: "bg-emerald-100",
             },
             {
-              "id": "li-market-trends-1", 
-              "title": "Technology Impact on Real Estate",
-              "content": "🚀 HOW TECHNOLOGY IS RESHAPING OMAHA REAL ESTATE 🚀\n\nThe digital transformation is changing how we buy and sell homes:\n\n💻 Virtual Tours & 3D Walkthroughs\n• 87% of buyers start their search online\n• Virtual staging reduces time on market\n• Remote buyers can tour from anywhere\n\n📱 AI-Powered Market Analysis\n• Predictive pricing models\n• Automated valuation tools\n• Real-time market insights\n\n🔍 Enhanced Property Research\n• Neighborhood analytics\n• School ratings and crime data\n• Walkability and amenity scores\n\n📈 The Result: Faster, smarter transactions for buyers and sellers.\n\nStaying ahead of technology trends helps my clients make informed decisions. What tech features matter most to you?\n\n#PropTech #RealEstateInnovation #DigitalMarketing #OmahaRealEstate #BjorkGroup #FutureOfRealEstate",
-              "platform": "LinkedIn",
-              "type": "Blog", 
-              "date": "2025-01-25",
-              "time": "8:30 AM",
-              "targetKeyword": "real estate technology Omaha",
-              "seoScore": 79,
-              "expectedImpact": "medium",
-              "color": "bg-cyan-100"
-            }
-          ]
+              id: "li-market-trends-1",
+              title: "Technology Impact on Real Estate",
+              content:
+                "🚀 HOW TECHNOLOGY IS RESHAPING OMAHA REAL ESTATE 🚀\n\nThe digital transformation is changing how we buy and sell homes:\n\n💻 Virtual Tours & 3D Walkthroughs\n• 87% of buyers start their search online\n• Virtual staging reduces time on market\n• Remote buyers can tour from anywhere\n\n📱 AI-Powered Market Analysis\n• Predictive pricing models\n• Automated valuation tools\n• Real-time market insights\n\n🔍 Enhanced Property Research\n• Neighborhood analytics\n• School ratings and crime data\n• Walkability and amenity scores\n\n📈 The Result: Faster, smarter transactions for buyers and sellers.\n\nStaying ahead of technology trends helps my clients make informed decisions. What tech features matter most to you?\n\n#PropTech #RealEstateInnovation #DigitalMarketing #OmahaRealEstate #BjorkGroup #FutureOfRealEstate",
+              platform: "LinkedIn",
+              type: "Blog",
+              date: "2025-01-25",
+              time: "8:30 AM",
+              targetKeyword: "real estate technology Omaha",
+              seoScore: 79,
+              expectedImpact: "medium",
+              color: "bg-cyan-100",
+            },
+          ],
         };
-        
+
         return res.json(fallbackSchedule);
       }
-      
+
       res.status(500).json({ error: "Failed to generate AI content schedule" });
     }
   });
 
   app.get("/api/seo/site-health", async (req, res) => {
     try {
-      const url = req.query.url as string || "https://bjorkgroup.com";
+      const url = (req.query.url as string) || "https://bjorkgroup.com";
       const health = await seoService.getSiteHealth(url);
       res.json(health);
     } catch (error) {
@@ -1338,7 +1546,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { neighborhood } = req.params;
       const data = await storage.getMarketDataByNeighborhood(neighborhood);
-      
+
       if (!data) {
         return res.status(404).json({ error: "Neighborhood data not found" });
       }
@@ -1382,17 +1590,17 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const { content, scheduledFor, status } = req.body;
-      
+
       const updatedPost = await storage.updateScheduledPost(id, {
         content,
         scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
         status,
       });
-      
+
       if (!updatedPost) {
         return res.status(404).json({ error: "Scheduled post not found" });
       }
-      
+
       res.json(updatedPost);
     } catch (error) {
       console.error("Update scheduled post error:", error);
@@ -1404,11 +1612,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const deleted = await storage.deleteScheduledPost(id);
-      
+
       if (!deleted) {
         return res.status(404).json({ error: "Scheduled post not found" });
       }
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Delete scheduled post error:", error);
@@ -1417,43 +1625,49 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Upload image for scheduled post
-  app.post("/api/scheduled-posts/upload-image", upload.single('image'), async (req, res) => {
-    try {
-      const { postId } = req.body;
-      const imageFile = req.file;
+  app.post(
+    "/api/scheduled-posts/upload-image",
+    upload.single("image"),
+    async (req, res) => {
+      try {
+        const { postId } = req.body;
+        const imageFile = req.file;
 
-      if (!postId || !imageFile) {
-        return res.status(400).json({ error: "Post ID and image are required" });
-      }
-
-      // Get the existing post
-      const post = await storage.getScheduledPostById(postId);
-      if (!post) {
-        return res.status(404).json({ error: "Scheduled post not found" });
-      }
-
-      // In a real app, you would upload the image to cloud storage (S3, Cloudinary, etc.)
-      // For now, we'll simulate storing the image URL in metadata
-      const imageUrl = `/uploads/${imageFile.filename}`;
-      
-      // Update the post with the image URL in metadata
-      const updatedPost = await storage.updateScheduledPost(postId, {
-        metadata: {
-          ...(post.metadata as any || {}),
-          imageUrl: imageUrl,
+        if (!postId || !imageFile) {
+          return res
+            .status(400)
+            .json({ error: "Post ID and image are required" });
         }
-      });
 
-      res.json({
-        success: true,
-        imageUrl: imageUrl,
-        post: updatedPost
-      });
-    } catch (error) {
-      console.error("Upload image error:", error);
-      res.status(500).json({ error: "Failed to upload image" });
+        // Get the existing post
+        const post = await storage.getScheduledPostById(postId);
+        if (!post) {
+          return res.status(404).json({ error: "Scheduled post not found" });
+        }
+
+        // In a real app, you would upload the image to cloud storage (S3, Cloudinary, etc.)
+        // For now, we'll simulate storing the image URL in metadata
+        const imageUrl = `/uploads/${imageFile.filename}`;
+
+        // Update the post with the image URL in metadata
+        const updatedPost = await storage.updateScheduledPost(postId, {
+          metadata: {
+            ...((post.metadata as any) || {}),
+            imageUrl: imageUrl,
+          },
+        });
+
+        res.json({
+          success: true,
+          imageUrl: imageUrl,
+          post: updatedPost,
+        });
+      } catch (error) {
+        console.error("Upload image error:", error);
+        res.status(500).json({ error: "Failed to upload image" });
+      }
     }
-  });
+  );
 
   // Update image URL for scheduled post
   app.post("/api/scheduled-posts/update-image", async (req, res) => {
@@ -1461,7 +1675,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const { postId, imageUrl } = req.body;
 
       if (!postId || !imageUrl) {
-        return res.status(400).json({ error: "Post ID and image URL are required" });
+        return res
+          .status(400)
+          .json({ error: "Post ID and image URL are required" });
       }
 
       // Get the existing post
@@ -1473,15 +1689,15 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Update the post with the image URL in metadata
       const updatedPost = await storage.updateScheduledPost(postId, {
         metadata: {
-          ...(post.metadata as any || {}),
+          ...((post.metadata as any) || {}),
           imageUrl: imageUrl,
-        }
+        },
       });
 
       res.json({
         success: true,
         imageUrl: imageUrl,
-        post: updatedPost
+        post: updatedPost,
       });
     } catch (error) {
       console.error("Update image error:", error);
@@ -1496,17 +1712,23 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         return res.status(404).json({ error: "User not found" });
       }
 
-      const { focus = 'mixed' } = req.body; // 'local_markets', 'moving_guide', or 'mixed'
-      
-      const neighborhoods = ["Dundee", "Aksarben", "Old Market", "Blackstone", "Benson"];
+      const { focus = "mixed" } = req.body; // 'local_markets', 'moving_guide', or 'mixed'
+
+      const neighborhoods = [
+        "Dundee",
+        "Aksarben",
+        "Old Market",
+        "Blackstone",
+        "Benson",
+      ];
       const platforms = ["facebook", "instagram", "linkedin", "x", "tiktok"];
-      
+
       const movingGuideTopics = [
         "Best Omaha neighborhoods for families",
         "Omaha job market and major employers",
         "Winter in Omaha: what to expect",
         "Omaha school districts comparison",
-        "Cost of living in Omaha vs other cities"
+        "Cost of living in Omaha vs other cities",
       ];
 
       const today = new Date();
@@ -1520,11 +1742,14 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
         const platformIndex = day % platforms.length;
         const platform = platforms[platformIndex];
-        
+
         let aiContent, postType, neighborhood;
-        
+
         try {
-          if (focus === 'local_markets' || (focus === 'mixed' && day % 2 === 0)) {
+          if (
+            focus === "local_markets" ||
+            (focus === "mixed" && day % 2 === 0)
+          ) {
             // Generate local market content
             const neighborhoodIndex = day % neighborhoods.length;
             neighborhood = neighborhoods[neighborhoodIndex];
@@ -1532,7 +1757,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             aiContent = await openaiService.generateContent({
               type: "social",
               neighborhood,
-              keywords: [`${neighborhood} real estate`, "Omaha homes"]
+              keywords: [`${neighborhood} real estate`, "Omaha homes"],
             });
             postType = "local_market";
           } else {
@@ -1543,7 +1768,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             aiContent = await openaiService.generateContent({
               type: "social",
               neighborhood: topic,
-              keywords: ["Omaha moving", "real estate tips"]
+              keywords: ["Omaha moving", "real estate tips"],
             });
             postType = "moving_guide";
             neighborhood = null;
@@ -1561,17 +1786,20 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             originalContent: aiContent.content,
             neighborhood,
             seoScore: aiContent.seoScore || 80,
-            metadata: { generated: true, focus: postType, aiGenerated: true }
+            metadata: { generated: true, focus: postType, aiGenerated: true },
           });
-          
+
           generatedPosts.push(scheduledPost);
         } catch (aiError) {
-          console.error(`Failed to generate AI content for day ${day}:`, aiError);
+          console.error(
+            `Failed to generate AI content for day ${day}:`,
+            aiError
+          );
           // Fallback to basic content if AI generation fails
-          const fallbackContent = neighborhood 
+          const fallbackContent = neighborhood
             ? `Discover what makes ${neighborhood} special! Contact Mike Bjork for local market insights.`
             : `Thinking of moving to Omaha? Let's talk about what makes this city amazing!`;
-            
+
           const scheduledPost = await storage.createScheduledPost({
             userId: user.id,
             platform,
@@ -1584,18 +1812,18 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             seoScore: 85,
             originalContent: fallbackContent,
             neighborhood,
-            metadata: { generated: true, focus: postType, fallback: true }
+            metadata: { generated: true, focus: postType, fallback: true },
           });
-          
+
           generatedPosts.push(scheduledPost);
         }
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: `Weekly ${focus} content generated successfully with AI optimization`,
         postsGenerated: generatedPosts.length,
-        focus: focus
+        focus: focus,
       });
     } catch (error) {
       console.error("Generate weekly content error:", error);
@@ -1619,7 +1847,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  app.post("/api/avatars", upload.single('avatarPhoto'), async (req, res) => {
+  app.post("/api/avatars", upload.single("avatarPhoto"), async (req, res) => {
     try {
       const user = await storage.getUserByUsername("mikebjork");
       if (!user) {
@@ -1628,29 +1856,33 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
       // Initialize HeyGen service
       const heygenService = new HeyGenService();
-      
+
       let heygenAvatarId = null;
       let avatarImageUrl = req.body.avatarImageUrl;
-      
+
       // Handle uploaded avatar photo
       if (req.file) {
         // Save local path for storage
         avatarImageUrl = `/uploads/${req.file.filename}`;
         console.log("Avatar photo uploaded locally to:", avatarImageUrl);
-        
+
         // Upload to HeyGen and create avatar
         try {
           console.log("Uploading image to HeyGen...");
-          
+
           // Read the file as a buffer
-          const filePath = path.join(process.cwd(), 'uploads', req.file.filename);
+          const filePath = path.join(
+            process.cwd(),
+            "uploads",
+            req.file.filename
+          );
           const fileBuffer = fs.readFileSync(filePath);
           const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-          
+
           // Upload image to HeyGen to get a public URL
           const heygenImageUrl = await heygenService.uploadImage(blob);
           console.log("Image uploaded to HeyGen:", heygenImageUrl);
-          
+
           // Create HeyGen avatar with the uploaded image
           const heygenResponse = await heygenService.createTalkingPhotoAvatar(
             heygenImageUrl,
@@ -1659,16 +1891,25 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           );
 
           console.log("Full HeyGen response:", JSON.stringify(heygenResponse));
-          if (heygenResponse.data?.avatar_id || heygenResponse.data?.avatar_group_id || heygenResponse.data?.group_id || heygenResponse.data?.id) {
+          if (
+            heygenResponse.data?.avatar_id ||
+            heygenResponse.data?.avatar_group_id ||
+            heygenResponse.data?.group_id ||
+            heygenResponse.data?.id
+          ) {
             // Different HeyGen endpoints return different ID fields
             // Photo avatars return group_id or just id
-            heygenAvatarId = heygenResponse.data.avatar_id || 
-                            heygenResponse.data.avatar_group_id || 
-                            heygenResponse.data.group_id ||
-                            heygenResponse.data.id;
+            heygenAvatarId =
+              heygenResponse.data.avatar_id ||
+              heygenResponse.data.avatar_group_id ||
+              heygenResponse.data.group_id ||
+              heygenResponse.data.id;
             console.log("HeyGen avatar created successfully:", heygenAvatarId);
           } else {
-            console.log("HeyGen response missing avatar IDs - data:", heygenResponse.data);
+            console.log(
+              "HeyGen response missing avatar IDs - data:",
+              heygenResponse.data
+            );
           }
         } catch (heygenError) {
           console.warn("HeyGen avatar creation failed:", heygenError);
@@ -1683,7 +1924,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         style: req.body.style,
         gender: req.body.gender,
         voiceId: req.body.voiceId || null,
-        isActive: req.body.isActive === 'true' || req.body.isActive === true,
+        isActive: req.body.isActive === "true" || req.body.isActive === true,
         avatarImageUrl: avatarImageUrl,
       };
 
@@ -1692,11 +1933,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const validatedData = insertAvatarSchema.parse({
         ...formData,
         userId: user.id,
-        metadata: heygenAvatarId ? {
-          heygenAvatarId,
-        } : {},
+        metadata: heygenAvatarId
+          ? {
+              heygenAvatarId,
+            }
+          : {},
       });
-      
+
       const avatar = await storage.createAvatar(validatedData);
       res.status(201).json({
         ...avatar,
@@ -1708,100 +1951,125 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  app.put("/api/avatars/:id", upload.fields([
-    { name: 'avatarPhoto', maxCount: 1 },
-    { name: 'voiceRecording', maxCount: 1 }
-  ]), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updates = req.body;
-      
-      // Get existing avatar to check for HeyGen metadata
-      const existingAvatar = await storage.getAvatarById(id);
-      if (!existingAvatar) {
-        return res.status(404).json({ error: "Avatar not found" });
-      }
-      
-      // Cast req.files to the correct type
-      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      
-      // Handle uploaded avatar photo in updates
-      if (files?.avatarPhoto && files.avatarPhoto[0]) {
-        const photoFile = files.avatarPhoto[0];
-        updates.avatarImageUrl = `/uploads/${photoFile.filename}`;
-        console.log("Avatar photo updated to:", updates.avatarImageUrl);
-        
-        // Try to create or update HeyGen avatar
-        try {
-          const heygenService = new HeyGenService();
-          
-          // Upload new image to HeyGen
-          const filePath = path.join(process.cwd(), 'uploads', photoFile.filename);
-          const fileBuffer = fs.readFileSync(filePath);
-          const blob = new Blob([fileBuffer], { type: photoFile.mimetype });
-          
-          const heygenImageUrl = await heygenService.uploadImage(blob);
-          console.log("Image uploaded to HeyGen:", heygenImageUrl);
-          
-          // Create HeyGen avatar (whether updating existing or creating new)
-          const heygenResponse = await heygenService.createTalkingPhotoAvatar(
-            heygenImageUrl,
-            updates.name || existingAvatar.name,
-            updates.voiceId || existingAvatar.voiceId
-          );
-          
-          console.log("Full HeyGen response for update:", JSON.stringify(heygenResponse));
-          if (heygenResponse.data?.avatar_id || heygenResponse.data?.avatar_group_id || heygenResponse.data?.group_id || heygenResponse.data?.id) {
-            // Different HeyGen endpoints return different ID fields
-            // Photo avatars return group_id or just id
-            const avatarId = heygenResponse.data.avatar_id || 
-                           heygenResponse.data.avatar_group_id ||
-                           heygenResponse.data.group_id ||
-                           heygenResponse.data.id;
-            updates.metadata = {
-              ...(existingAvatar.metadata as any || {}),
-              heygenAvatarId: avatarId,
-              updatedAt: new Date().toISOString()
-            };
-            console.log("HeyGen avatar created/updated successfully:", avatarId);
-          } else {
-            console.log("HeyGen response missing avatar IDs on update - data:", heygenResponse.data);
-          }
-        } catch (heygenError) {
-          console.warn("Failed to create/update HeyGen avatar:", heygenError);
-          // Continue with local update even if HeyGen fails
+  app.put(
+    "/api/avatars/:id",
+    upload.fields([
+      { name: "avatarPhoto", maxCount: 1 },
+      { name: "voiceRecording", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        // Get existing avatar to check for HeyGen metadata
+        const existingAvatar = await storage.getAvatarById(id);
+        if (!existingAvatar) {
+          return res.status(404).json({ error: "Avatar not found" });
         }
-      }
-      
-      // Handle uploaded voice recording
-      if (files?.voiceRecording && files.voiceRecording[0]) {
-        const voiceFile = files.voiceRecording[0];
-        const voiceFilePath = `/uploads/${voiceFile.filename}`;
-        console.log("Voice recording uploaded to:", voiceFilePath);
-        
-        // Store the voice recording path and mark as custom voice
-        updates.metadata = {
-          ...(updates.metadata || existingAvatar.metadata as any || {}),
-          voiceRecordingUrl: voiceFilePath,
-          hasCustomVoice: true,
-          voiceRecordedAt: new Date().toISOString()
+
+        // Cast req.files to the correct type
+        const files = req.files as {
+          [fieldname: string]: Express.Multer.File[];
         };
-        
-        // Set voiceId to indicate custom voice
-        updates.voiceId = 'custom_voice';
-        
-        // TODO: In production, you would upload this to HeyGen's voice cloning API
-        // For now, we'll store it locally and use it for demo purposes
-        console.log("Custom voice recording saved for avatar");
+
+        // Handle uploaded avatar photo in updates
+        if (files?.avatarPhoto && files.avatarPhoto[0]) {
+          const photoFile = files.avatarPhoto[0];
+          updates.avatarImageUrl = `/uploads/${photoFile.filename}`;
+          console.log("Avatar photo updated to:", updates.avatarImageUrl);
+
+          // Try to create or update HeyGen avatar
+          try {
+            const heygenService = new HeyGenService();
+
+            // Upload new image to HeyGen
+            const filePath = path.join(
+              process.cwd(),
+              "uploads",
+              photoFile.filename
+            );
+            const fileBuffer = fs.readFileSync(filePath);
+            const blob = new Blob([fileBuffer], { type: photoFile.mimetype });
+
+            const heygenImageUrl = await heygenService.uploadImage(blob);
+            console.log("Image uploaded to HeyGen:", heygenImageUrl);
+
+            // Create HeyGen avatar (whether updating existing or creating new)
+            const heygenResponse = await heygenService.createTalkingPhotoAvatar(
+              heygenImageUrl,
+              updates.name || existingAvatar.name,
+              updates.voiceId || existingAvatar.voiceId
+            );
+
+            console.log(
+              "Full HeyGen response for update:",
+              JSON.stringify(heygenResponse)
+            );
+            if (
+              heygenResponse.data?.avatar_id ||
+              heygenResponse.data?.avatar_group_id ||
+              heygenResponse.data?.group_id ||
+              heygenResponse.data?.id
+            ) {
+              // Different HeyGen endpoints return different ID fields
+              // Photo avatars return group_id or just id
+              const avatarId =
+                heygenResponse.data.avatar_id ||
+                heygenResponse.data.avatar_group_id ||
+                heygenResponse.data.group_id ||
+                heygenResponse.data.id;
+              updates.metadata = {
+                ...((existingAvatar.metadata as any) || {}),
+                heygenAvatarId: avatarId,
+                updatedAt: new Date().toISOString(),
+              };
+              console.log(
+                "HeyGen avatar created/updated successfully:",
+                avatarId
+              );
+            } else {
+              console.log(
+                "HeyGen response missing avatar IDs on update - data:",
+                heygenResponse.data
+              );
+            }
+          } catch (heygenError) {
+            console.warn("Failed to create/update HeyGen avatar:", heygenError);
+            // Continue with local update even if HeyGen fails
+          }
+        }
+
+        // Handle uploaded voice recording
+        if (files?.voiceRecording && files.voiceRecording[0]) {
+          const voiceFile = files.voiceRecording[0];
+          const voiceFilePath = `/uploads/${voiceFile.filename}`;
+          console.log("Voice recording uploaded to:", voiceFilePath);
+
+          // Store the voice recording path and mark as custom voice
+          updates.metadata = {
+            ...(updates.metadata || (existingAvatar.metadata as any) || {}),
+            voiceRecordingUrl: voiceFilePath,
+            hasCustomVoice: true,
+            voiceRecordedAt: new Date().toISOString(),
+          };
+
+          // Set voiceId to indicate custom voice
+          updates.voiceId = "custom_voice";
+
+          // TODO: In production, you would upload this to HeyGen's voice cloning API
+          // For now, we'll store it locally and use it for demo purposes
+          console.log("Custom voice recording saved for avatar");
+        }
+
+        const updatedAvatar = await storage.updateAvatar(id, updates);
+        res.json(updatedAvatar);
+      } catch (error) {
+        console.error("Update avatar error:", error);
+        res.status(500).json({ error: "Failed to update avatar" });
       }
-      
-      const updatedAvatar = await storage.updateAvatar(id, updates);
-      res.json(updatedAvatar);
-    } catch (error) {
-      console.error("Update avatar error:", error);
-      res.status(500).json({ error: "Failed to update avatar" });
     }
-  });
+  );
 
   // Import existing HeyGen avatar (use pre-built avatars from HeyGen library)
   app.post("/api/avatars/import", async (req, res) => {
@@ -1812,7 +2080,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       }
 
       const { avatarId } = req.body;
-      
+
       if (!avatarId) {
         return res.status(400).json({ error: "Avatar ID is required" });
       }
@@ -1820,7 +2088,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Validate the avatar exists in HeyGen
       const heygenService = new HeyGenService();
       const avatarDetails = await heygenService.importAvatar(avatarId);
-      
+
       if (!avatarDetails.data) {
         return res.status(404).json({ error: "Avatar not found in HeyGen" });
       }
@@ -1847,7 +2115,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       });
     } catch (error) {
       console.error("Avatar import failed:", error);
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      res
+        .status(400)
+        .json({
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
     }
   });
 
@@ -1856,13 +2128,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const heygenService = new HeyGenService();
       const avatarsList = await heygenService.listAvatars();
-      
+
       // Format the response to match what the frontend expects
       if (avatarsList.data?.avatars) {
         res.json({
           success: true,
           avatars: avatarsList.data.avatars,
-          total: avatarsList.data.avatars.length
+          total: avatarsList.data.avatars.length,
         });
       } else {
         res.json({ success: true, avatars: [], total: 0 });
@@ -1878,13 +2150,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const heygenService = new HeyGenService();
       const voicesList = await heygenService.listVoices();
-      
+
       // Format the response to match what the frontend expects
       if (voicesList.data?.voices) {
         res.json({
           success: true,
           voices: voicesList.data.voices,
-          total: voicesList.data.voices.length
+          total: voicesList.data.voices.length,
         });
       } else {
         res.json({ success: true, voices: [], total: 0 });
@@ -1899,21 +2171,21 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/proxy/heygen-image", async (req, res) => {
     try {
       const imageUrl = req.query.url as string;
-      
-      if (!imageUrl || !imageUrl.includes('heygen.ai')) {
+
+      if (!imageUrl || !imageUrl.includes("heygen.ai")) {
         return res.status(400).json({ error: "Invalid image URL" });
       }
 
       const response = await fetch(imageUrl);
-      
+
       if (!response.ok) {
         return res.status(404).json({ error: "Image not found" });
       }
 
-      const contentType = response.headers.get('content-type') || 'image/webp';
-      res.set('Content-Type', contentType);
-      res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-      
+      const contentType = response.headers.get("content-type") || "image/webp";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400"); // Cache for 1 day
+
       if (response.body) {
         const reader = response.body.getReader();
         const pump = async () => {
@@ -1962,7 +2234,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         ...req.body,
         userId: user.id,
       });
-      
+
       const video = await storage.createVideoContent(validatedData);
       res.status(201).json(video);
     } catch (error) {
@@ -1975,13 +2247,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const updates = req.body;
-      
+
       const updatedVideo = await storage.updateVideoContent(id, updates);
-      
+
       if (!updatedVideo) {
         return res.status(404).json({ error: "Video not found" });
       }
-      
+
       res.json(updatedVideo);
     } catch (error) {
       console.error("Update video error:", error);
@@ -1992,8 +2264,14 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/videos/:id/generate-script", async (req, res) => {
     try {
       const { id } = req.params;
-      const { topic, neighborhood, videoType, platform = "youtube", duration = 60 } = req.body;
-      
+      const {
+        topic,
+        neighborhood,
+        videoType,
+        platform = "youtube",
+        duration = 60,
+      } = req.body;
+
       const video = await storage.getVideoById(id);
       if (!video) {
         return res.status(404).json({ error: "Video not found" });
@@ -2007,19 +2285,25 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           neighborhood,
           videoType,
           platform,
-          duration
+          duration,
         });
       } catch (error: any) {
         console.error("OpenAI API error:", error);
-        
+
         // If API quota exceeded or other OpenAI issues, provide a fallback script
-        if (error.status === 429 || error.code === 'insufficient_quota') {
-          script = generateFallbackScript(topic, neighborhood || "Omaha", videoType, duration, platform);
+        if (error.status === 429 || error.code === "insufficient_quota") {
+          script = generateFallbackScript(
+            topic,
+            neighborhood || "Omaha",
+            videoType,
+            duration,
+            platform
+          );
         } else {
           throw error; // Re-throw if it's not a quota issue
         }
       }
-      
+
       const updatedVideo = await storage.updateVideoContent(id, {
         script,
         topic,
@@ -2027,13 +2311,17 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         videoType,
         platform,
         duration,
-        status: "ready"
+        status: "ready",
       });
-      
+
       res.json({ script, video: updatedVideo });
     } catch (error) {
       console.error("Generate video script error:", error);
-      res.status(500).json({ error: "Failed to generate video script. Please try again later." });
+      res
+        .status(500)
+        .json({
+          error: "Failed to generate video script. Please try again later.",
+        });
     }
   });
 
@@ -2041,23 +2329,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const { avatarId } = req.body;
-      
+
       const video = await storage.getVideoById(id);
       if (!video) {
         return res.status(404).json({ error: "Video not found" });
       }
 
       const avatar = avatarId ? await storage.getAvatarById(avatarId) : null;
-      
+
       // Check if we have an avatar
       if (avatar) {
         // For testing purposes, generate a demo video first
         // This ensures the avatar test flow works while we fix HeyGen integration
-        
-        if (!avatar.metadata || typeof avatar.metadata !== 'object' || !('heygenAvatarId' in avatar.metadata)) {
+
+        if (
+          !avatar.metadata ||
+          typeof avatar.metadata !== "object" ||
+          !("heygenAvatarId" in avatar.metadata)
+        ) {
           // No HeyGen integration yet - create a demo video for testing
           console.log("No HeyGen avatar ID found, creating demo test video");
-          
+
           await storage.updateVideoContent(id, {
             status: "ready",
             avatarId: avatarId || video.avatarId,
@@ -2066,52 +2358,64 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             metadata: {
               ...(video.metadata || {}),
               isDemo: true,
-              message: "Demo video for testing - HeyGen integration pending"
-            }
+              message: "Demo video for testing - HeyGen integration pending",
+            },
           });
 
           return res.json({
             success: true,
             message: "Test video created successfully (demo mode)",
-            videoUrl: "https://example.com/demo-video.mp4"
+            videoUrl: "https://example.com/demo-video.mp4",
           });
         }
-        
+
         // Has HeyGen integration - try to generate real video
         const heygenService = new HeyGenService();
-        
+
         // Determine aspect ratio based on platform
-        let aspectRatio: '16:9' | '9:16' | '1:1' = '16:9';
-        if (video.platform === 'reels' || video.platform === 'story') {
-          aspectRatio = '9:16';
+        let aspectRatio: "16:9" | "9:16" | "1:1" = "16:9";
+        if (video.platform === "reels" || video.platform === "story") {
+          aspectRatio = "9:16";
         }
 
         try {
-          console.log(`Generating HeyGen video for platform: ${video.platform}, aspect ratio: ${aspectRatio}`);
-          console.log(`Using HeyGen avatar ID: ${(avatar.metadata as any).heygenAvatarId}`);
-          
+          console.log(
+            `Generating HeyGen video for platform: ${video.platform}, aspect ratio: ${aspectRatio}`
+          );
+          console.log(
+            `Using HeyGen avatar ID: ${(avatar.metadata as any).heygenAvatarId}`
+          );
+
           // Check if this is a talking photo avatar (created from uploaded photo)
-          const isTalkingPhoto = !!avatar.avatarImageUrl && avatar.avatarImageUrl.includes('/uploads/');
-          console.log(`Avatar type: ${isTalkingPhoto ? 'talking_photo' : 'avatar'}`);
+          const isTalkingPhoto =
+            !!avatar.avatarImageUrl &&
+            avatar.avatarImageUrl.includes("/uploads/");
+          console.log(
+            `Avatar type: ${isTalkingPhoto ? "talking_photo" : "avatar"}`
+          );
 
           // Handle voice selection - use a valid HeyGen voice ID
           let voiceId = avatar.voiceId;
-          if (voiceId === 'custom_voice') {
+          if (voiceId === "custom_voice") {
             // Custom voice recording uploaded but not yet integrated with HeyGen voice cloning
             // Default to professional male voice for now
-            voiceId = '119caed25533477ba63822d5d1552d25'; // Professional Male voice
-            console.log('Custom voice detected, using default male voice as fallback');
+            voiceId = "119caed25533477ba63822d5d1552d25"; // Professional Male voice
+            console.log(
+              "Custom voice detected, using default male voice as fallback"
+            );
           }
-          
+
           const heygenResponse = await heygenService.generateVideo({
             avatarId: (avatar.metadata as any).heygenAvatarId,
-            script: video.script || "Welcome to the future of real estate marketing with AI-powered video content.",
+            script:
+              video.script ||
+              "Welcome to the future of real estate marketing with AI-powered video content.",
             title: video.title,
             voiceId: voiceId || undefined,
             aspectRatio,
-            quality: '720p', // 720p for free tier as per documentation
+            quality: "720p", // 720p for free tier as per documentation
             speed: 1.1, // Slightly faster speech as shown in docs
-            isTalkingPhoto // Pass this flag to the service
+            isTalkingPhoto, // Pass this flag to the service
           });
 
           if (heygenResponse.data?.video_id) {
@@ -2122,22 +2426,22 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               metadata: {
                 ...(video.metadata || {}),
                 heygenVideoId: heygenResponse.data.video_id,
-              }
+              },
             });
 
             res.json({
               success: true,
               videoId: heygenResponse.data.video_id,
               message: "HeyGen video generation started successfully",
-              estimatedTime: "3-5 minutes"
+              estimatedTime: "3-5 minutes",
             });
             return;
           }
         } catch (heygenError) {
           console.error("HeyGen video generation failed:", heygenError);
-          
+
           // Fallback to demo video on HeyGen failure
-          await storage.updateVideoContent(id, { 
+          await storage.updateVideoContent(id, {
             status: "ready",
             avatarId: avatarId || video.avatarId,
             videoUrl: "https://example.com/demo-video.mp4",
@@ -2145,23 +2449,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             metadata: {
               ...(video.metadata || {}),
               isDemo: true,
-              heygenError: heygenError instanceof Error ? heygenError.message : "Unknown error"
-            }
+              heygenError:
+                heygenError instanceof Error
+                  ? heygenError.message
+                  : "Unknown error",
+            },
           });
-          
+
           return res.json({
             success: true,
             message: "Test video created (demo mode due to HeyGen error)",
             videoUrl: "https://example.com/demo-video.mp4",
-            warning: "HeyGen integration encountered an error. Using demo video."
+            warning:
+              "HeyGen integration encountered an error. Using demo video.",
           });
         }
       }
 
       // If no avatar at all, return error
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Avatar required for video generation",
-        message: "Please select or create an avatar first"
+        message: "Please select or create an avatar first",
       });
     } catch (error) {
       console.error("Generate video error:", error);
@@ -2174,23 +2482,29 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const video = await storage.getVideoById(id);
-      
+
       if (!video) {
         return res.status(404).json({ error: "Video not found" });
       }
 
       // If video has HeyGen video ID, check HeyGen status using correct endpoint
-      if (video.metadata && typeof video.metadata === 'object' && 'heygenVideoId' in video.metadata) {
+      if (
+        video.metadata &&
+        typeof video.metadata === "object" &&
+        "heygenVideoId" in video.metadata
+      ) {
         try {
           const heygenService = new HeyGenService();
-          const heygenVideo = await heygenService.getVideo((video.metadata as any).heygenVideoId);
+          const heygenVideo = await heygenService.getVideo(
+            (video.metadata as any).heygenVideoId
+          );
 
           if (heygenVideo.code === 100 && heygenVideo.data) {
             const status = heygenVideo.data.status;
             let newStatus = "generating";
-            
+
             // Map HeyGen status to our status (per documentation: pending, processing, completed, failed)
-            if (status === 'completed') {
+            if (status === "completed") {
               newStatus = "ready";
               // Update video with final URL
               await storage.updateVideoContent(id, {
@@ -2199,19 +2513,20 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
                 thumbnailUrl: heygenVideo.data.thumbnail_url,
                 duration: heygenVideo.data.duration,
               });
-            } else if (status === 'failed') {
+            } else if (status === "failed") {
               newStatus = "failed";
-              const errorMessage = heygenVideo.data.error?.message || "Video generation failed";
-              await storage.updateVideoContent(id, { 
+              const errorMessage =
+                heygenVideo.data.error?.message || "Video generation failed";
+              await storage.updateVideoContent(id, {
                 status: newStatus,
                 metadata: {
                   ...(video.metadata || {}),
-                  error: errorMessage
-                }
+                  error: errorMessage,
+                },
               });
-            } else if (status === 'pending' || status === 'waiting') {
+            } else if (status === "pending" || status === "waiting") {
               newStatus = "pending";
-            } else if (status === 'processing') {
+            } else if (status === "processing") {
               newStatus = "generating";
             }
 
@@ -2221,7 +2536,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               videoUrl: heygenVideo.data.video_url,
               thumbnailUrl: heygenVideo.data.thumbnail_url,
               duration: heygenVideo.data.duration,
-              error: heygenVideo.data.error
+              error: heygenVideo.data.error,
             });
           }
         } catch (heygenError) {
@@ -2245,7 +2560,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const { title, description, tags, privacy = "public" } = req.body;
-      
+
       const video = await storage.getVideoById(id);
       if (!video || !video.videoUrl) {
         return res.status(404).json({ error: "Video not ready for upload" });
@@ -2255,18 +2570,18 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // For now, we'll simulate the upload
       const mockYoutubeVideoId = `mock_yt_${id.substring(0, 8)}`;
       const mockYoutubeUrl = `https://youtube.com/watch?v=${mockYoutubeVideoId}`;
-      
+
       const updatedVideo = await storage.updateVideoContent(id, {
         status: "uploaded",
         youtubeVideoId: mockYoutubeVideoId,
         youtubeUrl: mockYoutubeUrl,
-        title: title || video.title
+        title: title || video.title,
       });
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         youtubeUrl: mockYoutubeUrl,
-        video: updatedVideo
+        video: updatedVideo,
       });
     } catch (error) {
       console.error("Upload to YouTube error:", error);
@@ -2275,7 +2590,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // ==================== STREAMING AVATAR ENDPOINTS ====================
-  
+
   // Create streaming avatar session
   app.post("/api/streaming/sessions", async (req, res) => {
     try {
@@ -2286,7 +2601,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
       const { avatarId } = req.body;
       const streamingService = new HeyGenStreamingService();
-      
+
       const session = await streamingService.createSession(user.id, avatarId);
       res.json(session);
     } catch (error) {
@@ -2299,11 +2614,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/streaming/sessions/:sessionId/speak", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      const { text, taskType = 'TALK' } = req.body;
+      const { text, taskType = "TALK" } = req.body;
 
       const streamingService = new HeyGenStreamingService();
       await streamingService.speak(sessionId, text, taskType);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to make avatar speak:", error);
@@ -2312,43 +2627,49 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Start voice chat
-  app.post("/api/streaming/sessions/:sessionId/voice-chat", async (req, res) => {
-    try {
-      const { sessionId } = req.params;
-      
-      const streamingService = new HeyGenStreamingService();
-      await streamingService.startVoiceChat(sessionId);
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Failed to start voice chat:", error);
-      res.status(500).json({ error: "Failed to start voice chat" });
+  app.post(
+    "/api/streaming/sessions/:sessionId/voice-chat",
+    async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+
+        const streamingService = new HeyGenStreamingService();
+        await streamingService.startVoiceChat(sessionId);
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to start voice chat:", error);
+        res.status(500).json({ error: "Failed to start voice chat" });
+      }
     }
-  });
+  );
 
   // Stop voice chat
-  app.delete("/api/streaming/sessions/:sessionId/voice-chat", async (req, res) => {
-    try {
-      const { sessionId } = req.params;
-      
-      const streamingService = new HeyGenStreamingService();
-      await streamingService.stopVoiceChat(sessionId);
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Failed to stop voice chat:", error);
-      res.status(500).json({ error: "Failed to stop voice chat" });
+  app.delete(
+    "/api/streaming/sessions/:sessionId/voice-chat",
+    async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+
+        const streamingService = new HeyGenStreamingService();
+        await streamingService.stopVoiceChat(sessionId);
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to stop voice chat:", error);
+        res.status(500).json({ error: "Failed to stop voice chat" });
+      }
     }
-  });
+  );
 
   // Interrupt avatar
   app.post("/api/streaming/sessions/:sessionId/interrupt", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      
+
       const streamingService = new HeyGenStreamingService();
       await streamingService.interrupt(sessionId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to interrupt avatar:", error);
@@ -2360,10 +2681,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.delete("/api/streaming/sessions/:sessionId", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      
+
       const streamingService = new HeyGenStreamingService();
       await streamingService.endSession(sessionId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to end session:", error);
@@ -2381,7 +2702,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
       const streamingService = new HeyGenStreamingService();
       const sessions = streamingService.getActiveSessions(user.id);
-      
+
       res.json({ sessions });
     } catch (error) {
       console.error("Failed to get sessions:", error);
@@ -2390,13 +2711,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // ==================== PHOTO AVATAR ENDPOINTS ====================
-  
+
   // Generate AI photos for avatars
   app.post("/api/photo-avatars/generate-photos", async (req, res) => {
     try {
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const result = await photoAvatarService.generateAIPhotos(req.body);
-      
+
       res.json(result);
     } catch (error) {
       console.error("Failed to generate AI photos:", error);
@@ -2408,10 +2729,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/photo-avatars/generation/:generationId", async (req, res) => {
     try {
       const { generationId } = req.params;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const status = await photoAvatarService.getGenerationStatus(generationId);
-      
+
       res.json(status);
     } catch (error) {
       console.error("Failed to get generation status:", error);
@@ -2423,10 +2744,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/photo-avatars/groups", async (req, res) => {
     try {
       const { name, imageKey } = req.body;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const group = await photoAvatarService.createAvatarGroup(name, imageKey);
-      
+
       res.json(group);
     } catch (error) {
       console.error("Failed to create avatar group:", error);
@@ -2439,10 +2760,14 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { groupId } = req.params;
       const { imageKeys, name } = req.body;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
-      const result = await photoAvatarService.addPhotosToGroup(groupId, imageKeys, name);
-      
+      const result = await photoAvatarService.addPhotosToGroup(
+        groupId,
+        imageKeys,
+        name
+      );
+
       res.json(result);
     } catch (error) {
       console.error("Failed to add photos to group:", error);
@@ -2455,7 +2780,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const groups = await photoAvatarService.listAvatarGroups();
-      
+
       res.json(groups);
     } catch (error) {
       console.error("Failed to list avatar groups:", error);
@@ -2467,10 +2792,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/photo-avatars/groups/:groupId", async (req, res) => {
     try {
       const { groupId } = req.params;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const group = await photoAvatarService.getAvatarGroup(groupId);
-      
+
       res.json(group);
     } catch (error) {
       console.error("Failed to get avatar group:", error);
@@ -2482,10 +2807,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/photo-avatars/groups/:groupId/looks", async (req, res) => {
     try {
       const { groupId } = req.params;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
-      
+
       res.json(looks);
     } catch (error) {
       console.error("Failed to get avatar looks:", error);
@@ -2497,10 +2822,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/photo-avatars/groups/:groupId/train", async (req, res) => {
     try {
       const { groupId } = req.params;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const result = await photoAvatarService.trainAvatarGroup(groupId);
-      
+
       res.json(result);
     } catch (error) {
       console.error("Failed to train avatar group:", error);
@@ -2509,29 +2834,35 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Generate new looks
-  app.post("/api/photo-avatars/groups/:groupId/generate-looks", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      const { numLooks = 3 } = req.body;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const looks = await photoAvatarService.generateNewLooks(groupId, numLooks);
-      
-      res.json(looks);
-    } catch (error) {
-      console.error("Failed to generate new looks:", error);
-      res.status(500).json({ error: "Failed to generate new looks" });
+  app.post(
+    "/api/photo-avatars/groups/:groupId/generate-looks",
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const { numLooks = 3 } = req.body;
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const looks = await photoAvatarService.generateNewLooks(
+          groupId,
+          numLooks
+        );
+
+        res.json(looks);
+      } catch (error) {
+        console.error("Failed to generate new looks:", error);
+        res.status(500).json({ error: "Failed to generate new looks" });
+      }
     }
-  });
+  );
 
   // Check training status
   app.get("/api/photo-avatars/groups/:groupId/status", async (req, res) => {
     try {
       const { groupId } = req.params;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const status = await photoAvatarService.checkTrainingStatus(groupId);
-      
+
       res.json(status);
     } catch (error) {
       console.error("Failed to check training status:", error);
@@ -2543,10 +2874,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.delete("/api/photo-avatars/groups/:groupId", async (req, res) => {
     try {
       const { groupId } = req.params;
-      
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       await photoAvatarService.deleteAvatarGroup(groupId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to delete avatar group:", error);
@@ -2555,38 +2886,42 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Upload custom photo for photo avatar
-  app.post("/api/photo-avatars/upload", upload.single('photo'), async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No photo uploaded" });
-      }
+  app.post(
+    "/api/photo-avatars/upload",
+    upload.single("photo"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No photo uploaded" });
+        }
 
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      
-      const filePath = path.join(process.cwd(), 'uploads', req.file.filename);
-      const fileBuffer = fs.readFileSync(filePath);
-      const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-      
-      const imageKey = await photoAvatarService.uploadCustomPhoto(blob);
-      
-      res.json({ imageKey });
-    } catch (error) {
-      console.error("Failed to upload photo:", error);
-      res.status(500).json({ error: "Failed to upload photo" });
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+
+        const filePath = path.join(process.cwd(), "uploads", req.file.filename);
+        const fileBuffer = fs.readFileSync(filePath);
+        const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+
+        const imageKey = await photoAvatarService.uploadCustomPhoto(blob);
+
+        res.json({ imageKey });
+      } catch (error) {
+        console.error("Failed to upload photo:", error);
+        res.status(500).json({ error: "Failed to upload photo" });
+      }
     }
-  });
+  );
 
   // ==================== TEMPLATE ENDPOINTS ====================
-  
+
   // List templates
   app.get("/api/templates", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const offset = parseInt(req.query.offset as string) || 0;
-      
+
       const templateService = new HeyGenTemplateService();
       const templates = await templateService.listTemplates(limit, offset);
-      
+
       res.json(templates);
     } catch (error) {
       console.error("Failed to list templates:", error);
@@ -2598,10 +2933,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
       const template = await templateService.getTemplate(templateId);
-      
+
       res.json(template);
     } catch (error) {
       console.error("Failed to get template:", error);
@@ -2613,10 +2948,14 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/templates", async (req, res) => {
     try {
       const { name, description, elements } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
-      const template = await templateService.createTemplate(name, description, elements);
-      
+      const template = await templateService.createTemplate(
+        name,
+        description,
+        elements
+      );
+
       res.json(template);
     } catch (error) {
       console.error("Failed to create template:", error);
@@ -2629,15 +2968,15 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { templateId } = req.params;
       const { variables, title, test } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
       const result = await templateService.generateFromTemplate({
         templateId,
         variables,
         title,
-        test
+        test,
       });
-      
+
       res.json(result);
     } catch (error) {
       console.error("Failed to generate from template:", error);
@@ -2649,10 +2988,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.put("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
-      const updated = await templateService.updateTemplate(templateId, req.body);
-      
+      const updated = await templateService.updateTemplate(
+        templateId,
+        req.body
+      );
+
       res.json(updated);
     } catch (error) {
       console.error("Failed to update template:", error);
@@ -2664,10 +3006,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.delete("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
       await templateService.deleteTemplate(templateId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to delete template:", error);
@@ -2679,10 +3021,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/templates/:templateId/variables", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
       const variables = await templateService.getTemplateVariables(templateId);
-      
+
       res.json(variables);
     } catch (error) {
       console.error("Failed to get template variables:", error);
@@ -2694,10 +3036,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/templates/from-video", async (req, res) => {
     try {
       const { videoId, name } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
-      const template = await templateService.createTemplateFromVideo(videoId, name);
-      
+      const template = await templateService.createTemplateFromVideo(
+        videoId,
+        name
+      );
+
       res.json(template);
     } catch (error) {
       console.error("Failed to create template from video:", error);
@@ -2710,10 +3055,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { templateId } = req.params;
       const { name } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
-      const duplicated = await templateService.duplicateTemplate(templateId, name);
-      
+      const duplicated = await templateService.duplicateTemplate(
+        templateId,
+        name
+      );
+
       res.json(duplicated);
     } catch (error) {
       console.error("Failed to duplicate template:", error);
@@ -2722,26 +3070,31 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Get template generation status
-  app.get("/api/templates/generation/:generationId/status", async (req, res) => {
-    try {
-      const { generationId } = req.params;
-      
-      const templateService = new HeyGenTemplateService();
-      const status = await templateService.getTemplateGenerationStatus(generationId);
-      
-      res.json(status);
-    } catch (error) {
-      console.error("Failed to get generation status:", error);
-      res.status(500).json({ error: "Failed to get generation status" });
+  app.get(
+    "/api/templates/generation/:generationId/status",
+    async (req, res) => {
+      try {
+        const { generationId } = req.params;
+
+        const templateService = new HeyGenTemplateService();
+        const status = await templateService.getTemplateGenerationStatus(
+          generationId
+        );
+
+        res.json(status);
+      } catch (error) {
+        console.error("Failed to get generation status:", error);
+        res.status(500).json({ error: "Failed to get generation status" });
+      }
     }
-  });
+  );
 
   // Get real estate templates
   app.get("/api/templates/real-estate", async (req, res) => {
     try {
       const templateService = new HeyGenTemplateService();
       const templates = await templateService.getRealEstateTemplates();
-      
+
       res.json(templates);
     } catch (error) {
       console.error("Failed to get real estate templates:", error);
@@ -2757,8 +3110,8 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               agent_avatar: "avatar",
               property_images: "image[]",
               price: "text",
-              features: "text"
-            }
+              features: "text",
+            },
           },
           {
             name: "Market Update Template",
@@ -2767,8 +3120,8 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               month: "text",
               market_stats: "text",
               agent_avatar: "avatar",
-              charts: "image[]"
-            }
+              charts: "image[]",
+            },
           },
           {
             name: "Agent Introduction Template",
@@ -2777,10 +3130,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               agent_name: "text",
               agent_avatar: "avatar",
               expertise: "text",
-              contact_info: "text"
-            }
-          }
-        ]
+              contact_info: "text",
+            },
+          },
+        ],
       });
     }
   });
@@ -2809,15 +3162,15 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         photoUrls: [
           "https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=500&q=80",
           "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=500&q=80",
-          "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=500&q=80"
-        ]
+          "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=500&q=80",
+        ],
       },
       {
-        id: "DEMO-002", 
+        id: "DEMO-002",
         mlsNumber: "21234568",
         address: "456 Farnam Street",
         city: "Omaha",
-        state: "NE", 
+        state: "NE",
         zipCode: "68131",
         listPrice: 425000,
         bedrooms: 4,
@@ -2833,9 +3186,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         photoUrls: [
           "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=500&q=80",
           "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&q=80",
-          "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=500&q=80"
-        ]
-      }
+          "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=500&q=80",
+        ],
+      },
     ];
 
     return {
@@ -2845,7 +3198,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       properties: sampleProperties,
       searchCriteria: searchParams,
       fallback: true,
-      message: "Demo data - External property service temporarily unavailable"
+      message: "Demo data - External property service temporarily unavailable",
     };
   }
 
@@ -2858,19 +3211,19 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         mlsNumber: query.mls_number || query.mls,
         address: query.address,
         city: query.city,
-        listingAgent: query.agent || query.listing_agent_name
+        listingAgent: query.agent || query.listing_agent_name,
       });
       if (paragonResult && paragonResult.length > 0) {
-        console.log('Fallback: Paragon MLS returned results');
+        console.log("Fallback: Paragon MLS returned results");
         return res.json({
           success: true,
           count: paragonResult.length,
           properties: paragonResult,
-          source: 'paragon-mls'
+          source: "paragon-mls",
         });
       }
     } catch (error) {
-      console.warn('Paragon MLS fallback failed:', error);
+      console.warn("Paragon MLS fallback failed:", error);
     }
 
     // Try IDX service
@@ -2878,65 +3231,69 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const idxService = new IDXService();
       const idxResult = await idxService.searchProperties({
         city: query.city,
-        state: query.state || 'NE'
+        state: query.state || "NE",
       });
       if (idxResult && idxResult.length > 0) {
-        console.log('Fallback: IDX service returned results');
+        console.log("Fallback: IDX service returned results");
         return res.json({
           success: true,
           count: idxResult.length,
           properties: idxResult,
-          source: 'idx-service'
+          source: "idx-service",
         });
       }
     } catch (error) {
-      console.warn('IDX service fallback failed:', error);
+      console.warn("IDX service fallback failed:", error);
     }
 
     // Final fallback to sample data
-    console.log('All services failed, returning sample data');
+    console.log("All services failed, returning sample data");
     return res.json(getFallbackPropertyData(query));
   }
 
   // GBCMA API proxy endpoint to handle CORS
   app.get("/api/property/search", async (req, res) => {
     try {
-      const baseUrl = 'http://gbcma.us-east-2.elasticbeanstalk.com/api/property-search-new';
+      const baseUrl =
+        "http://gbcma.us-east-2.elasticbeanstalk.com/api/property-search-new";
       const params = new URLSearchParams();
-      
+
       // Parameter mapping and forwarding to gbcma API
       if (req.query.mls_number || req.query.mls) {
         const mlsNumber = req.query.mls_number || req.query.mls;
-        params.append('mls_number', mlsNumber as string);
+        params.append("mls_number", mlsNumber as string);
       }
-      if (req.query.address) params.append('address', req.query.address as string);
+      if (req.query.address)
+        params.append("address", req.query.address as string);
       if (req.query.agent || req.query.listing_agent_name) {
         const agent = req.query.agent || req.query.listing_agent_name;
-        params.append('listing_agent_name', agent as string);
+        params.append("listing_agent_name", agent as string);
       }
-      if (req.query.city) params.append('city', req.query.city as string);
-      
+      if (req.query.city) params.append("city", req.query.city as string);
+
       const fullUrl = `${baseUrl}?${params.toString()}`;
-      console.log('Proxying to gbcma API:', fullUrl);
-      
+      console.log("Proxying to gbcma API:", fullUrl);
+
       // Use global fetch (available in Node.js 18+)
       const response = await globalThis.fetch(fullUrl);
-      
+
       if (!response.ok) {
-        console.warn(`GBCMA API unavailable (${response.status}), trying fallback chain`);
+        console.warn(
+          `GBCMA API unavailable (${response.status}), trying fallback chain`
+        );
         return await tryFallbackChain(req.query, res);
       }
-      
+
       const data = await response.json();
-      console.log('GBCMA API response:', data);
-      
+      console.log("GBCMA API response:", data);
+
       // If API returns no results, try fallback chain
       if (data.success && data.count === 0) {
-        console.log('No properties found in GBCMA, trying fallback chain');
+        console.log("No properties found in GBCMA, trying fallback chain");
         return await tryFallbackChain(req.query, res);
       }
-      
-      res.json({...data, source: 'gbcma'});
+
+      res.json({ ...data, source: "gbcma" });
     } catch (error: any) {
       console.error("GBCMA proxy error:", error);
       // Try fallback chain instead of immediate sample data
@@ -2948,45 +3305,51 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/property/details-by-address", async (req, res) => {
     try {
       const { address, mlsNumber } = req.body;
-      
+
       if (!address && !mlsNumber) {
-        return res.status(400).json({ error: "Address or MLS number is required" });
+        return res
+          .status(400)
+          .json({ error: "Address or MLS number is required" });
       }
 
-      const apiUrl = 'http://simple-cma.com/api/property-details-from-address';
-      console.log('Getting property details for address:', address);
-      
+      const apiUrl = "http://simple-cma.com/api/property-details-from-address";
+      console.log("Getting property details for address:", address);
+
       const response = await globalThis.fetch(apiUrl, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': '*/*',
-          'User-Agent': 'Mozilla/5.0 (compatible; Real Estate Platform)',
+          "Content-Type": "application/json",
+          Accept: "*/*",
+          "User-Agent": "Mozilla/5.0 (compatible; Real Estate Platform)",
         },
-        body: JSON.stringify({ address: address || mlsNumber })
+        body: JSON.stringify({ address: address || mlsNumber }),
       });
-      
+
       if (!response.ok) {
-        console.warn(`Property details API unavailable (${response.status}), returning fallback response`);
+        console.warn(
+          `Property details API unavailable (${response.status}), returning fallback response`
+        );
         // Return a fallback response when API is down
         return res.json({
           success: false,
-          message: "Property details service temporarily unavailable. Please try the general property search instead.",
-          property: null
+          message:
+            "Property details service temporarily unavailable. Please try the general property search instead.",
+          property: null,
         });
       }
-      
+
       const data = await response.json();
-      console.log('GBCMA property details response:', data);
+      console.log("GBCMA property details response:", data);
       res.json(data);
     } catch (error: any) {
       console.error("GBCMA property details error:", error);
       // Return graceful fallback instead of error
       res.json({
         success: false,
-        message: "Property details service temporarily unavailable. Please try the general property search instead.",
+        message:
+          "Property details service temporarily unavailable. Please try the general property search instead.",
         property: null,
-        fallback: true
+        fallback: true,
       });
     }
   });
@@ -3001,12 +3364,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Check if public object search paths are configured
       if (!objectStorageService.hasPublicPaths()) {
         console.warn("Public object search paths not configured");
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Object storage service unavailable",
-          message: "PUBLIC_OBJECT_SEARCH_PATHS environment variable is not configured"
+          message:
+            "PUBLIC_OBJECT_SEARCH_PATHS environment variable is not configured",
         });
       }
-      
+
       const file = await objectStorageService.searchPublicObject(filePath);
       if (!file) {
         return res.status(404).json({ error: "File not found" });
@@ -3018,19 +3382,21 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  // Serve private objects  
+  // Serve private objects
   app.get("/objects/:objectPath(*)", async (req, res) => {
     try {
       // Check if private object directory is configured
       if (!objectStorageService.hasPrivateDir()) {
         console.warn("Private object directory not configured");
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Object storage service unavailable",
-          message: "PRIVATE_OBJECT_DIR environment variable is not configured"
+          message: "PRIVATE_OBJECT_DIR environment variable is not configured",
         });
       }
-      
-      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        req.path
+      );
       objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
       console.error("Error checking object access:", error);
@@ -3047,12 +3413,12 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Check if private object directory is configured
       if (!objectStorageService.hasPrivateDir()) {
         console.warn("Private object directory not configured for uploads");
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Object storage service unavailable",
-          message: "PRIVATE_OBJECT_DIR environment variable is not configured"
+          message: "PRIVATE_OBJECT_DIR environment variable is not configured",
         });
       }
-      
+
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       res.json({ uploadURL });
     } catch (error) {
@@ -3064,26 +3430,30 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   // Brand Guide Analysis API
   app.post("/api/brand-guide/analyze", async (req, res) => {
     try {
-      console.log('🔍 Brand guide analysis started:', { fileType: req.body.fileType, fileUrl: req.body.fileUrl?.substring(0, 50) + '...' });
+      console.log("🔍 Brand guide analysis started:", {
+        fileType: req.body.fileType,
+        fileUrl: req.body.fileUrl?.substring(0, 50) + "...",
+      });
       const { fileUrl, fileType } = req.body;
-      
+
       if (!fileUrl) {
         return res.status(400).json({ error: "File URL is required" });
       }
 
       // Import OpenAI here to avoid issues with module loading
-      const { default: OpenAI } = await import('openai');
+      const { default: OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
       let messages: any[] = [];
-      let extractedText = '';
+      let extractedText = "";
 
-      if (fileType?.startsWith('image/')) {
+      if (fileType?.startsWith("image/")) {
         // For image files (JPG, PNG, etc.)
         messages = [
           {
             role: "system",
-            content: "You are a brand analysis expert. Analyze the uploaded brand guide image and extract brand information in JSON format."
+            content:
+              "You are a brand analysis expert. Analyze the uploaded brand guide image and extract brand information in JSON format.",
           },
           {
             role: "user",
@@ -3116,65 +3486,78 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
                 - Brand messaging and descriptions
                 - Style guidelines and brand personality
                 
-                Provide actual hex color codes where possible. If you see color swatches, try to determine the hex values. For fonts, look for font family names displayed in the guide.`
+                Provide actual hex color codes where possible. If you see color swatches, try to determine the hex values. For fonts, look for font family names displayed in the guide.`,
               },
               {
                 type: "image_url",
                 image_url: {
-                  url: fileUrl
-                }
-              }
-            ]
-          }
+                  url: fileUrl,
+                },
+              },
+            ],
+          },
         ];
-      } else if (fileType === 'application/pdf') {
+      } else if (fileType === "application/pdf") {
         // For PDF files, use object storage to read the file
         try {
-          console.log('📁 Reading PDF from object storage:', fileUrl);
-          
+          console.log("📁 Reading PDF from object storage:", fileUrl);
+
           // Extract the object path from the URL
           const pdfObjectStorageService = new ObjectStorageService();
-          
+
           // Check if private object directory is configured for PDF analysis
           if (!pdfObjectStorageService.hasPrivateDir()) {
-            console.warn('Private object directory not configured for PDF analysis');
+            console.warn(
+              "Private object directory not configured for PDF analysis"
+            );
             return res.status(503).json({
               error: "Object storage service unavailable",
-              message: "Cannot analyze PDF files without PRIVATE_OBJECT_DIR configuration"
+              message:
+                "Cannot analyze PDF files without PRIVATE_OBJECT_DIR configuration",
             });
           }
-          
-          const objectPath = pdfObjectStorageService.normalizeObjectEntityPath(fileUrl);
-          const objectFile = await pdfObjectStorageService.getObjectEntityFile(objectPath);
-          
+
+          const objectPath =
+            pdfObjectStorageService.normalizeObjectEntityPath(fileUrl);
+          const objectFile = await pdfObjectStorageService.getObjectEntityFile(
+            objectPath
+          );
+
           // Get the file contents as a buffer
           const chunks: Buffer[] = [];
           const stream = objectFile.createReadStream();
-          
+
           for await (const chunk of stream) {
             chunks.push(chunk);
           }
-          
+
           const pdfBuffer = Buffer.concat(chunks);
-          console.log('📋 PDF buffer size:', pdfBuffer.length, 'bytes');
-          
+          console.log("📋 PDF buffer size:", pdfBuffer.length, "bytes");
+
           // Try alternative PDF parsing approach
           try {
-            const pdfParse = await import('pdf-parse');
+            const pdfParse = await import("pdf-parse");
             const data = await pdfParse.default(pdfBuffer);
             extractedText = data.text;
           } catch (parseError) {
-            console.log('⚠️ PDF parsing failed, trying alternative approach...');
+            console.log(
+              "⚠️ PDF parsing failed, trying alternative approach..."
+            );
             // Fallback: treat as plain text extraction or skip complex parsing
-            extractedText = 'PDF content could not be parsed as text. Using image analysis instead.';
+            extractedText =
+              "PDF content could not be parsed as text. Using image analysis instead.";
           }
-          
-          console.log('📄 PDF text extracted:', extractedText.substring(0, 200) + '...');
-          
+
+          console.log(
+            "📄 PDF text extracted:",
+            extractedText.substring(0, 200) + "..."
+          );
+
           messages = [
             {
               role: "system",
-              content: "You are a brand analysis expert. Analyze the text content from a brand guide PDF and extract brand information in JSON format."
+              content:
+                "You are a brand analysis expert. Analyze the text content from a brand guide PDF and extract brand information in JSON format.",
             },
             {
               role: "user",
@@ -3222,26 +3605,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               For fonts, look for:
               - Specific font family names mentioned in the text
               - Typography sections listing font families
-              - Headers mentioning font choices`
-            }
+              - Headers mentioning font choices`,
+            },
           ];
-          
         } catch (pdfError: any) {
-          console.error('❌ PDF processing error:', pdfError);
+          console.error("❌ PDF processing error:", pdfError);
           return res.status(400).json({
-            error: "Failed to process PDF file. Please ensure the PDF contains readable text content.",
-            details: pdfError?.message || 'Unknown error'
+            error:
+              "Failed to process PDF file. Please ensure the PDF contains readable text content.",
+            details: pdfError?.message || "Unknown error",
           });
         }
       } else {
         // For other document types
-        return res.status(400).json({ 
-          error: "Please upload an image format (JPG, PNG, etc.) or PDF of your brand guide." 
+        return res.status(400).json({
+          error:
+            "Please upload an image format (JPG, PNG, etc.) or PDF of your brand guide.",
         });
       }
 
-      console.log('🤖 Sending to OpenAI for analysis...');
-      
+      console.log("🤖 Sending to OpenAI for analysis...");
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // Use GPT-4O for vision capabilities
         messages,
@@ -3249,22 +3633,29 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         max_tokens: 1500,
       });
 
-      const analysisResult = JSON.parse(response.choices[0].message.content || '{}');
-      
+      const analysisResult = JSON.parse(
+        response.choices[0].message.content || "{}"
+      );
+
       // Debug logging to help troubleshoot
-      console.log('✅ Analysis Result:', JSON.stringify(analysisResult, null, 2));
-      
+      console.log(
+        "✅ Analysis Result:",
+        JSON.stringify(analysisResult, null, 2)
+      );
+
       res.json({
         success: true,
         analysis: analysisResult,
-        rawContent: fileType === 'application/pdf' ? extractedText.substring(0, 500) + '...' : 'Image analysis'
+        rawContent:
+          fileType === "application/pdf"
+            ? extractedText.substring(0, 500) + "..."
+            : "Image analysis",
       });
-
     } catch (error: any) {
-      console.error('❌ Brand guide analysis error:', error);
-      res.status(500).json({ 
+      console.error("❌ Brand guide analysis error:", error);
+      res.status(500).json({
         error: "Failed to analyze brand guide. Please try again.",
-        details: error?.message || 'Unknown error'
+        details: error?.message || "Unknown error",
       });
     }
   });
@@ -3273,15 +3664,20 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.put("/api/brand-settings", async (req, res) => {
     try {
       const { assets, colors, fonts, description } = req.body;
-      
+
       // In a real implementation, you would save this to the database
       // For now, we'll just simulate success
-      
-      console.log("Brand settings updated:", { assets, colors, fonts, description });
-      
-      res.json({ 
-        success: true, 
-        message: "Brand settings saved successfully" 
+
+      console.log("Brand settings updated:", {
+        assets,
+        colors,
+        fonts,
+        description,
+      });
+
+      res.json({
+        success: true,
+        message: "Brand settings saved successfully",
       });
     } catch (error) {
       console.error("Error saving brand settings:", error);
@@ -3295,26 +3691,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // In a real implementation, fetch from database
       const defaultBrandSettings = {
         assets: [
-          { id: 'primary-logo', name: 'Primary Logo', type: 'logo' },
-          { id: 'icon', name: 'Icon/Favicon', type: 'icon' },
-          { id: 'banner', name: 'Banner/Header Image', type: 'banner' },
-          { id: 'background', name: 'Background Pattern', type: 'background' },
+          { id: "primary-logo", name: "Primary Logo", type: "logo" },
+          { id: "icon", name: "Icon/Favicon", type: "icon" },
+          { id: "banner", name: "Banner/Header Image", type: "banner" },
+          { id: "background", name: "Background Pattern", type: "background" },
         ],
         colors: {
-          primary: '#daa520',
-          secondary: '#b8860b',
-          accent: '#ffd700',
-          background: '#ffffff',
-          text: '#333333'
+          primary: "#daa520",
+          secondary: "#b8860b",
+          accent: "#ffd700",
+          background: "#ffffff",
+          text: "#333333",
         },
         fonts: {
-          heading: 'Playfair Display',
-          body: 'Inter',
-          accent: 'Cormorant Garamond'
+          heading: "Playfair Display",
+          body: "Inter",
+          accent: "Cormorant Garamond",
         },
-        description: 'Golden Brick Real Estate - Premium luxury properties in Omaha, Nebraska. Specializing in high-end residential and commercial real estate with personalized service and expert market knowledge.'
+        description:
+          "Golden Brick Real Estate - Premium luxury properties in Omaha, Nebraska. Specializing in high-end residential and commercial real estate with personalized service and expert market knowledge.",
       };
-      
+
       res.json(defaultBrandSettings);
     } catch (error) {
       console.error("Error fetching brand settings:", error);
@@ -3323,7 +3720,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Serve uploaded files statically
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
   const httpServer = createServer(app);
   return httpServer;

@@ -11,14 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import {
-  User,
-  LogOut,
-  Settings,
-  UserCheck,
-  Users,
-  ChevronDown,
-} from "lucide-react";
+import { LogOut, UserCheck, Users, ChevronDown } from "lucide-react";
 
 interface UserMenuProps {
   className?: string;
@@ -122,18 +115,6 @@ export default function UserMenu({ className = "" }: UserMenuProps) {
               )}
             </div>
           </div>
-
-          <DropdownMenuSeparator />
-
-          <DropdownMenuItem className="flex items-center gap-2 cursor-pointer">
-            <User className="w-4 h-4" />
-            Profile
-          </DropdownMenuItem>
-
-          <DropdownMenuItem className="flex items-center gap-2 cursor-pointer">
-            <Settings className="w-4 h-4" />
-            Settings
-          </DropdownMenuItem>
 
           <DropdownMenuSeparator />
 

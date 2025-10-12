@@ -16,6 +16,7 @@ import { HeyGenPhotoAvatarService } from "./services/heygen-photo-avatar";
 import { HeyGenTemplateService } from "./services/heygen-template";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import authRoutes from "./routes/auth";
+import userRoutes from "./routes/user";
 import { requireAuth, requireAgent, optionalAuth } from "./middleware/auth";
 import {
   insertContentPieceSchema,
@@ -224,6 +225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AUTHENTICATION ROUTES
   // =====================================================
   app.use("/api/auth", authRoutes);
+  app.use("/api/user", userRoutes);
 
   // API Key Management
   app.get("/api/openai/status", async (req, res) => {
@@ -2115,11 +2117,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       });
     } catch (error) {
       console.error("Avatar import failed:", error);
-      res
-        .status(400)
-        .json({
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 
@@ -2317,11 +2317,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       res.json({ script, video: updatedVideo });
     } catch (error) {
       console.error("Generate video script error:", error);
-      res
-        .status(500)
-        .json({
-          error: "Failed to generate video script. Please try again later.",
-        });
+      res.status(500).json({
+        error: "Failed to generate video script. Please try again later.",
+      });
     }
   });
 

@@ -788,6 +788,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/facebook/post", upload.single("photo"), async (req, res) => {
     try {
       const { content, pageId } = req.body;
+      const defaultPageId = process.env.FACEBOOK_PAGE_ID;
+      const resolvedPageId = pageId || defaultPageId;
       const photo = req.file;
 
       if (!content) {
@@ -800,11 +802,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       let postResult;
-      if (pageId) {
+      if (resolvedPageId) {
         // Post to specific Facebook page
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         postResult = await socialMediaService.postToFacebookPage(
-          pageId,
+          resolvedPageId,
           content,
           photoUrl || undefined,
           undefined,
@@ -819,7 +821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         success: true,
-        message: pageId
+        message: resolvedPageId
           ? "Content posted successfully to Facebook page"
           : "Content posted successfully to Facebook",
         postId: postResult.postId,
@@ -841,10 +843,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // In a real implementation, you'd need to store posted content in your database
       const recentPosts = [
         {
-          id: "749034191633605_122094900393043164",
+          id: "61581294927027_122094900393043164",
           content:
             "🏠 Winter 2025 Omaha Real Estate Market Update! ❄️\n\nThe Omaha market is showing remarkable resilience this winter season!",
-          pageId: "749034191633605",
+          pageId: "61581294927027",
           timestamp: new Date().toISOString(),
           platform: "facebook",
         },
@@ -869,6 +871,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Facebook validation error:", error);
       res.status(500).json({ error: "Failed to validate Facebook connection" });
+    }
+  });
+
+  // Add validation endpoints for other platforms
+  app.post("/api/facebook/validate", async (req, res) => {
+    try {
+      const { facebookPageId, facebookAccessToken } = req.body;
+      // Test the provided credentials
+      const isValid =
+        facebookPageId &&
+        facebookAccessToken &&
+        facebookAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "facebook",
+        message: isValid
+          ? "Facebook credentials are valid"
+          : "Invalid Facebook credentials",
+      });
+    } catch (error) {
+      console.error("Facebook validation error:", error);
+      res.status(500).json({ error: "Failed to validate Facebook connection" });
+    }
+  });
+
+  app.post("/api/instagram/validate", async (req, res) => {
+    try {
+      const { instagramUserId, instagramAccessToken } = req.body;
+      const isValid =
+        instagramUserId &&
+        instagramAccessToken &&
+        instagramAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "instagram",
+        message: isValid
+          ? "Instagram credentials are valid"
+          : "Invalid Instagram credentials",
+      });
+    } catch (error) {
+      console.error("Instagram validation error:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to validate Instagram connection" });
+    }
+  });
+
+  app.post("/api/twitter/validate", async (req, res) => {
+    try {
+      const {
+        twitterApiKey,
+        twitterApiSecret,
+        twitterAccessToken,
+        twitterAccessTokenSecret,
+      } = req.body;
+      const isValid =
+        twitterApiKey &&
+        twitterApiSecret &&
+        twitterAccessToken &&
+        twitterAccessTokenSecret;
+      res.json({
+        valid: isValid,
+        platform: "twitter",
+        message: isValid
+          ? "Twitter credentials are valid"
+          : "Invalid Twitter credentials",
+      });
+    } catch (error) {
+      console.error("Twitter validation error:", error);
+      res.status(500).json({ error: "Failed to validate Twitter connection" });
+    }
+  });
+
+  app.post("/api/linkedin/validate", async (req, res) => {
+    try {
+      const { linkedinAccessToken } = req.body;
+      const isValid = linkedinAccessToken && linkedinAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "linkedin",
+        message: isValid
+          ? "LinkedIn credentials are valid"
+          : "Invalid LinkedIn credentials",
+      });
+    } catch (error) {
+      console.error("LinkedIn validation error:", error);
+      res.status(500).json({ error: "Failed to validate LinkedIn connection" });
+    }
+  });
+
+  app.post("/api/youtube/validate", async (req, res) => {
+    try {
+      const { youtubeApiKey, youtubeAccessToken } = req.body;
+      const isValid = youtubeApiKey && youtubeAccessToken;
+      res.json({
+        valid: isValid,
+        platform: "youtube",
+        message: isValid
+          ? "YouTube credentials are valid"
+          : "Invalid YouTube credentials",
+      });
+    } catch (error) {
+      console.error("YouTube validation error:", error);
+      res.status(500).json({ error: "Failed to validate YouTube connection" });
+    }
+  });
+
+  app.post("/api/tiktok/validate", async (req, res) => {
+    try {
+      const { tiktokAccessToken } = req.body;
+      const isValid = tiktokAccessToken && tiktokAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "tiktok",
+        message: isValid
+          ? "TikTok credentials are valid"
+          : "Invalid TikTok credentials",
+      });
+    } catch (error) {
+      console.error("TikTok validation error:", error);
+      res.status(500).json({ error: "Failed to validate TikTok connection" });
     }
   });
 

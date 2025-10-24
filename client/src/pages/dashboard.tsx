@@ -1,5 +1,6 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { OverviewCards } from "@/components/dashboard/overview-cards";
+import { SocialSetupReminder } from "@/components/dashboard/social-setup-reminder";
 import { AIContentGenerator } from "@/components/dashboard/ai-content-generator";
 import { SocialMediaManager } from "@/components/dashboard/social-media-manager";
 import { SEOOptimizer } from "@/components/dashboard/seo-optimizer";
@@ -13,6 +14,8 @@ import { APIKeyManager } from "@/components/dashboard/api-key-manager";
 import { StreamingAvatar } from "@/components/dashboard/streaming-avatar";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
 import { TemplateManager } from "@/components/dashboard/template-manager";
+import { SocialLinksPrompt } from "@/components/dashboard/social-links-prompt";
+import { SocialMediaSetup } from "@/components/setup/social-media-setup";
 import UserMenu from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
@@ -21,12 +24,27 @@ import { Sparkles, Bell } from "lucide-react";
 export default function Dashboard() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
+  const [showSocialLinksPrompt, setShowSocialLinksPrompt] = useState(false);
+  const [showSocialMediaSetup, setShowSocialMediaSetup] = useState(false);
 
   const handleGenerateContent = () => {
     setIsGenerating(true);
     // This will be handled by the AI Content Generator component
     setTimeout(() => setIsGenerating(false), 2000);
   };
+
+  // Check if coming from NebraskaHomeHub
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const source = urlParams.get("source");
+    const domain = urlParams.get("domain");
+    const showSetup = urlParams.get("showSetup");
+
+    // Only show setup modal if explicitly requested via URL parameter
+    if (showSetup === "true" && (source === "nebraska-home-hub" || domain)) {
+      setShowSocialMediaSetup(true);
+    }
+  }, []);
 
   // Handle hash navigation
   useEffect(() => {
@@ -48,6 +66,17 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("hashchange", handleHashChange);
     };
+  }, []);
+
+  // Show social links prompt on first visit (only if not coming from NebraskaHomeHub)
+  useEffect(() => {
+    const hasSeenPrompt = localStorage.getItem("socialLinksPromptShown");
+    const urlParams = new URLSearchParams(window.location.search);
+    const isFromNebraska = urlParams.get("source") === "nebraska-home-hub";
+
+    if (!hasSeenPrompt && !isFromNebraska) {
+      setShowSocialLinksPrompt(true);
+    }
   }, []);
 
   const renderActiveView = () => {
@@ -93,6 +122,11 @@ export default function Dashboard() {
         return (
           <>
             <OverviewCards />
+
+            {/* Social Media Setup Reminder */}
+            <SocialSetupReminder
+              onSetupClick={() => setShowSocialMediaSetup(true)}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
@@ -164,6 +198,33 @@ export default function Dashboard() {
         {/* Dashboard Content */}
         <div className="p-6 space-y-6">{renderActiveView()}</div>
       </main>
+
+      {/* Social Links Prompt Modal */}
+      {showSocialLinksPrompt && (
+        <SocialLinksPrompt
+          open={showSocialLinksPrompt}
+          onOpenChange={(open) => {
+            setShowSocialLinksPrompt(open);
+            if (!open) {
+              localStorage.setItem("socialLinksPromptShown", "true");
+            }
+          }}
+        />
+      )}
+
+      {/* Social Media Setup Modal (for NebraskaHomeHub users) */}
+      {showSocialMediaSetup && (
+        <SocialMediaSetup
+          isOpen={showSocialMediaSetup}
+          onClose={() => setShowSocialMediaSetup(false)}
+          onComplete={(config) => {
+            console.log("Social media setup completed:", config);
+            setShowSocialMediaSetup(false);
+            // Optionally redirect to social media manager
+            setActiveView("social");
+          }}
+        />
+      )}
 
       {/* Loading Overlay */}
       {isGenerating && (

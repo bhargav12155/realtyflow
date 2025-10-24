@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,9 +20,59 @@ interface LoginPageProps {
 
 export default function LoginPage({ onSuccess }: LoginPageProps) {
   const { universalLogin, error, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
   const [userIdentifier, setUserIdentifier] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [isAutoLogging, setIsAutoLogging] = useState(false);
+
+  const handleLoginSuccess = () => {
+    if (onSuccess) {
+      onSuccess();
+    } else {
+      // Navigate to dashboard if no onSuccess callback provided
+      setLocation("/");
+    }
+  };
+
+  // Check for auto-login parameters from NebraskaHomeHub
+  useEffect(() => {
+    const checkAutoLogin = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const userEmail = urlParams.get("userEmail");
+      const autoLogin = urlParams.get("autoLogin");
+      const source = urlParams.get("source");
+
+      if (autoLogin === "true" && userEmail && source === "nebraska-home-hub") {
+        console.log("Auto-login detected from NebraskaHomeHub for:", userEmail);
+        setIsAutoLogging(true);
+        setUserIdentifier(userEmail);
+
+        try {
+          const loginResult = await universalLogin(userEmail);
+
+          if (loginResult.success) {
+            setSuccess("Welcome from NebraskaHomeHub!");
+            setTimeout(() => handleLoginSuccess(), 1000);
+          } else {
+            setLocalError(
+              loginResult.message ||
+                "Auto-login failed. Please enter your identifier manually."
+            );
+          }
+        } catch (error) {
+          console.error("Auto-login error:", error);
+          setLocalError(
+            "Auto-login failed. Please enter your identifier manually."
+          );
+        } finally {
+          setIsAutoLogging(false);
+        }
+      }
+    };
+
+    checkAutoLogin();
+  }, [universalLogin, onSuccess]);
 
   // Handle universal login - determine user type automatically
   const handleLogin = async (e: React.FormEvent) => {
@@ -41,7 +92,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
 
     if (loginResult.success) {
       setSuccess("Welcome to RealtyFlow!");
-      setTimeout(() => onSuccess?.(), 1000);
+      setTimeout(() => handleLoginSuccess(), 1000);
     } else {
       setLocalError(
         loginResult.message ||
@@ -102,11 +153,17 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
               </p>
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isLoading || isAutoLogging}
+            >
+              {isLoading || isAutoLogging ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Signing you in...
+                  {isAutoLogging
+                    ? "Auto-signing you in..."
+                    : "Signing you in..."}
                 </>
               ) : (
                 <>

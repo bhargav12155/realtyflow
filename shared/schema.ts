@@ -30,6 +30,8 @@ export const users = pgTable("users", {
   instagramUrl: text("instagram_url"),
   linkedinUrl: text("linkedin_url"),
   xUrl: text("x_url"),
+  youtubeUrl: text("youtube_url"),
+  tiktokUrl: text("tiktok_url"),
   customWebhook: text("custom_webhook"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at"),
@@ -250,6 +252,43 @@ export const properties = pgTable("properties", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// =====================================================
+// 11. SOCIAL API KEYS TABLE (For OAuth/API integrations)
+// =====================================================
+export const socialApiKeys = pgTable("social_api_keys", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  // Facebook
+  facebookAppId: text("facebook_app_id"),
+  facebookAppSecret: text("facebook_app_secret"),
+  // Instagram
+  instagramToken: text("instagram_token"),
+  instagramBusinessAccountId: text("instagram_business_account_id"),
+  // TikTok
+  tiktokApiKey: text("tiktok_api_key"),
+  tiktokApiSecret: text("tiktok_api_secret"),
+  tiktokAccessToken: text("tiktok_access_token"),
+  // Twitter/X
+  twitterApiKey: text("twitter_api_key"),
+  twitterApiSecret: text("twitter_api_secret"),
+  twitterAccessToken: text("twitter_access_token"),
+  twitterAccessTokenSecret: text("twitter_access_token_secret"),
+  twitterBearerToken: text("twitter_bearer_token"),
+  // YouTube
+  youtubeApiKey: text("youtube_api_key"),
+  youtubeChannelId: text("youtube_channel_id"),
+  // LinkedIn
+  linkedinAccessToken: text("linkedin_access_token"),
+  linkedinOrganizationId: text("linkedin_organization_id"),
+  // Flags
+  keysConfigured: boolean("keys_configured").default(false),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -311,6 +350,15 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
   lastUpdated: true,
 });
 
+export const insertSocialApiKeysSchema = createInsertSchema(socialApiKeys).omit(
+  {
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+    lastUpdated: true,
+  }
+);
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -345,3 +393,6 @@ export type InsertVideoContent = z.infer<typeof insertVideoContentSchema>;
 
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
+
+export type SocialApiKeys = typeof socialApiKeys.$inferSelect;
+export type InsertSocialApiKeys = z.infer<typeof insertSocialApiKeysSchema>;

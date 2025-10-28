@@ -256,7 +256,7 @@ export function SocialMediaSetup({
         // Call NebraskaHomeHub API to get social URLs
         // Use development URLs for local development
         const baseUrl =
-          nebraskaDomain === "localhost:5173"
+          nebraskaDomain === "localhost" || nebraskaDomain === "localhost:5173"
             ? "http://localhost:3001"
             : `https://${nebraskaDomain}`;
 

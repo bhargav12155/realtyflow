@@ -4,10 +4,11 @@ import {
   createContext,
   useContext,
   ReactNode,
+  useCallback,
+  useMemo,
 } from "react";
 import {
   AuthState,
-  User,
   LoginCredentials,
   RegisterData,
   PublicUserData,
@@ -46,7 +47,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   });
 
   // Check authentication status on app load
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       setAuthState((prev) => ({ ...prev, isLoading: true, error: null }));
 
@@ -89,164 +90,174 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         error: "Failed to check authentication",
       });
     }
-  };
+  }, []);
 
   // Agent login
-  const login = async (
-    credentials: LoginCredentials
-  ): Promise<AuthResponse> => {
-    try {
-      setAuthState((prev) => ({ ...prev, error: null }));
+  const login = useCallback(
+    async (credentials: LoginCredentials): Promise<AuthResponse> => {
+      try {
+        setAuthState((prev) => ({ ...prev, error: null }));
 
-      const response = await fetch("/api/auth/agent/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(credentials),
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.user) {
-        setAuthState({
-          user: data.user,
-          isAuthenticated: true,
-          isLoading: false,
-          error: null,
+        const response = await fetch("/api/auth/agent/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify(credentials),
         });
-      } else {
-        setAuthState((prev) => ({
-          ...prev,
-          error: data.error || "Login failed",
-        }));
-      }
 
-      return data;
-    } catch (error) {
-      const errorMessage = "Login failed. Please try again.";
-      setAuthState((prev) => ({ ...prev, error: errorMessage }));
-      return { success: false, message: errorMessage };
-    }
-  };
+        const data = await response.json();
+
+        if (data.success && data.user) {
+          setAuthState({
+            user: data.user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          });
+        } else {
+          setAuthState((prev) => ({
+            ...prev,
+            error: data.error || "Login failed",
+          }));
+        }
+
+        return data;
+      } catch (error) {
+        const errorMessage = "Login failed. Please try again.";
+        setAuthState((prev) => ({ ...prev, error: errorMessage }));
+        return { success: false, message: errorMessage };
+      }
+    },
+    []
+  );
 
   // Agent registration
-  const register = async (data: RegisterData): Promise<AuthResponse> => {
-    try {
-      setAuthState((prev) => ({ ...prev, error: null }));
+  const register = useCallback(
+    async (data: RegisterData): Promise<AuthResponse> => {
+      try {
+        setAuthState((prev) => ({ ...prev, error: null }));
 
-      const response = await fetch("/api/auth/agent/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(data),
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.user) {
-        setAuthState({
-          user: result.user,
-          isAuthenticated: true,
-          isLoading: false,
-          error: null,
+        const response = await fetch("/api/auth/agent/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify(data),
         });
-      } else {
-        setAuthState((prev) => ({
-          ...prev,
-          error: result.error || "Registration failed",
-        }));
-      }
 
-      return result;
-    } catch (error) {
-      const errorMessage = "Registration failed. Please try again.";
-      setAuthState((prev) => ({ ...prev, error: errorMessage }));
-      return { success: false, message: errorMessage };
-    }
-  };
+        const result = await response.json();
+
+        if (result.success && result.user) {
+          setAuthState({
+            user: result.user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          });
+        } else {
+          setAuthState((prev) => ({
+            ...prev,
+            error: result.error || "Registration failed",
+          }));
+        }
+
+        return result;
+      } catch (error) {
+        const errorMessage = "Registration failed. Please try again.";
+        setAuthState((prev) => ({ ...prev, error: errorMessage }));
+        return { success: false, message: errorMessage };
+      }
+    },
+    []
+  );
 
   // Public user login (no password required)
-  const publicLogin = async (data: PublicUserData): Promise<AuthResponse> => {
-    try {
-      setAuthState((prev) => ({ ...prev, error: null }));
+  const publicLogin = useCallback(
+    async (data: PublicUserData): Promise<AuthResponse> => {
+      try {
+        setAuthState((prev) => ({ ...prev, error: null }));
 
-      const response = await fetch("/api/auth/public/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(data),
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.user) {
-        setAuthState({
-          user: result.user,
-          isAuthenticated: true,
-          isLoading: false,
-          error: null,
+        const response = await fetch("/api/auth/public/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify(data),
         });
-      } else {
-        setAuthState((prev) => ({
-          ...prev,
-          error: result.error || "Authentication failed",
-        }));
-      }
 
-      return result;
-    } catch (error) {
-      const errorMessage = "Authentication failed. Please try again.";
-      setAuthState((prev) => ({ ...prev, error: errorMessage }));
-      return { success: false, message: errorMessage };
-    }
-  };
+        const result = await response.json();
+
+        if (result.success && result.user) {
+          setAuthState({
+            user: result.user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          });
+        } else {
+          setAuthState((prev) => ({
+            ...prev,
+            error: result.error || "Authentication failed",
+          }));
+        }
+
+        return result;
+      } catch (error) {
+        const errorMessage = "Authentication failed. Please try again.";
+        setAuthState((prev) => ({ ...prev, error: errorMessage }));
+        return { success: false, message: errorMessage };
+      }
+    },
+    []
+  );
 
   // Universal login - auto-detects user type
-  const universalLogin = async (identifier: string): Promise<AuthResponse> => {
-    try {
-      setAuthState((prev) => ({ ...prev, error: null }));
+  const universalLogin = useCallback(
+    async (identifier: string): Promise<AuthResponse> => {
+      try {
+        setAuthState((prev) => ({ ...prev, error: null }));
 
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({ identifier }),
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.user) {
-        setAuthState({
-          user: result.user,
-          isAuthenticated: true,
-          isLoading: false,
-          error: null,
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({ identifier }),
         });
-      } else {
-        setAuthState((prev) => ({
-          ...prev,
-          error: result.error || "Authentication failed",
-        }));
-      }
 
-      return result;
-    } catch (error) {
-      const errorMessage = "Authentication failed. Please try again.";
-      setAuthState((prev) => ({ ...prev, error: errorMessage }));
-      return { success: false, message: errorMessage };
-    }
-  };
+        const result = await response.json();
+
+        if (result.success && result.user) {
+          setAuthState({
+            user: result.user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          });
+        } else {
+          setAuthState((prev) => ({
+            ...prev,
+            error: result.error || "Authentication failed",
+          }));
+        }
+
+        return result;
+      } catch (error) {
+        const errorMessage = "Authentication failed. Please try again.";
+        setAuthState((prev) => ({ ...prev, error: errorMessage }));
+        return { success: false, message: errorMessage };
+      }
+    },
+    []
+  );
 
   // Logout
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", {
         method: "POST",
@@ -263,22 +274,25 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         error: null,
       });
     }
-  };
+  }, []);
 
   // Check auth on mount
   useEffect(() => {
     checkAuth();
-  }, []);
+  }, [checkAuth]);
 
-  const value = {
-    ...authState,
-    login,
-    register,
-    publicLogin,
-    universalLogin,
-    logout,
-    checkAuth,
-  };
+  const value = useMemo<AuthContextType>(
+    () => ({
+      ...authState,
+      login,
+      register,
+      publicLogin,
+      universalLogin,
+      logout,
+      checkAuth,
+    }),
+    [authState, login, register, publicLogin, universalLogin, logout, checkAuth]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

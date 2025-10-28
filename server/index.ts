@@ -6,6 +6,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import cookieParser from "cookie-parser";
+import cors from "cors";
 import path from "path";
 import fs from "fs";
 
@@ -14,6 +15,28 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 app.use(cookieParser());
+
+// CORS configuration for NebraskaHomeHub integration
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173", // NebraskaHomeHub dev
+      "http://localhost:3001", // NebraskaHomeHub dev alternative
+      "http://localhost:3000", // NebraskaHomeHub alternative port
+      "https://bjorkhomes.com",
+      "https://mandy.bjorkhomes.com",
+      "https://nebraskahomehub-bfqh7.ondigitalocean.app", // NebraskaHomeHub DigitalOcean
+      // Add other NebraskaHomeHub domains as needed
+    ],
+    credentials: true,
+  })
+);
+
+// Allow iframe embedding
+app.use((req, res, next) => {
+  res.setHeader("Content-Security-Policy", "frame-ancestors *");
+  next();
+});
 
 // Serve uploaded files
 const uploadsPath = path.resolve(process.cwd(), "uploads");

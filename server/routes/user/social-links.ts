@@ -4,6 +4,8 @@ import { db } from "../../db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
+console.log("🔥 [SOCIAL-LINKS MODULE] Routes file loaded!");
+
 const router = Router();
 
 // Default social links
@@ -21,7 +23,10 @@ const DEFAULT_SOCIAL_LINKS = {
 router.get("/social-links", requireAuth, async (req, res) => {
   try {
     const userId = req.user?.id;
+    console.log("🔍 [GET SOCIAL LINKS] User ID:", userId);
+
     if (!userId) {
+      console.log("❌ [GET SOCIAL LINKS] No user ID - unauthorized");
       return res.status(401).json({ error: "Unauthorized" });
     }
 
@@ -37,20 +42,27 @@ router.get("/social-links", requireAuth, async (req, res) => {
       },
     });
 
+    console.log("📊 [GET SOCIAL LINKS] User data from DB:", user);
+
     if (!user) {
+      console.log("❌ [GET SOCIAL LINKS] User not found in database");
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.json({
+    const responseData = {
       facebookUrl: user.facebookUrl || DEFAULT_SOCIAL_LINKS.facebookUrl,
       instagramUrl: user.instagramUrl || DEFAULT_SOCIAL_LINKS.instagramUrl,
       linkedinUrl: user.linkedinUrl || DEFAULT_SOCIAL_LINKS.linkedinUrl,
       xUrl: user.xUrl || DEFAULT_SOCIAL_LINKS.twitterUrl,
       youtubeUrl: user.youtubeUrl || DEFAULT_SOCIAL_LINKS.youtubeUrl,
       tiktokUrl: user.tiktokUrl || DEFAULT_SOCIAL_LINKS.tiktokUrl,
-    });
+    };
+
+    console.log("📤 [GET SOCIAL LINKS] Sending response:", responseData);
+
+    res.json(responseData);
   } catch (error) {
-    console.error("Error fetching social links:", error);
+    console.error("❌ [GET SOCIAL LINKS] Error:", error);
     res.status(500).json({ error: "Failed to fetch social links" });
   }
 });
@@ -59,7 +71,10 @@ router.get("/social-links", requireAuth, async (req, res) => {
 router.post("/social-links", requireAuth, async (req, res) => {
   try {
     const userId = req.user?.id;
+    console.log("🔗 [SAVE SOCIAL LINKS] User ID:", userId);
+
     if (!userId) {
+      console.log("❌ [SAVE SOCIAL LINKS] No user ID - unauthorized");
       return res.status(401).json({ error: "Unauthorized" });
     }
 
@@ -72,21 +87,33 @@ router.post("/social-links", requireAuth, async (req, res) => {
       tiktokUrl,
     } = req.body;
 
-    // Update user record
-    await db
-      .update(users)
-      .set({
-        facebookUrl: facebookUrl || null,
-        instagramUrl: instagramUrl || null,
-        linkedinUrl: linkedinUrl || null,
-        xUrl: xUrl || null,
-        youtubeUrl: youtubeUrl || null,
-        tiktokUrl: tiktokUrl || null,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId));
+    console.log("📥 [SAVE SOCIAL LINKS] Received data:", {
+      facebookUrl,
+      instagramUrl,
+      linkedinUrl,
+      xUrl,
+      youtubeUrl,
+      tiktokUrl,
+    });
 
-    res.json({
+    // Update user record
+    const updateData = {
+      facebookUrl: facebookUrl || null,
+      instagramUrl: instagramUrl || null,
+      linkedinUrl: linkedinUrl || null,
+      xUrl: xUrl || null,
+      youtubeUrl: youtubeUrl || null,
+      tiktokUrl: tiktokUrl || null,
+      updatedAt: new Date(),
+    };
+
+    console.log("💾 [SAVE SOCIAL LINKS] Updating database with:", updateData);
+
+    await db.update(users).set(updateData).where(eq(users.id, userId));
+
+    console.log("✅ [SAVE SOCIAL LINKS] Database updated successfully");
+
+    const responseData = {
       success: true,
       message: "Social links saved successfully",
       socialLinks: {
@@ -97,9 +124,13 @@ router.post("/social-links", requireAuth, async (req, res) => {
         youtubeUrl: youtubeUrl || DEFAULT_SOCIAL_LINKS.youtubeUrl,
         tiktokUrl: tiktokUrl || DEFAULT_SOCIAL_LINKS.tiktokUrl,
       },
-    });
+    };
+
+    console.log("📤 [SAVE SOCIAL LINKS] Sending response:", responseData);
+
+    res.json(responseData);
   } catch (error) {
-    console.error("Error saving social links:", error);
+    console.error("❌ [SAVE SOCIAL LINKS] Error:", error);
     res.status(500).json({ error: "Failed to save social links" });
   }
 });

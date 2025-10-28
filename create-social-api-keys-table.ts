@@ -14,18 +14,36 @@ const db = drizzle(sql);
 
 async function createSocialApiKeysTable() {
   try {
-    console.log("Creating social_api_keys table...");
+    console.log("Dropping old social_api_keys table if exists...");
+    await sql.query(`DROP TABLE IF EXISTS social_api_keys;`);
 
-    // Create the social_api_keys table
+    console.log("Creating social_api_keys table with correct schema...");
+
+    // Create the social_api_keys table matching schema.ts
     await sql.query(`
-      CREATE TABLE IF NOT EXISTS social_api_keys (
-        id SERIAL PRIMARY KEY,
-        user_id VARCHAR(255) NOT NULL,
-        platform VARCHAR(50) NOT NULL,
-        api_key_data JSONB NOT NULL,
-        created_at TIMESTAMP DEFAULT NOW(),
-        updated_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(user_id, platform)
+      CREATE TABLE social_api_keys (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id VARCHAR NOT NULL,
+        facebook_app_id TEXT,
+        facebook_app_secret TEXT,
+        instagram_token TEXT,
+        instagram_business_account_id TEXT,
+        tiktok_api_key TEXT,
+        tiktok_api_secret TEXT,
+        tiktok_access_token TEXT,
+        twitter_api_key TEXT,
+        twitter_api_secret TEXT,
+        twitter_access_token TEXT,
+        twitter_access_token_secret TEXT,
+        twitter_bearer_token TEXT,
+        youtube_api_key TEXT,
+        youtube_channel_id TEXT,
+        linkedin_access_token TEXT,
+        linkedin_organization_id TEXT,
+        keys_configured BOOLEAN DEFAULT false,
+        last_updated TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at TIMESTAMP DEFAULT NOW()
       );
     `);
 
@@ -33,8 +51,8 @@ async function createSocialApiKeysTable() {
 
     // Create an index for better performance
     await sql.query(`
-      CREATE INDEX IF NOT EXISTS idx_social_api_keys_user_platform 
-      ON social_api_keys(user_id, platform);
+      CREATE INDEX IF NOT EXISTS idx_social_api_keys_user_id 
+      ON social_api_keys(user_id);
     `);
 
     console.log("✅ Index created successfully!");

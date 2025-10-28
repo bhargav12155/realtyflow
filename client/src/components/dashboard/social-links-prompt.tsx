@@ -54,19 +54,44 @@ export function SocialLinksPrompt({
 
   const fetchSocialLinks = async () => {
     try {
+      console.log(
+        "🔍 [CLIENT] Fetching social links from /api/user/social-links"
+      );
       const response = await fetch("/api/user/social-links", {
         credentials: "include",
       });
+      console.log("📊 [CLIENT] Response status:", response.status);
+      console.log("📊 [CLIENT] Response headers:", response.headers);
+
       if (response.ok) {
-        const data = await response.json();
-        setSocialLinks({
-          facebookUrl: data.facebookUrl || DEFAULT_SOCIAL_LINKS.facebookUrl,
-          twitterUrl: data.xUrl || DEFAULT_SOCIAL_LINKS.twitterUrl,
-          linkedinUrl: data.linkedinUrl || DEFAULT_SOCIAL_LINKS.linkedinUrl,
-          instagramUrl: data.instagramUrl || DEFAULT_SOCIAL_LINKS.instagramUrl,
-          youtubeUrl: data.youtubeUrl || DEFAULT_SOCIAL_LINKS.youtubeUrl,
-          tiktokUrl: data.tiktokUrl || DEFAULT_SOCIAL_LINKS.tiktokUrl,
-        });
+        const text = await response.text();
+        console.log("📄 [CLIENT] Raw response text:", text);
+
+        try {
+          const data = JSON.parse(text);
+          console.log("✅ [CLIENT] Parsed JSON data:", data);
+          setSocialLinks({
+            facebookUrl: data.facebookUrl || DEFAULT_SOCIAL_LINKS.facebookUrl,
+            twitterUrl: data.xUrl || DEFAULT_SOCIAL_LINKS.twitterUrl,
+            linkedinUrl: data.linkedinUrl || DEFAULT_SOCIAL_LINKS.linkedinUrl,
+            instagramUrl:
+              data.instagramUrl || DEFAULT_SOCIAL_LINKS.instagramUrl,
+            youtubeUrl: data.youtubeUrl || DEFAULT_SOCIAL_LINKS.youtubeUrl,
+            tiktokUrl: data.tiktokUrl || DEFAULT_SOCIAL_LINKS.tiktokUrl,
+          });
+        } catch (parseError) {
+          console.error("❌ [CLIENT] JSON parse error:", parseError);
+          console.error(
+            "❌ [CLIENT] Response was not JSON, got:",
+            text.substring(0, 200)
+          );
+        }
+      } else {
+        console.error(
+          "❌ [CLIENT] Response not OK:",
+          response.status,
+          response.statusText
+        );
       }
     } catch (error) {
       console.error("Error fetching social links:", error);
@@ -98,7 +123,7 @@ export function SocialLinksPrompt({
           description: "Your social links have been saved!",
         });
         onSave?.();
-        onClose();
+        onOpenChange(false);
       } else {
         throw new Error("Failed to save social links");
       }

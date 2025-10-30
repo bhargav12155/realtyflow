@@ -22,6 +22,11 @@ function Router() {
           <Dashboard />
         </ProtectedRoute>
       </Route>
+      <Route path="/dashboard">
+        <ProtectedRoute>
+          <Dashboard />
+        </ProtectedRoute>
+      </Route>
       <Route path="/social-media">
         <ProtectedRoute>
           <SocialMediaPage />

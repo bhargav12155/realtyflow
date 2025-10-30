@@ -261,11 +261,16 @@ export class HeyGenPhotoAvatarService {
   }
 
   // Train avatar group (LORA model)
-  async trainAvatarGroup(groupId: string) {
-    const payload = {
+  async trainAvatarGroup(groupId: string, defaultVoiceId?: string) {
+    const payload: any = {
       group_id: groupId,
       training_mode: "lora_training",
     };
+
+    // Add default voice if provided
+    if (defaultVoiceId) {
+      payload.default_voice_id = defaultVoiceId;
+    }
 
     console.log(
       "🚀 HeyGen: Training avatar group with payload:",

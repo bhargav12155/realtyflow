@@ -125,6 +125,37 @@ export const avatars = pgTable("avatars", {
 });
 
 // =====================================================
+// CUSTOM VOICES TABLE (User Recorded Voices)
+// =====================================================
+export const customVoices = pgTable("custom_voices", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull(), // User-given name like "My Professional Voice"
+  audioUrl: text("audio_url").notNull(), // S3 URL or local path to the audio file
+  duration: integer("duration"), // Duration in seconds (optional)
+  fileSize: integer("file_size"), // File size in bytes (optional)
+  heygenAudioAssetId: text("heygen_audio_asset_id"), // HeyGen audio asset ID for video generation
+  status: text("status").notNull().default('pending'), // 'pending', 'ready', 'failed'
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =====================================================
+// PHOTO AVATAR GROUP VOICES TABLE
+// =====================================================
+export const photoAvatarGroupVoices = pgTable("photo_avatar_group_voices", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  groupId: text("group_id").notNull(), // HeyGen avatar group ID
+  audioUrl: text("audio_url").notNull(), // S3 URL to the audio file
+  heygenAudioAssetId: text("heygen_audio_asset_id"), // HeyGen audio asset ID for voice cloning
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =====================================================
 // 5. VIDEO CONTENT TABLE (YouTube & Video)
 // =====================================================
 export const videoContent = pgTable("video_content", {
@@ -414,6 +445,11 @@ export const insertSocialApiKeysSchema = createInsertSchema(socialApiKeys).omit(
   updatedAt: true,
 });
 
+export const insertCustomVoiceSchema = createInsertSchema(customVoices).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -448,6 +484,12 @@ export type InsertVideoContent = z.infer<typeof insertVideoContentSchema>;
 
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
+
+export type CustomVoice = typeof customVoices.$inferSelect;
+export type InsertCustomVoice = z.infer<typeof insertCustomVoiceSchema>;
+
+export type PhotoAvatarGroupVoice = typeof photoAvatarGroupVoices.$inferSelect;
+export type InsertPhotoAvatarGroupVoice = typeof photoAvatarGroupVoices.$inferInsert;
 
 // Legacy types (keeping for compatibility)
 export type UpsertUser = typeof users.$inferInsert;

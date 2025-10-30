@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import path from "path";
@@ -227,9 +227,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =====================================================
   // NEBRASKA HOME HUB INTEGRATION ENDPOINT
   // =====================================================
-  app.get("/integration", (req, res) => {
+  app.get("/integration", (req: Request, res: Response, next: NextFunction) => {
     try {
       const { source, domain, userEmail, agentSlug, timestamp } = req.query;
+      const acceptHeader = String(req.headers.accept || "").toLowerCase();
 
       // Validate trusted domains
       const trustedDomains = [
@@ -237,23 +238,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "nebraskahomehub.com",
         "bjorkhomes.com",
         "mandy.bjorkhomes.com",
+        "elasticbeanstalk.com", // AWS Elastic Beanstalk deployments
+        "imakepage.com", // iMakePage platform
       ];
 
-      const requestDomain = (domain as string) || "";
-      const isTrusted = trustedDomains.some((trusted) =>
-        requestDomain.includes(trusted)
-      );
+      const requestDomain = typeof domain === "string" ? domain : "";
+      const isTrusted =
+        !requestDomain ||
+        trustedDomains.some((trusted) => requestDomain.includes(trusted));
 
       if (!isTrusted) {
         console.warn(`⚠️ Untrusted integration request from: ${domain}`);
+        if (acceptHeader.includes("text/html")) {
+          return res
+            .status(403)
+            .send("Integration not allowed from this domain");
+        }
         return res.status(403).json({
           error: "Integration not allowed from this domain",
         });
       }
 
       // Validate source
-      if (source !== "nebraska-home-hub") {
+      const normalizedSource = typeof source === "string" ? source : undefined;
+      if (normalizedSource && normalizedSource !== "nebraska-home-hub") {
         console.warn(`⚠️ Unknown integration source: ${source}`);
+        if (acceptHeader.includes("text/html")) {
+          return res.status(403).send("Unknown integration source");
+        }
         return res.status(403).json({
           error: "Unknown integration source",
         });
@@ -261,21 +273,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Log the integration request
       console.log(
-        `🔗 Integration request from ${source} - domain: ${domain}, agent: ${agentSlug}`
+        `🔗 Integration request from ${
+          normalizedSource || "unknown"
+        } - domain: ${domain}, agent: ${agentSlug}`
       );
+
+      if (acceptHeader.includes("text/html")) {
+        return next();
+      }
+
+      const resolvedAppUrl =
+        process.env.REALTYFLOW_APP_URL ||
+        (process.env.NODE_ENV === "production"
+          ? "https://www.imakepage.com/realtyflow"
+          : process.env.CLIENT_URL ||
+            process.env.BASE_URL ||
+            "http://localhost:5000");
+
+      const appUrl = String(resolvedAppUrl).replace(/\/+$/, "");
+
+      const params = new URLSearchParams();
+      if (userEmail) {
+        params.set("bypassAuth", "true");
+        params.set("userId", userEmail as string);
+        params.set("userType", "public");
+        params.set("autoLogin", "true");
+      }
+      if (agentSlug) {
+        params.set("agentSlug", agentSlug as string);
+      }
+
+      const query = params.toString();
+      const iframeUrl = `${appUrl}/integration${query ? `?${query}` : ""}`;
 
       // Return integration configuration with tenant-scoped data
       res.json({
         success: true,
-        source: source || "unknown",
+        source: normalizedSource || "unknown",
         timestamp: timestamp || new Date().toISOString(),
         config: {
-          appUrl: `http://localhost:5000`,
-          iframeUrl: `http://localhost:5000/?bypassAuth=true&userId=${
-            userEmail || "guest"
-          }&userType=public&agentSlug=${agentSlug || "default"}`,
+          appUrl: appUrl,
+          iframeUrl: iframeUrl,
           authBypass: true,
-          agentSlug: agentSlug, // Limit scope to specific agent
+          agentSlug: agentSlug,
+          userEmail: userEmail || null,
         },
         message: "RealtyFlow integration ready",
       });
@@ -2374,6 +2415,173 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // ======================================
+  // CUSTOM VOICES ENDPOINTS
+  // ======================================
+
+  // List all custom voices for the current user
+  app.get("/api/custom-voices", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const voices = await storage.listCustomVoices(user.id);
+      res.json(voices);
+    } catch (error) {
+      console.error("Failed to fetch custom voices:", error);
+      res.status(500).json({ error: "Failed to fetch custom voices" });
+    }
+  });
+
+  // Upload and save a new custom voice
+  app.post(
+    "/api/custom-voices",
+    requireAuth,
+    upload.single("audio"),
+    async (req, res) => {
+      try {
+        const user = (req as any).user;
+        const { name } = req.body;
+        const file = req.file;
+
+        if (!file) {
+          return res.status(400).json({ error: "No audio file provided" });
+        }
+
+        if (!name || name.trim().length === 0) {
+          return res.status(400).json({ error: "Voice name is required" });
+        }
+
+        // Read the file as a Buffer
+        const fileBuffer = fs.readFileSync(file.path);
+
+        // Get file stats
+        const stats = fs.statSync(file.path);
+
+        // Determine file extension
+        const ext = path.extname(file.originalname);
+        const fileName = `voice-library/${nanoid()}${ext}`;
+
+        // Upload audio file to S3
+        const s3Service = new S3UploadService();
+        const audioUrl = await s3Service.uploadFile(
+          Number(user.id),
+          fileBuffer,
+          fileName,
+          file.mimetype
+        );
+
+        let heygenAudioAssetId: string | undefined;
+        let status = "pending";
+
+        // Upload to HeyGen for voice cloning
+        try {
+          console.log("🎤 Uploading audio to HeyGen for voice cloning...");
+
+          // Upload to HeyGen (reuse fileBuffer from above)
+          const heygenService = new HeyGenService();
+          heygenAudioAssetId = await heygenService.uploadAudio(
+            fileBuffer,
+            file.mimetype
+          );
+          status = "ready";
+
+          console.log(
+            "✅ HeyGen upload successful! Audio Asset ID:",
+            heygenAudioAssetId
+          );
+        } catch (heygenError) {
+          console.error("❌ HeyGen upload failed:", heygenError);
+          status = "failed";
+          // Continue anyway - user can still manage the voice in library
+        }
+
+        // Create custom voice record with HeyGen asset ID
+        const voice = await storage.createCustomVoice({
+          userId: user.id,
+          name: name.trim(),
+          audioUrl,
+          fileSize: stats.size,
+          heygenAudioAssetId,
+          status,
+        });
+
+        // Clean up uploaded file
+        fs.unlinkSync(file.path);
+
+        res.status(201).json(voice);
+      } catch (error) {
+        console.error("Failed to create custom voice:", error);
+        res.status(500).json({ error: "Failed to create custom voice" });
+      }
+    }
+  );
+
+  // Delete a custom voice
+  app.delete("/api/custom-voices/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+
+      await storage.deleteCustomVoice(id, user.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete custom voice:", error);
+      res.status(500).json({ error: "Failed to delete custom voice" });
+    }
+  });
+
+  // Serve custom voice audio file from S3
+  app.get("/api/custom-voices/:id/audio", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+
+      console.log(`🎵 Fetching audio for voice ID: ${id}, user ID: ${user.id}`);
+
+      const voice = await storage.getCustomVoice(id);
+      console.log(
+        `📊 Voice found:`,
+        voice
+          ? `Yes (userId: ${voice.userId}, audioUrl: ${voice.audioUrl})`
+          : "No"
+      );
+
+      if (!voice) {
+        console.log(`❌ Voice not found in database`);
+        return res.status(404).json({ error: "Voice not found" });
+      }
+
+      if (voice.userId !== user.id.toString()) {
+        console.log(
+          `❌ User ID mismatch: voice.userId=${voice.userId}, user.id=${user.id}`
+        );
+        return res.status(404).json({ error: "Voice not found" });
+      }
+
+      console.log(`📥 Fetching file from S3: ${voice.audioUrl}`);
+      const s3Service = new S3UploadService();
+      const audioBuffer = await s3Service.getFile(voice.audioUrl);
+      console.log(
+        `✅ Audio file retrieved from S3, size: ${audioBuffer.length} bytes`
+      );
+
+      // Determine content type from file extension
+      const ext = path.extname(voice.audioUrl).toLowerCase();
+      const contentType =
+        ext === ".wav"
+          ? "audio/wav"
+          : ext === ".mp3"
+          ? "audio/mpeg"
+          : "audio/mpeg";
+
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400"); // Cache for 1 day
+      res.send(audioBuffer);
+    } catch (error) {
+      console.error("❌ Failed to serve custom voice audio:", error);
+      res.status(500).json({ error: "Failed to load audio file" });
+    }
+  });
+
   // Proxy endpoint for HeyGen images to avoid CORS issues
   app.get("/api/proxy/heygen-image", async (req, res) => {
     try {
@@ -2685,93 +2893,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  // Check video generation status (with HeyGen support)
-  app.get("/api/videos/:id/status", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const video = await storage.getVideoById(id);
-
-      if (!video) {
-        return res.status(404).json({ error: "Video not found" });
-      }
-
-      // If video has HeyGen video ID, check HeyGen status using correct endpoint
-      if (
-        video.metadata &&
-        typeof video.metadata === "object" &&
-        "heygenVideoId" in video.metadata
-      ) {
-        try {
-          const heygenService = new HeyGenService();
-          const heygenVideo = await heygenService.getVideo(
-            (video.metadata as any).heygenVideoId
-          );
-
-          if (heygenVideo.code === 100 && heygenVideo.data) {
-            const status = heygenVideo.data.status;
-            let newStatus = "generating";
-
-            // Map HeyGen status to our status (per documentation: pending, processing, completed, failed)
-            if (status === "completed") {
-              newStatus = "ready";
-              // Update video with final URL
-              await storage.updateVideoContent(id, {
-                status: newStatus,
-                videoUrl: heygenVideo.data.video_url,
-                thumbnailUrl: heygenVideo.data.thumbnail_url,
-                duration: heygenVideo.data.duration,
-              });
-
-              // Send real-time notification
-              if (video.userId) {
-                realtimeService.notifyVideoCreated(
-                  video.userId,
-                  id,
-                  video.title || "Your Video"
-                );
-              }
-            } else if (status === "failed") {
-              newStatus = "failed";
-              const errorMessage =
-                heygenVideo.data.error?.message || "Video generation failed";
-              await storage.updateVideoContent(id, {
-                status: newStatus,
-                metadata: {
-                  ...(video.metadata || {}),
-                  error: errorMessage,
-                },
-              });
-            } else if (status === "pending" || status === "waiting") {
-              newStatus = "pending";
-            } else if (status === "processing") {
-              newStatus = "generating";
-            }
-
-            return res.json({
-              status: newStatus,
-              heygenStatus: status,
-              videoUrl: heygenVideo.data.video_url,
-              thumbnailUrl: heygenVideo.data.thumbnail_url,
-              duration: heygenVideo.data.duration,
-              error: heygenVideo.data.error,
-            });
-          }
-        } catch (heygenError) {
-          console.error("Failed to get HeyGen video status:", heygenError);
-        }
-      }
-
-      // Return current video status from database
-      res.json({
-        status: video.status,
-        videoUrl: video.videoUrl,
-        thumbnailUrl: video.thumbnailUrl,
-      });
-    } catch (error) {
-      console.error("Get video status error:", error);
-      res.status(500).json({ error: "Failed to get video status" });
-    }
-  });
+  // Note: Old video status route removed - using HeyGen-compatible route at line ~3425
 
   app.post("/api/videos/:id/upload-youtube", async (req, res) => {
     try {
@@ -3011,12 +3133,17 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // List avatar groups
-  app.get("/api/photo-avatars/groups", async (req, res) => {
+  app.get("/api/photo-avatars/groups", requireAuth, async (req, res) => {
     try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
       const groups = await photoAvatarService.listAvatarGroups();
 
-      // Enrich each group with actual look counts. If a group has looks, consider it "ready" regardless of train_status.
+      // Enrich each group with actual look counts and custom voice data
       const mappedGroups = await Promise.all(
         (groups.avatar_group_list || []).map(async (group: any) => {
           // Fallbacks for API field variations
@@ -3034,6 +3161,35 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             );
           }
 
+          // Get custom voice for this group if any
+          let defaultVoiceId = null;
+          try {
+            console.log(
+              `🔍 Looking up custom voice for group ${groupId}, userId: ${userId}`
+            );
+            const customVoice = await storage.getPhotoAvatarGroupVoice(
+              groupId,
+              userId
+            );
+            console.log(
+              `📊 Custom voice result for group ${groupId}:`,
+              customVoice
+            );
+            if (customVoice?.heygenAudioAssetId) {
+              defaultVoiceId = customVoice.heygenAudioAssetId;
+              console.log(
+                `✅ Found custom voice for group ${groupId}: ${defaultVoiceId}`
+              );
+            } else {
+              console.log(`ℹ️ No custom voice found for group ${groupId}`);
+            }
+          } catch (e) {
+            console.error(
+              `❌ Error fetching custom voice for group ${groupId}:`,
+              e
+            );
+          }
+
           // Determine status: if any looks exist, mark as ready
           const rawStatus = group.train_status || group.status || "pending";
           const status = looksCount > 0 ? "ready" : rawStatus;
@@ -3042,6 +3198,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             group_id: groupId,
             name: group.name,
             status,
+            default_voice_id: defaultVoiceId,
             created_at: group.created_at
               ? new Date(group.created_at * 1000).toISOString()
               : new Date().toISOString(),
@@ -3161,9 +3318,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/photo-avatars/groups/:groupId/train", async (req, res) => {
     try {
       const { groupId } = req.params;
+      const { defaultVoiceId } = req.body;
 
       const photoAvatarService = new HeyGenPhotoAvatarService();
-      const result = await photoAvatarService.trainAvatarGroup(groupId);
+      const result = await photoAvatarService.trainAvatarGroup(
+        groupId,
+        defaultVoiceId
+      );
 
       res.json(result);
     } catch (error) {
@@ -3223,6 +3384,99 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       res.status(500).json({ error: "Failed to delete avatar group" });
     }
   });
+
+  // Save voice recording to avatar group
+  app.post(
+    "/api/photo-avatars/groups/:groupId/voice",
+    requireAuth,
+    upload.single("voiceRecording"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No voice recording uploaded" });
+        }
+
+        const userId = req.user?.id;
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        const { groupId } = req.params;
+
+        console.log("🎤 Uploading voice recording to avatar group:", {
+          groupId,
+          filename: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+        });
+
+        // Read the file buffer
+        const fileBuffer = fs.readFileSync(req.file.path);
+
+        // Upload audio file to S3
+        const s3Service = new S3UploadService();
+        const audioUrl = await s3Service.uploadFile(
+          userId,
+          fileBuffer,
+          `avatar-voices/${groupId}/${nanoid()}_${req.file.originalname}`,
+          req.file.mimetype
+        );
+
+        console.log("✅ Voice uploaded to S3:", audioUrl);
+
+        let heygenAudioAssetId: string | undefined;
+
+        // Upload to HeyGen for voice cloning
+        try {
+          console.log("🎤 Uploading audio to HeyGen for voice cloning...");
+
+          const heygenService = new HeyGenService();
+          heygenAudioAssetId = await heygenService.uploadAudio(
+            fileBuffer,
+            req.file.mimetype
+          );
+
+          console.log(
+            "✅ HeyGen upload successful! Audio Asset ID:",
+            heygenAudioAssetId
+          );
+        } catch (heygenError) {
+          console.error("❌ HeyGen upload failed:", heygenError);
+          // Continue anyway - voice is saved to S3
+        }
+
+        // Store the voice metadata in the database
+        if (heygenAudioAssetId) {
+          try {
+            await storage.savePhotoAvatarGroupVoice({
+              userId,
+              groupId,
+              audioUrl,
+              heygenAudioAssetId,
+            });
+            console.log(
+              `✅ Voice ${heygenAudioAssetId} saved to database for group ${groupId}`
+            );
+          } catch (dbError) {
+            console.error("Failed to save voice to database:", dbError);
+          }
+        }
+
+        // Clean up uploaded file
+        fs.unlinkSync(req.file.path);
+
+        res.json({
+          success: true,
+          audioUrl,
+          heygenAudioAssetId,
+          message: "Voice recording saved successfully",
+        });
+      } catch (error) {
+        console.error("Failed to save voice recording:", error);
+        res.status(500).json({ error: "Failed to save voice recording" });
+      }
+    }
+  );
 
   // Upload custom photo for photo avatar
   app.post(
@@ -3378,7 +3632,17 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   // Generate video from avatar and script
   app.post("/api/videos/generate", requireAuth, async (req, res) => {
     try {
-      const { avatarId, script, title, test, isTalkingPhoto } = req.body;
+      const {
+        avatarId,
+        script,
+        title,
+        test,
+        isTalkingPhoto,
+        voiceSpeed,
+        voiceId,
+        customVoiceAvatarId,
+        voiceLibraryId,
+      } = req.body;
 
       console.log("🎬 Backend: Video generation request received");
       console.log("🎬 Backend: Avatar ID:", avatarId);
@@ -3386,6 +3650,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       console.log("🎬 Backend: Title:", title);
       console.log("🎬 Backend: Test mode:", test);
       console.log("🎬 Backend: isTalkingPhoto:", isTalkingPhoto);
+      console.log("🎬 Backend: Voice speed:", voiceSpeed);
+      console.log("🎬 Backend: Voice ID:", voiceId);
+      console.log("🎬 Backend: Custom voice avatar ID:", customVoiceAvatarId);
+      console.log("🎬 Backend: Voice Library ID:", voiceLibraryId);
 
       if (!avatarId || !script) {
         console.log("❌ Backend: Validation failed:", {
@@ -3397,6 +3665,68 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         });
       }
 
+      // Handle custom voice if provided
+      let finalVoiceId = voiceId;
+      let audioAssetId: string | undefined;
+
+      // Handle Voice Library voices
+      if (voiceId === "voice_library" && voiceLibraryId) {
+        const user = (req as any).user;
+        const voices = await storage.listCustomVoices(user.id);
+        const voiceLibraryVoice = voices.find((v) => v.id === voiceLibraryId);
+
+        if (
+          voiceLibraryVoice?.heygenAudioAssetId &&
+          voiceLibraryVoice.status === "ready"
+        ) {
+          console.log("🎤 Backend: Voice Library voice detected!");
+          console.log(
+            "🎤 Backend: Audio Asset ID:",
+            voiceLibraryVoice.heygenAudioAssetId
+          );
+          audioAssetId = voiceLibraryVoice.heygenAudioAssetId;
+          finalVoiceId = undefined; // Don't use text voice when using audio
+        } else {
+          console.log(
+            "⚠️ Backend: Voice Library voice not ready or missing asset ID, using fallback"
+          );
+          finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
+        }
+      } else if (voiceId === "custom_voice" && customVoiceAvatarId) {
+        const customAvatar = await storage.getAvatarById(customVoiceAvatarId);
+        if (customAvatar?.metadata?.voiceRecordingUrl) {
+          console.log(
+            "🎤 Backend: Custom voice detected, using default voice as fallback"
+          );
+          console.log(
+            "🎤 Backend: Custom voice URL:",
+            customAvatar.metadata.voiceRecordingUrl
+          );
+          // TODO: Upload custom voice to HeyGen for voice cloning
+          // For now, use professional voice as fallback
+          finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
+        }
+      } else if (voiceId) {
+        // Check if voiceId is actually a custom voice audio asset ID from a photo avatar group
+        const user = (req as any).user;
+        const allPhotoAvatarGroupVoices =
+          await storage.listPhotoAvatarGroupVoices(user.id);
+        const matchingGroupVoice = allPhotoAvatarGroupVoices.find(
+          (v) => v.heygenAudioAssetId === voiceId
+        );
+
+        if (matchingGroupVoice) {
+          console.log("🎤 Backend: Photo Avatar Group custom voice detected!");
+          console.log("🎤 Backend: Group ID:", matchingGroupVoice.groupId);
+          console.log(
+            "🎤 Backend: Audio Asset ID:",
+            matchingGroupVoice.heygenAudioAssetId
+          );
+          audioAssetId = matchingGroupVoice.heygenAudioAssetId;
+          finalVoiceId = undefined; // Don't use text voice when using audio
+        }
+      }
+
       const heyGenService = new HeyGenService();
       console.log("🎬 Backend: Calling HeyGenService.generateVideo");
 
@@ -3406,6 +3736,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         title: title || "Generated Video",
         test: test || false,
         isTalkingPhoto: !!isTalkingPhoto,
+        speed: voiceSpeed || 1.0,
+        voiceId: finalVoiceId,
+        audioAssetId,
       });
 
       console.log("✅ Backend: Video generation result:", result);

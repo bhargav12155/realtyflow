@@ -57,42 +57,43 @@ export function AvatarPhotoGallery({ groupId }: AvatarPhotoGalleryProps) {
 
   return (
     <>
-      {/* Large Portrait Images Grid - Like HeyGen */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Compact Avatar Gallery - Professional Grid */}
+      <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {photos.map((photo, index) => (
           <button
             key={photo.id || index}
             onClick={() => setSelectedPhoto(photo)}
-            className="relative group rounded-lg overflow-hidden border-2 border-gray-200 hover:border-[#D4AF37] transition-all duration-200 hover:shadow-xl bg-gray-50"
-            style={{ aspectRatio: '3/4' }}
+            className="relative group rounded-lg overflow-hidden border-2 border-gray-200 hover:border-[#D4AF37] transition-all duration-200 hover:shadow-lg bg-gray-50 w-full"
             data-testid={`avatar-photo-${index}`}
           >
-            <img
-              src={photo.url}
-              alt={photo.name || `Avatar ${index + 1}`}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(photo.name || 'Avatar')}&background=D4AF37&color=fff&size=400`;
-              }}
-            />
+            <div className="aspect-[3/4] w-full">
+              <img
+                src={photo.url}
+                alt={photo.name || `Avatar ${index + 1}`}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement;
+                  target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(photo.name || 'Avatar')}&background=D4AF37&color=fff&size=400`;
+                }}
+              />
+            </div>
             
-            {/* Hover Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="absolute bottom-0 left-0 right-0 p-3">
-                <div className="flex items-center justify-between text-white">
-                  <ZoomIn className="w-5 h-5" />
+            {/* Hover Overlay - Compact */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute bottom-0 left-0 right-0 p-2">
+                <div className="flex items-center justify-center gap-2 text-white">
+                  <ZoomIn className="w-4 h-4" />
                   {photo.motion_preview_url && (
-                    <Play className="w-5 h-5" />
+                    <Play className="w-4 h-4" />
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Preview Badge */}
+            {/* Preview Badge - Smaller */}
             {photo.motion_preview_url && (
-              <div className="absolute top-2 right-2 bg-[#D4AF37] text-white text-xs px-2 py-1 rounded-full font-medium flex items-center gap-1">
-                <Play className="w-3 h-3" />
+              <div className="absolute top-1 right-1 bg-[#D4AF37] text-white text-[10px] px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5">
+                <Play className="w-2.5 h-2.5" />
                 Video
               </div>
             )}

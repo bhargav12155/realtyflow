@@ -23,8 +23,12 @@ app.use(
     origin: [
       "http://localhost:5173", // NebraskaHomeHub dev
       "http://localhost:3001", // NebraskaHomeHub dev alternative
+      "http://gb-home-template-env-dev.eba-pisu79mx.us-east-2.elasticbeanstalk.com",
+      "https://gb-home-template-env-dev.eba-pisu79mx.us-east-2.elasticbeanstalk.com",
       "https://bjorkhomes.com",
       "https://mandy.bjorkhomes.com",
+      "https://www.imakepage.com",
+      "https://imakepage.com",
       // Add other NebraskaHomeHub domains as needed
     ],
     credentials: true,

@@ -42,6 +42,17 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AvatarPhotoGallery } from "./avatar-photo-gallery";
+import { VoiceLibraryManager } from "./voice-library-manager";
+
+// Professional HeyGen Voices
+const PROFESSIONAL_VOICES = [
+  { id: "92c93dc0dff2428ab0bea258ba68f173", name: "Professional Male - Confident" },
+  { id: "f577da968446491289b53bceb77e5092", name: "Professional Male - Warm" },
+  { id: "73c0b6a2e29d4d38aca41454bf58c955", name: "Professional Female - Clear" },
+  { id: "1c7c897eeb2d4b5fb17d3c6c70250b24", name: "Professional Female - Friendly" },
+  { id: "119caed25533477ba63822d5d1552d25", name: "Neutral - Balanced" },
+  { id: "9f2e8c4a7b5d4f6e8a1c3d5b7e9f2a4c", name: "Energetic - Enthusiastic" },
+];
 
 interface AvatarGroup {
   group_id: string;
@@ -89,6 +100,8 @@ export function PhotoAvatarManager() {
   const [selectedGroupForVoice, setSelectedGroupForVoice] = useState<
     string | null
   >(null);
+  const [showTrainAllDialog, setShowTrainAllDialog] = useState(false);
+  const [trainAllVoiceId, setTrainAllVoiceId] = useState<string>("");
   const [generationForm, setGenerationForm] = useState<PhotoGenerationRequest>({
     name: "Mike Bjork Professional Avatar",
     age: "Early Middle Age",
@@ -195,9 +208,10 @@ export function PhotoAvatarManager() {
 
   // Train avatar group
   const trainGroupMutation = useMutation({
-    mutationFn: (groupId: string) =>
+    mutationFn: ({ groupId, voiceId }: { groupId: string; voiceId?: string }) =>
       apiRequest(`/api/photo-avatars/groups/${groupId}/train`, {
         method: "POST",
+        body: voiceId ? JSON.stringify({ defaultVoiceId: voiceId }) : undefined,
       }),
     onSuccess: () => {
       toast({
@@ -207,6 +221,50 @@ export function PhotoAvatarManager() {
       });
       queryClient.invalidateQueries({
         queryKey: ["/api/photo-avatars/groups"],
+      });
+    },
+  });
+
+  // Train all pending avatars with the same voice
+  const trainAllMutation = useMutation({
+    mutationFn: async (voiceId: string) => {
+      const pendingGroups = avatarGroups.filter(
+        (g: any) => g.train_status === "empty" && g.num_looks >= 1
+      );
+
+      const results = await Promise.allSettled(
+        pendingGroups.map((group: any) =>
+          apiRequest(`/api/photo-avatars/groups/${group.group_id}/train`, {
+            method: "POST",
+            body: JSON.stringify({ defaultVoiceId: voiceId }),
+          })
+        )
+      );
+
+      return {
+        total: pendingGroups.length,
+        successful: results.filter((r) => r.status === "fulfilled").length,
+        failed: results.filter((r) => r.status === "rejected").length,
+      };
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Bulk Training Started",
+        description: `Training started for ${data.successful} avatar group(s). ${
+          data.failed > 0 ? `${data.failed} failed.` : ""
+        }`,
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/photo-avatars/groups"],
+      });
+      setShowTrainAllDialog(false);
+      setTrainAllVoiceId("");
+    },
+    onError: () => {
+      toast({
+        title: "Training Failed",
+        description: "Failed to start bulk training. Please try again.",
+        variant: "destructive",
       });
     },
   });
@@ -385,7 +443,15 @@ export function PhotoAvatarManager() {
   };
 
   const saveVoiceToGroup = async () => {
+    console.log("🎤 saveVoiceToGroup called", {
+      hasRecordedAudio: !!recordedAudio,
+      selectedGroupForVoice,
+      recordedAudioType: recordedAudio?.type,
+      recordedAudioSize: recordedAudio?.size
+    });
+
     if (!recordedAudio || !selectedGroupForVoice) {
+      console.error("❌ Missing data:", { recordedAudio, selectedGroupForVoice });
       toast({
         title: "Missing Data",
         description: "Please select an avatar group and record a voice sample.",
@@ -398,6 +464,8 @@ export function PhotoAvatarManager() {
     formData.append("voiceRecording", recordedAudio, "voice.webm");
     formData.append("groupId", selectedGroupForVoice);
 
+    console.log("📤 Sending voice save request to:", `/api/photo-avatars/groups/${selectedGroupForVoice}/voice`);
+
     try {
       const response = await fetch(
         `/api/photo-avatars/groups/${selectedGroupForVoice}/voice`,
@@ -407,7 +475,15 @@ export function PhotoAvatarManager() {
         }
       );
 
+      console.log("📨 Response received:", {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText
+      });
+
       if (response.ok) {
+        const result = await response.json();
+        console.log("✅ Voice saved successfully:", result);
         toast({
           title: "Voice Saved",
           description: "Voice recording has been saved to the avatar group.",
@@ -415,9 +491,12 @@ export function PhotoAvatarManager() {
         resetRecording();
         setSelectedGroupForVoice(null);
       } else {
+        const errorText = await response.text();
+        console.error("❌ Save failed with status:", response.status, errorText);
         throw new Error("Failed to save voice");
       }
     } catch (error) {
+      console.error("❌ Error saving voice:", error);
       toast({
         title: "Save Failed",
         description: "Failed to save voice recording. Please try again.",
@@ -450,7 +529,7 @@ export function PhotoAvatarManager() {
       </CardHeader>
       <CardContent>
         <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="generate" data-testid="tab-generate">
               <Sparkles className="w-4 h-4 mr-2" />
               Generate AI Photos
@@ -462,6 +541,10 @@ export function PhotoAvatarManager() {
             <TabsTrigger value="voice" data-testid="tab-voice">
               <Mic className="w-4 h-4 mr-2" />
               Voice Recording
+            </TabsTrigger>
+            <TabsTrigger value="voice-library" data-testid="tab-voice-library">
+              <Mic className="w-4 h-4 mr-2" />
+              Voice Library
             </TabsTrigger>
             <TabsTrigger value="manage" data-testid="tab-manage">
               <Users className="w-4 h-4 mr-2" />
@@ -997,6 +1080,10 @@ export function PhotoAvatarManager() {
               ))}
           </TabsContent>
 
+          <TabsContent value="voice-library" className="space-y-4">
+            <VoiceLibraryManager />
+          </TabsContent>
+
           <TabsContent value="manage" className="space-y-4">
             {isLoadingGroups ? (
               <div className="text-center py-8">
@@ -1014,6 +1101,90 @@ export function PhotoAvatarManager() {
               </Alert>
             ) : (
               <div className="space-y-6">
+                {/* Train All Pending Avatars Button */}
+                {avatarGroups.filter((g: any) => g.train_status === "empty" && g.num_looks >= 1).length > 0 && (
+                  <div className="sticky top-0 z-10 bg-white border-2 border-[#D4AF37] rounded-lg p-4 shadow-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#D4AF37]">
+                          {avatarGroups.filter((g: any) => g.train_status === "empty" && g.num_looks >= 1).length} Avatar Groups Need Training
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          Train all pending avatars at once with the same professional voice
+                        </p>
+                      </div>
+                      <Button
+                        onClick={() => setShowTrainAllDialog(true)}
+                        className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
+                        data-testid="button-train-all-pending"
+                      >
+                        <Sparkles className="w-4 h-4 mr-2" />
+                        Train All Pending Avatars
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Train All Dialog */}
+                {showTrainAllDialog && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTrainAllDialog(false)}>
+                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+                      <h3 className="text-xl font-semibold mb-4">Select Voice for All Avatars</h3>
+                      <p className="text-sm text-gray-600 mb-4">
+                        Choose a professional voice that will be used for all {avatarGroups.filter((g: any) => g.train_status === "empty" && g.num_looks >= 1).length} pending avatar groups.
+                      </p>
+                      <div className="space-y-4">
+                        <div>
+                          <Label>Professional Voice</Label>
+                          <Select value={trainAllVoiceId} onValueChange={setTrainAllVoiceId}>
+                            <SelectTrigger data-testid="select-train-all-voice">
+                              <SelectValue placeholder="Choose a voice" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PROFESSIONAL_VOICES.map((voice) => (
+                                <SelectItem key={voice.id} value={voice.id}>
+                                  {voice.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => trainAllMutation.mutate(trainAllVoiceId)}
+                            disabled={!trainAllVoiceId || trainAllMutation.isPending}
+                            className="flex-1 bg-gradient-to-r from-[#D4AF37] to-[#B8860B]"
+                            data-testid="button-confirm-train-all"
+                          >
+                            {trainAllMutation.isPending ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Training...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-4 h-4 mr-2" />
+                                Start Training All
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              setShowTrainAllDialog(false);
+                              setTrainAllVoiceId("");
+                            }}
+                            variant="outline"
+                            disabled={trainAllMutation.isPending}
+                            data-testid="button-cancel-train-all"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {Array.isArray(avatarGroups) &&
                   avatarGroups.map((group: AvatarGroup) => (
                     <Card
@@ -1079,7 +1250,7 @@ export function PhotoAvatarManager() {
                             <Button
                               size="sm"
                               onClick={() =>
-                                trainGroupMutation.mutate(group.group_id)
+                                trainGroupMutation.mutate({ groupId: group.group_id })
                               }
                               disabled={trainGroupMutation.isPending}
                               data-testid={`button-train-${group.group_id}`}

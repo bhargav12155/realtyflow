@@ -16,9 +16,17 @@ import {
   type Avatar,
   type InsertAvatar,
   type VideoContent,
-  type InsertVideoContent
+  type InsertVideoContent,
+  type CustomVoice,
+  type InsertCustomVoice,
+  type PhotoAvatarGroupVoice,
+  type InsertPhotoAvatarGroupVoice,
+  photoAvatarGroupVoices,
+  customVoices
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -74,6 +82,17 @@ export interface IStorage {
   createVideoContent(video: InsertVideoContent): Promise<VideoContent>;
   updateVideoContent(id: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined>;
   deleteVideoContent(id: string): Promise<boolean>;
+
+  // Custom Voices
+  listCustomVoices(userId: string): Promise<CustomVoice[]>;
+  getCustomVoice(id: string): Promise<CustomVoice | undefined>;
+  createCustomVoice(voice: InsertCustomVoice): Promise<CustomVoice>;
+  deleteCustomVoice(id: string, userId: string): Promise<boolean>;
+
+  // Photo Avatar Group Voices
+  savePhotoAvatarGroupVoice(voice: InsertPhotoAvatarGroupVoice): Promise<PhotoAvatarGroupVoice>;
+  getPhotoAvatarGroupVoice(groupId: string, userId: number): Promise<PhotoAvatarGroupVoice | undefined>;
+  listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -86,6 +105,8 @@ export class MemStorage implements IStorage {
   private scheduledPosts: Map<string, ScheduledPost> = new Map();
   private avatars: Map<string, Avatar> = new Map();
   private videoContent: Map<string, VideoContent> = new Map();
+  private customVoices: Map<string, CustomVoice> = new Map();
+  private photoAvatarGroupVoices: Map<string, PhotoAvatarGroupVoice> = new Map();
 
   constructor() {
     this.seedData();
@@ -637,6 +658,81 @@ export class MemStorage implements IStorage {
 
   async deleteVideoContent(id: string): Promise<boolean> {
     return this.videoContent.delete(id);
+  }
+
+  // Custom Voices
+  async listCustomVoices(userId: string): Promise<CustomVoice[]> {
+    return await db
+      .select()
+      .from(customVoices)
+      .where(eq(customVoices.userId, userId));
+  }
+
+  async getCustomVoice(id: string): Promise<CustomVoice | undefined> {
+    const [voice] = await db
+      .select()
+      .from(customVoices)
+      .where(eq(customVoices.id, id))
+      .limit(1);
+    return voice;
+  }
+
+  async createCustomVoice(insertVoice: InsertCustomVoice): Promise<CustomVoice> {
+    const [voice] = await db
+      .insert(customVoices)
+      .values({
+        ...insertVoice,
+        duration: insertVoice.duration || null,
+        fileSize: insertVoice.fileSize || null,
+        heygenAudioAssetId: insertVoice.heygenAudioAssetId || null,
+        status: insertVoice.status || 'pending',
+      })
+      .returning();
+    return voice;
+  }
+
+  async deleteCustomVoice(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(customVoices)
+      .where(
+        and(
+          eq(customVoices.id, id),
+          eq(customVoices.userId, userId)
+        )
+      );
+    return true;
+  }
+
+  async savePhotoAvatarGroupVoice(insertVoice: InsertPhotoAvatarGroupVoice): Promise<PhotoAvatarGroupVoice> {
+    const [voice] = await db
+      .insert(photoAvatarGroupVoices)
+      .values({
+        ...insertVoice,
+        heygenAudioAssetId: insertVoice.heygenAudioAssetId || null,
+      })
+      .returning();
+    return voice;
+  }
+
+  async getPhotoAvatarGroupVoice(groupId: string, userId: number): Promise<PhotoAvatarGroupVoice | undefined> {
+    const [voice] = await db
+      .select()
+      .from(photoAvatarGroupVoices)
+      .where(
+        and(
+          eq(photoAvatarGroupVoices.groupId, groupId),
+          eq(photoAvatarGroupVoices.userId, userId)
+        )
+      )
+      .limit(1);
+    return voice;
+  }
+
+  async listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]> {
+    return await db
+      .select()
+      .from(photoAvatarGroupVoices)
+      .where(eq(photoAvatarGroupVoices.userId, userId));
   }
 }
 

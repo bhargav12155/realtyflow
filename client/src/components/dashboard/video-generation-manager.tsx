@@ -34,7 +34,18 @@ import {
   RefreshCw,
   User,
   MessageSquare,
+  Mic,
 } from "lucide-react";
+
+// Professional HeyGen Voices
+const PROFESSIONAL_VOICES = [
+  { id: "92c93dc0dff2428ab0bea258ba68f173", name: "Professional Male - Confident" },
+  { id: "f577da968446491289b53bceb77e5092", name: "Professional Male - Warm" },
+  { id: "73c0b6a2e29d4d38aca41454bf58c955", name: "Professional Female - Clear" },
+  { id: "1c7c897eeb2d4b5fb17d3c6c70250b24", name: "Professional Female - Friendly" },
+  { id: "119caed25533477ba63822d5d1552d25", name: "Neutral - Balanced" },
+  { id: "9f2e8c4a7b5d4f6e8a1c3d5b7e9f2a4c", name: "Energetic - Enthusiastic" },
+];
 
 interface PhotoAvatarGroup {
   group_id: string;
@@ -63,6 +74,8 @@ export function VideoGenerationManager() {
   const [script, setScript] = useState("");
   const [title, setTitle] = useState("");
   const [isTestMode, setIsTestMode] = useState(false);
+  const [voiceSpeed, setVoiceSpeed] = useState<number>(1.0); // 1.0 = normal speed
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("119caed25533477ba63822d5d1552d25"); // Default: Neutral - Balanced
   const [currentVideo, setCurrentVideo] = useState<VideoGeneration | null>(
     null
   );
@@ -70,6 +83,66 @@ export function VideoGenerationManager() {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Fetch user's custom recorded voices from regular avatars
+  const { data: customAvatarsData } = useQuery<any[]>({
+    queryKey: ["/api/avatars"],
+  });
+  
+  // Fetch photo avatar groups to check for custom voices
+  const { data: photoAvatarGroupsData } = useQuery<{
+    avatar_group_list?: any[];
+  }>({
+    queryKey: ["/api/photo-avatars/groups"],
+  });
+  
+  // Fetch custom voices from Voice Library
+  const { data: voiceLibraryVoices = [] } = useQuery<Array<{
+    id: string;
+    name: string;
+    audioUrl: string;
+    userId: string;
+    createdAt: string;
+  }>>({
+    queryKey: ["/api/custom-voices"],
+  });
+  
+  // Combine all custom voices for the voice selector
+  const customVoices = [
+    // Regular avatars with custom voices
+    ...(customAvatarsData || [])
+      .filter((avatar: any) => avatar.metadata?.hasCustomVoice && avatar.metadata?.voiceRecordingUrl)
+      .map((avatar: any) => ({
+        id: `custom_avatar_${avatar.id}`,
+        name: `${avatar.name} (My Voice)`,
+        avatarId: avatar.id,
+        voiceUrl: avatar.metadata.voiceRecordingUrl,
+        isCustom: true,
+        type: 'avatar',
+      })),
+    // Photo avatar groups with custom voices (default_voice_id set)
+    ...(photoAvatarGroupsData?.avatar_group_list || [])
+      .filter((group: any) => group.default_voice_id && group.default_voice_id !== 'null')
+      .map((group: any) => ({
+        id: `custom_group_${group.id}`,
+        name: `${group.name} (Group Voice)`,
+        groupId: group.id,
+        voiceId: group.default_voice_id,
+        isCustom: true,
+        type: 'photo_group',
+      })),
+    // Voice Library voices - standalone saved voices
+    ...(voiceLibraryVoices || [])
+      .filter((voice: any) => !voice.status || voice.status === 'ready') // Show ready voices and legacy voices without status
+      .map((voice: any) => ({
+        id: `voice_library_${voice.id}`,
+        name: `${voice.name} (Voice Library)`,
+        audioUrl: voice.audioUrl,
+        voiceLibraryId: voice.id,
+        isCustom: true,
+        type: 'voice_library',
+      })),
+  ];
 
   // Fetch photo avatar groups
   // API returns an object: { avatar_group_list: [...] }
@@ -106,6 +179,9 @@ export function VideoGenerationManager() {
       title: string;
       test: boolean;
       isTalkingPhoto?: boolean;
+      voiceSpeed?: number;
+      voiceId?: string;
+      customVoiceAvatarId?: string;
     }) => {
       console.log("🎬 Frontend: Generating video with data:", data);
       const response = await apiRequest("POST", "/api/videos/generate", data);
@@ -176,6 +252,30 @@ export function VideoGenerationManager() {
       return;
     }
 
+    // Check if using a custom voice
+    const isCustomVoice = selectedVoiceId.startsWith('custom_') || selectedVoiceId.startsWith('voice_library_');
+    const customVoice = isCustomVoice 
+      ? customVoices.find((v: any) => v.id === selectedVoiceId)
+      : null;
+    
+    // Determine the voice ID to use
+    let finalVoiceId = selectedVoiceId;
+    let voiceLibraryId: string | undefined;
+    
+    if (customVoice) {
+      if (customVoice.type === 'voice_library') {
+        // Voice Library voice - use special marker and pass library ID
+        finalVoiceId = 'voice_library';
+        voiceLibraryId = customVoice.voiceLibraryId;
+      } else if (customVoice.type === 'photo_group') {
+        // Use the group's default voice ID directly
+        finalVoiceId = customVoice.voiceId;
+      } else {
+        // Regular avatar custom voice - use 'custom_voice' marker
+        finalVoiceId = 'custom_voice';
+      }
+    }
+
     generateVideoMutation.mutate({
       avatarId: selectedAvatarLook,
       script: script.trim(),
@@ -183,6 +283,10 @@ export function VideoGenerationManager() {
       test: isTestMode,
       // Photo avatar looks are talking photos in HeyGen's API
       isTalkingPhoto: true,
+      voiceSpeed: voiceSpeed,
+      voiceId: finalVoiceId,
+      customVoiceAvatarId: customVoice?.avatarId,
+      voiceLibraryId,
     });
   };
 
@@ -362,6 +466,75 @@ export function VideoGenerationManager() {
               Test Mode (shorter video)
             </Label>
           </div>
+        </div>
+
+        {/* Voice Selection */}
+        <div>
+          <Label htmlFor="voice-select" className="text-sm font-medium flex items-center gap-2">
+            <Mic className="w-4 h-4 text-[#D4AF37]" />
+            Voice Selection
+          </Label>
+          <Select
+            value={selectedVoiceId}
+            onValueChange={setSelectedVoiceId}
+          >
+            <SelectTrigger id="voice-select" data-testid="select-voice-id">
+              <SelectValue placeholder="Choose a voice" />
+            </SelectTrigger>
+            <SelectContent>
+              {/* My Custom Voices Section */}
+              {customVoices.length > 0 && (
+                <>
+                  <div className="px-2 py-1.5 text-xs font-semibold text-[#D4AF37] bg-[#D4AF37]/10">
+                    🎤 My Recorded Voices
+                  </div>
+                  {customVoices.map((voice: any) => (
+                    <SelectItem key={voice.id} value={voice.id}>
+                      {voice.name}
+                    </SelectItem>
+                  ))}
+                  <div className="border-t my-1" />
+                </>
+              )}
+              
+              {/* Professional Voices Section */}
+              <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">
+                🎭 Professional Voices
+              </div>
+              {PROFESSIONAL_VOICES.map((voice) => (
+                <SelectItem key={voice.id} value={voice.id}>
+                  {voice.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {customVoices.length === 0 && (
+            <p className="text-xs text-gray-500 mt-1">
+              💡 Tip: Record your voice in the Avatar Creator to use your own voice!
+            </p>
+          )}
+        </div>
+
+        {/* Voice Speed Control */}
+        <div>
+          <Label htmlFor="voice-speed" className="text-sm font-medium">
+            Voice Speed
+          </Label>
+          <Select
+            value={voiceSpeed.toString()}
+            onValueChange={(value) => setVoiceSpeed(parseFloat(value))}
+          >
+            <SelectTrigger id="voice-speed" data-testid="select-voice-speed">
+              <SelectValue placeholder="Select voice speed" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0.5">0.5x (Slow)</SelectItem>
+              <SelectItem value="0.75">0.75x (Slower)</SelectItem>
+              <SelectItem value="1.0">1.0x (Normal)</SelectItem>
+              <SelectItem value="1.25">1.25x (Faster)</SelectItem>
+              <SelectItem value="1.5">1.5x (Fast)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Script Input */}

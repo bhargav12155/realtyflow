@@ -284,9 +284,10 @@ export class SocialMediaService {
 
       // Add image URL if provided
       if (imageUrl) {
+        const baseUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.CLIENT_URL || "http://localhost:5000";
         containerData.image_url = imageUrl.startsWith("http")
           ? imageUrl
-          : `https://localhost:5000${imageUrl}`;
+          : `${baseUrl}${imageUrl}`;
       }
 
       const containerResponse = await fetch(
@@ -774,9 +775,10 @@ export class SocialMediaService {
         formData.append("access_token", presetPageAccessToken);
 
         if (imageUrl) {
+          const deploymentUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.CLIENT_URL || "http://localhost:5000";
           const fullImageUrl = imageUrl.startsWith("http")
             ? imageUrl
-            : `${baseUrl || "https://localhost:5000"}${imageUrl}`;
+            : `${baseUrl || deploymentUrl}${imageUrl}`;
           formData.append("url", fullImageUrl);
         }
 
@@ -890,9 +892,10 @@ export class SocialMediaService {
 
       // Convert relative image URL to absolute if provided
       if (imageUrl) {
+        const deploymentUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.CLIENT_URL || "http://localhost:5000";
         const fullImageUrl = imageUrl.startsWith("http")
           ? imageUrl
-          : `${baseUrl || "https://localhost:5000"}${imageUrl}`;
+          : `${baseUrl || deploymentUrl}${imageUrl}`;
         formData.append("url", fullImageUrl);
       }
 

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  index,
   pgTable,
   text,
   varchar,
@@ -13,6 +14,17 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Session storage table (required for Replit Auth)
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
 // =====================================================
 // 1. USERS TABLE
 // =====================================================
@@ -25,16 +37,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull(),
   role: text("role").notNull().default("agent"),
-  // Social media integration URLs
-  facebookUrl: text("facebook_url"),
-  instagramUrl: text("instagram_url"),
-  linkedinUrl: text("linkedin_url"),
-  xUrl: text("x_url"),
-  youtubeUrl: text("youtube_url"),
-  tiktokUrl: text("tiktok_url"),
-  customWebhook: text("custom_webhook"),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at"),
 });
 
 // =====================================================
@@ -252,40 +255,74 @@ export const properties = pgTable("properties", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Legacy AI Content and Social Posts (keeping for compatibility)
+export const aiContent = pgTable("ai_content", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  contentType: varchar("content_type").notNull(), // 'social_post', 'blog_article', 'property_description', 'email_campaign'
+  title: varchar("title"),
+  content: text("content").notNull(),
+  keywords: jsonb("keywords").$type<string[]>(),
+  propertyId: varchar("property_id"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const socialPosts = pgTable("social_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  content: text("content").notNull(),
+  platforms: jsonb("platforms").$type<string[]>(),
+  scheduledAt: timestamp("scheduled_at"),
+  publishedAt: timestamp("published_at"),
+  status: varchar("status").notNull().default('draft'), // 'draft', 'scheduled', 'published', 'failed'
+  engagement: jsonb("engagement"),
+  aiContentId: varchar("ai_content_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// User activity log (keeping for compatibility)
+export const userActivity = pgTable("user_activity", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  action: varchar("action").notNull(),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// File uploads table (keeping for compatibility) 
+export const fileUploads = pgTable("file_uploads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  filename: varchar("filename").notNull(),
+  originalName: varchar("original_name").notNull(),
+  mimeType: varchar("mime_type").notNull(),
+  size: integer("size").notNull(),
+  path: varchar("path").notNull(),
+  url: varchar("url"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // =====================================================
-// 11. SOCIAL API KEYS TABLE (For OAuth/API integrations)
+// SOCIAL MEDIA API KEYS TABLE
 // =====================================================
 export const socialApiKeys = pgTable("social_api_keys", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  // Facebook
   facebookAppId: text("facebook_app_id"),
   facebookAppSecret: text("facebook_app_secret"),
-  // Instagram
-  instagramToken: text("instagram_token"),
   instagramBusinessAccountId: text("instagram_business_account_id"),
-  // TikTok
-  tiktokApiKey: text("tiktok_api_key"),
-  tiktokApiSecret: text("tiktok_api_secret"),
-  tiktokAccessToken: text("tiktok_access_token"),
-  // Twitter/X
+  instagramToken: text("instagram_token"),
   twitterApiKey: text("twitter_api_key"),
   twitterApiSecret: text("twitter_api_secret"),
   twitterAccessToken: text("twitter_access_token"),
   twitterAccessTokenSecret: text("twitter_access_token_secret"),
-  twitterBearerToken: text("twitter_bearer_token"),
-  // YouTube
+  linkedinAccessToken: text("linkedin_access_token"),
   youtubeApiKey: text("youtube_api_key"),
   youtubeChannelId: text("youtube_channel_id"),
-  // LinkedIn
-  linkedinAccessToken: text("linkedin_access_token"),
-  linkedinOrganizationId: text("linkedin_organization_id"),
-  // Flags
-  keysConfigured: boolean("keys_configured").default(false),
-  lastUpdated: timestamp("last_updated").defaultNow(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+  tiktokAccessToken: text("tiktok_access_token"),
+  createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
@@ -307,7 +344,7 @@ export const insertSocialMediaAccountSchema = createInsertSchema(
   createdAt: true,
 });
 
-export const insertSeoKeywordSchema = createInsertSchema(seoKeywords).omit({
+export const insertSEOKeywordSchema = createInsertSchema(seoKeywords).omit({
   id: true,
   createdAt: true,
 });
@@ -350,14 +387,32 @@ export const insertPropertySchema = createInsertSchema(properties).omit({
   lastUpdated: true,
 });
 
-export const insertSocialApiKeysSchema = createInsertSchema(socialApiKeys).omit(
-  {
-    id: true,
-    createdAt: true,
-    updatedAt: true,
-    lastUpdated: true,
-  }
-);
+// Legacy insert schemas (keeping for compatibility)
+export const insertAIContentSchema = createInsertSchema(aiContent).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSocialPostSchema = createInsertSchema(socialPosts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertUserActivitySchema = createInsertSchema(userActivity).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertFileUploadSchema = createInsertSchema(fileUploads).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertSocialApiKeysSchema = createInsertSchema(socialApiKeys).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -394,5 +449,17 @@ export type InsertVideoContent = z.infer<typeof insertVideoContentSchema>;
 export type Property = typeof properties.$inferSelect;
 export type InsertProperty = z.infer<typeof insertPropertySchema>;
 
-export type SocialApiKeys = typeof socialApiKeys.$inferSelect;
+// Legacy types (keeping for compatibility)
+export type UpsertUser = typeof users.$inferInsert;
+export type InsertAIContent = z.infer<typeof insertAIContentSchema>;
+export type AIContent = typeof aiContent.$inferSelect;
+export type InsertSocialPost = z.infer<typeof insertSocialPostSchema>;
+export type SocialPost = typeof socialPosts.$inferSelect;
+export type InsertSEOKeyword = z.infer<typeof insertSeoKeywordSchema>;
+export type SEOKeyword = typeof seoKeywords.$inferSelect;
+export type InsertUserActivity = z.infer<typeof insertUserActivitySchema>;
+export type UserActivity = typeof userActivity.$inferSelect;
+export type InsertFileUpload = z.infer<typeof insertFileUploadSchema>;
+export type FileUpload = typeof fileUploads.$inferSelect;
 export type InsertSocialApiKeys = z.infer<typeof insertSocialApiKeysSchema>;
+export type SocialApiKeys = typeof socialApiKeys.$inferSelect;

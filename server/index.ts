@@ -5,6 +5,7 @@ dotenv.config();
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { realtimeService } from "./websocket";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import path from "path";
@@ -22,10 +23,8 @@ app.use(
     origin: [
       "http://localhost:5173", // NebraskaHomeHub dev
       "http://localhost:3001", // NebraskaHomeHub dev alternative
-      "http://localhost:3000", // NebraskaHomeHub alternative port
       "https://bjorkhomes.com",
       "https://mandy.bjorkhomes.com",
-      "https://nebraskahomehub-bfqh7.ondigitalocean.app", // NebraskaHomeHub DigitalOcean
       // Add other NebraskaHomeHub domains as needed
     ],
     credentials: true,
@@ -78,6 +77,9 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Initialize WebSocket server for real-time updates
+  realtimeService.initialize(server);
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -118,6 +120,7 @@ app.use((req, res, next) => {
       log(`   • Public User Login: POST /api/auth/public/login`);
       log(`   • Check Auth: GET /api/auth/check`);
       log(`   • Dashboard: GET /api/dashboard/overview`);
+      log(`   • WebSocket: ws://localhost:${port}/ws`);
     }
   );
 })();

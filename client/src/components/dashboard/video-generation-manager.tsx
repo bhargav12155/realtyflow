@@ -1,0 +1,572 @@
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Play,
+  Video,
+  Wand2,
+  Clock,
+  CheckCircle,
+  AlertCircle,
+  Eye,
+  Download,
+  RefreshCw,
+  User,
+  MessageSquare,
+} from "lucide-react";
+
+interface PhotoAvatarGroup {
+  group_id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  avatar_count?: number;
+  looks?: Array<{
+    id: string;
+    image_url: string;
+    status: string;
+  }>;
+}
+
+interface VideoGeneration {
+  video_id: string;
+  status: string;
+  video_url?: string;
+  thumbnail_url?: string;
+  error?: string;
+}
+
+export function VideoGenerationManager() {
+  const [selectedAvatarGroup, setSelectedAvatarGroup] = useState<string>("");
+  const [selectedAvatarLook, setSelectedAvatarLook] = useState<string>("");
+  const [script, setScript] = useState("");
+  const [title, setTitle] = useState("");
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [currentVideo, setCurrentVideo] = useState<VideoGeneration | null>(
+    null
+  );
+  const [showVideoDialog, setShowVideoDialog] = useState(false);
+
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Fetch photo avatar groups
+  // API returns an object: { avatar_group_list: [...] }
+  const { data: avatarGroupsResponse, isLoading: groupsLoading } = useQuery<{
+    avatar_group_list?: PhotoAvatarGroup[];
+  }>({
+    queryKey: ["/api/photo-avatars/groups"],
+    refetchInterval: 10000, // Refresh every 10 seconds to check training status
+  });
+  const avatarGroups: PhotoAvatarGroup[] =
+    avatarGroupsResponse?.avatar_group_list ?? [];
+
+  // Fetch selected group's details (metadata only)
+  const { data: selectedGroupDetails } = useQuery<PhotoAvatarGroup>({
+    queryKey: ["/api/photo-avatars/groups", selectedAvatarGroup],
+    enabled: !!selectedAvatarGroup,
+    refetchInterval: selectedAvatarGroup ? 10000 : false,
+  });
+
+  // Fetch looks for the selected group
+  const { data: selectedGroupLooks } = useQuery<{
+    avatar_list?: Array<{ id: string; image_url: string; status: string }>;
+  }>({
+    queryKey: ["/api/photo-avatars/groups", selectedAvatarGroup, "looks"],
+    enabled: !!selectedAvatarGroup,
+    refetchInterval: selectedAvatarGroup ? 7000 : false,
+  });
+
+  // Generate video mutation
+  const generateVideoMutation = useMutation({
+    mutationFn: async (data: {
+      avatarId: string;
+      script: string;
+      title: string;
+      test: boolean;
+      isTalkingPhoto?: boolean;
+    }) => {
+      console.log("🎬 Frontend: Generating video with data:", data);
+      const response = await apiRequest("POST", "/api/videos/generate", data);
+      return response.json();
+    },
+    onSuccess: (result) => {
+      console.log("✅ Frontend: Video generation started:", result);
+      setCurrentVideo(result.data || result);
+      setShowVideoDialog(true);
+      toast({
+        title: "Video Generation Started!",
+        description:
+          "Your AI avatar video is being created. This may take a few minutes.",
+      });
+    },
+    onError: (error: any) => {
+      console.error("❌ Frontend: Video generation failed:", error);
+      toast({
+        title: "Generation Failed",
+        description: error?.message || "Failed to start video generation",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Check video status mutation
+  const checkStatusMutation = useMutation({
+    mutationFn: async (videoId: string) => {
+      const response = await apiRequest("GET", `/api/videos/${videoId}/status`);
+      return response.json();
+    },
+    onSuccess: (result) => {
+      console.log("📊 Frontend: Video status:", result);
+      setCurrentVideo((prev) => (prev ? { ...prev, ...result } : result));
+    },
+    onError: (error: any) => {
+      console.error("❌ Frontend: Status check failed:", error);
+    },
+  });
+
+  // Auto-refresh video status when dialog is open
+  useEffect(() => {
+    if (showVideoDialog && currentVideo?.video_id) {
+      const interval = setInterval(() => {
+        checkStatusMutation.mutate(currentVideo.video_id);
+      }, 5000); // Check every 5 seconds
+
+      return () => clearInterval(interval);
+    }
+  }, [showVideoDialog, currentVideo?.video_id]);
+
+  const handleGenerateVideo = () => {
+    if (!selectedAvatarLook) {
+      toast({
+        title: "No Avatar Selected",
+        description: "Please select an avatar look to use for the video",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!script.trim()) {
+      toast({
+        title: "Script Required",
+        description: "Please provide a script for your avatar to speak",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    generateVideoMutation.mutate({
+      avatarId: selectedAvatarLook,
+      script: script.trim(),
+      title: title.trim() || "AI Avatar Video",
+      test: isTestMode,
+      // Photo avatar looks are talking photos in HeyGen's API
+      isTalkingPhoto: true,
+    });
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "completed":
+      case "ready":
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case "processing":
+      case "generating":
+        return <RefreshCw className="h-4 w-4 text-blue-500 animate-spin" />;
+      case "failed":
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      default:
+        return <Clock className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case "completed":
+      case "ready":
+        return "Ready";
+      case "processing":
+      case "generating":
+        return "Generating...";
+      case "failed":
+        return "Failed";
+      default:
+        return "Pending";
+    }
+  };
+
+  const selectedGroup = avatarGroups?.find(
+    (g) => g.group_id === selectedAvatarGroup
+  );
+  const availableLooks =
+    (selectedGroupLooks?.avatar_list || []).filter((look) => {
+      const status = (look.status || "").toLowerCase();
+      return status === "completed" || status === "ready";
+    }) || [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-xl font-semibold text-foreground flex items-center">
+          <Video className="mr-2 h-5 w-5" />
+          Video Generation with Photo Avatars
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Create talking videos using your trained photo avatars
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Avatar Group Selection */}
+        <div>
+          <Label htmlFor="avatar-group-select" className="text-sm font-medium">
+            Select Photo Avatar Group
+          </Label>
+          <Select
+            onValueChange={setSelectedAvatarGroup}
+            value={selectedAvatarGroup}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Choose a trained avatar group" />
+            </SelectTrigger>
+            <SelectContent>
+              {groupsLoading ? (
+                <SelectItem value="loading" disabled>
+                  Loading...
+                </SelectItem>
+              ) : avatarGroups.length === 0 ? (
+                <SelectItem value="no-groups" disabled>
+                  No avatar groups found. Create and train a photo avatar first.
+                </SelectItem>
+              ) : (
+                avatarGroups.map((group) => {
+                  const isReady =
+                    ["completed", "ready"].includes(
+                      (group.status || "").toLowerCase()
+                    ) || (group.avatar_count || 0) > 0;
+                  return (
+                    <SelectItem
+                      key={group.group_id}
+                      value={group.group_id}
+                      disabled={!isReady}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center space-x-2">
+                          <User className="h-4 w-4" />
+                          <span>{group.name}</span>
+                        </div>
+                        <span
+                          className={`text-xs rounded px-2 py-0.5 border ${
+                            isReady
+                              ? "border-green-300 text-green-700 bg-green-50"
+                              : "border-yellow-300 text-yellow-700 bg-yellow-50"
+                          }`}
+                        >
+                          {(group.avatar_count || 0) > 0
+                            ? `ready (${group.avatar_count})`
+                            : group.status || "pending"}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Avatar Look Selection */}
+        {selectedAvatarGroup && (
+          <div>
+            <Label htmlFor="avatar-look-select" className="text-sm font-medium">
+              Select Avatar Look
+            </Label>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-2">
+              {availableLooks.map((look) => {
+                const lookId = (look as any).avatar_id || (look as any).id;
+                const imageUrl =
+                  (look as any).image_url || (look as any).image || "";
+                return (
+                  <div
+                    key={lookId}
+                    className={`border-2 rounded-lg p-2 cursor-pointer transition-all ${
+                      selectedAvatarLook === lookId
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-primary/50"
+                    }`}
+                    onClick={() => setSelectedAvatarLook(lookId)}
+                  >
+                    <img
+                      src={imageUrl}
+                      alt={`Avatar look ${lookId}`}
+                      className="w-full h-20 object-cover rounded mb-2"
+                    />
+                    <p className="text-xs text-center text-muted-foreground">
+                      Look {String(lookId).slice(-4)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            {availableLooks.length === 0 && (
+              <p className="text-sm text-muted-foreground mt-2">
+                No completed avatar looks available. Training may still be in
+                progress.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Video Details */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="video-title" className="text-sm font-medium">
+              Video Title
+            </Label>
+            <Input
+              id="video-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Welcome to Our Agency"
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="test-mode"
+              checked={isTestMode}
+              onChange={(e) => setIsTestMode(e.target.checked)}
+              className="rounded"
+            />
+            <Label htmlFor="test-mode" className="text-sm font-medium">
+              Test Mode (shorter video)
+            </Label>
+          </div>
+        </div>
+
+        {/* Script Input */}
+        <div>
+          <Label
+            htmlFor="video-script"
+            className="text-sm font-medium flex items-center"
+          >
+            <MessageSquare className="mr-1 h-4 w-4" />
+            Script (what your avatar will say)
+          </Label>
+          <Textarea
+            id="video-script"
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            placeholder="Enter the script for your avatar to speak. Keep it under 1500 characters for best results."
+            rows={6}
+            className="mt-2"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            {script.length}/1500 characters
+          </p>
+        </div>
+
+        {/* Generate Button */}
+        <div className="flex justify-center">
+          <Button
+            onClick={handleGenerateVideo}
+            disabled={
+              generateVideoMutation.isPending ||
+              !selectedAvatarLook ||
+              !script.trim()
+            }
+            size="lg"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            <Wand2 className="mr-2 h-5 w-5" />
+            {generateVideoMutation.isPending
+              ? "Starting Generation..."
+              : "Generate Video"}
+          </Button>
+        </div>
+
+        {/* Sample Scripts */}
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-medium mb-2">Sample Scripts</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setScript(
+                  "Hello! I'm your local real estate expert. I'd love to help you find your dream home in Omaha. What are you looking for?"
+                )
+              }
+            >
+              Welcome Message
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setScript(
+                  "The Omaha real estate market is hot right now! Homes in desirable neighborhoods are selling quickly. Contact me today to start your home search."
+                )
+              }
+            >
+              Market Update
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setScript(
+                  "Looking to buy or sell in Omaha? I've helped hundreds of families find their perfect home. Let's schedule a consultation to discuss your real estate goals."
+                )
+              }
+            >
+              Agent Introduction
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setScript(
+                  "Thank you for considering me as your real estate agent. I look forward to working with you to achieve your real estate dreams!"
+                )
+              }
+            >
+              Closing Message
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+
+      {/* Video Generation Status Dialog */}
+      <Dialog open={showVideoDialog} onOpenChange={setShowVideoDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Video Generation Status</DialogTitle>
+            <DialogDescription>
+              Your AI avatar video is being created. This process typically
+              takes 2-5 minutes.
+            </DialogDescription>
+          </DialogHeader>
+
+          {currentVideo && (
+            <div className="space-y-4">
+              {/* Status */}
+              <div className="flex items-center justify-center space-x-2 p-4 border rounded-lg">
+                {getStatusIcon(currentVideo.status)}
+                <span className="font-medium">
+                  {getStatusText(currentVideo.status)}
+                </span>
+              </div>
+
+              {/* Video Preview */}
+              {currentVideo.video_url && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Generated Video</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <video
+                      controls
+                      className="w-full max-h-64"
+                      src={currentVideo.video_url}
+                    >
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        window.open(currentVideo.video_url, "_blank")
+                      }
+                    >
+                      <Eye className="mr-1 h-3 w-3" />
+                      Open in New Tab
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const link = document.createElement("a");
+                        link.href = currentVideo.video_url!;
+                        link.download = `${title || "avatar-video"}.mp4`;
+                        link.click();
+                      }}
+                    >
+                      <Download className="mr-1 h-3 w-3" />
+                      Download
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Thumbnail Preview */}
+              {currentVideo.thumbnail_url && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Thumbnail</Label>
+                  <img
+                    src={currentVideo.thumbnail_url}
+                    alt="Video thumbnail"
+                    className="w-full max-h-32 object-cover rounded border"
+                  />
+                </div>
+              )}
+
+              {/* Error Message */}
+              {currentVideo.error && (
+                <div className="p-3 border border-red-200 rounded-lg bg-red-50">
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="h-4 w-4 text-red-500" />
+                    <span className="text-sm text-red-700 font-medium">
+                      Generation Failed
+                    </span>
+                  </div>
+                  <p className="text-sm text-red-600 mt-1">
+                    {currentVideo.error}
+                  </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-2 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    checkStatusMutation.mutate(currentVideo.video_id)
+                  }
+                  disabled={checkStatusMutation.isPending}
+                >
+                  <RefreshCw
+                    className={`mr-1 h-3 w-3 ${
+                      checkStatusMutation.isPending ? "animate-spin" : ""
+                    }`}
+                  />
+                  Refresh Status
+                </Button>
+                <Button onClick={() => setShowVideoDialog(false)}>Close</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}

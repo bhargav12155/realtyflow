@@ -13,19 +13,32 @@ import { BrandSettings } from "@/components/dashboard/brand-settings";
 import { APIKeyManager } from "@/components/dashboard/api-key-manager";
 import { StreamingAvatar } from "@/components/dashboard/streaming-avatar";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
+import { VideoGenerationManager } from "@/components/dashboard/video-generation-manager";
 import { TemplateManager } from "@/components/dashboard/template-manager";
 import { SocialLinksPrompt } from "@/components/dashboard/social-links-prompt";
 import { SocialMediaSetup } from "@/components/setup/social-media-setup";
 import UserMenu from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { NotificationPanel } from "@/components/notifications/notification-panel";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAuth } from "@/hooks/useAuth";
 import { useState, useEffect } from "react";
-import { Sparkles, Bell } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 export default function Dashboard() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
   const [showSocialLinksPrompt, setShowSocialLinksPrompt] = useState(false);
   const [showSocialMediaSetup, setShowSocialMediaSetup] = useState(false);
+  const { user, isAuthenticated } = useAuth();
+
+  // Connect to WebSocket for real-time updates
+  const { isConnected, lastMessage } = useWebSocket({
+    userId: user?.id?.toString() || undefined,
+    autoConnect: isAuthenticated && !!user?.id,
+    showToast: true,
+  });
 
   const handleGenerateContent = () => {
     setIsGenerating(true);
@@ -89,6 +102,8 @@ export default function Dashboard() {
         return <StreamingAvatar />;
       case "photo-avatars":
         return <PhotoAvatarManager />;
+      case "video-generation":
+        return <VideoGenerationManager />;
       case "templates":
         return <TemplateManager />;
       case "social":
@@ -180,16 +195,10 @@ export default function Dashboard() {
                 <Sparkles className="mr-2 h-4 w-4" />
                 {isGenerating ? "Generating..." : "Generate Content"}
               </Button>
-              <div className="relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  data-testid="button-notifications"
-                >
-                  <Bell className="h-5 w-5" />
-                  <span className="absolute top-0 right-0 w-2 h-2 bg-destructive rounded-full"></span>
-                </Button>
-              </div>
+              <NotificationPanel
+                userId={user?.id?.toString()}
+                lastMessage={lastMessage}
+              />
               <UserMenu />
             </div>
           </div>

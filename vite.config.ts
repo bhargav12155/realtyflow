@@ -30,8 +30,15 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      // Proxy API calls to local backend during development
       "/api": {
-        target: "https://multi-users-realtyflow.replit.app",
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+      // Proxy WebSocket connections to the backend server
+      "/ws": {
+        target: "ws://localhost:5000",
+        ws: true,
         changeOrigin: true,
       },
     },

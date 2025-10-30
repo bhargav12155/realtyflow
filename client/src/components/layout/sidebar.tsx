@@ -68,6 +68,12 @@ const navigationItems = [
     key: "photo-avatars",
   },
   {
+    icon: Video,
+    label: "Video Generation",
+    href: "#video-generation",
+    key: "video-generation",
+  },
+  {
     icon: FileVideo,
     label: "Video Templates",
     href: "#templates",

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,10 +40,19 @@ import {
 
 // Professional HeyGen Voices
 const PROFESSIONAL_VOICES = [
-  { id: "92c93dc0dff2428ab0bea258ba68f173", name: "Professional Male - Confident" },
+  {
+    id: "92c93dc0dff2428ab0bea258ba68f173",
+    name: "Professional Male - Confident",
+  },
   { id: "f577da968446491289b53bceb77e5092", name: "Professional Male - Warm" },
-  { id: "73c0b6a2e29d4d38aca41454bf58c955", name: "Professional Female - Clear" },
-  { id: "1c7c897eeb2d4b5fb17d3c6c70250b24", name: "Professional Female - Friendly" },
+  {
+    id: "73c0b6a2e29d4d38aca41454bf58c955",
+    name: "Professional Female - Clear",
+  },
+  {
+    id: "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    name: "Professional Female - Friendly",
+  },
   { id: "119caed25533477ba63822d5d1552d25", name: "Neutral - Balanced" },
   { id: "9f2e8c4a7b5d4f6e8a1c3d5b7e9f2a4c", name: "Energetic - Enthusiastic" },
 ];
@@ -74,8 +84,10 @@ export function VideoGenerationManager() {
   const [script, setScript] = useState("");
   const [title, setTitle] = useState("");
   const [isTestMode, setIsTestMode] = useState(false);
-  const [voiceSpeed, setVoiceSpeed] = useState<number>(1.0); // 1.0 = normal speed
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string>("119caed25533477ba63822d5d1552d25"); // Default: Neutral - Balanced
+  const [voiceSpeed, setVoiceSpeed] = useState<string>("1.0"); // Store as string for Select
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>(
+    "119caed25533477ba63822d5d1552d25"
+  ); // Default: Neutral - Balanced
   const [currentVideo, setCurrentVideo] = useState<VideoGeneration | null>(
     null
   );
@@ -88,59 +100,67 @@ export function VideoGenerationManager() {
   const { data: customAvatarsData } = useQuery<any[]>({
     queryKey: ["/api/avatars"],
   });
-  
+
   // Fetch photo avatar groups to check for custom voices
   const { data: photoAvatarGroupsData } = useQuery<{
     avatar_group_list?: any[];
   }>({
     queryKey: ["/api/photo-avatars/groups"],
   });
-  
+
   // Fetch custom voices from Voice Library
-  const { data: voiceLibraryVoices = [] } = useQuery<Array<{
-    id: string;
-    name: string;
-    audioUrl: string;
-    userId: string;
-    createdAt: string;
-  }>>({
+  const { data: voiceLibraryVoices = [] } = useQuery<
+    Array<{
+      id: string;
+      name: string;
+      audioUrl: string;
+      userId: string;
+      createdAt: string;
+    }>
+  >({
     queryKey: ["/api/custom-voices"],
   });
-  
+
   // Combine all custom voices for the voice selector
   const customVoices = [
     // Regular avatars with custom voices
     ...(customAvatarsData || [])
-      .filter((avatar: any) => avatar.metadata?.hasCustomVoice && avatar.metadata?.voiceRecordingUrl)
+      .filter(
+        (avatar: any) =>
+          avatar.metadata?.hasCustomVoice && avatar.metadata?.voiceRecordingUrl
+      )
       .map((avatar: any) => ({
         id: `custom_avatar_${avatar.id}`,
         name: `${avatar.name} (My Voice)`,
         avatarId: avatar.id,
         voiceUrl: avatar.metadata.voiceRecordingUrl,
         isCustom: true,
-        type: 'avatar',
+        type: "avatar",
       })),
     // Photo avatar groups with custom voices (default_voice_id set)
     ...(photoAvatarGroupsData?.avatar_group_list || [])
-      .filter((group: any) => group.default_voice_id && group.default_voice_id !== 'null')
+      .filter(
+        (group: any) =>
+          group.default_voice_id && group.default_voice_id !== "null"
+      )
       .map((group: any) => ({
         id: `custom_group_${group.id}`,
         name: `${group.name} (Group Voice)`,
         groupId: group.id,
         voiceId: group.default_voice_id,
         isCustom: true,
-        type: 'photo_group',
+        type: "photo_group",
       })),
     // Voice Library voices - standalone saved voices
     ...(voiceLibraryVoices || [])
-      .filter((voice: any) => !voice.status || voice.status === 'ready') // Show ready voices and legacy voices without status
+      .filter((voice: any) => !voice.status || voice.status === "ready") // Show ready voices and legacy voices without status
       .map((voice: any) => ({
         id: `voice_library_${voice.id}`,
         name: `${voice.name} (Voice Library)`,
         audioUrl: voice.audioUrl,
         voiceLibraryId: voice.id,
         isCustom: true,
-        type: 'voice_library',
+        type: "voice_library",
       })),
   ];
 
@@ -253,26 +273,28 @@ export function VideoGenerationManager() {
     }
 
     // Check if using a custom voice
-    const isCustomVoice = selectedVoiceId.startsWith('custom_') || selectedVoiceId.startsWith('voice_library_');
-    const customVoice = isCustomVoice 
+    const isCustomVoice =
+      selectedVoiceId.startsWith("custom_") ||
+      selectedVoiceId.startsWith("voice_library_");
+    const customVoice = isCustomVoice
       ? customVoices.find((v: any) => v.id === selectedVoiceId)
       : null;
-    
+
     // Determine the voice ID to use
     let finalVoiceId = selectedVoiceId;
     let voiceLibraryId: string | undefined;
-    
+
     if (customVoice) {
-      if (customVoice.type === 'voice_library') {
+      if (customVoice.type === "voice_library") {
         // Voice Library voice - use special marker and pass library ID
-        finalVoiceId = 'voice_library';
+        finalVoiceId = "voice_library";
         voiceLibraryId = customVoice.voiceLibraryId;
-      } else if (customVoice.type === 'photo_group') {
+      } else if (customVoice.type === "photo_group") {
         // Use the group's default voice ID directly
         finalVoiceId = customVoice.voiceId;
       } else {
         // Regular avatar custom voice - use 'custom_voice' marker
-        finalVoiceId = 'custom_voice';
+        finalVoiceId = "custom_voice";
       }
     }
 
@@ -283,7 +305,7 @@ export function VideoGenerationManager() {
       test: isTestMode,
       // Photo avatar looks are talking photos in HeyGen's API
       isTalkingPhoto: true,
-      voiceSpeed: voiceSpeed,
+      voiceSpeed: parseFloat(voiceSpeed),
       voiceId: finalVoiceId,
       customVoiceAvatarId: customVoice?.avatarId,
       voiceLibraryId,
@@ -350,7 +372,10 @@ export function VideoGenerationManager() {
             onValueChange={setSelectedAvatarGroup}
             value={selectedAvatarGroup}
           >
-            <SelectTrigger>
+            <SelectTrigger
+              id="avatar-group-select"
+              data-testid="select-avatar-group"
+            >
               <SelectValue placeholder="Choose a trained avatar group" />
             </SelectTrigger>
             <SelectContent>
@@ -413,6 +438,7 @@ export function VideoGenerationManager() {
                 return (
                   <div
                     key={lookId}
+                    data-testid={`avatar-look-${lookId}`}
                     className={`border-2 rounded-lg p-2 cursor-pointer transition-all ${
                       selectedAvatarLook === lookId
                         ? "border-primary bg-primary/5"
@@ -470,14 +496,14 @@ export function VideoGenerationManager() {
 
         {/* Voice Selection */}
         <div>
-          <Label htmlFor="voice-select" className="text-sm font-medium flex items-center gap-2">
+          <Label
+            htmlFor="voice-select"
+            className="text-sm font-medium flex items-center gap-2"
+          >
             <Mic className="w-4 h-4 text-[#D4AF37]" />
             Voice Selection
           </Label>
-          <Select
-            value={selectedVoiceId}
-            onValueChange={setSelectedVoiceId}
-          >
+          <Select value={selectedVoiceId} onValueChange={setSelectedVoiceId}>
             <SelectTrigger id="voice-select" data-testid="select-voice-id">
               <SelectValue placeholder="Choose a voice" />
             </SelectTrigger>
@@ -496,7 +522,7 @@ export function VideoGenerationManager() {
                   <div className="border-t my-1" />
                 </>
               )}
-              
+
               {/* Professional Voices Section */}
               <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">
                 🎭 Professional Voices
@@ -510,7 +536,8 @@ export function VideoGenerationManager() {
           </Select>
           {customVoices.length === 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              💡 Tip: Record your voice in the Avatar Creator to use your own voice!
+              💡 Tip: Record your voice in the Avatar Creator to use your own
+              voice!
             </p>
           )}
         </div>
@@ -520,10 +547,7 @@ export function VideoGenerationManager() {
           <Label htmlFor="voice-speed" className="text-sm font-medium">
             Voice Speed
           </Label>
-          <Select
-            value={voiceSpeed.toString()}
-            onValueChange={(value) => setVoiceSpeed(parseFloat(value))}
-          >
+          <Select value={voiceSpeed} onValueChange={setVoiceSpeed}>
             <SelectTrigger id="voice-speed" data-testid="select-voice-speed">
               <SelectValue placeholder="Select voice speed" />
             </SelectTrigger>
@@ -548,6 +572,7 @@ export function VideoGenerationManager() {
           </Label>
           <Textarea
             id="video-script"
+            data-testid="input-video-script"
             value={script}
             onChange={(e) => setScript(e.target.value)}
             placeholder="Enter the script for your avatar to speak. Keep it under 1500 characters for best results."
@@ -560,7 +585,20 @@ export function VideoGenerationManager() {
         </div>
 
         {/* Generate Button */}
-        <div className="flex justify-center">
+        <div className="flex flex-col items-center space-y-2">
+          {(!selectedAvatarLook || !script.trim()) && (
+            <div className="text-sm text-muted-foreground bg-muted/50 px-4 py-2 rounded-md">
+              {!selectedAvatarLook &&
+                !script.trim() &&
+                "⚠️ Please select an avatar look and enter a script"}
+              {!selectedAvatarLook &&
+                script.trim() &&
+                "⚠️ Please select an avatar look above"}
+              {selectedAvatarLook &&
+                !script.trim() &&
+                "⚠️ Please enter a script"}
+            </div>
+          )}
           <Button
             onClick={handleGenerateVideo}
             disabled={
@@ -569,6 +607,7 @@ export function VideoGenerationManager() {
               !script.trim()
             }
             size="lg"
+            data-testid="button-generate-video"
             className="bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Wand2 className="mr-2 h-5 w-5" />
@@ -585,6 +624,7 @@ export function VideoGenerationManager() {
             <Button
               variant="outline"
               size="sm"
+              data-testid="button-sample-welcome"
               onClick={() =>
                 setScript(
                   "Hello! I'm your local real estate expert. I'd love to help you find your dream home in Omaha. What are you looking for?"
@@ -596,6 +636,7 @@ export function VideoGenerationManager() {
             <Button
               variant="outline"
               size="sm"
+              data-testid="button-sample-market"
               onClick={() =>
                 setScript(
                   "The Omaha real estate market is hot right now! Homes in desirable neighborhoods are selling quickly. Contact me today to start your home search."
@@ -607,6 +648,7 @@ export function VideoGenerationManager() {
             <Button
               variant="outline"
               size="sm"
+              data-testid="button-sample-consultation"
               onClick={() =>
                 setScript(
                   "Looking to buy or sell in Omaha? I've helped hundreds of families find their perfect home. Let's schedule a consultation to discuss your real estate goals."

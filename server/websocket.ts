@@ -3,7 +3,13 @@ import { Server } from "http";
 import type { IncomingMessage } from "http";
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created";
+  type:
+    | "content_published"
+    | "social_post_scheduled"
+    | "notification"
+    | "status_update"
+    | "photo_generated"
+    | "video_created";
   data: any;
   timestamp: string;
   userId?: number;
@@ -15,14 +21,14 @@ export class RealtimeService {
   private clients: Map<string, Set<WebSocket>> = new Map();
 
   initialize(server: Server) {
-    this.wss = new WebSocketServer({ 
-      server, 
+    this.wss = new WebSocketServer({
+      server,
       path: "/ws",
-      verifyClient: (info) => {
+      verifyClient: (info: any) => {
         // For now, allow connections but will validate session in connection handler
         // In production, verify JWT token or session cookie here
         return true;
-      }
+      },
     });
 
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
@@ -31,15 +37,17 @@ export class RealtimeService {
       // Extract and validate user context
       const url = new URL(req.url!, `http://${req.headers.host}`);
       const userIdParam = url.searchParams.get("userId");
-      
+
       // SECURITY: In production, validate session/JWT token from cookies or headers
       // For now, require userId to be provided (will be enhanced with proper auth)
       if (!userIdParam || userIdParam === "guest") {
-        console.warn("⚠️ WebSocket connection rejected: No valid user authentication");
+        console.warn(
+          "⚠️ WebSocket connection rejected: No valid user authentication"
+        );
         ws.close(1008, "Authentication required");
         return;
       }
-      
+
       const userId = userIdParam;
       console.log(`✅ WebSocket client authenticated: userId=${userId}`);
 

@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PropertySelector } from "./property-selector";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -39,6 +39,8 @@ import {
   Video,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SocialMediaSetup } from "@/components/setup/social-media-setup";
+import { Settings } from "lucide-react";
 
 interface SocialMediaAccount {
   id: string;
@@ -200,6 +202,7 @@ export function SocialMediaManager() {
   const [uploadedVideo, setUploadedVideo] = useState<File | null>(null);
   const [videoUploadUrl, setVideoUploadUrl] = useState<string | null>(null);
   const [showVideoUpload, setShowVideoUpload] = useState(false);
+  const [showSocialSetup, setShowSocialSetup] = useState(false);
   const { toast } = useToast();
 
   const { data: accounts, isLoading } = useQuery<SocialMediaAccount[]>({
@@ -940,9 +943,23 @@ Mike Bjork | Berkshire Hathaway HomeServices
       <CardContent className="space-y-6">
         {/* Platform Selection */}
         <div className="space-y-3">
-          <h3 className="text-sm font-medium text-foreground">
-            Select Platforms
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-foreground">
+              Select Platforms
+            </h3>
+            {accounts?.some(acc => !acc.isConnected) && (
+              <Button
+                onClick={() => setShowSocialSetup(true)}
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                data-testid="button-configure-social"
+              >
+                <Settings className="mr-2 h-3 w-3" />
+                Configure API Keys
+              </Button>
+            )}
+          </div>
           {accounts?.map((account) => {
             const platformInfo =
               platformIcons[account.platform as keyof typeof platformIcons];
@@ -1574,6 +1591,21 @@ Mike Bjork | Berkshire Hathaway HomeServices
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Social Media Setup Modal */}
+      <SocialMediaSetup
+        isOpen={showSocialSetup}
+        onClose={() => setShowSocialSetup(false)}
+        onComplete={(config) => {
+          setShowSocialSetup(false);
+          toast({
+            title: "API Keys Configured!",
+            description: "Your social media connections have been updated successfully.",
+          });
+          // Invalidate cache to refresh the accounts data
+          queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
+        }}
+      />
     </Card>
   );
 }

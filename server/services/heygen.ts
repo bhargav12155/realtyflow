@@ -124,6 +124,12 @@ export class HeyGenService {
     return response;
   }
 
+  // Get all available voices (wrapper for listVoices for consistency)
+  async getVoices(): Promise<any> {
+    const response = await this.listVoices();
+    return response?.data ?? response;
+  }
+
   // Import an existing avatar by ID (validate it exists)
   async importAvatar(avatarId: string): Promise<any> {
     try {
@@ -319,13 +325,14 @@ export class HeyGenService {
     const uploadUrl = "https://upload.heygen.com/v1/asset";
 
     // Normalize content type for HeyGen (it expects audio/x-wav for WAV files)
-    const normalizedContentType = contentType === 'audio/wav' ? 'audio/x-wav' : contentType;
+    const normalizedContentType =
+      contentType === "audio/wav" ? "audio/x-wav" : contentType;
 
     console.log("🌐 HeyGen Audio Upload:", {
       url: uploadUrl,
       originalContentType: contentType,
       normalizedContentType,
-      bufferSize: audioBuffer.length
+      bufferSize: audioBuffer.length,
     });
 
     const response = await fetch(uploadUrl, {
@@ -339,7 +346,11 @@ export class HeyGenService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("❌ HeyGen audio upload failed:", response.status, errorText);
+      console.error(
+        "❌ HeyGen audio upload failed:",
+        response.status,
+        errorText
+      );
       throw new Error(
         `Failed to upload audio: ${response.status} ${response.statusText}`
       );
@@ -347,9 +358,12 @@ export class HeyGenService {
 
     const result = await response.json();
     console.log("📨 HeyGen audio upload response:", result);
-    
+
     if (result.code === 100 && result.data?.id) {
-      console.log("✅ HeyGen audio upload successful, asset ID:", result.data.id);
+      console.log(
+        "✅ HeyGen audio upload successful, asset ID:",
+        result.data.id
+      );
       return result.data.id; // Return the audio_asset_id
     } else {
       throw new Error(

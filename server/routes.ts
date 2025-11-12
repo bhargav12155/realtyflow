@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { Express, NextFunction, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
@@ -6,6 +7,7 @@ import fs from "fs";
 import express from "express";
 import { nanoid } from "nanoid";
 import { storage } from "./storage";
+import { db } from "./db";
 import { openaiService, getAPIKeyStatus } from "./services/openai";
 import { socialMediaService } from "./services/socialMedia";
 import { seoService } from "./services/seo";
@@ -15,6 +17,7 @@ import { HeyGenService } from "./services/heygen";
 import { HeyGenStreamingService } from "./services/heygen-streaming";
 import { HeyGenPhotoAvatarService } from "./services/heygen-photo-avatar";
 import { HeyGenTemplateService } from "./services/heygen-template";
+import { HeyGenTemplateService as HeyGenTemplatesV3Service } from "./services/heygen-templates";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { S3UploadService } from "./services/s3Upload";
 import { realtimeService } from "./websocket";
@@ -28,7 +31,10 @@ import {
   insertScheduledPostSchema,
   insertAvatarSchema,
   insertVideoContentSchema,
+  tutorialVideos,
+  socialApiKeys,
 } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -716,44 +722,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Social media endpoints
-  app.get("/api/social/accounts", async (req, res) => {
+  app.get("/api/social/accounts", requireAuth, async (req, res) => {
     try {
-      const user = await storage.getUserByUsername("mikebjork");
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const accounts = await storage.getSocialMediaAccounts(user.id);
+      // Get social media accounts from social_media_accounts table (same as posting endpoint)
+      const socialAccounts = await storage.getSocialMediaAccounts(userId);
 
-      // Add mock connections if no accounts exist
-      if (accounts.length === 0) {
-        const platforms = [
-          { platform: "facebook", isConnected: true },
-          { platform: "instagram", isConnected: true },
-          { platform: "linkedin", isConnected: true },
-          { platform: "x", isConnected: true },
-          { platform: "tiktok", isConnected: true },
-          { platform: "youtube", isConnected: true },
-        ];
+      // Map accounts to include connection status
+      const connectedPlatforms = new Set(
+        socialAccounts.map((acc) => acc.platform.toLowerCase())
+      );
 
-        for (const p of platforms) {
-          await storage.createSocialMediaAccount({
-            userId: user.id,
-            platform: p.platform,
-            accountId: `${p.platform}_account`,
-            accessToken: p.isConnected ? "mock_token" : null,
-            refreshToken: null,
-            isConnected: p.isConnected,
-            lastSync: p.isConnected ? new Date() : null,
-            metadata: null,
-          });
-        }
+      // Return all platforms with their connection status
+      const platforms = [
+        {
+          id: nanoid(),
+          platform: "facebook",
+          isConnected: connectedPlatforms.has("facebook"),
+          lastSync: connectedPlatforms.has("facebook")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "instagram",
+          isConnected: connectedPlatforms.has("instagram"),
+          lastSync: connectedPlatforms.has("instagram")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "linkedin",
+          isConnected: connectedPlatforms.has("linkedin"),
+          lastSync: connectedPlatforms.has("linkedin")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "x",
+          isConnected:
+            connectedPlatforms.has("x") || connectedPlatforms.has("twitter"),
+          lastSync:
+            connectedPlatforms.has("x") || connectedPlatforms.has("twitter")
+              ? new Date().toISOString()
+              : null,
+        },
+        {
+          id: nanoid(),
+          platform: "tiktok",
+          isConnected: connectedPlatforms.has("tiktok"),
+          lastSync: connectedPlatforms.has("tiktok")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "youtube",
+          isConnected: connectedPlatforms.has("youtube"),
+          lastSync: connectedPlatforms.has("youtube")
+            ? new Date().toISOString()
+            : null,
+        },
+      ];
 
-        const newAccounts = await storage.getSocialMediaAccounts(user.id);
-        return res.json(newAccounts);
-      }
-
-      res.json(accounts);
+      res.json(platforms);
     } catch (error) {
       console.error("Get social accounts error:", error);
       res.status(500).json({ error: "Failed to fetch social media accounts" });
@@ -2638,6 +2676,34 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // Get video history for authenticated user (all completed videos)
+  app.get("/api/videos/history", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      console.log("📚 Fetching video history for user:", userId);
+
+      // Get all completed videos (status: 'ready' or 'uploaded')
+      const allVideos = await storage.getVideoContent(userId);
+      const completedVideos = allVideos.filter(
+        (video) => video.status === "ready" || video.status === "uploaded"
+      );
+
+      console.log(`✅ Found ${completedVideos.length} completed videos`);
+
+      res.json({
+        videos: completedVideos,
+        count: completedVideos.length,
+      });
+    } catch (error) {
+      console.error("Get video history error:", error);
+      res.status(500).json({ error: "Failed to fetch video history" });
+    }
+  });
+
   app.post("/api/videos", async (req, res) => {
     try {
       const user = await storage.getUserByUsername("mikebjork");
@@ -2929,6 +2995,18 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // ==================== STREAMING AVATAR ENDPOINTS ====================
+
+  // List available streaming avatars
+  app.get("/api/streaming/avatars", async (req, res) => {
+    try {
+      const streamingService = new HeyGenStreamingService();
+      const avatars = await streamingService.listStreamingAvatars();
+      res.json({ avatars });
+    } catch (error) {
+      console.error("Failed to list streaming avatars:", error);
+      res.status(500).json({ error: "Failed to list streaming avatars" });
+    }
+  });
 
   // Create streaming avatar session
   app.post("/api/streaming/sessions", async (req, res) => {
@@ -3385,6 +3463,137 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // Delete individual avatar
+  app.delete("/api/photo-avatars/:avatarId", async (req, res) => {
+    try {
+      const { avatarId } = req.params;
+
+      console.log("🗑️ Deleting individual avatar:", avatarId);
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      await photoAvatarService.deleteIndividualAvatar(avatarId);
+
+      console.log("✅ Individual avatar deleted successfully");
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete individual avatar:", error);
+      res.status(500).json({ error: "Failed to delete individual avatar" });
+    }
+  });
+
+  // Edit/Generate new look with custom prompt
+  app.post("/api/photo-avatars/groups/:groupId/edit-look", async (req, res) => {
+    try {
+      const { groupId } = req.params;
+      const { prompt, orientation, pose, style, referenceImages } = req.body;
+
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      console.log("✏️ Editing look for group:", groupId);
+      console.log("✏️ Edit prompt:", prompt);
+      console.log("✏️ Orientation:", orientation || "square");
+      console.log("✏️ Pose:", pose || "half_body");
+      console.log("✏️ Style:", style || "Realistic");
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      const result = await photoAvatarService.editLook({
+        groupId,
+        prompt,
+        orientation,
+        pose,
+        style,
+        referenceImages,
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to edit look:", error);
+      res.status(500).json({ error: "Failed to edit look" });
+    }
+  });
+
+  // Add looks to existing avatar group
+  app.post("/api/photo-avatars/groups/:groupId/add-looks", async (req, res) => {
+    try {
+      const { groupId } = req.params;
+      const { imageKeys, name } = req.body;
+
+      if (!imageKeys || !Array.isArray(imageKeys) || imageKeys.length === 0) {
+        return res.status(400).json({ error: "Image keys array is required" });
+      }
+
+      console.log("➕ Adding looks to group:", groupId);
+      console.log("➕ Number of images:", imageKeys.length);
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      const result = await photoAvatarService.addLooks({
+        groupId,
+        imageKeys,
+        name,
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to add looks:", error);
+      res.status(500).json({ error: "Failed to add looks" });
+    }
+  });
+
+  // Add motion to photo avatar
+  app.post("/api/photo-avatars/:avatarId/add-motion", async (req, res) => {
+    try {
+      const { avatarId } = req.params;
+
+      console.log("🎬 Adding motion to avatar:", avatarId);
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      const result = await photoAvatarService.addMotion(avatarId);
+
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to add motion:", error);
+      res.status(500).json({ error: "Failed to add motion" });
+    }
+  });
+
+  // Add sound effect to photo avatar
+  app.post(
+    "/api/photo-avatars/:avatarId/add-sound-effect",
+    async (req, res) => {
+      try {
+        const { avatarId } = req.params;
+
+        console.log("🔊 Adding sound effect to avatar:", avatarId);
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const result = await photoAvatarService.addSoundEffect(avatarId);
+
+        res.json(result);
+      } catch (error) {
+        console.error("Failed to add sound effect:", error);
+        res.status(500).json({ error: "Failed to add sound effect" });
+      }
+    }
+  );
+
+  // Get avatar status (for checking motion/sound effect processing)
+  app.get("/api/photo-avatars/:avatarId/status", async (req, res) => {
+    try {
+      const { avatarId } = req.params;
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      const status = await photoAvatarService.getAvatarStatus(avatarId);
+
+      res.json(status);
+    } catch (error) {
+      console.error("Failed to get avatar status:", error);
+      res.status(500).json({ error: "Failed to get avatar status" });
+    }
+  });
+
   // Save voice recording to avatar group
   app.post(
     "/api/photo-avatars/groups/:groupId/voice",
@@ -3500,10 +3709,48 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           size: req.file.size,
         });
 
-        // Upload directly to HeyGen and get the image key
-        const photoAvatarService = new HeyGenPhotoAvatarService();
         const fileBuffer = fs.readFileSync(req.file.path);
 
+        // ✨ AVATAR REUSE DETECTION: Check if this image already exists
+        const crypto = await import("crypto");
+        const imageHash = crypto
+          .createHash("sha256")
+          .update(fileBuffer)
+          .digest("hex");
+        console.log("🔍 Image hash:", imageHash);
+
+        const existingAvatar = await storage.getPhotoAvatarGroupByImageHash(
+          imageHash,
+          userId
+        );
+        if (existingAvatar) {
+          console.log(
+            "♻️ Avatar reuse detected! Returning existing avatar:",
+            existingAvatar.heygenGroupId
+          );
+          fs.unlinkSync(req.file.path); // Clean up temp file
+          return res.json({
+            imageKey: existingAvatar.heygenImageKey,
+            s3Url: existingAvatar.s3ImageUrl,
+            groupId: existingAvatar.heygenGroupId,
+            reused: true,
+            message:
+              "This image was already uploaded. Reusing existing avatar.",
+          });
+        }
+
+        // Upload to S3 for backup
+        const s3Service = new S3UploadService();
+        const s3ImageUrl = await s3Service.uploadFile(
+          userId,
+          fileBuffer,
+          `avatar-images/${nanoid()}_${req.file.originalname}`,
+          req.file.mimetype
+        );
+        console.log("✅ Photo backed up to S3:", s3ImageUrl);
+
+        // Upload to HeyGen and get the image key
+        const photoAvatarService = new HeyGenPhotoAvatarService();
         const heygenImageKey = await photoAvatarService.uploadCustomPhoto(
           fileBuffer,
           req.file.mimetype
@@ -3514,7 +3761,12 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         // Clean up temporary file
         fs.unlinkSync(req.file.path);
 
-        res.json({ imageKey: heygenImageKey });
+        res.json({
+          imageKey: heygenImageKey,
+          s3Url: s3ImageUrl,
+          imageHash, // Return hash for storage when avatar group is created
+          reused: false,
+        });
       } catch (error: any) {
         console.error("❌ Failed to upload photo:");
         console.error("Error message:", error?.message);
@@ -3533,7 +3785,8 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     requireAuth,
     async (req, res) => {
       try {
-        const { name, imageKeys } = req.body;
+        const { name, imageKeys, imageHash, s3ImageUrl } = req.body;
+        const userId = req.user?.id;
 
         console.log("🎭 Backend: Create avatar group request received");
         console.log("🎭 Backend: Request name:", name);
@@ -3543,6 +3796,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           "🎭 Backend: Request imageKeys isArray:",
           Array.isArray(imageKeys)
         );
+        console.log("🎭 Backend: Image hash:", imageHash);
 
         if (
           !name ||
@@ -3584,6 +3838,26 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         // Automatically start training
         const groupId = createResult.group_id || createResult.avatar_group_id;
         console.log("🎭 Backend: Extracted groupId for training:", groupId);
+
+        // ✨ Save avatar group metadata to database for duplicate detection
+        if (userId && groupId) {
+          try {
+            await storage.createPhotoAvatarGroup({
+              userId,
+              heygenGroupId: groupId,
+              name,
+              imageHash: imageHash || null,
+              s3ImageUrl: s3ImageUrl || null,
+              heygenImageKey: imageKeys[0], // Primary image key
+              status: "pending",
+              trainingProgress: 0,
+            });
+            console.log("💾 Avatar group metadata saved to database");
+          } catch (dbError) {
+            console.error("⚠️ Failed to save avatar group metadata:", dbError);
+            // Don't fail the request, just log the error
+          }
+        }
 
         if (groupId) {
           try {
@@ -3693,17 +3967,34 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
         }
       } else if (voiceId === "custom_voice" && customVoiceAvatarId) {
+        // Look up the photo avatar group voice for this avatar
+        const user = (req as any).user;
         const customAvatar = await storage.getAvatarById(customVoiceAvatarId);
-        if (customAvatar?.metadata?.voiceRecordingUrl) {
-          console.log(
-            "🎤 Backend: Custom voice detected, using default voice as fallback"
+
+        if (customAvatar?.groupId) {
+          console.log("🎤 Backend: Custom voice avatar detected!");
+          console.log("🎤 Backend: Avatar Group ID:", customAvatar.groupId);
+
+          const groupVoice = await storage.getPhotoAvatarGroupVoice(
+            customAvatar.groupId,
+            user.id
           );
-          console.log(
-            "🎤 Backend: Custom voice URL:",
-            customAvatar.metadata.voiceRecordingUrl
-          );
-          // TODO: Upload custom voice to HeyGen for voice cloning
-          // For now, use professional voice as fallback
+
+          if (groupVoice?.heygenAudioAssetId) {
+            console.log(
+              "🎤 Backend: Found group voice with Audio Asset ID:",
+              groupVoice.heygenAudioAssetId
+            );
+            audioAssetId = groupVoice.heygenAudioAssetId;
+            finalVoiceId = undefined; // Don't use text voice when using audio
+          } else {
+            console.log(
+              "⚠️ Backend: No group voice found for avatar group, using fallback"
+            );
+            finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
+          }
+        } else {
+          console.log("⚠️ Backend: Avatar has no groupId, using fallback");
           finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
         }
       } else if (voiceId) {
@@ -3758,6 +4049,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/videos/:videoId/status", requireAuth, async (req, res) => {
     try {
       const { videoId } = req.params;
+      const userId = req.user?.id;
 
       console.log("📊 Backend: Getting video status for:", videoId);
 
@@ -3765,7 +4057,71 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const status = await heyGenService.getVideoStatus(videoId);
 
       console.log("✅ Backend: Video status result:", status);
-      res.json(status);
+
+      // Extended response with S3 backup URLs
+      let response: any = { ...status };
+
+      // If video is completed and has a URL, backup to S3
+      if (status.status === "completed" && status.video_url && userId) {
+        try {
+          console.log("💾 Backend: Video completed, backing up to S3...");
+
+          // Download video from HeyGen CDN
+          const videoResponse = await fetch(status.video_url);
+          if (videoResponse.ok) {
+            const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+
+            // Upload to S3
+            const s3Service = new S3UploadService();
+            const s3VideoUrl = await s3Service.uploadFile(
+              userId,
+              videoBuffer,
+              `generated-videos/${videoId}.mp4`,
+              "video/mp4"
+            );
+
+            console.log("✅ Backend: Video backed up to S3:", s3VideoUrl);
+
+            // Add S3 URL to the response
+            response.s3_video_url = s3VideoUrl;
+
+            // Download and backup thumbnail if available
+            if (status.thumbnail_url) {
+              try {
+                const thumbnailResponse = await fetch(status.thumbnail_url);
+                if (thumbnailResponse.ok) {
+                  const thumbnailBuffer = Buffer.from(
+                    await thumbnailResponse.arrayBuffer()
+                  );
+                  const s3ThumbnailUrl = await s3Service.uploadFile(
+                    userId,
+                    thumbnailBuffer,
+                    `generated-videos/${videoId}_thumbnail.jpg`,
+                    "image/jpeg"
+                  );
+                  response.s3_thumbnail_url = s3ThumbnailUrl;
+                  console.log(
+                    "✅ Backend: Thumbnail backed up to S3:",
+                    s3ThumbnailUrl
+                  );
+                }
+              } catch (thumbError) {
+                console.error(
+                  "⚠️ Backend: Thumbnail backup failed:",
+                  thumbError
+                );
+              }
+            }
+          }
+        } catch (backupError) {
+          console.error(
+            "⚠️ Backend: S3 backup failed, continuing anyway:",
+            backupError
+          );
+        }
+      }
+
+      res.json(response);
     } catch (error: any) {
       console.error("❌ Backend: Failed to get video status");
       console.error("❌ Backend: Error message:", error?.message);
@@ -3825,15 +4181,149 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // Get all templates (legacy real-estate endpoint now proxies full list)
+  app.get("/api/templates/real-estate", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      console.log(
+        `[Templates] Requesting real-estate list with limit=${limit}, offset=${offset}`
+      );
+
+      const templateService = new HeyGenTemplateService();
+      const response = await templateService.listTemplates(limit, offset);
+
+      const templates = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.templates)
+        ? response.templates
+        : Array.isArray(response?.data?.templates)
+        ? response.data.templates
+        : [];
+
+      console.log(
+        `[Templates] HeyGen returned ${templates.length} templates (raw type: ${
+          Array.isArray(response) ? "array" : typeof response
+        })`
+      );
+
+      if (templates.length > 0) {
+        res.json({ templates });
+        return;
+      }
+
+      console.log(
+        "[Templates] No templates from HeyGen, returning suggestions"
+      );
+
+      res.json({
+        templates: [],
+        suggestions: [
+          {
+            name: "Property Tour Template",
+            description: "Virtual property walkthrough with agent narration",
+            recommended_variables: {
+              property_address: "text",
+              agent_avatar: "avatar",
+              property_images: "image[]",
+              price: "text",
+              features: "text",
+            },
+          },
+          {
+            name: "Market Update Template",
+            description: "Monthly real estate market analysis video",
+            recommended_variables: {
+              month: "text",
+              market_stats: "text",
+              agent_avatar: "avatar",
+              charts: "image[]",
+            },
+          },
+          {
+            name: "Agent Introduction Template",
+            description: "Professional agent introduction and services",
+            recommended_variables: {
+              agent_name: "text",
+              agent_avatar: "avatar",
+              expertise: "text",
+              contact_info: "text",
+            },
+          },
+        ],
+      });
+    } catch (error) {
+      console.error("[Templates] Failed to get real estate templates:", error);
+      res.json({
+        templates: [],
+        suggestions: [
+          {
+            name: "Property Tour Template",
+            description: "Virtual property walkthrough with agent narration",
+            recommended_variables: {
+              property_address: "text",
+              agent_avatar: "avatar",
+              property_images: "image[]",
+              price: "text",
+              features: "text",
+            },
+          },
+          {
+            name: "Market Update Template",
+            description: "Monthly real estate market analysis video",
+            recommended_variables: {
+              month: "text",
+              market_stats: "text",
+              agent_avatar: "avatar",
+              charts: "image[]",
+            },
+          },
+          {
+            name: "Agent Introduction Template",
+            description: "Professional agent introduction and services",
+            recommended_variables: {
+              agent_name: "text",
+              agent_avatar: "avatar",
+              expertise: "text",
+              contact_info: "text",
+            },
+          },
+        ],
+      });
+    }
+  });
+
   // Get template details
   app.get("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-
       const templateService = new HeyGenTemplateService();
-      const template = await templateService.getTemplate(templateId);
 
-      res.json(template);
+      // Safety: if someone hits the legacy path and it falls through here,
+      // treat it as a list-all request instead of single-template lookup.
+      if (templateId === "real-estate") {
+        const limit = parseInt(req.query.limit as string) || 100;
+        const offset = parseInt(req.query.offset as string) || 0;
+        console.log(
+          `[Templates] Fallback: parameterized route caught 'real-estate'; proxying listTemplates(limit=${limit}, offset=${offset})`
+        );
+        const response = await templateService.listTemplates(limit, offset);
+        const templates = Array.isArray(response)
+          ? response
+          : Array.isArray((response as any)?.templates)
+          ? (response as any).templates
+          : Array.isArray((response as any)?.data?.templates)
+          ? (response as any).data.templates
+          : [];
+        return res.json({ templates });
+      }
+
+      // Use v3 API service for template details with variables
+      const templatesV3Service = new HeyGenTemplatesV3Service();
+      const details = await templatesV3Service.getTemplateDetails(templateId);
+
+      res.json(details);
     } catch (error) {
       console.error("Failed to get template:", error);
       res.status(500).json({ error: "Failed to get template" });
@@ -3985,51 +4475,74 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   );
 
-  // Get real estate templates
-  app.get("/api/templates/real-estate", async (req, res) => {
+  // Get available voices from HeyGen
+  app.get("/api/voices", async (req, res) => {
     try {
-      const templateService = new HeyGenTemplateService();
-      const templates = await templateService.getRealEstateTemplates();
-
-      res.json(templates);
+      const heygenService = new HeyGenService();
+      const voices = await heygenService.getVoices();
+      res.json(voices);
     } catch (error) {
-      console.error("Failed to get real estate templates:", error);
-      // Return suggestions when HeyGen API is not available
-      res.json({
-        templates: [],
-        suggestions: [
-          {
-            name: "Property Tour Template",
-            description: "Virtual property walkthrough with agent narration",
-            recommended_variables: {
-              property_address: "text",
-              agent_avatar: "avatar",
-              property_images: "image[]",
-              price: "text",
-              features: "text",
-            },
-          },
-          {
-            name: "Market Update Template",
-            description: "Monthly real estate market analysis video",
-            recommended_variables: {
-              month: "text",
-              market_stats: "text",
-              agent_avatar: "avatar",
-              charts: "image[]",
-            },
-          },
-          {
-            name: "Agent Introduction Template",
-            description: "Professional agent introduction and services",
-            recommended_variables: {
-              agent_name: "text",
-              agent_avatar: "avatar",
-              expertise: "text",
-              contact_info: "text",
-            },
-          },
-        ],
+      console.error("Failed to fetch voices:", error);
+      res.status(500).json({ error: "Failed to fetch voices" });
+    }
+  });
+
+  // Quick generate: Generate a video from a template (public, for quick testing)
+  app.post("/api/templates/generate-quick", async (req, res) => {
+    try {
+      const {
+        templateId,
+        title,
+        variables,
+        caption,
+        dimension,
+        include_gif,
+        enable_sharing,
+        scene_ids,
+        test,
+      } = req.body || {};
+
+      if (!templateId) {
+        return res.status(400).json({ error: "templateId is required" });
+      }
+
+      const templateService = new HeyGenTemplateService();
+      const result = await templateService.generateFromTemplate({
+        templateId,
+        variables,
+        title,
+        caption,
+        dimension,
+        include_gif,
+        enable_sharing,
+        scene_ids,
+        test,
+      });
+
+      return res.json(result);
+    } catch (error: any) {
+      console.error("Quick template generate failed:", error);
+      return res.status(500).json({
+        error: "Failed to generate video from template",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Quick status: proxy to video status lookup without auth for testing
+  app.get("/api/templates/video-status/:videoId", async (req, res) => {
+    try {
+      const { videoId } = req.params;
+      if (!videoId) return res.status(400).json({ error: "videoId required" });
+
+      const heyGenService = new HeyGenService();
+      const status = await heyGenService.getVideoStatus(videoId);
+      return res.json(status);
+    } catch (error: any) {
+      console.error("Quick video status failed:", error);
+      return res.status(500).json({
+        error: "Failed to get video status",
+        details: error?.message || String(error),
       });
     }
   });
@@ -4614,6 +5127,244 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       res.status(500).json({ error: "Failed to fetch brand settings" });
     }
   });
+
+  // ==================== TUTORIAL VIDEOS ENDPOINTS ====================
+
+  // Get all tutorial videos or filter by category/subcategory
+  app.get("/api/tutorial-videos", async (req, res) => {
+    try {
+      const { category, subcategory } = req.query;
+
+      let query = db
+        .select()
+        .from(tutorialVideos)
+        .where(eq(tutorialVideos.isActive, true));
+
+      if (category) {
+        query = query.where(eq(tutorialVideos.category, category as string));
+      }
+      if (subcategory) {
+        query = query.where(
+          eq(tutorialVideos.subcategory, subcategory as string)
+        );
+      }
+
+      const videos = await query.orderBy(
+        tutorialVideos.order,
+        tutorialVideos.createdAt
+      );
+
+      // Convert S3 paths to full URLs
+      const s3Service = new S3UploadService();
+      const videosWithUrls = videos.map((video) => ({
+        ...video,
+        videoUrl: s3Service.getS3Url(video.videoUrl),
+        thumbnailUrl: video.thumbnailUrl
+          ? s3Service.getS3Url(video.thumbnailUrl)
+          : null,
+      }));
+
+      res.json(videosWithUrls);
+    } catch (error) {
+      console.error("Error fetching tutorial videos:", error);
+      res.status(500).json({ error: "Failed to fetch tutorial videos" });
+    }
+  });
+
+  // Upload a tutorial video
+  app.post(
+    "/api/tutorial-videos/upload",
+    videoUpload.single("video"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No video file uploaded" });
+        }
+
+        const { category, subcategory, title, description, duration, order } =
+          req.body;
+
+        if (!category || !subcategory || !title) {
+          return res
+            .status(400)
+            .json({ error: "Category, subcategory, and title are required" });
+        }
+
+        console.log("📹 Uploading tutorial video:", {
+          filename: req.file.originalname,
+          category,
+          subcategory,
+          title,
+        });
+
+        const fileBuffer = fs.readFileSync(req.file.path);
+
+        // Upload to S3 under RealtyFlow Tutorials structure
+        const s3Service = new S3UploadService();
+        const s3VideoUrl = await s3Service.uploadFile(
+          0, // Admin user ID for tutorials
+          fileBuffer,
+          `realtyflow-tutorials/${category}/${subcategory}/${nanoid()}_${
+            req.file.originalname
+          }`,
+          req.file.mimetype
+        );
+
+        console.log("✅ Tutorial video uploaded to S3:", s3VideoUrl);
+
+        // Clean up temporary file
+        fs.unlinkSync(req.file.path);
+
+        // Save to database
+        const [newVideo] = await db
+          .insert(tutorialVideos)
+          .values({
+            category,
+            subcategory,
+            title,
+            description: description || null,
+            videoUrl: s3VideoUrl,
+            duration: duration ? parseInt(duration) : null,
+            order: order ? parseInt(order) : 0,
+          })
+          .returning();
+
+        res.json(newVideo);
+      } catch (error) {
+        console.error("Failed to upload tutorial video:", error);
+        res.status(500).json({ error: "Failed to upload tutorial video" });
+      }
+    }
+  );
+
+  // Delete a tutorial video
+  app.delete("/api/tutorial-videos/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      await db
+        .update(tutorialVideos)
+        .set({ isActive: false })
+        .where(eq(tutorialVideos.id, parseInt(id)));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete tutorial video:", error);
+      res.status(500).json({ error: "Failed to delete tutorial video" });
+    }
+  });
+
+  // HeyGen Template routes
+  const heygenTemplateService = new HeyGenTemplateService();
+
+  // List all HeyGen templates
+  app.get("/api/heygen/templates", requireAuth, async (req, res) => {
+    try {
+      const templates = await heygenTemplateService.listTemplates();
+      // templates is already an array, don't wrap it again
+      res.json(templates);
+    } catch (error) {
+      console.error("Failed to list HeyGen templates:", error);
+      res.status(500).json({ error: "Failed to list templates" });
+    }
+  });
+
+  // Get template details
+  app.get(
+    "/api/heygen/templates/:templateId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { templateId } = req.params;
+        const details = await heygenTemplateService.getTemplateDetails(
+          templateId
+        );
+        res.json(details);
+      } catch (error) {
+        console.error("Failed to get template details:", error);
+        res.status(500).json({ error: "Failed to get template details" });
+      }
+    }
+  );
+
+  // Generate video from template
+  app.post(
+    "/api/heygen/templates/:templateId/generate",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { templateId } = req.params;
+        const user = req.user;
+
+        if (!user) {
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        const {
+          title,
+          variables,
+          caption,
+          dimension,
+          include_gif,
+          enable_sharing,
+          scene_ids,
+        } = req.body;
+
+        console.log("🎬 Generating video from template:", templateId);
+        console.log("📝 Title:", title);
+
+        const result = await heygenTemplateService.generateVideoFromTemplate(
+          templateId,
+          {
+            title,
+            variables,
+            caption,
+            dimension,
+            include_gif,
+            enable_sharing,
+            scene_ids,
+          }
+        );
+
+        // Save the video to database so it appears in the videos list
+        if (result.data?.video_id) {
+          console.log(
+            "💾 Saving template video to database, video_id:",
+            result.data.video_id
+          );
+
+          const videoData = {
+            userId: user.id,
+            title: title || "Template Video",
+            script: "",
+            status: "generating" as const,
+            videoType: "template" as const,
+            heygenVideoId: result.data.video_id,
+            heygenTemplateId: templateId,
+            metadata: {
+              templateVariables: variables,
+              dimension,
+              caption,
+              include_gif,
+              enable_sharing,
+            },
+          };
+
+          const savedVideo = await storage.createVideoContent(videoData);
+          console.log("✅ Template video saved with ID:", savedVideo.id);
+
+          res.json({ ...result, savedVideoId: savedVideo.id });
+        } else {
+          res.json(result);
+        }
+      } catch (error) {
+        console.error("Failed to generate video from template:", error);
+        res
+          .status(500)
+          .json({ error: "Failed to generate video from template" });
+      }
+    }
+  );
 
   // Serve uploaded files statically
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));

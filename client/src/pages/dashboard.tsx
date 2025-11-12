@@ -15,6 +15,8 @@ import { StreamingAvatar } from "@/components/dashboard/streaming-avatar";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
 import { VideoGenerationManager } from "@/components/dashboard/video-generation-manager";
 import { TemplateManager } from "@/components/dashboard/template-manager";
+import { VideoTemplates } from "@/components/dashboard/video-templates";
+import QuickTemplateGenerate from "@/components/dashboard/quick-template-generate";
 import { SocialLinksPrompt } from "@/components/dashboard/social-links-prompt";
 import { SocialMediaSetup } from "@/components/setup/social-media-setup";
 import UserMenu from "@/components/UserMenu";
@@ -106,6 +108,10 @@ export default function Dashboard() {
         return <VideoGenerationManager />;
       case "templates":
         return <TemplateManager />;
+      case "video-templates":
+        return <VideoTemplates />;
+      case "quick-templates":
+        return <QuickTemplateGenerate />;
       case "social":
         return <SocialMediaManager />;
       case "seo":

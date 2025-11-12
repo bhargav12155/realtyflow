@@ -227,6 +227,77 @@ const platformConfig = [
   },
 ];
 
+// Tutorial Videos Section Component
+function TutorialVideosSection({ category, subcategory }: { category: string; subcategory: string }) {
+  const { data: videos = [], isLoading } = useQuery({
+    queryKey: ["/api/tutorial-videos", category, subcategory],
+    queryFn: async () => {
+      const params = new URLSearchParams({ category, subcategory });
+      const response = await fetch(`/api/tutorial-videos?${params}`);
+      if (!response.ok) throw new Error("Failed to fetch tutorial videos");
+      return await response.json();
+    },
+  });
+
+  if (isLoading) {
+    return <div className="text-center text-muted-foreground">Loading tutorials...</div>;
+  }
+
+  if (videos.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-muted-foreground mb-2">No tutorial videos available yet.</p>
+        <p className="text-sm text-muted-foreground">Check back soon for helpful guides!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {videos.map((video: any) => (
+        <Card key={video.id} className="overflow-hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Youtube className="h-4 w-4 text-amber-600" />
+              {video.title}
+            </CardTitle>
+            {video.description && (
+              <p className="text-sm text-muted-foreground">{video.description}</p>
+            )}
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="aspect-video bg-black relative group">
+              <video
+                controls
+                controlsList="nodownload"
+                className="w-full h-full object-contain"
+                data-testid={`video-${video.id}`}
+                preload="metadata"
+              >
+                <source src={video.videoUrl} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            </div>
+            <div className="px-6 py-3 bg-muted/50">
+              <p className="text-xs text-muted-foreground flex items-center gap-4">
+                <span className="flex items-center gap-1">
+                  <Youtube className="h-3 w-3" />
+                  Tutorial Video
+                </span>
+                {video.duration && (
+                  <span>
+                    Duration: {Math.floor(video.duration / 60)}:{String(video.duration % 60).padStart(2, '0')}
+                  </span>
+                )}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export function SocialMediaSetup({
   isOpen,
   onClose,
@@ -533,8 +604,15 @@ export function SocialMediaSetup({
           </Alert>
         )}
 
-        <Tabs defaultValue="facebook" className="w-full">
-          <TabsList className="grid w-full grid-cols-6">
+        <Tabs defaultValue="tutorials" className="w-full">
+          <TabsList className="grid w-full grid-cols-7">
+            <TabsTrigger
+              value="tutorials"
+              className="flex items-center gap-1"
+            >
+              <Youtube className="h-4 w-4" />
+              <span className="hidden sm:inline">Tutorials</span>
+            </TabsTrigger>
             {platformConfig.map((platform) => (
               <TabsTrigger
                 key={platform.key}
@@ -546,6 +624,28 @@ export function SocialMediaSetup({
               </TabsTrigger>
             ))}
           </TabsList>
+
+          {/* Tutorial Videos Tab */}
+          <TabsContent value="tutorials" className="space-y-6">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 text-white">
+                <Youtube className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Tutorial Videos</h3>
+                <p className="text-sm text-muted-foreground">
+                  Learn how to connect your social media accounts step-by-step
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <TutorialVideosSection 
+                category="RealtyFlow Tutorials" 
+                subcategory="Add Social Keys" 
+              />
+            </div>
+          </TabsContent>
 
           {platformConfig.map(renderPlatformTab)}
         </Tabs>

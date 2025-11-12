@@ -16,6 +16,7 @@ import {
   Users,
   FileVideo,
   Mic,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -80,6 +81,19 @@ const navigationItems = [
     href: "#templates",
     key: "templates",
   },
+  // Temporarily hidden - not functional yet
+  // {
+  //   icon: Sparkles,
+  //   label: "HeyGen Templates",
+  //   href: "#video-templates",
+  //   key: "video-templates",
+  // },
+  // {
+  //   icon: FileVideo,
+  //   label: "Quick Template Generate",
+  //   href: "#quick-templates",
+  //   key: "quick-templates",
+  // },
   {
     icon: Target,
     label: "Advanced Advertising",

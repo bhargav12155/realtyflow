@@ -42,7 +42,7 @@ export class HeyGenPhotoAvatarService {
 
   private async makeRequest(
     endpoint: string,
-    method: "GET" | "POST" | "PUT" = "GET",
+    method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
     body?: any
   ): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`;
@@ -316,8 +316,65 @@ export class HeyGenPhotoAvatarService {
   // Delete avatar group
   async deleteAvatarGroup(groupId: string) {
     const response = await this.makeRequest(
-      `/avatar_group/${groupId}`,
+      `/photo_avatar_group/${groupId}`,
       "DELETE"
+    );
+    return response.data;
+  }
+
+  // Delete individual avatar (photo/look within a group)
+  async deleteIndividualAvatar(avatarId: string) {
+    const response = await this.makeRequest(
+      `/photo_avatar/${avatarId}`,
+      "DELETE"
+    );
+    return response.data;
+  }
+
+  // Edit/Generate look with custom prompt (for modifying existing looks)
+  async editLook(params: {
+    groupId: string;
+    prompt: string;
+    orientation?: "square" | "landscape" | "portrait";
+    pose?: "half_body" | "full_body";
+    style?: string;
+    referenceImages?: string[];
+  }) {
+    const payload = {
+      group_id: params.groupId,
+      prompt: params.prompt,
+      orientation: params.orientation || "square",
+      pose: params.pose || "half_body",
+      style: params.style || "Realistic",
+      ...(params.referenceImages && params.referenceImages.length > 0
+        ? { reference_image_keys: params.referenceImages }
+        : {}),
+    };
+
+    const response = await this.makeRequest(
+      "/photo_avatar/look/generate",
+      "POST",
+      payload
+    );
+    return response.data;
+  }
+
+  // Add looks to existing avatar group
+  async addLooks(params: {
+    groupId: string;
+    imageKeys: string[];
+    name?: string;
+  }) {
+    const payload = {
+      group_id: params.groupId,
+      image_keys: params.imageKeys,
+      ...(params.name ? { name: params.name } : {}),
+    };
+
+    const response = await this.makeRequest(
+      "/photo_avatar/avatar_group/add",
+      "POST",
+      payload
     );
     return response.data;
   }
@@ -352,7 +409,9 @@ export class HeyGenPhotoAvatarService {
     } else {
       body = imageData;
       console.log(
-        `📤 HeyGen: Using Buffer directly, size: ${body.length} bytes`
+        `📤 HeyGen: Using Buffer directly, size: ${
+          (body as Buffer).length
+        } bytes`
       );
     }
 
@@ -363,7 +422,7 @@ export class HeyGenPhotoAvatarService {
         "X-Api-Key": this.apiKey,
         "Content-Type": contentType,
       },
-      body,
+      body: body as any,
     });
 
     console.log(
@@ -431,6 +490,50 @@ export class HeyGenPhotoAvatarService {
       "POST",
       payload
     );
+    return response.data;
+  }
+
+  // Add motion to photo avatar
+  async addMotion(avatarId: string) {
+    console.log(`🎬 HeyGen: Adding motion to avatar ${avatarId}`);
+    const payload = {
+      id: avatarId,
+    };
+
+    const response = await this.makeRequest(
+      "/photo_avatar/add_motion",
+      "POST",
+      payload
+    );
+    console.log(
+      "🎬 HeyGen: Add motion response:",
+      JSON.stringify(response, null, 2)
+    );
+    return response.data;
+  }
+
+  // Add sound effect to photo avatar
+  async addSoundEffect(avatarId: string) {
+    console.log(`🔊 HeyGen: Adding sound effect to avatar ${avatarId}`);
+    const payload = {
+      id: avatarId,
+    };
+
+    const response = await this.makeRequest(
+      "/photo_avatar/add_sound_effect",
+      "POST",
+      payload
+    );
+    console.log(
+      "🔊 HeyGen: Add sound effect response:",
+      JSON.stringify(response, null, 2)
+    );
+    return response.data;
+  }
+
+  // Get avatar status (for checking motion/sound effect status)
+  async getAvatarStatus(avatarId: string) {
+    const response = await this.makeRequest(`/photo_avatar/${avatarId}`);
     return response.data;
   }
 }

@@ -1,10 +1,25 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle } from "lucide-react";
+import {
+  Trash2,
+  Upload,
+  Mic,
+  Loader2,
+  Check,
+  CheckCircle,
+  Clock,
+  XCircle,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -17,7 +32,7 @@ interface CustomVoice {
   duration: number | null;
   fileSize: number | null;
   heygenAudioAssetId: string | null;
-  status: 'pending' | 'ready' | 'failed';
+  status: "pending" | "ready" | "failed";
   createdAt: string;
 }
 
@@ -39,13 +54,13 @@ export function VoiceLibraryManager() {
 
     const fetchAudioUrls = async () => {
       const urls: Record<string, string> = {};
-      
+
       for (const voice of voices) {
         try {
           const response = await fetch(`/api/custom-voices/${voice.id}/audio`, {
             credentials: "include",
           });
-          
+
           if (response.ok) {
             const blob = await response.blob();
             urls[voice.id] = URL.createObjectURL(blob);
@@ -54,7 +69,7 @@ export function VoiceLibraryManager() {
           console.error(`Failed to load audio for voice ${voice.id}:`, error);
         }
       }
-      
+
       setAudioUrls(urls);
     };
 
@@ -62,7 +77,7 @@ export function VoiceLibraryManager() {
 
     // Cleanup blob URLs when component unmounts or voices change
     return () => {
-      Object.values(audioUrls).forEach(url => URL.revokeObjectURL(url));
+      Object.values(audioUrls).forEach((url) => URL.revokeObjectURL(url));
     };
   }, [voices]);
 
@@ -107,9 +122,7 @@ export function VoiceLibraryManager() {
   // Delete voice mutation
   const deleteVoiceMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/custom-voices/${id}`, {
-        method: "DELETE",
-      });
+      return apiRequest("DELETE", `/api/custom-voices/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
@@ -131,11 +144,17 @@ export function VoiceLibraryManager() {
     const file = e.target.files?.[0];
     if (file) {
       // Validate file type - only WAV and MP3 are supported by HeyGen
-      const allowedTypes = ['audio/wav', 'audio/x-wav', 'audio/mpeg', 'audio/mp3'];
+      const allowedTypes = [
+        "audio/wav",
+        "audio/x-wav",
+        "audio/mpeg",
+        "audio/mp3",
+      ];
       if (!allowedTypes.includes(file.type)) {
         toast({
           title: "Invalid File Format",
-          description: "HeyGen only supports WAV and MP3 files. Please convert your audio file first.",
+          description:
+            "HeyGen only supports WAV and MP3 files. Please convert your audio file first.",
           variant: "destructive",
         });
         return;
@@ -185,24 +204,27 @@ export function VoiceLibraryManager() {
 
   const getStatusBadge = (status: string | undefined | null) => {
     // Treat missing status as ready (legacy voices or voices uploaded before HeyGen integration)
-    if (!status || status === 'ready') {
+    if (!status || status === "ready") {
       return (
-        <Badge variant="default" className="bg-green-500 hover:bg-green-600 text-white">
+        <Badge
+          variant="default"
+          className="bg-green-500 hover:bg-green-600 text-white"
+        >
           <CheckCircle className="h-3 w-3 mr-1" />
           Ready for Video
         </Badge>
       );
     }
-    
+
     switch (status) {
-      case 'pending':
+      case "pending":
         return (
           <Badge variant="secondary">
             <Clock className="h-3 w-3 mr-1 animate-pulse" />
             Processing...
           </Badge>
         );
-      case 'failed':
+      case "failed":
         return (
           <Badge variant="destructive">
             <XCircle className="h-3 w-3 mr-1" />
@@ -264,7 +286,9 @@ export function VoiceLibraryManager() {
           <Button
             data-testid="button-upload-voice"
             onClick={handleUpload}
-            disabled={uploadVoiceMutation.isPending || !voiceName.trim() || !audioFile}
+            disabled={
+              uploadVoiceMutation.isPending || !voiceName.trim() || !audioFile
+            }
           >
             {uploadVoiceMutation.isPending ? (
               <>
@@ -310,14 +334,19 @@ export function VoiceLibraryManager() {
                 >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h4 className="font-medium" data-testid={`text-voice-name-${voice.id}`}>
+                      <h4
+                        className="font-medium"
+                        data-testid={`text-voice-name-${voice.id}`}
+                      >
                         {voice.name}
                       </h4>
                       {getStatusBadge(voice.status)}
                     </div>
                     <div className="flex gap-4 text-sm text-muted-foreground mt-1">
                       <span>Size: {formatFileSize(voice.fileSize)}</span>
-                      {voice.duration && <span>Duration: {formatDuration(voice.duration)}</span>}
+                      {voice.duration && (
+                        <span>Duration: {formatDuration(voice.duration)}</span>
+                      )}
                       <span>
                         Added: {new Date(voice.createdAt).toLocaleDateString()}
                       </span>

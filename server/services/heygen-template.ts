@@ -10,7 +10,7 @@ interface Template {
 
 interface TemplateVariable {
   name: string;
-  type: 'text' | 'image' | 'video' | 'avatar' | 'voice' | 'background';
+  type: "text" | "image" | "video" | "avatar" | "voice" | "background";
   properties: any;
 }
 
@@ -23,32 +23,42 @@ interface GenerateTemplateOptions {
 
 export class HeyGenTemplateService {
   private apiKey: string;
-  private baseUrl = 'https://api.heygen.com/v2';
+  private baseUrl = "https://api.heygen.com/v2";
 
   constructor() {
     const apiKey = process.env.HEYGEN_API_KEY;
     if (!apiKey) {
-      throw new Error('HEYGEN_API_KEY is not set in environment variables');
+      throw new Error("HEYGEN_API_KEY is not set in environment variables");
     }
     this.apiKey = apiKey;
   }
 
-  private async makeRequest(endpoint: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any): Promise<any> {
+  private async makeRequest(
+    endpoint: string,
+    method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+    body?: any
+  ): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`;
-    
+
     const response = await fetch(url, {
       method,
       headers: {
-        'X-Api-Key': this.apiKey,
-        'Content-Type': 'application/json',
+        "X-Api-Key": this.apiKey,
+        "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`HeyGen Template API error at ${endpoint}:`, response.status, errorText);
-      throw new Error(`HeyGen API error: ${response.status} ${response.statusText}`);
+      console.error(
+        `HeyGen Template API error at ${endpoint}:`,
+        response.status,
+        errorText
+      );
+      throw new Error(
+        `HeyGen API error: ${response.status} ${response.statusText}`
+      );
     }
 
     return await response.json();
@@ -56,14 +66,51 @@ export class HeyGenTemplateService {
 
   // List all available templates
   async listTemplates(limit: number = 100, offset: number = 0) {
-    const response = await this.makeRequest(`/templates?limit=${limit}&offset=${offset}`);
-    return response.data;
+    console.log(
+      `[HeyGenTemplateService] Fetching templates limit=${limit}, offset=${offset}`
+    );
+    const response = await this.makeRequest(
+      `/templates?limit=${limit}&offset=${offset}`
+    );
+    console.log(
+      `[HeyGenTemplateService] listTemplates response type=${typeof response}`
+    );
+
+    if (Array.isArray(response)) {
+      console.log(
+        `[HeyGenTemplateService] Response is array length=${response.length}`
+      );
+      return { templates: response };
+    }
+
+    if (Array.isArray(response?.templates)) {
+      console.log(
+        `[HeyGenTemplateService] Response.templates length=${response.templates.length}`
+      );
+      return response;
+    }
+
+    if (Array.isArray(response?.data?.templates)) {
+      console.log(
+        `[HeyGenTemplateService] Response.data.templates length=${response.data.templates.length}`
+      );
+      return {
+        ...response,
+        data: response.data,
+        templates: response.data.templates,
+      };
+    }
+
+    console.log(
+      "[HeyGenTemplateService] Response missing templates array, returning raw data"
+    );
+    return response?.data ?? response;
   }
 
   // Get specific template details
   async getTemplate(templateId: string) {
     const response = await this.makeRequest(`/templates/${templateId}`);
-    return response.data;
+    return response?.data ?? response;
   }
 
   // Create custom template
@@ -74,12 +121,12 @@ export class HeyGenTemplateService {
       elements,
       dimension: {
         width: 1280,
-        height: 720
-      }
+        height: 720,
+      },
     };
 
-    const response = await this.makeRequest('/templates', 'POST', payload);
-    return response.data;
+    const response = await this.makeRequest("/templates", "POST", payload);
+    return response?.data ?? response;
   }
 
   // Generate video from template with variables
@@ -88,46 +135,46 @@ export class HeyGenTemplateService {
 
     // Format variables for the API
     const formattedVariables: any = {};
-    
+
     for (const [key, value] of Object.entries(variables)) {
-      if (typeof value === 'string') {
+      if (typeof value === "string") {
         // Text variable
         formattedVariables[key] = {
           name: key,
-          type: 'text',
+          type: "text",
           properties: {
-            content: value
-          }
+            content: value,
+          },
         };
-      } else if (value.type === 'avatar') {
+      } else if (value.type === "avatar") {
         // Avatar replacement
         formattedVariables[key] = {
           name: key,
-          type: 'character',
+          type: "character",
           properties: {
-            type: value.isTalkingPhoto ? 'talking_photo' : 'avatar',
+            type: value.isTalkingPhoto ? "talking_photo" : "avatar",
             character_id: value.avatarId,
-            ...(value.voiceId && { voice_id: value.voiceId })
-          }
+            ...(value.voiceId && { voice_id: value.voiceId }),
+          },
         };
-      } else if (value.type === 'background') {
+      } else if (value.type === "background") {
         // Background replacement
         formattedVariables[key] = {
           name: key,
-          type: 'background',
+          type: "background",
           properties: value.properties || {
-            type: 'color',
-            value: '#ffffff'
-          }
+            type: "color",
+            value: "#ffffff",
+          },
         };
-      } else if (value.type === 'image') {
+      } else if (value.type === "image") {
         // Image replacement
         formattedVariables[key] = {
           name: key,
-          type: 'image',
+          type: "image",
           properties: {
-            url: value.url
-          }
+            url: value.url,
+          },
         };
       } else {
         // Default to passing through
@@ -138,23 +185,34 @@ export class HeyGenTemplateService {
     const payload = {
       variables: formattedVariables,
       test,
-      ...(title && { title })
+      ...(title && { title }),
     };
 
-    const response = await this.makeRequest(`/template/${templateId}/generate`, 'POST', payload);
-    return response.data;
+    const response = await this.makeRequest(
+      `/template/${templateId}/generate`,
+      "POST",
+      payload
+    );
+    return response?.data ?? response;
   }
 
   // Update template
   async updateTemplate(templateId: string, updates: Partial<Template>) {
-    const response = await this.makeRequest(`/templates/${templateId}`, 'PUT', updates);
-    return response.data;
+    const response = await this.makeRequest(
+      `/templates/${templateId}`,
+      "PUT",
+      updates
+    );
+    return response?.data ?? response;
   }
 
   // Delete template
   async deleteTemplate(templateId: string) {
-    const response = await this.makeRequest(`/templates/${templateId}`, 'DELETE');
-    return response.data;
+    const response = await this.makeRequest(
+      `/templates/${templateId}`,
+      "DELETE"
+    );
+    return response?.data ?? response;
   }
 
   // Get template variables
@@ -168,39 +226,49 @@ export class HeyGenTemplateService {
     const payload = {
       video_id: videoId,
       name,
-      extract_variables: true
+      extract_variables: true,
     };
 
-    const response = await this.makeRequest('/templates/from_video', 'POST', payload);
-    return response.data;
+    const response = await this.makeRequest(
+      "/templates/from_video",
+      "POST",
+      payload
+    );
+    return response?.data ?? response;
   }
 
   // Duplicate template
   async duplicateTemplate(templateId: string, newName: string) {
     const payload = {
       source_template_id: templateId,
-      name: newName
+      name: newName,
     };
 
-    const response = await this.makeRequest('/templates/duplicate', 'POST', payload);
-    return response.data;
+    const response = await this.makeRequest(
+      "/templates/duplicate",
+      "POST",
+      payload
+    );
+    return response?.data ?? response;
   }
 
   // Get template generation status
   async getTemplateGenerationStatus(generationId: string) {
     // Uses the same video status endpoint
     const url = `https://api.heygen.com/v1/video_status.get?video_id=${generationId}`;
-    
+
     const response = await fetch(url, {
-      method: 'GET',
+      method: "GET",
       headers: {
-        'X-Api-Key': this.apiKey,
-        'Accept': 'application/json',
+        "X-Api-Key": this.apiKey,
+        Accept: "application/json",
       },
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to get template generation status: ${response.status}`);
+      throw new Error(
+        `Failed to get template generation status: ${response.status}`
+      );
     }
 
     return await response.json();
@@ -209,23 +277,43 @@ export class HeyGenTemplateService {
   // Get popular templates for real estate
   async getRealEstateTemplates() {
     let realEstateTemplates: Template[] = [];
-    
+
     try {
       const allTemplates = await this.listTemplates();
-      
+
       // Filter for real estate related templates
-      const realEstateKeywords = ['property', 'real estate', 'home', 'house', 'listing', 'tour', 'walkthrough'];
-      
-      realEstateTemplates = allTemplates.templates?.filter((template: Template) => {
-        const searchString = `${template.name} ${template.description}`.toLowerCase();
-        return realEstateKeywords.some(keyword => searchString.includes(keyword));
-      }) || [];
-      
+      const realEstateKeywords = [
+        "property",
+        "real estate",
+        "home",
+        "house",
+        "listing",
+        "tour",
+        "walkthrough",
+      ];
+
+      const candidateTemplates = Array.isArray(allTemplates)
+        ? allTemplates
+        : Array.isArray(allTemplates?.templates)
+        ? allTemplates.templates
+        : Array.isArray(allTemplates?.data?.templates)
+        ? allTemplates.data.templates
+        : [];
+
+      realEstateTemplates =
+        candidateTemplates.filter((template: Template) => {
+          const searchString =
+            `${template.name} ${template.description}`.toLowerCase();
+          return realEstateKeywords.some((keyword) =>
+            searchString.includes(keyword)
+          );
+        }) || [];
+
       if (realEstateTemplates.length > 0) {
         return { templates: realEstateTemplates };
       }
     } catch (error) {
-      console.log('Failed to fetch templates, returning suggestions instead');
+      console.log("Failed to fetch templates, returning suggestions instead");
     }
 
     // If no real estate templates found, provide suggestions
@@ -241,8 +329,8 @@ export class HeyGenTemplateService {
               agent_avatar: "avatar",
               property_images: "image[]",
               price: "text",
-              features: "text"
-            }
+              features: "text",
+            },
           },
           {
             name: "Market Update Template",
@@ -251,8 +339,8 @@ export class HeyGenTemplateService {
               month: "text",
               market_stats: "text",
               agent_avatar: "avatar",
-              charts: "image[]"
-            }
+              charts: "image[]",
+            },
           },
           {
             name: "Agent Introduction Template",
@@ -261,10 +349,10 @@ export class HeyGenTemplateService {
               agent_name: "text",
               agent_avatar: "avatar",
               expertise: "text",
-              contact_info: "text"
-            }
-          }
-        ]
+              contact_info: "text",
+            },
+          },
+        ],
       };
     }
 

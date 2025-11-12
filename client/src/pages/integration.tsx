@@ -142,7 +142,7 @@ export default function IntegrationPage() {
         <div className="grid gap-6 md:grid-cols-2">
           {/* Social Media Setup */}
           <Card className="relative overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-pink-500 to-purple-600 text-white">
+            <CardHeader className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] text-white">
               <CardTitle className="flex items-center">
                 <ExternalLink className="w-5 h-5 mr-2" />
                 Social Media Setup
@@ -181,7 +181,7 @@ export default function IntegrationPage() {
 
           {/* Dashboard Access */}
           <Card className="relative overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white">
+            <CardHeader className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] text-white">
               <CardTitle className="flex items-center">
                 <Sparkles className="w-5 h-5 mr-2" />
                 Full Dashboard

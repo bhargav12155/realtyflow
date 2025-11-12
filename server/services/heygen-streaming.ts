@@ -25,6 +25,9 @@ export class HeyGenStreamingService {
   // Create a new streaming session
   async createSession(userId: string, avatarId?: string) {
     try {
+      // Generate unique session ID
+      const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
       // Create access token for streaming
       const token = await this.createAccessToken();
       
@@ -36,27 +39,31 @@ export class HeyGenStreamingService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          avatar_name: avatarId || 'default',
-          quality: 'high',
+          sessionId: sessionId,
+          avatarName: avatarId || 'Wayne_20240711',
+          quality: 'medium',
           voice: {
-            voice_id: '2d5b0e6cf36f460aa7fc47e3eee4ba54',
-            rate: 1.1,
+            voiceId: '2d5b0e6cf36f460aa7fc47e3eee4ba54',
+            rate: 1.0,
             emotion: 'FRIENDLY'
           },
           language: 'en',
-          disable_idle_timeout: false
+          disableIdleTimeout: false,
+          version: 'v2'
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to create session: ${response.status}`);
+        const errorData = await response.json();
+        console.error('HeyGen Streaming API Error:', JSON.stringify(errorData, null, 2));
+        throw new Error(`Failed to create session: ${response.status} - ${JSON.stringify(errorData)}`);
       }
 
       const sessionData = await response.json();
 
       // Store session
       const session: StreamingSession = {
-        sessionId: sessionData.data?.session_id || 'demo-session',
+        sessionId: sessionData.data?.session_id || sessionId,
         userId,
         avatarName: avatarId || 'default',
         createdAt: new Date(),
@@ -234,6 +241,28 @@ export class HeyGenStreamingService {
       }
     });
     return sessions;
+  }
+
+  // List available streaming avatars
+  async listStreamingAvatars() {
+    try {
+      const response = await fetch('https://api.heygen.com/v1/streaming.avatar.list', {
+        method: 'GET',
+        headers: {
+          'X-Api-Key': this.apiKey,
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to list avatars: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.data?.avatars || [];
+    } catch (error) {
+      console.error('Failed to list streaming avatars:', error);
+      return [];
+    }
   }
 
   // Cleanup old sessions (call periodically)

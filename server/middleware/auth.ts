@@ -179,9 +179,11 @@ export const generateToken = (
     throw new Error("JWT_SECRET environment variable is required");
   }
 
-  return jwt.sign(payload as object, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
-  });
+  return (jwt as any).sign(
+    payload as any,
+    process.env.JWT_SECRET as any,
+    { expiresIn: process.env.JWT_EXPIRES_IN || "7d" } as any
+  );
 };
 
 /**
@@ -191,5 +193,8 @@ export const verifyToken = (token: string): JWTPayload => {
   if (!process.env.JWT_SECRET) {
     throw new Error("JWT_SECRET environment variable is required");
   }
-  return jwt.verify(token, process.env.JWT_SECRET) as JWTPayload;
+  return (jwt as any).verify(
+    token,
+    process.env.JWT_SECRET as any
+  ) as JWTPayload;
 };

@@ -4,12 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload } from "lucide-react";
+import { Plus, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, Check, X } from "lucide-react";
 import { FaFacebook, FaInstagram, FaLinkedin, FaYoutube } from "react-icons/fa";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const calendarDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -369,19 +371,225 @@ const initialScheduledContent = [
   }
 ];
 
+interface ScheduledPost {
+  id: string;
+  platform: string;
+  postType: string | null;
+  content: string;
+  scheduledFor: string;
+  status: string;
+  isEdited: boolean;
+  originalContent: string;
+  hashtags: string[];
+  metadata?: {
+    imageUrl?: string;
+    planId?: string;
+    aiGenerated?: boolean;
+    backfilled?: boolean;
+    theme?: string;
+    [key: string]: any;
+  };
+}
+
 export function ContentCalendar() {
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [scheduledContent, setScheduledContent] = useState(initialScheduledContent);
+  const [localGeneratedPosts, setLocalGeneratedPosts] = useState<typeof initialScheduledContent>([]);
   const [showPreview, setShowPreview] = useState(false);
-  const [previewContent, setPreviewContent] = useState<typeof initialScheduledContent[0] | null>(null);
+  const [previewContent, setPreviewContent] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState("");
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const { toast } = useToast();
+
+  const { data: apiScheduledPosts = [], isLoading } = useQuery<ScheduledPost[]>({
+    queryKey: ["/api/scheduled-posts", statusFilter],
+    queryFn: async () => {
+      const url = statusFilter === "all" 
+        ? "/api/scheduled-posts"
+        : `/api/scheduled-posts?status=${statusFilter}`;
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch scheduled posts");
+      return await response.json();
+    },
+  });
+
+  const updatePostMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: string; updates: Partial<ScheduledPost> }) => {
+      // Only send mutable fields to match updateScheduledPostSchema
+      const allowedFields: Array<keyof ScheduledPost> = ['status', 'content', 'scheduledFor', 'hashtags', 'metadata'];
+      const payload: any = {};
+      allowedFields.forEach(field => {
+        if (updates[field] !== undefined) {
+          payload[field] = updates[field];
+        }
+      });
+      
+      const response = await apiRequest('PATCH', `/api/scheduled-posts/${id}`, payload);
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      toast({
+        title: "Post Updated",
+        description: "Your changes have been saved successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Update Failed",
+        description: "Could not save changes. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateContentPlanMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/content/generate-plan', {
+        targetAudience: 'home buyers and sellers',
+        specialties: [],
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      toast({
+        title: "Content Plan Generated!",
+        description: `Successfully created ${data.posts?.length || 30}-day content calendar`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Generation Failed",
+        description: "Could not generate content plan. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const approvePostMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest('PATCH', `/api/scheduled-posts/${id}`, { status: 'approved' });
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      setShowPreview(false);
+      toast({
+        title: "Post Approved",
+        description: "The post has been approved and will be published on schedule.",
+      });
+    },
+  });
+
+  const declinePostMutation = useMutation({
+    mutationFn: async (id: string) => {
+      // Use PATCH to set status='cancelled' instead of DELETE
+      const response = await apiRequest('PATCH', `/api/scheduled-posts/${id}`, { status: 'cancelled' });
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      setShowPreview(false);
+      toast({
+        title: "Post Declined",
+        description: "The post has been cancelled and won't be published.",
+      });
+    },
+  });
+
+  const platformColors = {
+    facebook: "bg-blue-500",
+    instagram: "bg-pink-500",
+    linkedin: "bg-blue-700",
+    x: "bg-blue-400",
+    youtube: "bg-red-600",
+  };
+
+  const platformNames: Record<string, string> = {
+    facebook: "Facebook",
+    instagram: "Instagram",
+    linkedin: "LinkedIn",
+    x: "X",
+    youtube: "YouTube",
+  };
+
+  const postTypeLabels: Record<string, string> = {
+    market_update: "Market Update",
+    buyer_tips: "Buyer Tips",
+    seller_tips: "Seller Tips",
+    neighborhood: "Neighborhood",
+    neighborhood_tour: "Neighborhood Tour",
+    local_market: "Local Market",
+    moving_guide: "Moving Guide",
+    open_houses: "Open House",
+    just_listed: "Just Listed",
+    just_sold: "Just Sold",
+    price_improvement: "Price Drop",
+  };
+
+  const scheduledContent = useMemo(() => {
+    const transformedPosts = apiScheduledPosts.map((post) => {
+      const scheduledDate = new Date(post.scheduledFor);
+      const platformKey = post.platform.toLowerCase() as keyof typeof platformColors;
+      
+      return {
+        id: `api-${post.id}`,
+        title: post.postType ? postTypeLabels[post.postType] || post.postType : "Social Post",
+        type: "Social",
+        date: scheduledDate,
+        time: format(scheduledDate, "h:mm a"),
+        color: platformColors[platformKey] || "bg-gray-500",
+        platform: platformNames[platformKey] || post.platform.charAt(0).toUpperCase() + post.platform.slice(1),
+        content: post.content,
+        photoUrl: post.metadata?.imageUrl,
+      };
+    });
+
+    const hasApiPosts = apiScheduledPosts.length > 0;
+    const seedContent = hasApiPosts ? [] : initialScheduledContent;
+
+    return [...seedContent, ...localGeneratedPosts, ...transformedPosts];
+  }, [apiScheduledPosts, localGeneratedPosts]);
+
+  const setScheduledContent = (updater: typeof initialScheduledContent | ((prev: typeof initialScheduledContent) => typeof initialScheduledContent)) => {
+    if (typeof updater === 'function') {
+      setLocalGeneratedPosts(prevLocal => {
+        const seedContent = apiScheduledPosts.length > 0 ? [] : initialScheduledContent;
+        const transformedAPI = apiScheduledPosts.map(p => {
+          const platformKey = p.platform.toLowerCase() as keyof typeof platformColors;
+          return {
+            id: `api-${p.id}`,
+            title: p.postType ? postTypeLabels[p.postType] || p.postType : "Social Post",
+            type: "Social" as const,
+            date: new Date(p.scheduledFor),
+            time: format(new Date(p.scheduledFor), "h:mm a"),
+            color: platformColors[platformKey] || "bg-gray-500",
+            platform: platformNames[platformKey] || p.platform.charAt(0).toUpperCase() + p.platform.slice(1),
+            content: p.content,
+            photoUrl: p.metadata?.imageUrl,
+          };
+        });
+        
+        const currentFull = [...seedContent, ...prevLocal, ...transformedAPI];
+        const currentLength = currentFull.length;
+        const newFull = updater(currentFull);
+        
+        const newlyAddedItems = newFull.slice(currentLength);
+        
+        return [...prevLocal, ...newlyAddedItems];
+      });
+    } else {
+      setLocalGeneratedPosts(updater);
+    }
+  };
   
   const handlePreview = (content: typeof initialScheduledContent[0]) => {
+    console.log('Preview content:', content);
+    console.log('Platform:', content.platform);
     setPreviewContent(content);
     setShowPreview(true);
     setIsEditing(false);
@@ -488,11 +696,11 @@ export function ContentCalendar() {
       
       // Convert AI schedule to our content format and add to existing content
       const newContent = aiSchedule.schedule.map((item: any, index: number) => {
-        // Parse date safely - handle various formats
+        // Parse date safely - API returns 'date' field, not 'scheduledDate'
         let parsedDate;
         try {
-          if (item.scheduledDate) {
-            parsedDate = new Date(item.scheduledDate);
+          if (item.date) {
+            parsedDate = new Date(item.date);
             // Check if date is valid
             if (isNaN(parsedDate.getTime())) {
               // Fallback to a default date if invalid
@@ -509,7 +717,7 @@ export function ContentCalendar() {
         }
 
         return {
-          id: scheduledContent.length + index + 1,
+          id: `local-${Date.now()}-${index}`,
           title: item.title || `AI Post ${index + 1}`,
           type: item.type || 'Social',
           date: parsedDate,
@@ -554,24 +762,44 @@ export function ContentCalendar() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-foreground">Content Calendar</CardTitle>
-          <Button 
-            onClick={handleAIScheduling}
-            disabled={isGenerating}
-            className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-all duration-200"
-            data-testid="button-ai-schedule"
-          >
-            {isGenerating ? (
-              <>
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                Generating...
-              </>
-            ) : (
-              <>
-                <span className="mr-1 text-lg">🤖</span>
-                AI Schedule
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              onClick={() => generateContentPlanMutation.mutate()}
+              disabled={generateContentPlanMutation.isPending}
+              className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-sm font-medium px-3 py-2 rounded-md transition-all duration-200"
+              data-testid="button-generate-content-plan"
+            >
+              {generateContentPlanMutation.isPending ? (
+                <>
+                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <span className="mr-1 text-lg">📅</span>
+                  Generate 30-Day Plan
+                </>
+              )}
+            </Button>
+            <Button 
+              onClick={handleAIScheduling}
+              disabled={isGenerating}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white text-sm font-medium px-4 py-2 rounded-md transition-all duration-200"
+              data-testid="button-ai-schedule"
+            >
+              {isGenerating ? (
+                <>
+                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <span className="mr-1 text-lg">🤖</span>
+                  AI Schedule
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -651,11 +879,12 @@ export function ContentCalendar() {
                       {dayContent.map((content) => (
                         <div
                           key={content.id}
-                          className={`text-xs p-1 rounded ${content.color} text-white cursor-pointer hover:opacity-80 mb-1`}
+                          className={`text-xs p-1.5 rounded ${content.color} text-white cursor-pointer hover:opacity-80 mb-1 overflow-hidden`}
                           onClick={() => handlePreview(content)}
-                          title={`${content.title} - ${content.time}`}
+                          title={`${content.title} - ${content.time}\n${content.content?.substring(0, 100)}`}
                         >
-                          {content.type}
+                          <div className="font-semibold truncate text-[11px]">{content.title}</div>
+                          <div className="text-[10px] opacity-80 truncate mt-0.5">{content.platform} • {content.time}</div>
                         </div>
                       ))}
                     </div>
@@ -1045,6 +1274,65 @@ export function ContentCalendar() {
                           </>
                         )}
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Default/Fallback Preview for other platforms or if no match */}
+              {previewContent.platform !== 'Facebook' && 
+               previewContent.platform !== 'Instagram' && 
+               previewContent.platform !== 'YouTube' && 
+               previewContent.platform !== 'LinkedIn' && (
+                <div className="bg-white dark:bg-gray-900 text-black dark:text-white p-4">
+                  <div className="flex items-center gap-3 mb-3 pb-3 border-b">
+                    <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
+                      <span className="text-sm font-bold text-golden-foreground">MB</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-sm">Mike Bjork</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {previewContent.platform} • {format(new Date(), "MMM d, h:mm a")}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mb-3">
+                    <div className="font-semibold text-base mb-2">{previewContent.title}</div>
+                    {isEditing ? (
+                      <Textarea
+                        value={editedContent}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        className="text-sm min-h-[100px] resize-none"
+                        placeholder="Edit your content..."
+                      />
+                    ) : (
+                      <div className="text-sm whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                        {editedContent}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {(photoPreview || savedPhotoUrl) && (
+                    <div className="border rounded bg-gray-50 dark:bg-gray-800 p-1 relative">
+                      <img 
+                        src={photoPreview || savedPhotoUrl || ""} 
+                        alt="Content" 
+                        className="w-full aspect-video object-cover rounded"
+                      />
+                      {isEditing && (
+                        <div className="absolute top-2 right-2">
+                          <ObjectUploader
+                            maxNumberOfFiles={1}
+                            maxFileSize={10485760}
+                            onGetUploadParameters={handlePhotoUpload}
+                            onComplete={handlePhotoComplete}
+                            buttonClassName="h-8 w-8 p-0 bg-black/50 hover:bg-black/70"
+                          >
+                            <Upload className="h-4 w-4 text-white" />
+                          </ObjectUploader>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

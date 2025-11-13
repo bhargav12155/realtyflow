@@ -1,28 +1,62 @@
-import type { Express } from "express";
+import {
+  contentOpportunities,
+  insertAvatarSchema,
+  insertCompanyProfileSchema,
+  insertVideoContentSchema,
+  tutorialVideos,
+  updateScheduledPostSchema,
+} from "@shared/schema";
+import crypto from "crypto";
+import { desc, eq } from "drizzle-orm";
+import type { Express, NextFunction, Request, Response } from "express";
+import express from "express";
+import fs from "fs";
 import { createServer, type Server } from "http";
 import multer from "multer";
+import { nanoid } from "nanoid";
 import path from "path";
-import fs from "fs";
-import express from "express";
-import { storage } from "./storage";
-import { openaiService, getAPIKeyStatus } from "./services/openai";
-import { socialMediaService } from "./services/socialMedia";
-import { seoService } from "./services/seo";
-import { MLSService } from "./services/mls";
-import { IDXService } from "./services/idx";
+import { db } from "./db";
+import { requireAuth } from "./middleware/auth";
+import { ObjectNotFoundError, ObjectStorageService } from "./objectStorage";
+import authRoutes from "./routes/auth";
+import userRoutes from "./routes/user";
 import { HeyGenService } from "./services/heygen";
-import { HeyGenStreamingService } from "./services/heygen-streaming";
 import { HeyGenPhotoAvatarService } from "./services/heygen-photo-avatar";
+import { HeyGenStreamingService } from "./services/heygen-streaming";
 import { HeyGenTemplateService } from "./services/heygen-template";
-import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
-import { 
-  insertContentPieceSchema,
-  insertSocialMediaAccountSchema,
-  insertSeoKeywordSchema,
-  insertScheduledPostSchema,
-  insertAvatarSchema,
-  insertVideoContentSchema
-} from "@shared/schema";
+import { IDXService } from "./services/idx";
+import { MLSService } from "./services/mls";
+import { getAPIKeyStatus, openaiService } from "./services/openai";
+import { S3UploadService } from "./services/s3Upload";
+import { seoService } from "./services/seo";
+import { socialMediaService } from "./services/socialMedia";
+import { storage } from "./storage";
+import { realtimeService } from "./websocket";
+
+// In-memory store for PKCE code verifiers (in production, use Redis or session storage)
+const pkceStore = new Map<
+  string,
+  { codeVerifier: string; expiresAt: number }
+>();
+
+// PKCE helper functions
+function generateCodeVerifier(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function generateCodeChallenge(verifier: string): string {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+// Clean up expired PKCE entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of pkceStore.entries()) {
+    if (value.expiresAt < now) {
+      pkceStore.delete(key);
+    }
+  }
+}, 10 * 60 * 1000);
 
 // Configure multer for file uploads
 const upload = multer({
@@ -32,12 +66,15 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Allow image, audio, and video files
-    if (file.mimetype.startsWith('image/') || 
-        file.mimetype.startsWith('audio/') ||
-        file.mimetype.startsWith('video/')) {  // Support all video formats
+    if (
+      file.mimetype.startsWith("image/") ||
+      file.mimetype.startsWith("audio/") ||
+      file.mimetype.startsWith("video/")
+    ) {
+      // Support all video formats
       cb(null, true);
     } else {
-      cb(new Error('Only image, audio, and video files are allowed'));
+      cb(new Error("Only image, audio, and video files are allowed"));
     }
   },
 });
@@ -50,17 +87,23 @@ const videoUpload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Only allow video files
-    if (file.mimetype.startsWith('video/')) {
+    if (file.mimetype.startsWith("video/")) {
       cb(null, true);
     } else {
-      cb(new Error('Only video files are allowed'));
+      cb(new Error("Only video files are allowed"));
     }
   },
 });
 
-function generateFallbackScript(topic: string, neighborhood: string, videoType: string, duration: number, platform: string = "youtube"): string {
+function generateFallbackScript(
+  topic: string,
+  neighborhood: string,
+  videoType: string,
+  duration: number,
+  platform: string = "youtube"
+): string {
   const videoTypeTemplates = {
-    "market_update": `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices. Let's talk about the current real estate market in ${neighborhood}.
+    market_update: `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices. Let's talk about the current real estate market in ${neighborhood}.
 
 The ${neighborhood} market has been showing some interesting trends lately. Home values have remained stable, and we're seeing consistent buyer interest in this area.
 
@@ -70,7 +113,7 @@ If you're thinking about buying or selling in ${neighborhood}, I'd love to help 
 
 Thanks for watching, and I'll see you in the next video!`,
 
-    "neighborhood_tour": `Welcome to ${neighborhood}! I'm Mike Bjork with Berkshire Hathaway HomeServices, and I'm excited to show you why this neighborhood is such a special place to call home.
+    neighborhood_tour: `Welcome to ${neighborhood}! I'm Mike Bjork with Berkshire Hathaway HomeServices, and I'm excited to show you why this neighborhood is such a special place to call home.
 
 ${neighborhood} offers a perfect blend of community charm and modern convenience. You'll find excellent schools, beautiful parks, and friendly neighbors who really care about maintaining the character of this area.
 
@@ -80,7 +123,7 @@ If you're considering making ${neighborhood} your new home, I'd be happy to show
 
 Thanks for joining me on this tour of ${neighborhood}!`,
 
-    "buyer_tips": `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices, and today I want to share some essential tips for home buyers, especially if you're looking in the ${neighborhood} area.
+    buyer_tips: `Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices, and today I want to share some essential tips for home buyers, especially if you're looking in the ${neighborhood} area.
 
 First, get pre-approved for your mortgage before you start shopping. This shows sellers you're serious and gives you a clear budget.
 
@@ -92,7 +135,7 @@ If you're ready to start your home buying journey in ${neighborhood} or anywhere
 
 Thanks for watching!`,
 
-    "seller_guide": `Thinking about selling your home in ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help you get the best possible result.
+    seller_guide: `Thinking about selling your home in ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help you get the best possible result.
 
 First, pricing is crucial. I'll provide you with a detailed market analysis to ensure your home is priced competitively for the ${neighborhood} market.
 
@@ -106,7 +149,7 @@ Ready to sell? Contact Mike Bjork, your trusted Omaha real estate professional.
 
 Thanks for watching!`,
 
-    "moving_guide": `Planning a move to ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help make your transition as smooth as possible.
+    moving_guide: `Planning a move to ${neighborhood}? I'm Mike Bjork with Berkshire Hathaway HomeServices, and I want to help make your transition as smooth as possible.
 
 ${neighborhood} is a wonderful community with so much to offer. From great schools to local amenities, you'll find everything you need to feel right at home.
 
@@ -116,33 +159,56 @@ I can also connect you with trusted local services to help with your move - from
 
 Moving to ${neighborhood} is an exciting step, and I'm here to help you every step of the way. Contact Mike Bjork, your Omaha real estate guide.
 
-Welcome to ${neighborhood}!`
+Welcome to ${neighborhood}!`,
   };
 
-  let baseScript = videoTypeTemplates[videoType as keyof typeof videoTypeTemplates] || 
-                  videoTypeTemplates.neighborhood_tour.replace(/neighborhood_tour/g, topic);
+  let baseScript =
+    videoTypeTemplates[videoType as keyof typeof videoTypeTemplates] ||
+    videoTypeTemplates.neighborhood_tour.replace(/neighborhood_tour/g, topic);
 
   // Platform-specific modifications
   if (platform === "reels") {
     // Make it more concise and punchy for Reels
     baseScript = baseScript
-      .replace(/Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g, "Hey! Mike Bjork here -")
-      .replace(/Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g, "Like & follow for more Omaha real estate tips! 🏠")
-      .split('\n').slice(0, 4).join('\n'); // Keep it shorter
+      .replace(
+        /Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g,
+        "Hey! Mike Bjork here -"
+      )
+      .replace(
+        /Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g,
+        "Like & follow for more Omaha real estate tips! 🏠"
+      )
+      .split("\n")
+      .slice(0, 4)
+      .join("\n"); // Keep it shorter
   } else if (platform === "story") {
     // Make it more casual and personal for Stories
     baseScript = baseScript
-      .replace(/Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g, "Quick update from Mike!")
-      .replace(/Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g, "DM me for details! 📱")
-      .split('\n').slice(0, 3).join('\n'); // Keep it very short
+      .replace(
+        /Hi, I'm Mike Bjork with Berkshire Hathaway HomeServices\./g,
+        "Quick update from Mike!"
+      )
+      .replace(
+        /Thanks for watching!|Thanks for watching, and I'll see you in the next video!/g,
+        "DM me for details! 📱"
+      )
+      .split("\n")
+      .slice(0, 3)
+      .join("\n"); // Keep it very short
   }
 
   return baseScript;
 }
 
-function generateAIOptimizedContent(neighborhood: string, goal: string, question?: string): string {
-  const questionStart = question || `What's the best information about ${goal.toLowerCase()} in ${neighborhood}?`;
-  
+function generateAIOptimizedContent(
+  neighborhood: string,
+  goal: string,
+  question?: string
+): string {
+  const questionStart =
+    question ||
+    `What's the best information about ${goal.toLowerCase()} in ${neighborhood}?`;
+
   return `# ${questionStart}
 
 **Direct Answer:** ${neighborhood} is an excellent choice for ${goal.toLowerCase()}. Here's what you need to know as someone considering this area.
@@ -158,7 +224,7 @@ ${neighborhood} offers unique advantages that make it ideal for ${goal.toLowerCa
 
 ### What Makes ${neighborhood} Special
 - **Community:** Active neighborhood associations and local events
-- **Convenience:** Close to major employers, schools, and Omaha amenities  
+- **Convenience:** Close to major employers, schools, and Omaha amenities
 - **Investment Value:** Properties hold value well and attract quality buyers
 
 ## Professional Guidance You Can Trust
@@ -186,18 +252,118 @@ Whether you're a first-time buyer, growing family, or savvy investor, I'll help 
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  
+  // =====================================================
+  // NEBRASKA HOME HUB INTEGRATION ENDPOINT
+  // =====================================================
+  app.get("/integration", (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { source, domain, userEmail, agentSlug, timestamp } = req.query;
+      const acceptHeader = String(req.headers.accept || "").toLowerCase();
+
+      // Validate trusted domains
+      const trustedDomains = [
+        "localhost",
+        "nebraskahomehub.com",
+        "bjorkhomes.com",
+        "mandy.bjorkhomes.com",
+        "elasticbeanstalk.com", // AWS Elastic Beanstalk deployments
+        "imakepage.com", // iMakePage platform
+      ];
+
+      const requestDomain = typeof domain === "string" ? domain : "";
+      const isTrusted =
+        !requestDomain ||
+        trustedDomains.some((trusted) => requestDomain.includes(trusted));
+
+      if (!isTrusted) {
+        console.warn(`⚠️ Untrusted integration request from: ${domain}`);
+        if (acceptHeader.includes("text/html")) {
+          return res
+            .status(403)
+            .send("Integration not allowed from this domain");
+        }
+        return res.status(403).json({
+          error: "Integration not allowed from this domain",
+        });
+      }
+
+      // Validate source
+      const normalizedSource = typeof source === "string" ? source : undefined;
+      if (normalizedSource && normalizedSource !== "nebraska-home-hub") {
+        console.warn(`⚠️ Unknown integration source: ${source}`);
+        if (acceptHeader.includes("text/html")) {
+          return res.status(403).send("Unknown integration source");
+        }
+        return res.status(403).json({
+          error: "Unknown integration source",
+        });
+      }
+
+      // Log the integration request
+      console.log(
+        `🔗 Integration request from ${
+          normalizedSource || "unknown"
+        } - domain: ${domain}, agent: ${agentSlug}`
+      );
+
+      if (acceptHeader.includes("text/html")) {
+        return next();
+      }
+
+      // Use the published deployment URL for consistent iframe embedding
+      const appUrl = "https://multi-users-realtyflow.replit.app";
+
+      const params = new URLSearchParams();
+      if (userEmail) {
+        params.set("bypassAuth", "true");
+        params.set("userId", userEmail as string);
+        params.set("userType", "public");
+        params.set("autoLogin", "true");
+      }
+      if (agentSlug) {
+        params.set("agentSlug", agentSlug as string);
+      }
+
+      const query = params.toString();
+      const iframeUrl = `${appUrl}/integration${query ? `?${query}` : ""}`;
+
+      // Return integration configuration with tenant-scoped data
+      res.json({
+        success: true,
+        source: normalizedSource || "unknown",
+        timestamp: timestamp || new Date().toISOString(),
+        config: {
+          appUrl: appUrl,
+          iframeUrl: iframeUrl,
+          authBypass: true,
+          agentSlug: agentSlug,
+          userEmail: userEmail || null,
+        },
+        message: "RealtyFlow integration ready",
+      });
+    } catch (error) {
+      console.error("Integration endpoint error:", error);
+      res.status(500).json({ error: "Integration configuration failed" });
+    }
+  });
+
+  // =====================================================
+  // AUTHENTICATION ROUTES
+  // =====================================================
+  app.use("/api/auth", authRoutes);
+  app.use("/api/user", userRoutes);
+
   // API Key Management
-  app.get('/api/openai/status', async (req, res) => {
+  app.get("/api/openai/status", async (req, res) => {
     try {
       const status = getAPIKeyStatus();
       res.json(status);
     } catch (error) {
-      console.error('Error getting API key status:', error);
-      res.status(500).json({ error: 'Failed to get API key status' });
+      console.error("Error getting API key status:", error);
+      res.status(500).json({ error: "Failed to get API key status" });
     }
   });
-  
+
   // Get dashboard overview data
   app.get("/api/dashboard/overview", async (req, res) => {
     try {
@@ -213,6 +379,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return acc;
       }, {} as Record<string, number>);
 
+      // Add real engagement leads from tracking system
+      try {
+        const { engagementLeads } = await import("@shared/schema");
+        const {
+          count,
+          gte,
+          lt,
+          and,
+          sql: drizzleSql,
+        } = await import("drizzle-orm");
+
+        // Get first day of current month
+        const now = new Date();
+        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        // Get first day of last month
+        const firstDayOfLastMonth = new Date(
+          now.getFullYear(),
+          now.getMonth() - 1,
+          1
+        );
+
+        // Count engagement leads created this month
+        const monthlyLeadsResult = await db
+          .select({ count: count() })
+          .from(engagementLeads)
+          .where(gte(engagementLeads.createdAt, firstDayOfMonth));
+
+        const currentMonthLeads = monthlyLeadsResult[0]?.count || 0;
+
+        // Count engagement leads created last month
+        const lastMonthLeadsResult = await db
+          .select({ count: count() })
+          .from(engagementLeads)
+          .where(
+            and(
+              gte(engagementLeads.createdAt, firstDayOfLastMonth),
+              lt(engagementLeads.createdAt, firstDayOfMonth)
+            )
+          );
+
+        const lastMonthLeads = lastMonthLeadsResult[0]?.count || 0;
+
+        // Calculate percentage change
+        let leadsChange = 0;
+        if (lastMonthLeads > 0) {
+          leadsChange =
+            ((currentMonthLeads - lastMonthLeads) / lastMonthLeads) * 100;
+        } else if (currentMonthLeads > 0) {
+          leadsChange = 100; // If no leads last month but some this month, 100% increase
+        }
+
+        // Replace static monthly_leads with real engagement leads count
+        overview.monthly_leads = currentMonthLeads;
+        overview.monthly_leads_change = Math.round(leadsChange * 10) / 10; // Round to 1 decimal
+
+        console.log(
+          `📊 Dashboard: ${currentMonthLeads} engagement leads this month (${
+            leadsChange >= 0 ? "+" : ""
+          }${leadsChange.toFixed(1)}% vs last month)`
+        );
+      } catch (error) {
+        console.warn(
+          "Failed to fetch engagement leads, using static data:",
+          error
+        );
+      }
+
       res.json(overview);
     } catch (error) {
       console.error("Dashboard overview error:", error);
@@ -223,9 +457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Content generation endpoints
   app.post("/api/content/generate", async (req, res) => {
     try {
-      const { type, topic, aiPrompt, neighborhood, keywords, seoOptimized, longTailKeywords, localSeoFocus, propertyData } = req.body;
-      
-      const generatedContent = await openaiService.generateContent({
+      const {
         type,
         topic,
         aiPrompt,
@@ -235,6 +467,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         longTailKeywords,
         localSeoFocus,
         propertyData,
+      } = req.body;
+
+      // Fetch company profile for dynamic personalization
+      const userId = req.user?.id;
+      let companyProfile = null;
+      if (userId) {
+        companyProfile = await storage.getCompanyProfile(userId);
+      }
+
+      // Use unified AI service (GitHub Copilot primary, OpenAI fallback)
+      const { unifiedAI } = await import("./services/unified-ai");
+      const generatedContent = await unifiedAI.generateStructuredContent({
+        type,
+        topic,
+        aiPrompt,
+        neighborhood,
+        keywords,
+        seoOptimized,
+        longTailKeywords,
+        localSeoFocus,
+        propertyData,
+        companyProfile: companyProfile || undefined,
       });
 
       // Save to storage
@@ -259,6 +513,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
         });
 
+        // Send real-time notification
+        realtimeService.notifyContentPublished(
+          user.id,
+          contentPiece.id,
+          generatedContent.title
+        );
+
         res.json({ ...generatedContent, id: contentPiece.id });
       } else {
         res.json(generatedContent);
@@ -272,8 +533,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/content/social-post", async (req, res) => {
     try {
       const { topic, platform, neighborhood } = req.body;
-      
-      const socialPost = await openaiService.generateSocialMediaPost(topic, platform, neighborhood);
+
+      // Fetch company profile for dynamic personalization
+      const userId = req.user?.id;
+      let companyProfile = null;
+      if (userId) {
+        companyProfile = await storage.getCompanyProfile(userId);
+      }
+
+      const socialPost = await openaiService.generateSocialMediaPost(
+        topic,
+        platform,
+        neighborhood,
+        companyProfile || undefined
+      );
       res.json(socialPost);
     } catch (error) {
       console.error("Social post generation error:", error);
@@ -300,16 +573,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/content/enhance", async (req, res) => {
     try {
       const { content, prompt, platform, postType } = req.body;
-      
+
       if (!content) {
         return res.status(400).json({ error: "Content is required" });
       }
 
       const enhancedContent = await openaiService.enhanceContent({
         originalContent: content,
-        customPrompt: prompt || "Optimize this post for SEO and engagement while maintaining professional tone for real estate audience in Omaha, Nebraska.",
+        customPrompt:
+          prompt ||
+          "Optimize this post for SEO and engagement while maintaining professional tone for real estate audience in Omaha, Nebraska.",
         platform: platform || "general",
-        postType: postType || "general"
+        postType: postType || "general",
       });
 
       res.json({ enhancedContent });
@@ -323,7 +598,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/content/ai-optimized", async (req, res) => {
     try {
       const { neighborhood, goal, question } = req.body;
-      
+
       // Generate AI-optimized content with specific formatting for AI search engines
       const aiOptimizedContent = {
         title: question ? question : `${goal} in ${neighborhood}`,
@@ -333,341 +608,1066 @@ export async function registerRoutes(app: Express): Promise<Server> {
           entityOptimization: true,
           conversationalFormat: true,
           localContext: true,
-          structuredAnswers: true
+          structuredAnswers: true,
         },
         targetQueries: [
           question || `${goal} ${neighborhood}`,
           `best ${goal.toLowerCase()} ${neighborhood}`,
-          `${neighborhood} real estate ${goal.toLowerCase()}`
-        ]
+          `${neighborhood} real estate ${goal.toLowerCase()}`,
+        ],
       };
-      
+
       res.json(aiOptimizedContent);
     } catch (error) {
       console.error("AI optimization error:", error);
-      res.status(500).json({ error: "Failed to generate AI-optimized content" });
+      res
+        .status(500)
+        .json({ error: "Failed to generate AI-optimized content" });
     }
   });
 
   // Platform-specific content regeneration endpoint
   app.post("/api/content/regenerate-for-platform", async (req, res) => {
     try {
-      const { platform, originalContent, contentType, topic, neighborhood, seoOptimized, longTailKeywords } = req.body;
+      const {
+        platform,
+        originalContent,
+        contentType,
+        topic,
+        neighborhood,
+        seoOptimized,
+        longTailKeywords,
+      } = req.body;
 
       if (!platform || !originalContent) {
-        return res.status(400).json({ error: "Platform and original content are required" });
+        return res
+          .status(400)
+          .json({ error: "Platform and original content are required" });
       }
 
       // Generate platform-optimized content using OpenAI
-      const platformOptimizedContent = await openaiService.generatePlatformSpecificContent({
-        platform: platform.toLowerCase(),
-        originalContent,
-        contentType: contentType || "blog", 
-        topic: topic || "real estate",
-        neighborhood: neighborhood || "Omaha",
-        seoOptimized: seoOptimized !== false,
-        longTailKeywords: longTailKeywords !== false,
-      });
+      const platformOptimizedContent =
+        await openaiService.generatePlatformSpecificContent({
+          platform: platform.toLowerCase(),
+          originalContent,
+          contentType: contentType || "blog",
+          topic: topic || "real estate",
+          neighborhood: neighborhood || "Omaha",
+          seoOptimized: seoOptimized !== false,
+          longTailKeywords: longTailKeywords !== false,
+        });
 
       res.json(platformOptimizedContent);
     } catch (error) {
       console.error("Platform content regeneration error:", error);
-      res.status(500).json({ error: "Failed to regenerate content for platform" });
+      res
+        .status(500)
+        .json({ error: "Failed to regenerate content for platform" });
     }
+  });
+
+  // LinkedIn OAuth diagnostic page
+  app.get("/api/linkedin/test", requireAuth, async (req, res) => {
+    try {
+      const sessionId = req.user?.id;
+
+      if (!sessionId) {
+        return res
+          .status(401)
+          .send(
+            "<h1>Please log in first</h1><p>Visit the dashboard and log in, then come back to this page.</p>"
+          );
+      }
+
+      // Resolve session ID to actual UUID from database
+      // Try direct lookup first, then by username if numeric session ID
+      let user = await storage.getUser(String(sessionId));
+      if (!user && req.user?.username) {
+        user = await storage.getUserByUsername(req.user.username);
+      }
+
+      if (!user) {
+        return res
+          .status(500)
+          .send(
+            "<h1>User Not Found</h1><p>Could not find your user account in the database. Please contact support.</p>"
+          );
+      }
+
+      const userId = user.id; // This is the actual UUID
+      const baseUrl = process.env.BASE_URL || `https://${req.get("host")}`;
+      const clientId = process.env.LINKEDIN_CLIENT_ID;
+      const redirectUri = `${baseUrl}/api/social/callback/linkedin`;
+
+      const state = Buffer.from(
+        JSON.stringify({ userId, platform: "linkedin" })
+      ).toString("base64");
+      const authUrl = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&state=${state}&scope=profile%20email%20w_member_social`;
+    } catch (error) {
+      console.error("LinkedIn test page error:", error);
+      return res
+        .status(500)
+        .send(
+          "<h1>Error</h1><p>Failed to generate OAuth URL. Check server logs.</p>"
+        );
+    }
+
+    res.send(`
+      <html>
+        <head>
+          <title>LinkedIn OAuth Test</title>
+          <style>
+            body { font-family: system-ui; max-width: 800px; margin: 50px auto; padding: 20px; }
+            .box { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .success { background: #d4edda; color: #155724; }
+            .info { background: #d1ecf1; color: #0c5460; }
+            code { background: #e9ecef; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+            a.button { display: inline-block; background: #0077b5; color: white; padding: 12px 24px;
+                       text-decoration: none; border-radius: 6px; margin: 10px 0; font-weight: 600; }
+            a.button:hover { background: #006097; }
+          </style>
+        </head>
+        <body>
+          <h1>🔗 LinkedIn OAuth Test</h1>
+
+          <div class="box info">
+            <h3>Configuration Status</h3>
+            <p>✅ User ID: <code>${userId}</code></p>
+            <p>✅ Client ID: ${clientId ? "Set" : "❌ Missing"}</p>
+            <p>✅ Client Secret: ${
+              process.env.LINKEDIN_CLIENT_SECRET ? "Set" : "❌ Missing"
+            }</p>
+            <p>✅ Redirect URI: <code>${redirectUri}</code></p>
+          </div>
+
+          <div class="box">
+            <h3>Step 1: Verify LinkedIn App Settings</h3>
+            <p>Make sure these redirect URIs are added in your LinkedIn Developer App:</p>
+            <ul>
+              <li><code>${redirectUri}</code></li>
+              <li><code>${redirectUri}/</code> (with trailing slash)</li>
+            </ul>
+          </div>
+
+          <div class="box success">
+            <h3>Step 2: Connect LinkedIn</h3>
+            <p>Click the button below to authorize this app with LinkedIn:</p>
+            <a href="${authUrl}" class="button">🔗 Connect LinkedIn Account</a>
+          </div>
+
+          <div class="box">
+            <h3>What Happens Next?</h3>
+            <ol>
+              <li>You'll be redirected to LinkedIn to authorize the app</li>
+              <li>LinkedIn will redirect back to this app</li>
+              <li>The app will save your access token</li>
+              <li>You can then post to LinkedIn automatically!</li>
+            </ol>
+          </div>
+        </body>
+      </html>
+    `);
   });
 
   // Social Media OAuth Routes
-  app.post('/api/social/connect/:platform', async (req, res) => {
+  app.post("/api/social/connect/:platform", requireAuth, async (req, res) => {
     try {
       const { platform } = req.params;
-      
-      // OAuth URLs for each platform - these would need real client IDs in production
-      const oauthUrls: Record<string, string> = {
-        facebook: `https://www.facebook.com/v18.0/dialog/oauth?client_id=YOUR_FACEBOOK_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/facebook')}&scope=pages_manage_posts,pages_read_engagement`,
-        instagram: `https://api.instagram.com/oauth/authorize?client_id=YOUR_INSTAGRAM_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/instagram')}&scope=user_profile,user_media&response_type=code`,
-        linkedin: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=YOUR_LINKEDIN_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/linkedin')}&scope=w_member_social`,
-        twitter: `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=YOUR_TWITTER_CLIENT_ID&redirect_uri=${encodeURIComponent(process.env.BASE_URL + '/api/social/callback/twitter')}&scope=tweet.read%20tweet.write%20users.read`,
+
+      console.log("\n🔐 OAuth Connect Request for", platform);
+      console.log(
+        "📋 Session user object:",
+        JSON.stringify(
+          {
+            id: req.user?.id,
+            username: req.user?.username,
+            email: req.user?.email,
+            role: req.user?.role,
+          },
+          null,
+          2
+        )
+      );
+
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      // CRITICAL FIX: Resolve the authenticated user to their UUID
+      let userId = String(req.user.id);
+      console.log(
+        `🔍 Looking up user by DB ID: "${userId}" and email: "${req.user.email}"`
+      );
+
+      // Try to find user by ID first
+      let user = await storage.getUser(userId);
+      console.log(
+        `   → getUser(${userId}):`,
+        user ? `✅ Found ${user.username}` : "❌ Not found"
+      );
+
+      // If not found by ID, try by email (critical for DB-authenticated users)
+      if (!user && req.user.email) {
+        console.log(`   → Trying to find by email: "${req.user.email}"`);
+        const allUsers = Array.from(storage.users?.values() || []);
+        user = allUsers.find((u) => u.email === req.user.email);
+        console.log(
+          `   → Email search:`,
+          user ? `✅ Found ${user.id}` : "❌ Not found"
+        );
+      }
+
+      // If not found by email, try by username as fallback
+      if (!user && req.user.username) {
+        console.log(`   → Trying getUserByUsername("${req.user.username}")`);
+        user = await storage.getUserByUsername(req.user.username);
+        console.log(
+          `   → getUserByUsername:`,
+          user ? `✅ Found ${user.id}` : "❌ Not found"
+        );
+      }
+
+      // If user still not found, create them ONCE in MemStorage
+      if (!user) {
+        console.log(
+          `   → User not in MemStorage, creating with auto-generated UUID...`
+        );
+        user = await storage.createUser({
+          username:
+            req.user.username ||
+            req.user.email?.split("@")[0] ||
+            `user_${userId}`,
+          email: req.user.email || undefined,
+          password: "", // Not needed for OAuth-only users
+          name: req.user.email || `User ${userId}`,
+          role: (req.user.type === "agent" ? "agent" : "public") as
+            | "agent"
+            | "public"
+            | "team_lead",
+        });
+        console.log(
+          `   ✅ Created user in MemStorage: ${user.id} (DB ID was: ${userId})`
+        );
+      } else {
+        console.log(`   ✅ Reusing existing MemStorage user: ${user.id}`);
+      }
+
+      // Use the MemStorage UUID for all social account operations
+      userId = user.id;
+      console.log(
+        `✅ OAuth connect for user: ${userId} (${user.email || user.username})`
+      );
+
+      // Read credentials from Replit Secrets (environment variables)
+      const baseUrl =
+        process.env.BASE_URL ||
+        (process.env.REPLIT_DEV_DOMAIN
+          ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+          : "http://localhost:5000");
+
+      // Create state parameter with userId for OAuth callback
+      const state = Buffer.from(JSON.stringify({ userId, platform })).toString(
+        "base64"
+      );
+
+      // Generate PKCE parameters for Twitter (required by Twitter OAuth 2.0)
+      let twitterUrl: string | null = null;
+      if (
+        (platform === "twitter" || platform === "x") &&
+        process.env.TWITTER_CLIENT_ID
+      ) {
+        const codeVerifier = generateCodeVerifier();
+        const codeChallenge = generateCodeChallenge(codeVerifier);
+
+        // Store code verifier with state as key (expires in 10 minutes)
+        pkceStore.set(state, {
+          codeVerifier,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+        });
+
+        twitterUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${
+          process.env.TWITTER_CLIENT_ID
+        }&redirect_uri=${encodeURIComponent(
+          baseUrl + "/api/social/callback/twitter"
+        )}&scope=tweet.read%20tweet.write%20users.read%20offline.access&state=${encodeURIComponent(
+          state
+        )}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+      }
+
+      const oauthUrls: Record<string, string | null> = {
+        facebook: process.env.FACEBOOK_CLIENT_ID
+          ? `https://www.facebook.com/v18.0/dialog/oauth?client_id=${
+              process.env.FACEBOOK_CLIENT_ID
+            }&redirect_uri=${encodeURIComponent(
+              baseUrl + "/api/social/callback/facebook"
+            )}&scope=pages_manage_posts,pages_read_engagement&state=${encodeURIComponent(
+              state
+            )}`
+          : null,
+        instagram: process.env.INSTAGRAM_CLIENT_ID
+          ? `https://api.instagram.com/oauth/authorize?client_id=${
+              process.env.INSTAGRAM_CLIENT_ID
+            }&redirect_uri=${encodeURIComponent(
+              baseUrl + "/api/social/callback/instagram"
+            )}&scope=user_profile,user_media&response_type=code&state=${encodeURIComponent(
+              state
+            )}`
+          : null,
+        linkedin: process.env.LINKEDIN_CLIENT_ID
+          ? `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${
+              process.env.LINKEDIN_CLIENT_ID
+            }&redirect_uri=${encodeURIComponent(
+              baseUrl + "/api/social/callback/linkedin"
+            )}&scope=openid%20profile%20email%20w_member_social&state=${encodeURIComponent(
+              state
+            )}`
+          : null,
+        twitter: twitterUrl,
+        x: twitterUrl, // X (Twitter) uses same OAuth flow
+        youtube: process.env.YOUTUBE_CLIENT_ID
+          ? `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${
+              process.env.YOUTUBE_CLIENT_ID
+            }&redirect_uri=${encodeURIComponent(
+              baseUrl + "/api/social/callback/youtube"
+            )}&scope=https://www.googleapis.com/auth/youtube.upload%20https://www.googleapis.com/auth/youtube.force-ssl&access_type=offline&state=${encodeURIComponent(
+              state
+            )}`
+          : null,
       };
 
-      if (!oauthUrls[platform]) {
-        return res.status(400).json({ 
+      const authUrl = oauthUrls[platform];
+
+      if (!authUrl) {
+        return res.status(400).json({
           error: `OAuth not configured for ${platform}`,
-          message: "This platform requires OAuth app setup with valid client credentials"
+          message: `Please add ${platform.toUpperCase()}_CLIENT_ID to Replit Secrets to enable OAuth`,
         });
       }
 
-      res.json({ 
-        authUrl: oauthUrls[platform],
-        message: "OAuth URL generated - configure client credentials for production use"
+      res.json({
+        authUrl,
+        message: "OAuth URL generated successfully",
       });
     } catch (error) {
-      console.error('OAuth initiation error:', error);
-      res.status(500).json({ error: 'Failed to initiate OAuth flow' });
+      console.error("OAuth initiation error:", error);
+      res.status(500).json({ error: "Failed to initiate OAuth flow" });
     }
   });
 
-  app.get('/api/social/status/:platform', async (req, res) => {
+  app.get("/api/social/status/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
-      
+
       // For now, return not connected since we don't have real OAuth setup
-      res.json({ 
+      res.json({
         connected: false,
-        message: `OAuth integration for ${platform} requires client credentials to be configured`
+        message: `OAuth integration for ${platform} requires client credentials to be configured`,
       });
     } catch (error) {
-      console.error('Status check error:', error);
-      res.status(500).json({ error: 'Failed to check connection status' });
+      console.error("Status check error:", error);
+      res.status(500).json({ error: "Failed to check connection status" });
     }
   });
 
-  // OAuth callback handlers (these would handle the actual OAuth responses)
-  // Twitter OAuth callback route (matches user's Twitter app configuration)
-  app.get('/auth/twitter/callback', async (req, res) => {
-    try {
-      const { code, error, oauth_token, oauth_verifier } = req.query;
+  // OAuth callback handlers are now unified under /api/social/callback/:platform
 
-      if (error) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=${error}`);
-      }
-
-      // For OAuth 1.0a, we get oauth_token and oauth_verifier
-      if (oauth_token && oauth_verifier) {
-        // OAuth 1.0a callback handling would go here
-        res.send(`
-          <html>
-            <body>
-              <h1>Twitter Authorization Successful</h1>
-              <p>Twitter OAuth 1.0a authorization completed successfully.</p>
-              <p>oauth_token: ${oauth_token}</p>
-              <script>
-                window.opener?.postMessage({ success: true, platform: 'twitter' }, '*');
-                window.close();
-              </script>
-            </body>
-          </html>
-        `);
-      } 
-      // For OAuth 2.0, we get authorization code
-      else if (code) {
-        res.send(`
-          <html>
-            <body>
-              <h1>Twitter Authorization Successful</h1>
-              <p>Twitter OAuth 2.0 authorization completed successfully.</p>
-              <script>
-                window.opener?.postMessage({ success: true, platform: 'twitter', code: '${code}' }, '*');
-                window.close();
-              </script>
-            </body>
-          </html>
-        `);
-      } else {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=no_auth_data`);
-      }
-    } catch (error) {
-      console.error('Twitter OAuth callback error:', error);
-      res.status(500).send('Twitter OAuth callback failed');
-    }
-  });
-
-  app.get('/api/social/callback/:platform', async (req, res) => {
+  app.get("/api/social/callback/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
-      const { code, error } = req.query;
+      const { code, error, state } = req.query;
+
+      const rawState =
+        typeof state === "string"
+          ? state
+          : Array.isArray(state)
+          ? state[0]
+          : undefined;
+      const decodedStateString = rawState
+        ? decodeURIComponent(rawState)
+        : undefined;
+
+      // Use production URL for Replit deployments
+      const baseUrl =
+        process.env.BASE_URL ||
+        (process.env.REPLIT_DEV_DOMAIN
+          ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+          : "http://localhost:5000");
 
       if (error) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=${error}`);
+        return res.redirect(`${baseUrl}/?oauth_error=${error}`);
       }
 
       if (!code) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=no_code`);
+        return res.redirect(`${baseUrl}/?oauth_error=no_code`);
       }
 
-      // Here you would exchange the code for access tokens
-      // For now, just show a success page
-      res.send(`
-        <html>
-          <body>
-            <h1>${platform} OAuth Callback</h1>
-            <p>OAuth setup is not complete. To enable real social media posting:</p>
-            <ol>
-              <li>Create developer apps on ${platform}</li>
-              <li>Add client credentials to environment variables</li>
-              <li>Implement token exchange logic</li>
-            </ol>
-            <script>window.close();</script>
-          </body>
-        </html>
-      `);
+      // Extract userId from state parameter
+      let userId: number | null = null;
+      if (decodedStateString) {
+        try {
+          const decodedState = JSON.parse(
+            Buffer.from(decodedStateString, "base64").toString()
+          );
+          userId = decodedState.userId;
+
+          console.log(
+            `OAuth callback for ${platform}: extracted userId ${userId} from state parameter`
+          );
+        } catch (e) {
+          console.error("Failed to decode state parameter:", e);
+        }
+      }
+
+      if (!userId) {
+        console.error("OAuth callback: no userId found in state parameter");
+        return res.redirect(`${baseUrl}/?oauth_error=invalid_state`);
+      }
+
+      // Exchange authorization code for access token
+      if (platform.toLowerCase() === "linkedin") {
+        const clientId = process.env.LINKEDIN_CLIENT_ID;
+        const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+        const redirectUri = `${baseUrl}/api/social/callback/linkedin`;
+
+        if (!clientId || !clientSecret) {
+          return res.redirect(`${baseUrl}/?oauth_error=missing_credentials`);
+        }
+
+        try {
+          // Exchange code for access token
+          const tokenResponse = await fetch(
+            "https://www.linkedin.com/oauth/v2/accessToken",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code: code as string,
+                redirect_uri: redirectUri,
+                client_id: clientId,
+                client_secret: clientSecret,
+              }),
+            }
+          );
+
+          if (!tokenResponse.ok) {
+            const errorData = await tokenResponse.text();
+            console.error("LinkedIn token exchange failed:", errorData);
+            return res.redirect(
+              `${baseUrl}/?oauth_error=token_exchange_failed`
+            );
+          }
+
+          const tokenData = await tokenResponse.json();
+          const accessToken = tokenData.access_token;
+
+          // Get user from database using userId from state parameter
+          const user = await storage.getUser(String(userId));
+          if (!user) {
+            return res.redirect(`${baseUrl}/?oauth_error=user_not_found`);
+          }
+
+          // Save access token to database
+          const existingAccounts = await storage.getSocialMediaAccounts(
+            user.id
+          );
+          const linkedinAccount = existingAccounts.find(
+            (acc) => acc.platform.toLowerCase() === "linkedin"
+          );
+
+          if (linkedinAccount) {
+            // Update existing account
+            await storage.updateSocialMediaAccount(linkedinAccount.id, {
+              accessToken,
+              isConnected: true,
+              lastSync: new Date(),
+            });
+          } else {
+            // Create new account
+            await storage.createSocialMediaAccount({
+              userId: user.id,
+              platform: "linkedin",
+              accountId: "linkedin_account",
+              accessToken,
+              isConnected: true,
+            });
+          }
+
+          // Success! Show confirmation and close window
+          res.send(`
+            <html>
+              <body>
+                <h1>✅ LinkedIn Connected Successfully!</h1>
+                <p>Your LinkedIn account has been connected. You can now post content to LinkedIn.</p>
+                <script>
+                  window.opener?.postMessage({ success: true, platform: 'linkedin' }, '*');
+                  setTimeout(() => window.close(), 2000);
+                </script>
+              </body>
+            </html>
+          `);
+        } catch (fetchError) {
+          console.error("LinkedIn OAuth error:", fetchError);
+          return res.redirect(`${baseUrl}/?oauth_error=token_exchange_error`);
+        }
+      } else if (platform.toLowerCase() === "youtube") {
+        const clientId = process.env.YOUTUBE_CLIENT_ID;
+        const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+        const redirectUri = `${baseUrl}/api/social/callback/youtube`;
+
+        if (!clientId || !clientSecret) {
+          return res.redirect(`${baseUrl}/?oauth_error=missing_credentials`);
+        }
+
+        try {
+          // Exchange code for access token using Google OAuth
+          const tokenResponse = await fetch(
+            "https://oauth2.googleapis.com/token",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code: code as string,
+                redirect_uri: redirectUri,
+                client_id: clientId,
+                client_secret: clientSecret,
+              }),
+            }
+          );
+
+          if (!tokenResponse.ok) {
+            const errorData = await tokenResponse.text();
+            console.error("YouTube token exchange failed:", errorData);
+            return res.redirect(
+              `${baseUrl}/?oauth_error=token_exchange_failed`
+            );
+          }
+
+          const tokenData = await tokenResponse.json();
+          const accessToken = tokenData.access_token;
+          const refreshToken = tokenData.refresh_token; // YouTube provides refresh tokens
+
+          // Get user from database using userId from state parameter
+          const user = await storage.getUser(String(userId));
+          if (!user) {
+            return res.redirect(`${baseUrl}/?oauth_error=user_not_found`);
+          }
+
+          // Save access token and refresh token to database
+          const existingAccounts = await storage.getSocialMediaAccounts(
+            user.id
+          );
+          const youtubeAccount = existingAccounts.find(
+            (acc) => acc.platform.toLowerCase() === "youtube"
+          );
+
+          if (youtubeAccount) {
+            // Update existing account
+            await storage.updateSocialMediaAccount(youtubeAccount.id, {
+              accessToken,
+              refreshToken: refreshToken || undefined,
+              isConnected: true,
+              lastSync: new Date(),
+            });
+          } else {
+            // Create new account
+            await storage.createSocialMediaAccount({
+              userId: user.id,
+              platform: "youtube",
+              accountId: "youtube_account",
+              accessToken,
+              refreshToken: refreshToken || undefined,
+              isConnected: true,
+            });
+          }
+
+          // Success! Show confirmation and close window
+          res.send(`
+            <html>
+              <body>
+                <h1>✅ YouTube Connected Successfully!</h1>
+                <p>Your YouTube channel has been connected. You can now post videos and community posts.</p>
+                <script>
+                  window.opener?.postMessage({ success: true, platform: 'youtube' }, '*');
+                  setTimeout(() => window.close(), 2000);
+                </script>
+              </body>
+            </html>
+          `);
+        } catch (fetchError) {
+          console.error("YouTube OAuth error:", fetchError);
+          return res.redirect(`${baseUrl}/?oauth_error=token_exchange_error`);
+        }
+      } else if (
+        platform.toLowerCase() === "twitter" ||
+        platform.toLowerCase() === "x"
+      ) {
+        const clientId = process.env.TWITTER_CLIENT_ID;
+        const clientSecret = process.env.TWITTER_CLIENT_SECRET;
+        const redirectUri = `${baseUrl}/api/social/callback/twitter`;
+
+        if (!clientId || !clientSecret) {
+          return res.redirect(`${baseUrl}/?oauth_error=missing_credentials`);
+        }
+
+        // Retrieve code verifier from PKCE store using state parameter
+        const pkceData = decodedStateString
+          ? pkceStore.get(decodedStateString)
+          : undefined;
+        if (!pkceData) {
+          console.error(
+            "Twitter OAuth: PKCE code verifier not found for state:",
+            state
+          );
+          return res.redirect(
+            `${baseUrl}/?oauth_error=pkce_verifier_not_found`
+          );
+        }
+
+        // Check if PKCE data has expired
+        if (pkceData.expiresAt < Date.now()) {
+          if (decodedStateString) {
+            pkceStore.delete(decodedStateString);
+          }
+          console.error("Twitter OAuth: PKCE code verifier expired");
+          return res.redirect(`${baseUrl}/?oauth_error=pkce_verifier_expired`);
+        }
+
+        // Clean up PKCE data after use
+        const codeVerifier = pkceData.codeVerifier;
+        if (decodedStateString) {
+          pkceStore.delete(decodedStateString);
+        }
+
+        try {
+          // Exchange code for access token using Twitter OAuth 2.0
+          const tokenResponse = await fetch(
+            "https://api.twitter.com/2/oauth2/token",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: `Basic ${Buffer.from(
+                  `${clientId}:${clientSecret}`
+                ).toString("base64")}`,
+              },
+              body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code: code as string,
+                redirect_uri: redirectUri,
+                code_verifier: codeVerifier,
+              }),
+            }
+          );
+
+          if (!tokenResponse.ok) {
+            const errorData = await tokenResponse.text();
+            console.error("Twitter token exchange failed:", errorData);
+            return res.redirect(
+              `${baseUrl}/?oauth_error=token_exchange_failed`
+            );
+          }
+
+          const tokenData = await tokenResponse.json();
+          const accessToken = tokenData.access_token;
+          const refreshToken = tokenData.refresh_token;
+
+          console.log(
+            `✅ Twitter token exchange successful for user ${userId}`
+          );
+          console.log(
+            "   Access token (debug only, rotate after testing):",
+            accessToken || "MISSING"
+          );
+
+          // Get user from database using userId from state parameter
+          const user = await storage.getUser(String(userId));
+          if (!user) {
+            console.error(`❌ User not found: ${userId}`);
+            return res.redirect(`${baseUrl}/?oauth_error=user_not_found`);
+          }
+
+          console.log(`✅ Found user: ${user.id} (${user.email})`);
+
+          // Save access token and refresh token to database
+          const existingAccounts = await storage.getSocialMediaAccounts(
+            user.id
+          );
+          console.log(
+            `📊 Existing social accounts for user ${user.id}:`,
+            existingAccounts.map((a) => a.platform)
+          );
+
+          const twitterAccount = existingAccounts.find(
+            (acc) =>
+              acc.platform.toLowerCase() === "twitter" ||
+              acc.platform.toLowerCase() === "x"
+          );
+
+          if (twitterAccount) {
+            // Update existing account
+            console.log(
+              `🔄 Updating existing Twitter account: ${twitterAccount.id}`
+            );
+            await storage.updateSocialMediaAccount(twitterAccount.id, {
+              accessToken,
+              refreshToken: refreshToken || undefined,
+              isConnected: true,
+              lastSync: new Date(),
+            });
+            console.log(`✅ Twitter account updated successfully`);
+          } else {
+            // Create new account
+            console.log(`➕ Creating new Twitter account for user ${user.id}`);
+            const newAccount = await storage.createSocialMediaAccount({
+              userId: user.id,
+              platform: "x",
+              accountId: "x_account",
+              accessToken,
+              refreshToken: refreshToken || undefined,
+              isConnected: true,
+            });
+            console.log(`✅ Twitter account created successfully:`, newAccount);
+          }
+
+          // Success! Show confirmation and close window
+          res.send(`
+            <html>
+              <body>
+                <h1>✅ Twitter/X Connected Successfully!</h1>
+                <p>Your Twitter/X account has been connected. You can now post tweets directly.</p>
+                <script>
+                  window.opener?.postMessage({ success: true, platform: 'x' }, '*');
+                  setTimeout(() => window.close(), 2000);
+                </script>
+              </body>
+            </html>
+          `);
+        } catch (fetchError) {
+          console.error("Twitter OAuth error:", fetchError);
+          return res.redirect(`${baseUrl}/?oauth_error=token_exchange_error`);
+        }
+      } else {
+        // Other platforms - show placeholder message
+        res.send(`
+          <html>
+            <body>
+              <h1>${platform} OAuth Callback</h1>
+              <p>OAuth setup for ${platform} requires additional configuration.</p>
+              <p>Please add ${platform.toUpperCase()}_CLIENT_ID and ${platform.toUpperCase()}_CLIENT_SECRET to Replit Secrets.</p>
+              <script>setTimeout(() => window.close(), 3000);</script>
+            </body>
+          </html>
+        `);
+      }
     } catch (error) {
-      console.error('OAuth callback error:', error);
-      res.status(500).send('OAuth callback failed');
+      console.error("OAuth callback error:", error);
+      res.status(500).send("OAuth callback failed");
     }
   });
 
   // Social media endpoints
-  app.get("/api/social/accounts", async (req, res) => {
+  app.get("/api/social/accounts", requireAuth, async (req, res) => {
     try {
-      const user = await storage.getUserByUsername("mikebjork");
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const accounts = await storage.getSocialMediaAccounts(user.id);
-      
-      // Add mock connections if no accounts exist
-      if (accounts.length === 0) {
-        const platforms = [
-          { platform: "facebook", isConnected: true },
-          { platform: "instagram", isConnected: true },
-          { platform: "linkedin", isConnected: true },
-          { platform: "x", isConnected: true },
-          { platform: "tiktok", isConnected: true },
-          { platform: "youtube", isConnected: true },
-        ];
+      // Resolve DB user ID to MemStorage UUID (same logic as connect endpoint)
+      let userId = String(req.user.id);
+      let user = await storage.getUser(userId);
 
-        for (const p of platforms) {
-          await storage.createSocialMediaAccount({
-            userId: user.id,
-            platform: p.platform,
-            accountId: `${p.platform}_account`,
-            accessToken: p.isConnected ? "mock_token" : null,
-            refreshToken: null,
-            isConnected: p.isConnected,
-            lastSync: p.isConnected ? new Date() : null,
-            metadata: null,
-          });
-        }
-
-        const newAccounts = await storage.getSocialMediaAccounts(user.id);
-        return res.json(newAccounts);
+      // If not found by ID, try by email
+      if (!user && req.user.email) {
+        const allUsers = Array.from(storage.users?.values() || []);
+        user = allUsers.find((u) => u.email === req.user.email);
       }
 
-      res.json(accounts);
+      // If not found by email, try by username
+      if (!user && req.user.username) {
+        user = await storage.getUserByUsername(req.user.username);
+      }
+
+      // Get social media accounts (empty if user not found)
+      const socialAccounts = user
+        ? await storage.getSocialMediaAccounts(user.id)
+        : [];
+
+      // Map accounts to include connection status
+      const connectedPlatforms = new Set(
+        socialAccounts.map((acc) => acc.platform.toLowerCase())
+      );
+
+      // Return all platforms with their connection status
+      const platforms = [
+        {
+          id: nanoid(),
+          platform: "facebook",
+          isConnected: connectedPlatforms.has("facebook"),
+          lastSync: connectedPlatforms.has("facebook")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "instagram",
+          isConnected: connectedPlatforms.has("instagram"),
+          lastSync: connectedPlatforms.has("instagram")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "linkedin",
+          isConnected: connectedPlatforms.has("linkedin"),
+          lastSync: connectedPlatforms.has("linkedin")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "x",
+          isConnected:
+            connectedPlatforms.has("x") || connectedPlatforms.has("twitter"),
+          lastSync:
+            connectedPlatforms.has("x") || connectedPlatforms.has("twitter")
+              ? new Date().toISOString()
+              : null,
+        },
+        {
+          id: nanoid(),
+          platform: "tiktok",
+          isConnected: connectedPlatforms.has("tiktok"),
+          lastSync: connectedPlatforms.has("tiktok")
+            ? new Date().toISOString()
+            : null,
+        },
+        {
+          id: nanoid(),
+          platform: "youtube",
+          isConnected: connectedPlatforms.has("youtube"),
+          lastSync: connectedPlatforms.has("youtube")
+            ? new Date().toISOString()
+            : null,
+        },
+      ];
+
+      res.json(platforms);
     } catch (error) {
       console.error("Get social accounts error:", error);
       res.status(500).json({ error: "Failed to fetch social media accounts" });
     }
   });
 
-  app.post("/api/social/post", upload.single('photo'), async (req, res) => {
-    try {
-      const { platform, content, platforms, scheduledFor } = req.body;
-      const photo = req.file;
+  app.post(
+    "/api/social/post",
+    requireAuth,
+    upload.single("photo"),
+    async (req, res) => {
+      try {
+        const { platform, content, platforms, scheduledFor } = req.body;
+        const photo = req.file;
 
-      if (platform) {
-        // Single platform posting (new functionality)
-        if (!content) {
-          return res.status(400).json({ error: "Content is required" });
-        }
-
-        const user = await storage.getUserByUsername("mikebjork");
-        if (!user) {
-          return res.status(404).json({ error: "User not found" });
-        }
-
-        // Get user's social accounts to check if platform is connected
-        const socialAccounts = await storage.getSocialMediaAccounts(user.id);
-        const connectedAccount = socialAccounts.find(account => 
-          account.platform.toLowerCase() === platform.toLowerCase()
-        );
-
-        if (!connectedAccount && socialAccounts.length > 0 && platform.toLowerCase() !== 'youtube') {
-          return res.status(400).json({ 
-            error: `${platform} account not connected. Please connect your account first.` 
-          });
-        }
-
-        // Get photo URL if uploaded
-        let photoUrl = null;
-        if (photo) {
-          photoUrl = `/uploads/${path.basename(photo.path)}`;
-        }
-
-        // Actually post to the platform
-        let postResult;
-        try {
-          if (platform.toLowerCase() === 'facebook') {
-            return res.status(400).json({ 
-              error: 'Direct Facebook profile posting is not supported. Please use the Facebook Pages feature instead.' 
-            });
-          } else if (platform.toLowerCase() === 'instagram') {
-            postResult = await socialMediaService.postToInstagram(content, photoUrl || '', connectedAccount?.accessToken || '');
-          } else if (platform.toLowerCase() === 'linkedin') {
-            postResult = await socialMediaService.postToLinkedIn(content, connectedAccount?.accessToken || '');
-          } else if (platform.toLowerCase() === 'x') {
-            postResult = await socialMediaService.postToX(content, connectedAccount?.accessToken || '');
-          } else if (platform.toLowerCase() === 'youtube') {
-            // For YouTube, we need title and description
-            const title = req.body.title || content.substring(0, 100) + '...';
-            const description = req.body.description || content;
-            // Use mock token if no connected account
-            const youtubeToken = connectedAccount?.accessToken || 'mock_youtube_token';
-            postResult = await socialMediaService.postToYoutube(title, description, photoUrl || undefined, youtubeToken);
-          } else {
-            throw new Error(`Unsupported platform: ${platform}`);
+        if (platform) {
+          // Single platform posting (new functionality)
+          if (!content) {
+            return res.status(400).json({ error: "Content is required" });
           }
-        } catch (postError) {
-          console.error(`Failed to post to ${platform}:`, postError);
-          return res.status(500).json({ 
-            error: `Failed to post to ${platform}: ${postError instanceof Error ? postError.message : 'Unknown error'}` 
+
+          // Get logged-in user from session
+          const sessionId = req.user?.id;
+          if (!sessionId) {
+            return res.status(401).json({ error: "User not authenticated" });
+          }
+
+          // Resolve DB user ID to MemStorage UUID (same logic as connect/accounts endpoints)
+          let userId = String(sessionId);
+          let user = await storage.getUser(userId);
+
+          // If not found by ID, try by email (CRITICAL for DB-authenticated users)
+          if (!user && req.user?.email) {
+            const allUsers = Array.from(storage.users?.values() || []);
+            user = allUsers.find((u) => u.email === req.user.email);
+          }
+
+          // If not found by email, try by username
+          if (!user && req.user?.username) {
+            user = await storage.getUserByUsername(req.user.username);
+          }
+
+          if (!user) {
+            return res.status(404).json({
+              error:
+                "User not found in storage. Please reconnect your social accounts.",
+            });
+          }
+
+          // Get user's social accounts to check if platform is connected
+          const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+          console.log(
+            `Found ${socialAccounts.length} social accounts for user ${user.id}`
+          );
+          console.log(
+            "Social accounts:",
+            socialAccounts.map((a) => ({
+              platform: a.platform,
+              hasToken: !!a.accessToken,
+            }))
+          );
+
+          const connectedAccount = socialAccounts.find(
+            (account) =>
+              account.platform.toLowerCase() === platform.toLowerCase()
+          );
+
+          console.log(
+            `Looking for ${platform} account:`,
+            connectedAccount
+              ? `Found (hasToken: ${!!connectedAccount.accessToken})`
+              : "Not found"
+          );
+
+          if (
+            !connectedAccount &&
+            socialAccounts.length > 0 &&
+            platform.toLowerCase() !== "youtube"
+          ) {
+            return res.status(400).json({
+              error: `${platform} account not connected. Please connect your account first.`,
+            });
+          }
+
+          // Get photo URL if uploaded
+          let photoUrl = null;
+          if (photo) {
+            photoUrl = `/uploads/${path.basename(photo.path)}`;
+          }
+
+          // Actually post to the platform
+          let postResult;
+          try {
+            if (platform.toLowerCase() === "facebook") {
+              return res.status(400).json({
+                error:
+                  "Direct Facebook profile posting is not supported. Please use the Facebook Pages feature instead.",
+              });
+            } else if (platform.toLowerCase() === "instagram") {
+              postResult = await socialMediaService.postToInstagram(
+                content,
+                photoUrl || "",
+                connectedAccount?.accessToken || ""
+              );
+            } else if (platform.toLowerCase() === "linkedin") {
+              postResult = await socialMediaService.postToLinkedIn(
+                content,
+                connectedAccount?.accessToken || ""
+              );
+            } else if (platform.toLowerCase() === "x") {
+              postResult = await socialMediaService.postToX(
+                content,
+                connectedAccount?.accessToken || ""
+              );
+            } else if (platform.toLowerCase() === "youtube") {
+              // For YouTube, we need title and description
+              const title = req.body.title || content.substring(0, 100) + "...";
+              const description = req.body.description || content;
+              // Use mock token if no connected account
+              const youtubeToken =
+                connectedAccount?.accessToken || "mock_youtube_token";
+              postResult = await socialMediaService.postToYoutube(
+                title,
+                description,
+                photoUrl || undefined,
+                youtubeToken
+              );
+            } else {
+              throw new Error(`Unsupported platform: ${platform}`);
+            }
+          } catch (postError) {
+            console.error(`Failed to post to ${platform}:`, postError);
+            return res.status(500).json({
+              error: `Failed to post to ${platform}: ${
+                postError instanceof Error ? postError.message : "Unknown error"
+              }`,
+            });
+          }
+
+          // Create a record of the successful post
+          const scheduledPost = await storage.createScheduledPost({
+            userId: user.id,
+            platform: platform.toLowerCase(),
+            content,
+            scheduledFor: new Date(), // Posted immediately
+            status: "posted",
+            postType: "manual_post",
+            hashtags: content.match(/#\w+/g) || [],
+            isEdited: false,
+            originalContent: content,
+            neighborhood: null,
+          });
+
+          // Send real-time notification
+          realtimeService.notifySocialPostScheduled(
+            user.id,
+            scheduledPost.id,
+            platform,
+            new Date().toISOString()
+          );
+
+          res.json({
+            success: true,
+            message: `Content posted successfully to ${platform}`,
+            postId: postResult.postId,
+            platform,
+            timestamp: new Date().toISOString(),
+            scheduledPostId: scheduledPost.id,
+          });
+        } else {
+          // Multi-platform posting (existing functionality)
+          console.log("Posting to platforms:", platforms, "Content:", content);
+
+          res.json({
+            success: true,
+            postId: `post_${Date.now()}`,
+            platforms,
+            scheduledFor,
           });
         }
-
-        // Create a record of the successful post
-        const scheduledPost = await storage.createScheduledPost({
-          userId: user.id,
-          platform: platform.toLowerCase(),
-          content,
-          scheduledFor: new Date(), // Posted immediately
-          status: "posted",
-          postType: "manual_post",
-          hashtags: content.match(/#\w+/g) || [],
-          isEdited: false,
-          originalContent: content,
-          neighborhood: null,
-        });
-
-        res.json({
-          success: true,
-          message: `Content posted successfully to ${platform}`,
-          postId: postResult.postId,
-          platform,
-          timestamp: new Date().toISOString(),
-          scheduledPostId: scheduledPost.id,
-        });
-      } else {
-        // Multi-platform posting (existing functionality)
-        console.log("Posting to platforms:", platforms, "Content:", content);
-        
-        res.json({ 
-          success: true, 
-          postId: `post_${Date.now()}`,
-          platforms,
-          scheduledFor 
-        });
+      } catch (error) {
+        console.error("Social post error:", error);
+        res.status(500).json({ error: "Failed to post to social media" });
       }
-    } catch (error) {
-      console.error("Social post error:", error);
-      res.status(500).json({ error: "Failed to post to social media" });
     }
-  });
+  );
 
   // Facebook-specific endpoints
   app.get("/api/facebook/pages", async (req, res) => {
     try {
       const pages = await socialMediaService.getFacebookPageInfo();
       res.json(pages);
-    } catch (error) {
-      console.error("Error fetching Facebook pages:", error);
-      res.status(500).json({ error: "Failed to fetch Facebook pages" });
+    } catch (error: any) {
+      console.error("Error fetching Facebook pages:", error?.message || error);
+      res.status(500).json({
+        error: "Failed to fetch Facebook pages",
+        details:
+          error?.message ||
+          "Please check if your Facebook token is valid and has not expired.",
+      });
     }
   });
 
-  app.post("/api/facebook/post", upload.single('photo'), async (req, res) => {
+  app.post("/api/facebook/post", upload.single("photo"), async (req, res) => {
     try {
       const { content, pageId } = req.body;
+      const defaultPageId = process.env.FACEBOOK_PAGE_ID;
+      const resolvedPageId = pageId || defaultPageId;
       const photo = req.file;
 
       if (!content) {
@@ -680,26 +1680,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       let postResult;
-      if (pageId) {
+      if (resolvedPageId) {
         // Post to specific Facebook page
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        postResult = await socialMediaService.postToFacebookPage(pageId, content, photoUrl || undefined, undefined, baseUrl);
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        postResult = await socialMediaService.postToFacebookPage(
+          resolvedPageId,
+          content,
+          photoUrl || undefined,
+          undefined,
+          baseUrl
+        );
       } else {
-        return res.status(400).json({ 
-          error: 'Page ID is required for Facebook posting. Direct profile posting is not supported.' 
+        return res.status(400).json({
+          error:
+            "Page ID is required for Facebook posting. Direct profile posting is not supported.",
         });
       }
 
       res.json({
         success: true,
-        message: pageId ? "Content posted successfully to Facebook page" : "Content posted successfully to Facebook",
+        message: resolvedPageId
+          ? "Content posted successfully to Facebook page"
+          : "Content posted successfully to Facebook",
         postId: postResult.postId,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
       console.error("Facebook post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to Facebook: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to Facebook: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
@@ -710,12 +1721,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // In a real implementation, you'd need to store posted content in your database
       const recentPosts = [
         {
-          id: "749034191633605_122094900393043164",
-          content: "🏠 Winter 2025 Omaha Real Estate Market Update! ❄️\n\nThe Omaha market is showing remarkable resilience this winter season!",
-          pageId: "749034191633605",
+          id: "61581294927027_122094900393043164",
+          content:
+            "🏠 Winter 2025 Omaha Real Estate Market Update! ❄️\n\nThe Omaha market is showing remarkable resilience this winter season!",
+          pageId: "61581294927027",
           timestamp: new Date().toISOString(),
-          platform: "facebook"
-        }
+          platform: "facebook",
+        },
       ];
       res.json(recentPosts);
     } catch (error) {
@@ -726,11 +1738,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/facebook/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('facebook');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("facebook");
+      res.json({
         valid: isValid,
-        platform: 'facebook',
-        message: isValid ? 'Facebook connection is valid' : 'Facebook connection failed'
+        platform: "facebook",
+        message: isValid
+          ? "Facebook connection is valid"
+          : "Facebook connection failed",
       });
     } catch (error) {
       console.error("Facebook validation error:", error);
@@ -738,8 +1752,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Add validation endpoints for other platforms
+  app.post("/api/facebook/validate", async (req, res) => {
+    try {
+      const { facebookPageId, facebookAccessToken } = req.body;
+      // Test the provided credentials
+      const isValid =
+        facebookPageId &&
+        facebookAccessToken &&
+        facebookAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "facebook",
+        message: isValid
+          ? "Facebook credentials are valid"
+          : "Invalid Facebook credentials",
+      });
+    } catch (error) {
+      console.error("Facebook validation error:", error);
+      res.status(500).json({ error: "Failed to validate Facebook connection" });
+    }
+  });
+
+  app.post("/api/instagram/validate", async (req, res) => {
+    try {
+      const { instagramUserId, instagramAccessToken } = req.body;
+      const isValid =
+        instagramUserId &&
+        instagramAccessToken &&
+        instagramAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "instagram",
+        message: isValid
+          ? "Instagram credentials are valid"
+          : "Invalid Instagram credentials",
+      });
+    } catch (error) {
+      console.error("Instagram validation error:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to validate Instagram connection" });
+    }
+  });
+
+  app.post("/api/twitter/validate", async (req, res) => {
+    try {
+      const {
+        twitterApiKey,
+        twitterApiSecret,
+        twitterAccessToken,
+        twitterAccessTokenSecret,
+      } = req.body;
+      const isValid =
+        twitterApiKey &&
+        twitterApiSecret &&
+        twitterAccessToken &&
+        twitterAccessTokenSecret;
+      res.json({
+        valid: isValid,
+        platform: "twitter",
+        message: isValid
+          ? "Twitter credentials are valid"
+          : "Invalid Twitter credentials",
+      });
+    } catch (error) {
+      console.error("Twitter validation error:", error);
+      res.status(500).json({ error: "Failed to validate Twitter connection" });
+    }
+  });
+
+  app.post("/api/linkedin/validate", async (req, res) => {
+    try {
+      const { linkedinAccessToken } = req.body;
+      const isValid = linkedinAccessToken && linkedinAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "linkedin",
+        message: isValid
+          ? "LinkedIn credentials are valid"
+          : "Invalid LinkedIn credentials",
+      });
+    } catch (error) {
+      console.error("LinkedIn validation error:", error);
+      res.status(500).json({ error: "Failed to validate LinkedIn connection" });
+    }
+  });
+
+  app.post("/api/youtube/validate", async (req, res) => {
+    try {
+      const { youtubeApiKey, youtubeAccessToken } = req.body;
+      const isValid = youtubeApiKey && youtubeAccessToken;
+      res.json({
+        valid: isValid,
+        platform: "youtube",
+        message: isValid
+          ? "YouTube credentials are valid"
+          : "Invalid YouTube credentials",
+      });
+    } catch (error) {
+      console.error("YouTube validation error:", error);
+      res.status(500).json({ error: "Failed to validate YouTube connection" });
+    }
+  });
+
+  app.post("/api/tiktok/validate", async (req, res) => {
+    try {
+      const { tiktokAccessToken } = req.body;
+      const isValid = tiktokAccessToken && tiktokAccessToken.length > 10;
+      res.json({
+        valid: isValid,
+        platform: "tiktok",
+        message: isValid
+          ? "TikTok credentials are valid"
+          : "Invalid TikTok credentials",
+      });
+    } catch (error) {
+      console.error("TikTok validation error:", error);
+      res.status(500).json({ error: "Failed to validate TikTok connection" });
+    }
+  });
+
   // Instagram endpoints
-  app.post("/api/instagram/post", upload.single('photo'), async (req, res) => {
+  app.post("/api/instagram/post", upload.single("photo"), async (req, res) => {
     try {
       const { content, userId } = req.body;
       const photo = req.file;
@@ -754,12 +1889,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Build absolute URL for image if provided
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
       const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
 
       const postResult = await socialMediaService.postToInstagram(
-        content, 
-        fullPhotoUrl, 
+        content,
+        fullPhotoUrl,
         undefined, // accessToken will be read from env
         userId // Instagram User ID
       );
@@ -772,71 +1907,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Instagram post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to Instagram: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to Instagram: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   app.get("/api/instagram/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('instagram');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("instagram");
+      res.json({
         valid: isValid,
-        platform: 'instagram',
-        message: isValid ? 'Instagram connection is valid' : 'Instagram connection failed'
+        platform: "instagram",
+        message: isValid
+          ? "Instagram connection is valid"
+          : "Instagram connection failed",
       });
     } catch (error) {
       console.error("Instagram validation error:", error);
-      res.status(500).json({ error: "Failed to validate Instagram connection" });
+      res
+        .status(500)
+        .json({ error: "Failed to validate Instagram connection" });
     }
   });
 
   // Twitter endpoints
-  app.post("/api/twitter/post", upload.single('photo'), async (req, res) => {
-    try {
-      const { content } = req.body;
-      const photo = req.file;
+  app.post(
+    "/api/twitter/post",
+    requireAuth,
+    upload.single("photo"),
+    async (req: any, res) => {
+      try {
+        // Require authentication
+        if (!req.user?.id) {
+          return res.status(401).json({ error: "Authentication required" });
+        }
 
-      if (!content) {
-        return res.status(400).json({ error: "Content is required" });
+        // Resolve DB user ID to MemStorage UUID (same logic as other endpoints)
+        let userId = String(req.user.id);
+        let user = await storage.getUser(userId);
+
+        // If not found by ID, try by email (CRITICAL for DB-authenticated users)
+        if (!user && req.user?.email) {
+          const allUsers = Array.from(storage.users?.values() || []);
+          user = allUsers.find((u) => u.email === req.user.email);
+        }
+
+        // If not found by email, try by username
+        if (!user && req.user?.username) {
+          user = await storage.getUserByUsername(req.user.username);
+        }
+
+        if (!user) {
+          return res.status(404).json({
+            error:
+              "User not found in storage. Please reconnect your Twitter account.",
+          });
+        }
+
+        // Support both JSON (from old frontend) and FormData (from new frontend)
+        let content = req.body.content;
+        const photo = req.file;
+
+        // Debug logging
+        console.log("📝 Twitter post request:", {
+          userId: user.id,
+          contentType: req.get("content-type"),
+          bodyKeys: Object.keys(req.body),
+          content: content ? content.substring(0, 50) + "..." : "MISSING",
+          hasPhoto: !!photo,
+        });
+
+        if (!content) {
+          return res.status(400).json({ error: "Content is required" });
+        }
+
+        let photoUrl = null;
+        if (photo) {
+          photoUrl = `/uploads/${path.basename(photo.path)}`;
+        }
+
+        // Build absolute URL for image if provided
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
+
+        // Pass userId to use OAuth 2.0 token from database
+        const postResult = await socialMediaService.postToTwitter(
+          user.id,
+          content,
+          fullPhotoUrl
+        );
+
+        res.json({
+          success: true,
+          message: "Content posted successfully to Twitter",
+          postId: postResult.postId,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Twitter post error:", error);
+        res.status(500).json({
+          error: `Failed to post to Twitter: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        });
       }
-
-      let photoUrl = null;
-      if (photo) {
-        photoUrl = `/uploads/${path.basename(photo.path)}`;
-      }
-
-      // Build absolute URL for image if provided
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
-
-      const postResult = await socialMediaService.postToTwitter(
-        content, 
-        fullPhotoUrl
-      );
-
-      res.json({
-        success: true,
-        message: "Content posted successfully to Twitter",
-        postId: postResult.postId,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("Twitter post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to Twitter: ${error instanceof Error ? error.message : 'Unknown error'}` 
-      });
     }
-  });
+  );
 
   app.get("/api/twitter/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('twitter');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("twitter");
+      res.json({
         valid: isValid,
-        platform: 'twitter',
-        message: isValid ? 'Twitter connection is valid' : 'Twitter connection failed'
+        platform: "twitter",
+        message: isValid
+          ? "Twitter connection is valid"
+          : "Twitter connection failed",
       });
     } catch (error) {
       console.error("Twitter validation error:", error);
@@ -847,7 +2036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/twitter/post/:tweetId", async (req, res) => {
     try {
       const { tweetId } = req.params;
-      
+
       if (!tweetId) {
         return res.status(400).json({ error: "Tweet ID is required" });
       }
@@ -862,14 +2051,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Twitter delete error:", error);
-      res.status(500).json({ 
-        error: `Failed to delete Twitter post: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to delete Twitter post: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   // YouTube endpoints
-  app.post("/api/youtube/post", upload.single('video'), async (req, res) => {
+  app.post("/api/youtube/post", upload.single("video"), async (req, res) => {
     try {
       const { title, description, content, accessToken } = req.body;
       const video = req.file;
@@ -879,7 +2070,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!accessToken) {
-        return res.status(400).json({ error: "YouTube access token is required" });
+        return res
+          .status(400)
+          .json({ error: "YouTube access token is required" });
       }
 
       let videoUrl = null;
@@ -887,16 +2080,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         videoUrl = `/uploads/${path.basename(video.path)}`;
       }
 
-      const finalTitle = title || content?.substring(0, 100) + '...';
-      const finalDescription = description || content || '';
+      const finalTitle = title || content?.substring(0, 100) + "...";
+      const finalDescription = description || content || "";
 
       // Build absolute URL for video if provided
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
       const fullVideoUrl = videoUrl ? baseUrl + videoUrl : undefined;
 
       const postResult = await socialMediaService.postToYoutube(
         finalTitle,
-        finalDescription, 
+        finalDescription,
         fullVideoUrl,
         accessToken
       );
@@ -909,82 +2102,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("YouTube post error:", error);
-      res.status(500).json({ 
-        error: `Failed to post to YouTube: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      res.status(500).json({
+        error: `Failed to post to YouTube: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
       });
     }
   });
 
   // Dedicated YouTube video upload endpoint
-  app.post("/api/youtube/upload-video", videoUpload.single('video'), async (req, res) => {
-    try {
-      const { title, description, accessToken } = req.body;
-      const videoFile = req.file;
+  app.post(
+    "/api/youtube/upload-video",
+    videoUpload.single("video"),
+    async (req, res) => {
+      try {
+        const { title, description, accessToken } = req.body;
+        const videoFile = req.file;
 
-      if (!videoFile) {
-        return res.status(400).json({ error: "Video file is required" });
-      }
-
-      if (!title) {
-        return res.status(400).json({ error: "Video title is required" });
-      }
-
-      if (!accessToken) {
-        return res.status(400).json({ error: "YouTube access token is required" });
-      }
-
-      // Build absolute URL for the uploaded video
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
-      const videoUrl = `${baseUrl}/uploads/videos/${path.basename(videoFile.path)}`;
-
-      console.log('Processing YouTube video upload:', {
-        title,
-        description,
-        videoPath: videoFile.path,
-        videoUrl,
-        fileSize: videoFile.size,
-        mimetype: videoFile.mimetype
-      });
-
-      const uploadResult = await socialMediaService.postToYoutube(
-        title,
-        description || title,
-        videoUrl,
-        accessToken
-      );
-
-      res.json({
-        success: true,
-        message: "Video uploaded successfully to YouTube",
-        videoId: uploadResult.postId,
-        videoUrl: videoUrl,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("YouTube video upload error:", error);
-      
-      // Clean up uploaded file on error
-      if (req.file && req.file.path) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch (cleanupError) {
-          console.error("Failed to cleanup uploaded file:", cleanupError);
+        if (!videoFile) {
+          return res.status(400).json({ error: "Video file is required" });
         }
+
+        if (!title) {
+          return res.status(400).json({ error: "Video title is required" });
+        }
+
+        if (!accessToken) {
+          return res
+            .status(400)
+            .json({ error: "YouTube access token is required" });
+        }
+
+        // Build absolute URL for the uploaded video
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        const videoUrl = `${baseUrl}/uploads/videos/${path.basename(
+          videoFile.path
+        )}`;
+
+        console.log("Processing YouTube video upload:", {
+          title,
+          description,
+          videoPath: videoFile.path,
+          videoUrl,
+          fileSize: videoFile.size,
+          mimetype: videoFile.mimetype,
+        });
+
+        const uploadResult = await socialMediaService.postToYoutube(
+          title,
+          description || title,
+          videoUrl,
+          accessToken
+        );
+
+        res.json({
+          success: true,
+          message: "Video uploaded successfully to YouTube",
+          videoId: uploadResult.postId,
+          videoUrl: videoUrl,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("YouTube video upload error:", error);
+
+        // Clean up uploaded file on error
+        if (req.file && req.file.path) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (cleanupError) {
+            console.error("Failed to cleanup uploaded file:", cleanupError);
+          }
+        }
+
+        res.status(500).json({
+          error: `Failed to upload video to YouTube: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        });
       }
-      
-      res.status(500).json({ 
-        error: `Failed to upload video to YouTube: ${error instanceof Error ? error.message : 'Unknown error'}` 
-      });
     }
-  });
+  );
 
   app.get("/api/youtube/validate", async (req, res) => {
     try {
-      const isValid = await socialMediaService.validateConnection('youtube');
-      res.json({ 
+      const isValid = await socialMediaService.validateConnection("youtube");
+      res.json({
         valid: isValid,
-        platform: 'youtube',
-        message: isValid ? 'YouTube connection is valid' : 'YouTube connection failed'
+        platform: "youtube",
+        message: isValid
+          ? "YouTube connection is valid"
+          : "YouTube connection failed",
       });
     } catch (error) {
       console.error("YouTube validation error:", error);
@@ -993,21 +2200,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // YouTube OAuth endpoints
-  app.get('/auth/youtube', async (req, res) => {
+  app.get("/auth/youtube", async (req, res) => {
     try {
       const clientId = process.env.YOUTUBE_CLIENT_ID;
       if (!clientId) {
-        return res.status(500).json({ error: 'YouTube client ID not configured' });
+        return res
+          .status(500)
+          .json({ error: "YouTube client ID not configured" });
       }
 
       const scopes = [
-        'https://www.googleapis.com/auth/youtube',
-        'https://www.googleapis.com/auth/youtube.upload'
-      ].join(' ');
-      
-      const redirectUri = `${req.protocol}://${req.get('host')}/auth/youtube/callback`;
-      
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        "https://www.googleapis.com/auth/youtube",
+        "https://www.googleapis.com/auth/youtube.upload",
+      ].join(" ");
+
+      const redirectUri = `${req.protocol}://${req.get(
+        "host"
+      )}/auth/youtube/callback`;
+
+      const authUrl =
+        `https://accounts.google.com/o/oauth2/v2/auth?` +
         `client_id=${clientId}&` +
         `redirect_uri=${encodeURIComponent(redirectUri)}&` +
         `scope=${encodeURIComponent(scopes)}&` +
@@ -1017,58 +2229,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.redirect(authUrl);
     } catch (error) {
-      console.error('YouTube OAuth initiation error:', error);
-      res.status(500).json({ error: 'Failed to initiate YouTube authentication' });
+      console.error("YouTube OAuth initiation error:", error);
+      res
+        .status(500)
+        .json({ error: "Failed to initiate YouTube authentication" });
     }
   });
 
-  app.get('/auth/youtube/callback', async (req, res) => {
+  app.get("/auth/youtube/callback", async (req, res) => {
     try {
       const { code, error } = req.query;
 
       if (error) {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=${error}`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=${error}`
+        );
       }
 
       if (code) {
         // Exchange code for access token
         const clientId = process.env.YOUTUBE_CLIENT_ID;
         const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
-        const redirectUri = `${req.protocol}://${req.get('host')}/auth/youtube/callback`;
+        const redirectUri = `${req.protocol}://${req.get(
+          "host"
+        )}/auth/youtube/callback`;
 
-        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: new URLSearchParams({
-            client_id: clientId || '',
-            client_secret: clientSecret || '',
-            code: code as string,
-            grant_type: 'authorization_code',
-            redirect_uri: redirectUri
-          })
-        });
+        const tokenResponse = await fetch(
+          "https://oauth2.googleapis.com/token",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              client_id: clientId || "",
+              client_secret: clientSecret || "",
+              code: code as string,
+              grant_type: "authorization_code",
+              redirect_uri: redirectUri,
+            }),
+          }
+        );
 
         if (tokenResponse.ok) {
           const tokens = await tokenResponse.json();
-          
+
           // Update the user's YouTube account with the new tokens
           const user = await storage.getUserByUsername("mikebjork");
           if (user) {
-            const socialAccounts = await storage.getSocialMediaAccounts(user.id);
-            const youtubeAccount = socialAccounts.find(account => account.platform === 'youtube');
-            
+            const socialAccounts = await storage.getSocialMediaAccounts(
+              user.id
+            );
+            const youtubeAccount = socialAccounts.find(
+              (account) => account.platform === "youtube"
+            );
+
             if (youtubeAccount) {
               await storage.updateSocialMediaAccount(youtubeAccount.id, {
                 accessToken: tokens.access_token,
                 refreshToken: tokens.refresh_token,
                 isConnected: true,
-                lastSync: new Date().toISOString()
+                lastSync: new Date(),
               });
             }
           }
-          
+
           res.send(`
             <html>
               <body>
@@ -1082,26 +2309,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
             </html>
           `);
         } else {
-          throw new Error('Failed to exchange code for tokens');
+          throw new Error("Failed to exchange code for tokens");
         }
       } else {
-        return res.redirect(`${process.env.CLIENT_URL || 'http://localhost:5000'}/?oauth_error=no_auth_code`);
+        return res.redirect(
+          `${
+            process.env.CLIENT_URL || "http://localhost:5000"
+          }/?oauth_error=no_auth_code`
+        );
       }
     } catch (error) {
-      console.error('YouTube OAuth callback error:', error);
-      res.status(500).send('YouTube OAuth callback failed');
+      console.error("YouTube OAuth callback error:", error);
+      res.status(500).send("YouTube OAuth callback failed");
     }
   });
 
   // SEO endpoints
-  app.get("/api/seo/keywords", async (req, res) => {
+  app.get("/api/seo/keywords", requireAuth, async (req: any, res) => {
     try {
-      const user = await storage.getUserByUsername("mikebjork");
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+      const userId = req.user.id;
+      let keywords = await storage.getSeoKeywords(userId);
+
+      // Auto-generate keywords on first login if user has none
+      if (!keywords || keywords.length === 0) {
+        console.log(
+          `📊 No keywords found for user ${userId}, generating AI keywords...`
+        );
+
+        // Get user's service areas from market data
+        const marketData = await storage.getMarketData(userId);
+        const serviceAreas = marketData
+          .map((m) => m.neighborhood)
+          .filter(Boolean);
+
+        if (serviceAreas.length === 0) {
+          serviceAreas.push("Omaha"); // Default to Omaha
+        }
+
+        try {
+          const { AIKeywordGenerator } = await import(
+            "./services/ai-keyword-generator"
+          );
+          const generator = new AIKeywordGenerator(userId);
+
+          let generatedData;
+          try {
+            generatedData = await generator.generateKeywords(serviceAreas);
+          } catch (aiError) {
+            console.warn(
+              "⚠️  AI keyword generation failed, using fallback:",
+              aiError
+            );
+            generatedData = generator.getFallbackKeywords(serviceAreas);
+          }
+
+          // Save generated keywords to storage
+          for (const keyword of generatedData.keywords) {
+            await storage.createSeoKeyword(keyword);
+          }
+
+          keywords = await storage.getSeoKeywords(userId);
+          console.log(
+            `✅ Auto-generated ${keywords.length} keywords for new user`
+          );
+        } catch (error) {
+          console.error("❌ Keyword generation error:", error);
+        }
       }
 
-      const keywords = await storage.getSeoKeywords(user.id);
       res.json(keywords);
     } catch (error) {
       console.error("Get SEO keywords error:", error);
@@ -1109,10 +2384,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/seo/keywords/generate", async (req, res) => {
+    try {
+      const { location, businessType } = req.body;
+
+      // Fetch live market data to provide real-time context to AI
+      let marketData;
+      try {
+        marketData = await storage.getMarketData();
+        if (!marketData || marketData.length === 0) {
+          console.warn(
+            "⚠️  No market data available for AI keyword generation"
+          );
+          return res.status(502).json({
+            error: "Market data unavailable",
+            message:
+              "Unable to fetch real-time market data. Please try again later or contact support.",
+          });
+        }
+      } catch (marketError) {
+        console.error(
+          "Failed to fetch market data for keyword generation:",
+          marketError
+        );
+        return res.status(502).json({
+          error: "Market data service error",
+          message:
+            "Could not retrieve market intelligence data. Keyword generation requires live market data.",
+        });
+      }
+
+      // Generate keywords with real market intelligence
+      const keywords = await seoService.generateTopKeywordsWithAI(
+        location || "Omaha, Nebraska",
+        businessType || "real estate agent",
+        marketData
+      );
+
+      res.json(keywords);
+    } catch (error) {
+      console.error("❌ AI keyword generation error:", error);
+      res.status(502).json({
+        error: "AI keyword generation failed",
+        message:
+          "Unable to generate fresh, market-driven keywords. Please try again or contact support.",
+        details: (error as Error).message,
+      });
+    }
+  });
+
   app.post("/api/seo/analyze", async (req, res) => {
     try {
       const { content, keywords } = req.body;
-      
+
       const analysis = await seoService.analyzeContent(content, keywords);
       res.json(analysis);
     } catch (error) {
@@ -1124,13 +2448,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/ai/schedule-content", async (req, res) => {
     try {
       const { keywords, marketData, timeframe, focus } = req.body;
-      
+
       // Create AI prompt for intelligent content scheduling
       const prompt = `You are an expert real estate marketing strategist and SEO specialist. Based on the following data, create an optimal 30-day content calendar for Mike Bjork's real estate business in Omaha, Nebraska.
 
-SEO Keywords to target: ${keywords.map((k: any) => `${k.keyword} (rank: ${k.currentRank}, volume: ${k.searchVolume})`).join(', ')}
+SEO Keywords to target: ${keywords
+        .map(
+          (k: any) =>
+            `${k.keyword} (rank: ${k.currentRank}, volume: ${k.searchVolume})`
+        )
+        .join(", ")}
 
-Market Data: ${marketData.map((m: any) => `${m.neighborhood}: $${m.averagePrice} avg price, ${m.daysOnMarket} days on market`).join('; ')}
+Market Data: ${marketData
+        .map(
+          (m: any) =>
+            `${m.neighborhood}: $${m.averagePrice} avg price, ${m.daysOnMarket} days on market`
+        )
+        .join("; ")}
 
 Requirements:
 1. Schedule content for maximum SEO impact and social media engagement
@@ -1163,158 +2497,162 @@ Return ONLY a JSON object with this structure:
 
 Focus on: ${focus} content that drives leads and showcases local market expertise.`;
 
-      const { multiOpenAI } = await import('./services/openai');
-      const response = await multiOpenAI.makeRequest('content', async (client) => {
-        return await client.chat.completions.create({
-          model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert real estate marketing AI that creates optimized content schedules based on SEO data and market analytics. Always respond with valid JSON only."
-            },
-            {
-              role: "user", 
-              content: prompt
-            }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7,
-        });
+      // Use Unified AI Service (GitHub Copilot with OpenAI fallback)
+      const { unifiedAI } = await import("./services/unified-ai");
+      const aiResponse = await unifiedAI.generate(prompt, {
+        systemPrompt:
+          "You are an expert real estate marketing AI that creates optimized content schedules based on SEO data and market analytics. Always respond with valid JSON only.",
+        temperature: 0.7,
+        maxTokens: 1500,
+        jsonMode: true,
       });
 
-      const aiSchedule = JSON.parse(response.choices[0].message.content);
-      
+      console.log(
+        `✅ Content calendar AI response from: ${aiResponse.provider}`
+      );
+      const aiSchedule = JSON.parse(aiResponse.content);
+
       // Store the generated schedule (in a real app, you'd save to database)
       // For now, we'll just return it
-      
+
       res.json(aiSchedule);
     } catch (error) {
       console.error("AI content scheduling error:", error);
-      
+
       // If OpenAI quota is exceeded, provide a fallback schedule
-      if (error.code === 'insufficient_quota' || error.status === 429) {
-        console.log("🔄 OpenAI quota exceeded, using fallback content schedule...");
-        
+      if (error.code === "insufficient_quota" || error.status === 429) {
+        console.log(
+          "🔄 OpenAI quota exceeded, using fallback content schedule..."
+        );
+
         const fallbackSchedule = {
-          "contentCount": 8,
-          "schedule": [
+          contentCount: 8,
+          schedule: [
             {
-              "id": "fb-omaha-market-1",
-              "title": "Omaha Market Update - January 2025",
-              "content": "🏠 OMAHA MARKET SPOTLIGHT 🏠\n\nThe Omaha real estate market is showing strong momentum this January! Here's what homeowners and buyers need to know:\n\n📈 Market Highlights:\n• Average home price: $285,000 (+3.2% from last year)\n• Days on market: 28 days (excellent for sellers!)\n• Inventory levels: Balanced market conditions\n\n🎯 Prime Neighborhoods to Watch:\n• Benson: Trendy area with great walkability\n• Dundee: Historic charm meets modern amenities\n• West Omaha: Family-friendly with top schools\n\nThinking of buying or selling? Let's discuss your goals! 💬\n\n#OmahaRealEstate #NebraskaHomes #BjorkGroup #RealEstateExpert #OmahaLife",
-              "platform": "Facebook",
-              "type": "Social",
-              "date": "2025-01-02",
-              "time": "8:00 AM",
-              "targetKeyword": "Omaha real estate market",
-              "seoScore": 85,
-              "expectedImpact": "high",
-              "color": "bg-blue-100"
+              id: "fb-omaha-market-1",
+              title: "Omaha Market Update - January 2025",
+              content:
+                "🏠 OMAHA MARKET SPOTLIGHT 🏠\n\nThe Omaha real estate market is showing strong momentum this January! Here's what homeowners and buyers need to know:\n\n📈 Market Highlights:\n• Average home price: $285,000 (+3.2% from last year)\n• Days on market: 28 days (excellent for sellers!)\n• Inventory levels: Balanced market conditions\n\n🎯 Prime Neighborhoods to Watch:\n• Benson: Trendy area with great walkability\n• Dundee: Historic charm meets modern amenities\n• West Omaha: Family-friendly with top schools\n\nThinking of buying or selling? Let's discuss your goals! 💬\n\n#OmahaRealEstate #NebraskaHomes #BjorkGroup #RealEstateExpert #OmahaLife",
+              platform: "Facebook",
+              type: "Social",
+              date: "2025-01-02",
+              time: "8:00 AM",
+              targetKeyword: "Omaha real estate market",
+              seoScore: 85,
+              expectedImpact: "high",
+              color: "bg-blue-100",
             },
             {
-              "id": "ig-buyer-tips-1", 
-              "title": "First-Time Buyer Tips",
-              "content": "🔑 FIRST-TIME BUYER SUCCESS TIPS! 🔑\n\nMaking homeownership dreams come true in Omaha! Here's my insider advice:\n\n✅ Get Pre-Approved First\n• Know your budget before house hunting\n• Shows sellers you're serious\n• Speeds up the buying process\n\n✅ Research Neighborhoods\n• Visit at different times of day\n• Check school ratings and commute times\n• Consider future resale value\n\n✅ Don't Skip the Inspection\n• Protect your investment\n• Negotiate repairs or price adjustments\n• Peace of mind is priceless\n\n🏡 Ready to start your journey? DM me for a free buyer consultation!\n\n#FirstTimeBuyer #OmahaHomes #RealEstateTips #BjorkGroup #NebraskaRealEstate",
-              "platform": "Instagram",
-              "type": "Social", 
-              "date": "2025-01-05",
-              "time": "12:30 PM",
-              "targetKeyword": "first time home buyer Omaha",
-              "seoScore": 78,
-              "expectedImpact": "medium",
-              "color": "bg-green-100"
+              id: "ig-buyer-tips-1",
+              title: "First-Time Buyer Tips",
+              content:
+                "🔑 FIRST-TIME BUYER SUCCESS TIPS! 🔑\n\nMaking homeownership dreams come true in Omaha! Here's my insider advice:\n\n✅ Get Pre-Approved First\n• Know your budget before house hunting\n• Shows sellers you're serious\n• Speeds up the buying process\n\n✅ Research Neighborhoods\n• Visit at different times of day\n• Check school ratings and commute times\n• Consider future resale value\n\n✅ Don't Skip the Inspection\n• Protect your investment\n• Negotiate repairs or price adjustments\n• Peace of mind is priceless\n\n🏡 Ready to start your journey? DM me for a free buyer consultation!\n\n#FirstTimeBuyer #OmahaHomes #RealEstateTips #BjorkGroup #NebraskaRealEstate",
+              platform: "Instagram",
+              type: "Social",
+              date: "2025-01-05",
+              time: "12:30 PM",
+              targetKeyword: "first time home buyer Omaha",
+              seoScore: 78,
+              expectedImpact: "medium",
+              color: "bg-green-100",
             },
             {
-              "id": "li-investment-1",
-              "title": "Investment Property Opportunities",
-              "content": "💰 INVESTMENT OPPORTUNITY ALERT 💰\n\nOmaha's rental market is thriving! Here's why smart investors are choosing Nebraska:\n\n📊 Key Investment Metrics:\n• Average rental yield: 8-12%\n• Strong job market driving demand\n• Affordable entry points compared to coastal markets\n• Growing tech and healthcare sectors\n\n🎯 Hot Investment Areas:\n• Near downtown redevelopment zones\n• University of Nebraska proximity\n• Emerging neighborhoods with infrastructure improvements\n\n🔍 What to Look For:\n• Properties under $200K with good bones\n• Multi-family opportunities\n• Areas with planned developments\n\nLet's discuss your investment strategy over coffee! ☕\n\n#RealEstateInvestment #OmahaInvestment #PropertyInvesting #BjorkGroup #WealthBuilding",
-              "platform": "LinkedIn",
-              "type": "Blog",
-              "date": "2025-01-08", 
-              "time": "9:00 AM",
-              "targetKeyword": "Omaha investment properties",
-              "seoScore": 82,
-              "expectedImpact": "high",
-              "color": "bg-purple-100"
+              id: "li-investment-1",
+              title: "Investment Property Opportunities",
+              content:
+                "💰 INVESTMENT OPPORTUNITY ALERT 💰\n\nOmaha's rental market is thriving! Here's why smart investors are choosing Nebraska:\n\n📊 Key Investment Metrics:\n• Average rental yield: 8-12%\n• Strong job market driving demand\n• Affordable entry points compared to coastal markets\n• Growing tech and healthcare sectors\n\n🎯 Hot Investment Areas:\n• Near downtown redevelopment zones\n• University of Nebraska proximity\n• Emerging neighborhoods with infrastructure improvements\n\n🔍 What to Look For:\n• Properties under $200K with good bones\n• Multi-family opportunities\n• Areas with planned developments\n\nLet's discuss your investment strategy over coffee! ☕\n\n#RealEstateInvestment #OmahaInvestment #PropertyInvesting #BjorkGroup #WealthBuilding",
+              platform: "LinkedIn",
+              type: "Blog",
+              date: "2025-01-08",
+              time: "9:00 AM",
+              targetKeyword: "Omaha investment properties",
+              seoScore: 82,
+              expectedImpact: "high",
+              color: "bg-purple-100",
             },
             {
-              "id": "fb-neighborhood-spotlight-1",
-              "title": "Neighborhood Spotlight: Benson",
-              "content": "🏘️ NEIGHBORHOOD SPOTLIGHT: BENSON 🏘️\n\nDiscover why Benson is becoming Omaha's hottest neighborhood!\n\n✨ What Makes Benson Special:\n• Walkable community with local character\n• Thriving arts scene and unique boutiques\n• Historic homes with modern renovations\n• Easy access to downtown (10 minutes!)\n\n🏠 Market Snapshot:\n• Average home price: $165,000\n• Typical days on market: 25 days\n• Mix of starter homes and investment properties\n\n🎨 Local Favorites:\n• Benson First Friday art walks\n• Local coffee shops and restaurants\n• Beautiful Benson Park\n\nCurious about Benson properties? Let's schedule a neighborhood tour!\n\n#BensonNebraska #OmahaNeighborhoods #BjorkGroup #CommunitySpotlight #OmahaLife",
-              "platform": "Facebook",
-              "type": "Social",
-              "date": "2025-01-12",
-              "time": "6:00 PM", 
-              "targetKeyword": "Benson Omaha real estate",
-              "seoScore": 80,
-              "expectedImpact": "medium",
-              "color": "bg-yellow-100"
+              id: "fb-neighborhood-spotlight-1",
+              title: "Neighborhood Spotlight: Benson",
+              content:
+                "🏘️ NEIGHBORHOOD SPOTLIGHT: BENSON 🏘️\n\nDiscover why Benson is becoming Omaha's hottest neighborhood!\n\n✨ What Makes Benson Special:\n• Walkable community with local character\n• Thriving arts scene and unique boutiques\n• Historic homes with modern renovations\n• Easy access to downtown (10 minutes!)\n\n🏠 Market Snapshot:\n• Average home price: $165,000\n• Typical days on market: 25 days\n• Mix of starter homes and investment properties\n\n🎨 Local Favorites:\n• Benson First Friday art walks\n• Local coffee shops and restaurants\n• Beautiful Benson Park\n\nCurious about Benson properties? Let's schedule a neighborhood tour!\n\n#BensonNebraska #OmahaNeighborhoods #BjorkGroup #CommunitySpotlight #OmahaLife",
+              platform: "Facebook",
+              type: "Social",
+              date: "2025-01-12",
+              time: "6:00 PM",
+              targetKeyword: "Benson Omaha real estate",
+              seoScore: 80,
+              expectedImpact: "medium",
+              color: "bg-yellow-100",
             },
             {
-              "id": "ig-selling-tips-1",
-              "title": "Home Selling Preparation",
-              "content": "✨ PREPPING YOUR HOME TO SELL? ✨\n\nMaximize your home's value with these proven strategies!\n\n🎯 Top 5 Staging Tips:\n1️⃣ Declutter & Depersonalize\n• Let buyers envision their life here\n• Remove family photos and personal items\n\n2️⃣ Deep Clean Everything  \n• First impressions matter!\n• Consider professional cleaning\n\n3️⃣ Fresh Paint = Fresh Appeal\n• Neutral colors attract more buyers\n• Focus on high-traffic areas\n\n4️⃣ Enhance Curb Appeal\n• Trim landscaping, add flowers\n• Clean windows and front door\n\n5️⃣ Price Strategically\n• Market analysis is crucial\n• Price to sell, not to sit\n\n💡 Ready to list? I'll create a custom marketing plan for your home!\n\n#HomeSelling #RealEstateTips #OmahaRealEstate #BjorkGroup #HomeStaging",
-              "platform": "Instagram", 
-              "type": "Social",
-              "date": "2025-01-15",
-              "time": "11:00 AM",
-              "targetKeyword": "sell house Omaha", 
-              "seoScore": 76,
-              "expectedImpact": "medium",
-              "color": "bg-red-100"
+              id: "ig-selling-tips-1",
+              title: "Home Selling Preparation",
+              content:
+                "✨ PREPPING YOUR HOME TO SELL? ✨\n\nMaximize your home's value with these proven strategies!\n\n🎯 Top 5 Staging Tips:\n1️⃣ Declutter & Depersonalize\n• Let buyers envision their life here\n• Remove family photos and personal items\n\n2️⃣ Deep Clean Everything  \n• First impressions matter!\n• Consider professional cleaning\n\n3️⃣ Fresh Paint = Fresh Appeal\n• Neutral colors attract more buyers\n• Focus on high-traffic areas\n\n4️⃣ Enhance Curb Appeal\n• Trim landscaping, add flowers\n• Clean windows and front door\n\n5️⃣ Price Strategically\n• Market analysis is crucial\n• Price to sell, not to sit\n\n💡 Ready to list? I'll create a custom marketing plan for your home!\n\n#HomeSelling #RealEstateTips #OmahaRealEstate #BjorkGroup #HomeStaging",
+              platform: "Instagram",
+              type: "Social",
+              date: "2025-01-15",
+              time: "11:00 AM",
+              targetKeyword: "sell house Omaha",
+              seoScore: 76,
+              expectedImpact: "medium",
+              color: "bg-red-100",
             },
             {
-              "id": "yt-market-analysis-1",
-              "title": "Q1 2025 Market Forecast",
-              "content": "🔮 Q1 2025 OMAHA REAL ESTATE FORECAST 🔮\n\nWhat to expect in the coming months:\n\n📈 Predictions for Q1:\n• Continued buyer demand with spring market approaching\n• Interest rates stabilizing around current levels\n• New construction picking up pace\n• Competitive market for well-priced homes\n\n🏡 Best Opportunities:\n• First-time buyers: Take advantage of programs\n• Sellers: List early to beat spring rush\n• Investors: Focus on emerging neighborhoods\n\n💼 Economic Factors:\n• Strong local job market\n• Population growth from relocations\n• Infrastructure investments boosting values\n\nWatch my full market analysis video (link in bio) for detailed insights!\n\n#MarketForecast #OmahaRealEstate #RealEstateExpert #Q12025 #BjorkGroup #MarketAnalysis",
-              "platform": "YouTube",
-              "type": "Video",
-              "date": "2025-01-18",
-              "time": "10:00 AM",
-              "targetKeyword": "Omaha real estate forecast 2025",
-              "seoScore": 88,
-              "expectedImpact": "high", 
-              "color": "bg-indigo-100"
+              id: "yt-market-analysis-1",
+              title: "Q1 2025 Market Forecast",
+              content:
+                "🔮 Q1 2025 OMAHA REAL ESTATE FORECAST 🔮\n\nWhat to expect in the coming months:\n\n📈 Predictions for Q1:\n• Continued buyer demand with spring market approaching\n• Interest rates stabilizing around current levels\n• New construction picking up pace\n• Competitive market for well-priced homes\n\n🏡 Best Opportunities:\n• First-time buyers: Take advantage of programs\n• Sellers: List early to beat spring rush\n• Investors: Focus on emerging neighborhoods\n\n💼 Economic Factors:\n• Strong local job market\n• Population growth from relocations\n• Infrastructure investments boosting values\n\nWatch my full market analysis video (link in bio) for detailed insights!\n\n#MarketForecast #OmahaRealEstate #RealEstateExpert #Q12025 #BjorkGroup #MarketAnalysis",
+              platform: "YouTube",
+              type: "Video",
+              date: "2025-01-18",
+              time: "10:00 AM",
+              targetKeyword: "Omaha real estate forecast 2025",
+              seoScore: 88,
+              expectedImpact: "high",
+              color: "bg-indigo-100",
             },
             {
-              "id": "fb-client-success-1",
-              "title": "Client Success Story",
-              "content": "🎉 ANOTHER SUCCESSFUL CLOSING! 🎉\n\nCongratulations to the Johnson family on their beautiful new home in West Omaha!\n\n📖 Their Story:\n• First-time buyers from out of state\n• Needed guidance on neighborhoods and schools\n• Wanted move-in ready with modern updates\n• Closed in just 21 days!\n\n💬 What they said: \"Mike made relocating to Omaha stress-free. His local knowledge and attention to detail were exactly what we needed!\"\n\n🏠 The Property:\n• 4BR/3BA contemporary home\n• Top-rated Millard schools\n• Open floor plan with upgraded kitchen\n• Private backyard perfect for their kids\n\nEvery family's needs are unique. Let's find your perfect fit!\n\n#ClientSuccess #WestOmaha #NewHomeowners #BjorkGroup #RealEstateSuccess #MillardSchools",
-              "platform": "Facebook",
-              "type": "Social",
-              "date": "2025-01-22",
-              "time": "2:00 PM",
-              "targetKeyword": "West Omaha real estate agent",
-              "seoScore": 84,
-              "expectedImpact": "high",
-              "color": "bg-emerald-100"
+              id: "fb-client-success-1",
+              title: "Client Success Story",
+              content:
+                "🎉 ANOTHER SUCCESSFUL CLOSING! 🎉\n\nCongratulations to the Johnson family on their beautiful new home in West Omaha!\n\n📖 Their Story:\n• First-time buyers from out of state\n• Needed guidance on neighborhoods and schools\n• Wanted move-in ready with modern updates\n• Closed in just 21 days!\n\n💬 What they said: \"Mike made relocating to Omaha stress-free. His local knowledge and attention to detail were exactly what we needed!\"\n\n🏠 The Property:\n• 4BR/3BA contemporary home\n• Top-rated Millard schools\n• Open floor plan with upgraded kitchen\n• Private backyard perfect for their kids\n\nEvery family's needs are unique. Let's find your perfect fit!\n\n#ClientSuccess #WestOmaha #NewHomeowners #BjorkGroup #RealEstateSuccess #MillardSchools",
+              platform: "Facebook",
+              type: "Social",
+              date: "2025-01-22",
+              time: "2:00 PM",
+              targetKeyword: "West Omaha real estate agent",
+              seoScore: 84,
+              expectedImpact: "high",
+              color: "bg-emerald-100",
             },
             {
-              "id": "li-market-trends-1", 
-              "title": "Technology Impact on Real Estate",
-              "content": "🚀 HOW TECHNOLOGY IS RESHAPING OMAHA REAL ESTATE 🚀\n\nThe digital transformation is changing how we buy and sell homes:\n\n💻 Virtual Tours & 3D Walkthroughs\n• 87% of buyers start their search online\n• Virtual staging reduces time on market\n• Remote buyers can tour from anywhere\n\n📱 AI-Powered Market Analysis\n• Predictive pricing models\n• Automated valuation tools\n• Real-time market insights\n\n🔍 Enhanced Property Research\n• Neighborhood analytics\n• School ratings and crime data\n• Walkability and amenity scores\n\n📈 The Result: Faster, smarter transactions for buyers and sellers.\n\nStaying ahead of technology trends helps my clients make informed decisions. What tech features matter most to you?\n\n#PropTech #RealEstateInnovation #DigitalMarketing #OmahaRealEstate #BjorkGroup #FutureOfRealEstate",
-              "platform": "LinkedIn",
-              "type": "Blog", 
-              "date": "2025-01-25",
-              "time": "8:30 AM",
-              "targetKeyword": "real estate technology Omaha",
-              "seoScore": 79,
-              "expectedImpact": "medium",
-              "color": "bg-cyan-100"
-            }
-          ]
+              id: "li-market-trends-1",
+              title: "Technology Impact on Real Estate",
+              content:
+                "🚀 HOW TECHNOLOGY IS RESHAPING OMAHA REAL ESTATE 🚀\n\nThe digital transformation is changing how we buy and sell homes:\n\n💻 Virtual Tours & 3D Walkthroughs\n• 87% of buyers start their search online\n• Virtual staging reduces time on market\n• Remote buyers can tour from anywhere\n\n📱 AI-Powered Market Analysis\n• Predictive pricing models\n• Automated valuation tools\n• Real-time market insights\n\n🔍 Enhanced Property Research\n• Neighborhood analytics\n• School ratings and crime data\n• Walkability and amenity scores\n\n📈 The Result: Faster, smarter transactions for buyers and sellers.\n\nStaying ahead of technology trends helps my clients make informed decisions. What tech features matter most to you?\n\n#PropTech #RealEstateInnovation #DigitalMarketing #OmahaRealEstate #BjorkGroup #FutureOfRealEstate",
+              platform: "LinkedIn",
+              type: "Blog",
+              date: "2025-01-25",
+              time: "8:30 AM",
+              targetKeyword: "real estate technology Omaha",
+              seoScore: 79,
+              expectedImpact: "medium",
+              color: "bg-cyan-100",
+            },
+          ],
         };
-        
+
         return res.json(fallbackSchedule);
       }
-      
+
       res.status(500).json({ error: "Failed to generate AI content schedule" });
     }
   });
 
   app.get("/api/seo/site-health", async (req, res) => {
     try {
-      const url = req.query.url as string || "https://bjorkgroup.com";
+      const url = (req.query.url as string) || "https://bjorkgroup.com";
       const health = await seoService.getSiteHealth(url);
       res.json(health);
     } catch (error) {
@@ -1324,9 +2662,39 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Market data endpoints
-  app.get("/api/market/data", async (req, res) => {
+  app.get("/api/market/data", requireAuth, async (req: any, res) => {
     try {
-      const marketData = await storage.getMarketData();
+      const userId = req.user.id;
+      const marketData = await storage.getMarketData(userId);
+
+      // If user has no market data, generate initial data
+      if (!marketData || marketData.length === 0) {
+        console.log(
+          `📊 No market data found for user ${userId}, generating initial data...`
+        );
+        const { AIMarketDataGenerator } = await import(
+          "./services/ai-market-generator"
+        );
+        const generator = new AIMarketDataGenerator(userId);
+
+        let generatedData;
+        try {
+          generatedData = await generator.generateOmahaMarketData();
+        } catch (aiError) {
+          console.warn(
+            "⚠️  AI generation failed, using fallback data:",
+            aiError
+          );
+          generatedData = generator.getFallbackData();
+        }
+
+        const newMarketData = await storage.refreshMarketData(
+          userId,
+          generatedData.neighborhoods
+        );
+        return res.json(newMarketData);
+      }
+
       res.json(marketData);
     } catch (error) {
       console.error("Get market data error:", error);
@@ -1334,19 +2702,311 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  app.get("/api/market/neighborhoods/:neighborhood", async (req, res) => {
+  app.get(
+    "/api/market/neighborhoods/:neighborhood",
+    requireAuth,
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        const { neighborhood } = req.params;
+        const data = await storage.getMarketDataByNeighborhood(
+          userId,
+          neighborhood
+        );
+
+        if (!data) {
+          return res.status(404).json({ error: "Neighborhood data not found" });
+        }
+
+        res.json(data);
+      } catch (error) {
+        console.error("Get neighborhood data error:", error);
+        res.status(500).json({ error: "Failed to fetch neighborhood data" });
+      }
+    }
+  );
+
+  app.post("/api/market/refresh", requireAuth, async (req: any, res) => {
     try {
-      const { neighborhood } = req.params;
-      const data = await storage.getMarketDataByNeighborhood(neighborhood);
-      
-      if (!data) {
-        return res.status(404).json({ error: "Neighborhood data not found" });
+      const userId = req.user.id;
+      console.log(
+        `🔄 Refreshing market data for user ${userId} with AI generation...`
+      );
+
+      // Import and initialize AI market data generator
+      const { AIMarketDataGenerator } = await import(
+        "./services/ai-market-generator"
+      );
+      const generator = new AIMarketDataGenerator(userId);
+
+      let generatedData;
+      try {
+        generatedData = await generator.generateOmahaMarketData();
+      } catch (aiError) {
+        console.warn("⚠️  AI generation failed, using fallback data:", aiError);
+        generatedData = generator.getFallbackData();
       }
 
-      res.json(data);
+      // Refresh storage with new data for this user
+      const newMarketData = await storage.refreshMarketData(
+        userId,
+        generatedData.neighborhoods
+      );
+
+      res.json({
+        success: true,
+        data: newMarketData,
+        metadata: generatedData.metadata,
+      });
     } catch (error) {
-      console.error("Get neighborhood data error:", error);
-      res.status(500).json({ error: "Failed to fetch neighborhood data" });
+      console.error("❌ Market data refresh error:", error);
+      res.status(500).json({
+        error: "Failed to refresh market data",
+        message: (error as Error).message,
+      });
+    }
+  });
+
+  // Content Opportunities endpoints - AI-generated content suggestions
+  app.get("/api/ai/opportunities", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Get stored opportunities for this user
+      const opportunities = await db
+        .select()
+        .from(contentOpportunities)
+        .where(eq(contentOpportunities.userId, userId))
+        .orderBy(
+          desc(contentOpportunities.searchSignal),
+          desc(contentOpportunities.generatedAt)
+        );
+
+      // If no opportunities exist, generate initial set
+      if (opportunities.length === 0) {
+        console.log(
+          `📊 No opportunities found for user ${userId}, triggering auto-generation...`
+        );
+        // Trigger generation and return empty array (client will refetch)
+        // We'll handle generation in the POST endpoint
+        return res.json([]);
+      }
+
+      res.json(opportunities);
+    } catch (error) {
+      console.error("Failed to get content opportunities:", error);
+      res.status(500).json({ error: "Failed to fetch content opportunities" });
+    }
+  });
+
+  app.post(
+    "/api/ai/opportunities/generate",
+    requireAuth,
+    async (req: any, res) => {
+      try {
+        const userId = req.user.id;
+        console.log(
+          `🎯 Generating AI content opportunities for user ${userId}...`
+        );
+
+        // 1. Load user's market data (top neighborhoods)
+        const marketData = await storage.getMarketData(userId);
+        const topNeighborhoods = marketData
+          .filter((m) => m.trend === "hot" || m.trend === "rising")
+          .slice(0, 5)
+          .map((m) => ({
+            name: m.neighborhood,
+            avgPrice: m.avgPrice,
+            trend: m.trend,
+            inventory: m.inventory,
+          }));
+
+        // 2. Load user's SEO keywords (top priority)
+        const keywords = await storage.getSeoKeywords(userId);
+        const topKeywords = keywords.slice(0, 10).map((k) => ({
+          keyword: k.keyword,
+          volume: k.searchVolume || 0,
+          difficulty: k.difficulty || 0,
+        }));
+
+        // 3. Build AI prompt for generating opportunities
+        const prompt = `You are a real estate content strategist. Based on the following market data and SEO keywords, generate 5 high-value content opportunities for a real estate agent.
+
+Market Data (Hot Neighborhoods):
+${topNeighborhoods
+  .map(
+    (n) =>
+      `- ${n.name}: $${n.avgPrice?.toLocaleString()} avg price, ${
+        n.trend
+      } trend, ${n.inventory} inventory`
+  )
+  .join("\n")}
+
+Top SEO Keywords:
+${topKeywords
+  .map(
+    (k) => `- "${k.keyword}" (volume: ${k.volume}, difficulty: ${k.difficulty})`
+  )
+  .join("\n")}
+
+Generate exactly 5 content opportunities as a JSON object with an "opportunities" array. Each opportunity must include:
+- title: Catchy title for the content piece (e.g., "Aksarben Market Update", "First-Time Buyer Guide")
+- description: Brief reason why this content is valuable (e.g., "High search volume", "Trending topic", "Seasonal interest")
+- priority: "high", "medium", or "low"
+- neighborhood: neighborhood name if applicable, or null
+- relatedKeyword: the keyword this relates to, or null
+- trendSource: "market" (based on neighborhood data), "keyword" (based on SEO keywords), or "trend" (general real estate trend)
+- searchSignal: integer score 0-100 indicating search demand/relevance
+
+Focus on:
+1. High-search-volume topics related to the provided keywords
+2. Neighborhood-specific market updates for hot areas
+3. Seasonal/trending real estate topics
+4. First-time buyer guides and educational content
+5. Local market analysis and comparisons
+
+Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
+
+        // Use Unified AI Service (GitHub Copilot with OpenAI fallback)
+        const { unifiedAI } = await import("./services/unified-ai");
+        const aiResponse = await unifiedAI.generate(prompt, {
+          systemPrompt:
+            "You are a real estate content strategist who generates data-driven content opportunities in JSON format.",
+          temperature: 0.7,
+          maxTokens: 1500,
+          jsonMode: true,
+        });
+
+        console.log(`✅ AI Response from: ${aiResponse.provider}`);
+
+        // Parse AI response
+        let generatedOpportunities;
+        try {
+          const result = JSON.parse(aiResponse.content);
+          // The response_format forces JSON object, so we expect {opportunities: [...]}
+          generatedOpportunities = result.opportunities || result || [];
+          if (!Array.isArray(generatedOpportunities)) {
+            // If it's a single object, wrap in array
+            generatedOpportunities = [generatedOpportunities];
+          }
+        } catch (parseError) {
+          console.error("Failed to parse AI response:", parseError);
+          console.error("Raw response:", aiResponse.content);
+          throw new Error("Failed to parse AI-generated opportunities");
+        }
+
+        // Validate and prepare for database
+        const opportunitiesToInsert = generatedOpportunities
+          .slice(0, 5)
+          .map((opp: any) => ({
+            userId,
+            title: opp.title || "Untitled Opportunity",
+            description: opp.description || "AI-generated content opportunity",
+            priority: opp.priority || "medium",
+            neighborhood: opp.neighborhood || null,
+            keywordId: opp.relatedKeyword || null,
+            trendSource: opp.trendSource || "trend",
+            searchSignal: Math.min(100, Math.max(0, opp.searchSignal || 50)),
+            metadata: {
+              relatedKeyword: opp.relatedKeyword,
+              generatedBy: aiResponse.provider,
+              model: aiResponse.model,
+              marketContext: topNeighborhoods.length > 0,
+              keywordContext: topKeywords.length > 0,
+            },
+          }));
+
+        // Delete old opportunities for this user
+        await db
+          .delete(contentOpportunities)
+          .where(eq(contentOpportunities.userId, userId));
+
+        // Insert new opportunities
+        const inserted = await db
+          .insert(contentOpportunities)
+          .values(opportunitiesToInsert)
+          .returning();
+
+        console.log(
+          `✅ Generated ${inserted.length} content opportunities for user ${userId}`
+        );
+        res.json(inserted);
+      } catch (error) {
+        console.error("❌ Failed to generate content opportunities:", error);
+        res.status(500).json({
+          error: "Failed to generate content opportunities",
+          message: (error as Error).message,
+        });
+      }
+    }
+  );
+
+  app.get("/api/market/intelligence", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Import the market intelligence service
+      const { MarketIntelligenceService } = await import(
+        "./services/market-intelligence"
+      );
+      const marketIntelligenceService = new MarketIntelligenceService();
+
+      // Fetch live market data for this user
+      let marketData;
+      try {
+        marketData = await storage.getMarketData(userId);
+        if (!marketData || marketData.length === 0) {
+          console.warn(
+            `⚠️  No market data available for user ${userId}, generating initial data...`
+          );
+
+          // Generate initial market data for the user
+          const { AIMarketDataGenerator } = await import(
+            "./services/ai-market-generator"
+          );
+          const generator = new AIMarketDataGenerator(userId);
+
+          let generatedData;
+          try {
+            generatedData = await generator.generateOmahaMarketData();
+          } catch (aiError) {
+            console.warn(
+              "⚠️  AI generation failed, using fallback data:",
+              aiError
+            );
+            generatedData = generator.getFallbackData();
+          }
+
+          marketData = await storage.refreshMarketData(
+            userId,
+            generatedData.neighborhoods
+          );
+        }
+      } catch (marketError) {
+        console.error(
+          "Failed to fetch market data for intelligence:",
+          marketError
+        );
+        return res.status(502).json({
+          error: "Market data service error",
+          message: "Could not retrieve market data for analysis.",
+        });
+      }
+
+      // Generate AI-powered market intelligence
+      const intelligence = await marketIntelligenceService.generateIntelligence(
+        marketData
+      );
+
+      res.json(intelligence);
+    } catch (error) {
+      console.error("❌ Market intelligence generation error:", error);
+      res.status(502).json({
+        error: "Intelligence generation failed",
+        message:
+          "Unable to generate market intelligence. Please try again or contact support.",
+        details: (error as Error).message,
+      });
     }
   });
 
@@ -1362,15 +3022,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Scheduled Posts endpoints
-  app.get("/api/scheduled-posts", async (req, res) => {
+  app.get("/api/scheduled-posts", requireAuth, async (req: any, res) => {
     try {
-      const user = await storage.getUserByUsername("mikebjork");
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
+      const userId = req.user.id;
       const status = req.query.status as string;
-      const posts = await storage.getScheduledPosts(user.id, status);
+      const posts = await storage.getScheduledPosts(userId, status);
       res.json(posts);
     } catch (error) {
       console.error("Get scheduled posts error:", error);
@@ -1378,21 +3034,118 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // Generate 30-day content calendar
+  app.post("/api/content/generate-plan", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      console.log(`🗓️  Generating 30-day content plan for user ${userId}...`);
+
+      // Get user's market data for service areas
+      const marketData = await storage.getMarketData(userId);
+      const serviceAreas = marketData
+        .map((m) => m.neighborhood)
+        .filter(Boolean);
+
+      if (serviceAreas.length === 0) {
+        serviceAreas.push("Omaha"); // Default to Omaha
+      }
+
+      // Import and initialize AI content calendar generator
+      const { AIContentCalendarGenerator } = await import(
+        "./services/ai-content-calendar"
+      );
+      const generator = new AIContentCalendarGenerator(userId);
+
+      let generatedPlan;
+      try {
+        generatedPlan = await generator.generate30DayPlan(
+          serviceAreas,
+          marketData,
+          req.body.targetAudience,
+          req.body.specialties
+        );
+      } catch (aiError) {
+        console.warn(
+          "⚠️  AI content generation failed, using fallback:",
+          aiError
+        );
+        generatedPlan = generator.getFallbackContentPlan(
+          serviceAreas,
+          marketData
+        );
+      }
+
+      // Save generated posts to storage
+      const createdPosts = [];
+      for (const post of generatedPlan.posts) {
+        const created = await storage.createScheduledPost(post);
+        createdPosts.push(created);
+      }
+
+      console.log(
+        `✅ Generated ${createdPosts.length}-day content plan for user ${userId}`
+      );
+
+      res.json({
+        success: true,
+        posts: createdPosts,
+        metadata: generatedPlan.metadata,
+      });
+    } catch (error) {
+      console.error("❌ Content plan generation error:", error);
+      res.status(500).json({
+        error: "Failed to generate content plan",
+        message: (error as Error).message,
+      });
+    }
+  });
+
   app.put("/api/scheduled-posts/:id", async (req, res) => {
     try {
       const { id } = req.params;
       const { content, scheduledFor, status } = req.body;
-      
+
       const updatedPost = await storage.updateScheduledPost(id, {
         content,
         scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
         status,
       });
-      
+
       if (!updatedPost) {
         return res.status(404).json({ error: "Scheduled post not found" });
       }
-      
+
+      res.json(updatedPost);
+    } catch (error) {
+      console.error("Update scheduled post error:", error);
+      res.status(500).json({ error: "Failed to update scheduled post" });
+    }
+  });
+
+  app.patch("/api/scheduled-posts/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Validate using Zod schema for mutable fields only
+      const result = updateScheduledPostSchema.safeParse(req.body);
+
+      if (!result.success) {
+        return res.status(400).json({
+          error: "Invalid update data",
+          details: result.error.format(),
+        });
+      }
+
+      if (Object.keys(result.data).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+
+      const updatedPost = await storage.updateScheduledPost(id, result.data);
+
+      if (!updatedPost) {
+        return res.status(404).json({ error: "Scheduled post not found" });
+      }
+
       res.json(updatedPost);
     } catch (error) {
       console.error("Update scheduled post error:", error);
@@ -1404,11 +3157,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const deleted = await storage.deleteScheduledPost(id);
-      
+
       if (!deleted) {
         return res.status(404).json({ error: "Scheduled post not found" });
       }
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Delete scheduled post error:", error);
@@ -1417,43 +3170,49 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Upload image for scheduled post
-  app.post("/api/scheduled-posts/upload-image", upload.single('image'), async (req, res) => {
-    try {
-      const { postId } = req.body;
-      const imageFile = req.file;
+  app.post(
+    "/api/scheduled-posts/upload-image",
+    upload.single("image"),
+    async (req, res) => {
+      try {
+        const { postId } = req.body;
+        const imageFile = req.file;
 
-      if (!postId || !imageFile) {
-        return res.status(400).json({ error: "Post ID and image are required" });
-      }
-
-      // Get the existing post
-      const post = await storage.getScheduledPostById(postId);
-      if (!post) {
-        return res.status(404).json({ error: "Scheduled post not found" });
-      }
-
-      // In a real app, you would upload the image to cloud storage (S3, Cloudinary, etc.)
-      // For now, we'll simulate storing the image URL in metadata
-      const imageUrl = `/uploads/${imageFile.filename}`;
-      
-      // Update the post with the image URL in metadata
-      const updatedPost = await storage.updateScheduledPost(postId, {
-        metadata: {
-          ...(post.metadata as any || {}),
-          imageUrl: imageUrl,
+        if (!postId || !imageFile) {
+          return res
+            .status(400)
+            .json({ error: "Post ID and image are required" });
         }
-      });
 
-      res.json({
-        success: true,
-        imageUrl: imageUrl,
-        post: updatedPost
-      });
-    } catch (error) {
-      console.error("Upload image error:", error);
-      res.status(500).json({ error: "Failed to upload image" });
+        // Get the existing post
+        const post = await storage.getScheduledPostById(postId);
+        if (!post) {
+          return res.status(404).json({ error: "Scheduled post not found" });
+        }
+
+        // In a real app, you would upload the image to cloud storage (S3, Cloudinary, etc.)
+        // For now, we'll simulate storing the image URL in metadata
+        const imageUrl = `/uploads/${imageFile.filename}`;
+
+        // Update the post with the image URL in metadata
+        const updatedPost = await storage.updateScheduledPost(postId, {
+          metadata: {
+            ...((post.metadata as any) || {}),
+            imageUrl: imageUrl,
+          },
+        });
+
+        res.json({
+          success: true,
+          imageUrl: imageUrl,
+          post: updatedPost,
+        });
+      } catch (error) {
+        console.error("Upload image error:", error);
+        res.status(500).json({ error: "Failed to upload image" });
+      }
     }
-  });
+  );
 
   // Update image URL for scheduled post
   app.post("/api/scheduled-posts/update-image", async (req, res) => {
@@ -1461,7 +3220,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const { postId, imageUrl } = req.body;
 
       if (!postId || !imageUrl) {
-        return res.status(400).json({ error: "Post ID and image URL are required" });
+        return res
+          .status(400)
+          .json({ error: "Post ID and image URL are required" });
       }
 
       // Get the existing post
@@ -1473,15 +3234,15 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Update the post with the image URL in metadata
       const updatedPost = await storage.updateScheduledPost(postId, {
         metadata: {
-          ...(post.metadata as any || {}),
+          ...((post.metadata as any) || {}),
           imageUrl: imageUrl,
-        }
+        },
       });
 
       res.json({
         success: true,
         imageUrl: imageUrl,
-        post: updatedPost
+        post: updatedPost,
       });
     } catch (error) {
       console.error("Update image error:", error);
@@ -1496,17 +3257,23 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         return res.status(404).json({ error: "User not found" });
       }
 
-      const { focus = 'mixed' } = req.body; // 'local_markets', 'moving_guide', or 'mixed'
-      
-      const neighborhoods = ["Dundee", "Aksarben", "Old Market", "Blackstone", "Benson"];
+      const { focus = "mixed" } = req.body; // 'local_markets', 'moving_guide', or 'mixed'
+
+      const neighborhoods = [
+        "Dundee",
+        "Aksarben",
+        "Old Market",
+        "Blackstone",
+        "Benson",
+      ];
       const platforms = ["facebook", "instagram", "linkedin", "x", "tiktok"];
-      
+
       const movingGuideTopics = [
         "Best Omaha neighborhoods for families",
         "Omaha job market and major employers",
         "Winter in Omaha: what to expect",
         "Omaha school districts comparison",
-        "Cost of living in Omaha vs other cities"
+        "Cost of living in Omaha vs other cities",
       ];
 
       const today = new Date();
@@ -1520,11 +3287,14 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
         const platformIndex = day % platforms.length;
         const platform = platforms[platformIndex];
-        
+
         let aiContent, postType, neighborhood;
-        
+
         try {
-          if (focus === 'local_markets' || (focus === 'mixed' && day % 2 === 0)) {
+          if (
+            focus === "local_markets" ||
+            (focus === "mixed" && day % 2 === 0)
+          ) {
             // Generate local market content
             const neighborhoodIndex = day % neighborhoods.length;
             neighborhood = neighborhoods[neighborhoodIndex];
@@ -1532,7 +3302,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             aiContent = await openaiService.generateContent({
               type: "social",
               neighborhood,
-              keywords: [`${neighborhood} real estate`, "Omaha homes"]
+              keywords: [`${neighborhood} real estate`, "Omaha homes"],
             });
             postType = "local_market";
           } else {
@@ -1543,7 +3313,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             aiContent = await openaiService.generateContent({
               type: "social",
               neighborhood: topic,
-              keywords: ["Omaha moving", "real estate tips"]
+              keywords: ["Omaha moving", "real estate tips"],
             });
             postType = "moving_guide";
             neighborhood = null;
@@ -1561,17 +3331,20 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             originalContent: aiContent.content,
             neighborhood,
             seoScore: aiContent.seoScore || 80,
-            metadata: { generated: true, focus: postType, aiGenerated: true }
+            metadata: { generated: true, focus: postType, aiGenerated: true },
           });
-          
+
           generatedPosts.push(scheduledPost);
         } catch (aiError) {
-          console.error(`Failed to generate AI content for day ${day}:`, aiError);
+          console.error(
+            `Failed to generate AI content for day ${day}:`,
+            aiError
+          );
           // Fallback to basic content if AI generation fails
-          const fallbackContent = neighborhood 
+          const fallbackContent = neighborhood
             ? `Discover what makes ${neighborhood} special! Contact Mike Bjork for local market insights.`
             : `Thinking of moving to Omaha? Let's talk about what makes this city amazing!`;
-            
+
           const scheduledPost = await storage.createScheduledPost({
             userId: user.id,
             platform,
@@ -1584,18 +3357,18 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             seoScore: 85,
             originalContent: fallbackContent,
             neighborhood,
-            metadata: { generated: true, focus: postType, fallback: true }
+            metadata: { generated: true, focus: postType, fallback: true },
           });
-          
+
           generatedPosts.push(scheduledPost);
         }
       }
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: `Weekly ${focus} content generated successfully with AI optimization`,
         postsGenerated: generatedPosts.length,
-        focus: focus
+        focus: focus,
       });
     } catch (error) {
       console.error("Generate weekly content error:", error);
@@ -1619,7 +3392,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  app.post("/api/avatars", upload.single('avatarPhoto'), async (req, res) => {
+  app.post("/api/avatars", upload.single("avatarPhoto"), async (req, res) => {
     try {
       const user = await storage.getUserByUsername("mikebjork");
       if (!user) {
@@ -1628,29 +3401,33 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
       // Initialize HeyGen service
       const heygenService = new HeyGenService();
-      
+
       let heygenAvatarId = null;
       let avatarImageUrl = req.body.avatarImageUrl;
-      
+
       // Handle uploaded avatar photo
       if (req.file) {
         // Save local path for storage
         avatarImageUrl = `/uploads/${req.file.filename}`;
         console.log("Avatar photo uploaded locally to:", avatarImageUrl);
-        
+
         // Upload to HeyGen and create avatar
         try {
           console.log("Uploading image to HeyGen...");
-          
+
           // Read the file as a buffer
-          const filePath = path.join(process.cwd(), 'uploads', req.file.filename);
+          const filePath = path.join(
+            process.cwd(),
+            "uploads",
+            req.file.filename
+          );
           const fileBuffer = fs.readFileSync(filePath);
           const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-          
+
           // Upload image to HeyGen to get a public URL
           const heygenImageUrl = await heygenService.uploadImage(blob);
           console.log("Image uploaded to HeyGen:", heygenImageUrl);
-          
+
           // Create HeyGen avatar with the uploaded image
           const heygenResponse = await heygenService.createTalkingPhotoAvatar(
             heygenImageUrl,
@@ -1659,16 +3436,25 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           );
 
           console.log("Full HeyGen response:", JSON.stringify(heygenResponse));
-          if (heygenResponse.data?.avatar_id || heygenResponse.data?.avatar_group_id || heygenResponse.data?.group_id || heygenResponse.data?.id) {
+          if (
+            heygenResponse.data?.avatar_id ||
+            heygenResponse.data?.avatar_group_id ||
+            heygenResponse.data?.group_id ||
+            heygenResponse.data?.id
+          ) {
             // Different HeyGen endpoints return different ID fields
             // Photo avatars return group_id or just id
-            heygenAvatarId = heygenResponse.data.avatar_id || 
-                            heygenResponse.data.avatar_group_id || 
-                            heygenResponse.data.group_id ||
-                            heygenResponse.data.id;
+            heygenAvatarId =
+              heygenResponse.data.avatar_id ||
+              heygenResponse.data.avatar_group_id ||
+              heygenResponse.data.group_id ||
+              heygenResponse.data.id;
             console.log("HeyGen avatar created successfully:", heygenAvatarId);
           } else {
-            console.log("HeyGen response missing avatar IDs - data:", heygenResponse.data);
+            console.log(
+              "HeyGen response missing avatar IDs - data:",
+              heygenResponse.data
+            );
           }
         } catch (heygenError) {
           console.warn("HeyGen avatar creation failed:", heygenError);
@@ -1683,7 +3469,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         style: req.body.style,
         gender: req.body.gender,
         voiceId: req.body.voiceId || null,
-        isActive: req.body.isActive === 'true' || req.body.isActive === true,
+        isActive: req.body.isActive === "true" || req.body.isActive === true,
         avatarImageUrl: avatarImageUrl,
       };
 
@@ -1692,11 +3478,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const validatedData = insertAvatarSchema.parse({
         ...formData,
         userId: user.id,
-        metadata: heygenAvatarId ? {
-          heygenAvatarId,
-        } : {},
+        metadata: heygenAvatarId
+          ? {
+              heygenAvatarId,
+            }
+          : {},
       });
-      
+
       const avatar = await storage.createAvatar(validatedData);
       res.status(201).json({
         ...avatar,
@@ -1708,100 +3496,125 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  app.put("/api/avatars/:id", upload.fields([
-    { name: 'avatarPhoto', maxCount: 1 },
-    { name: 'voiceRecording', maxCount: 1 }
-  ]), async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updates = req.body;
-      
-      // Get existing avatar to check for HeyGen metadata
-      const existingAvatar = await storage.getAvatarById(id);
-      if (!existingAvatar) {
-        return res.status(404).json({ error: "Avatar not found" });
-      }
-      
-      // Cast req.files to the correct type
-      const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      
-      // Handle uploaded avatar photo in updates
-      if (files?.avatarPhoto && files.avatarPhoto[0]) {
-        const photoFile = files.avatarPhoto[0];
-        updates.avatarImageUrl = `/uploads/${photoFile.filename}`;
-        console.log("Avatar photo updated to:", updates.avatarImageUrl);
-        
-        // Try to create or update HeyGen avatar
-        try {
-          const heygenService = new HeyGenService();
-          
-          // Upload new image to HeyGen
-          const filePath = path.join(process.cwd(), 'uploads', photoFile.filename);
-          const fileBuffer = fs.readFileSync(filePath);
-          const blob = new Blob([fileBuffer], { type: photoFile.mimetype });
-          
-          const heygenImageUrl = await heygenService.uploadImage(blob);
-          console.log("Image uploaded to HeyGen:", heygenImageUrl);
-          
-          // Create HeyGen avatar (whether updating existing or creating new)
-          const heygenResponse = await heygenService.createTalkingPhotoAvatar(
-            heygenImageUrl,
-            updates.name || existingAvatar.name,
-            updates.voiceId || existingAvatar.voiceId
-          );
-          
-          console.log("Full HeyGen response for update:", JSON.stringify(heygenResponse));
-          if (heygenResponse.data?.avatar_id || heygenResponse.data?.avatar_group_id || heygenResponse.data?.group_id || heygenResponse.data?.id) {
-            // Different HeyGen endpoints return different ID fields
-            // Photo avatars return group_id or just id
-            const avatarId = heygenResponse.data.avatar_id || 
-                           heygenResponse.data.avatar_group_id ||
-                           heygenResponse.data.group_id ||
-                           heygenResponse.data.id;
-            updates.metadata = {
-              ...(existingAvatar.metadata as any || {}),
-              heygenAvatarId: avatarId,
-              updatedAt: new Date().toISOString()
-            };
-            console.log("HeyGen avatar created/updated successfully:", avatarId);
-          } else {
-            console.log("HeyGen response missing avatar IDs on update - data:", heygenResponse.data);
-          }
-        } catch (heygenError) {
-          console.warn("Failed to create/update HeyGen avatar:", heygenError);
-          // Continue with local update even if HeyGen fails
+  app.put(
+    "/api/avatars/:id",
+    upload.fields([
+      { name: "avatarPhoto", maxCount: 1 },
+      { name: "voiceRecording", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        // Get existing avatar to check for HeyGen metadata
+        const existingAvatar = await storage.getAvatarById(id);
+        if (!existingAvatar) {
+          return res.status(404).json({ error: "Avatar not found" });
         }
-      }
-      
-      // Handle uploaded voice recording
-      if (files?.voiceRecording && files.voiceRecording[0]) {
-        const voiceFile = files.voiceRecording[0];
-        const voiceFilePath = `/uploads/${voiceFile.filename}`;
-        console.log("Voice recording uploaded to:", voiceFilePath);
-        
-        // Store the voice recording path and mark as custom voice
-        updates.metadata = {
-          ...(updates.metadata || existingAvatar.metadata as any || {}),
-          voiceRecordingUrl: voiceFilePath,
-          hasCustomVoice: true,
-          voiceRecordedAt: new Date().toISOString()
+
+        // Cast req.files to the correct type
+        const files = req.files as {
+          [fieldname: string]: Express.Multer.File[];
         };
-        
-        // Set voiceId to indicate custom voice
-        updates.voiceId = 'custom_voice';
-        
-        // TODO: In production, you would upload this to HeyGen's voice cloning API
-        // For now, we'll store it locally and use it for demo purposes
-        console.log("Custom voice recording saved for avatar");
+
+        // Handle uploaded avatar photo in updates
+        if (files?.avatarPhoto && files.avatarPhoto[0]) {
+          const photoFile = files.avatarPhoto[0];
+          updates.avatarImageUrl = `/uploads/${photoFile.filename}`;
+          console.log("Avatar photo updated to:", updates.avatarImageUrl);
+
+          // Try to create or update HeyGen avatar
+          try {
+            const heygenService = new HeyGenService();
+
+            // Upload new image to HeyGen
+            const filePath = path.join(
+              process.cwd(),
+              "uploads",
+              photoFile.filename
+            );
+            const fileBuffer = fs.readFileSync(filePath);
+            const blob = new Blob([fileBuffer], { type: photoFile.mimetype });
+
+            const heygenImageUrl = await heygenService.uploadImage(blob);
+            console.log("Image uploaded to HeyGen:", heygenImageUrl);
+
+            // Create HeyGen avatar (whether updating existing or creating new)
+            const heygenResponse = await heygenService.createTalkingPhotoAvatar(
+              heygenImageUrl,
+              updates.name || existingAvatar.name,
+              updates.voiceId || existingAvatar.voiceId
+            );
+
+            console.log(
+              "Full HeyGen response for update:",
+              JSON.stringify(heygenResponse)
+            );
+            if (
+              heygenResponse.data?.avatar_id ||
+              heygenResponse.data?.avatar_group_id ||
+              heygenResponse.data?.group_id ||
+              heygenResponse.data?.id
+            ) {
+              // Different HeyGen endpoints return different ID fields
+              // Photo avatars return group_id or just id
+              const avatarId =
+                heygenResponse.data.avatar_id ||
+                heygenResponse.data.avatar_group_id ||
+                heygenResponse.data.group_id ||
+                heygenResponse.data.id;
+              updates.metadata = {
+                ...((existingAvatar.metadata as any) || {}),
+                heygenAvatarId: avatarId,
+                updatedAt: new Date().toISOString(),
+              };
+              console.log(
+                "HeyGen avatar created/updated successfully:",
+                avatarId
+              );
+            } else {
+              console.log(
+                "HeyGen response missing avatar IDs on update - data:",
+                heygenResponse.data
+              );
+            }
+          } catch (heygenError) {
+            console.warn("Failed to create/update HeyGen avatar:", heygenError);
+            // Continue with local update even if HeyGen fails
+          }
+        }
+
+        // Handle uploaded voice recording
+        if (files?.voiceRecording && files.voiceRecording[0]) {
+          const voiceFile = files.voiceRecording[0];
+          const voiceFilePath = `/uploads/${voiceFile.filename}`;
+          console.log("Voice recording uploaded to:", voiceFilePath);
+
+          // Store the voice recording path and mark as custom voice
+          updates.metadata = {
+            ...(updates.metadata || (existingAvatar.metadata as any) || {}),
+            voiceRecordingUrl: voiceFilePath,
+            hasCustomVoice: true,
+            voiceRecordedAt: new Date().toISOString(),
+          };
+
+          // Set voiceId to indicate custom voice
+          updates.voiceId = "custom_voice";
+
+          // TODO: In production, you would upload this to HeyGen's voice cloning API
+          // For now, we'll store it locally and use it for demo purposes
+          console.log("Custom voice recording saved for avatar");
+        }
+
+        const updatedAvatar = await storage.updateAvatar(id, updates);
+        res.json(updatedAvatar);
+      } catch (error) {
+        console.error("Update avatar error:", error);
+        res.status(500).json({ error: "Failed to update avatar" });
       }
-      
-      const updatedAvatar = await storage.updateAvatar(id, updates);
-      res.json(updatedAvatar);
-    } catch (error) {
-      console.error("Update avatar error:", error);
-      res.status(500).json({ error: "Failed to update avatar" });
     }
-  });
+  );
 
   // Import existing HeyGen avatar (use pre-built avatars from HeyGen library)
   app.post("/api/avatars/import", async (req, res) => {
@@ -1812,7 +3625,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       }
 
       const { avatarId } = req.body;
-      
+
       if (!avatarId) {
         return res.status(400).json({ error: "Avatar ID is required" });
       }
@@ -1820,7 +3633,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Validate the avatar exists in HeyGen
       const heygenService = new HeyGenService();
       const avatarDetails = await heygenService.importAvatar(avatarId);
-      
+
       if (!avatarDetails.data) {
         return res.status(404).json({ error: "Avatar not found in HeyGen" });
       }
@@ -1847,7 +3660,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       });
     } catch (error) {
       console.error("Avatar import failed:", error);
-      res.status(400).json({ error: error instanceof Error ? error.message : 'Unknown error' });
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 
@@ -1856,13 +3671,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const heygenService = new HeyGenService();
       const avatarsList = await heygenService.listAvatars();
-      
+
       // Format the response to match what the frontend expects
       if (avatarsList.data?.avatars) {
         res.json({
           success: true,
           avatars: avatarsList.data.avatars,
-          total: avatarsList.data.avatars.length
+          total: avatarsList.data.avatars.length,
         });
       } else {
         res.json({ success: true, avatars: [], total: 0 });
@@ -1878,13 +3693,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const heygenService = new HeyGenService();
       const voicesList = await heygenService.listVoices();
-      
+
       // Format the response to match what the frontend expects
       if (voicesList.data?.voices) {
         res.json({
           success: true,
           voices: voicesList.data.voices,
-          total: voicesList.data.voices.length
+          total: voicesList.data.voices.length,
         });
       } else {
         res.json({ success: true, voices: [], total: 0 });
@@ -1895,25 +3710,192 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // ======================================
+  // CUSTOM VOICES ENDPOINTS
+  // ======================================
+
+  // List all custom voices for the current user
+  app.get("/api/custom-voices", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const voices = await storage.listCustomVoices(user.id);
+      res.json(voices);
+    } catch (error) {
+      console.error("Failed to fetch custom voices:", error);
+      res.status(500).json({ error: "Failed to fetch custom voices" });
+    }
+  });
+
+  // Upload and save a new custom voice
+  app.post(
+    "/api/custom-voices",
+    requireAuth,
+    upload.single("audio"),
+    async (req, res) => {
+      try {
+        const user = (req as any).user;
+        const { name } = req.body;
+        const file = req.file;
+
+        if (!file) {
+          return res.status(400).json({ error: "No audio file provided" });
+        }
+
+        if (!name || name.trim().length === 0) {
+          return res.status(400).json({ error: "Voice name is required" });
+        }
+
+        // Read the file as a Buffer
+        const fileBuffer = fs.readFileSync(file.path);
+
+        // Get file stats
+        const stats = fs.statSync(file.path);
+
+        // Determine file extension
+        const ext = path.extname(file.originalname);
+        const fileName = `voice-library/${nanoid()}${ext}`;
+
+        // Upload audio file to S3
+        const s3Service = new S3UploadService();
+        const audioUrl = await s3Service.uploadFile(
+          Number(user.id),
+          fileBuffer,
+          fileName,
+          file.mimetype
+        );
+
+        let heygenAudioAssetId: string | undefined;
+        let status = "pending";
+
+        // Upload to HeyGen for voice cloning
+        try {
+          console.log("🎤 Uploading audio to HeyGen for voice cloning...");
+
+          // Upload to HeyGen (reuse fileBuffer from above)
+          const heygenService = new HeyGenService();
+          heygenAudioAssetId = await heygenService.uploadAudio(
+            fileBuffer,
+            file.mimetype
+          );
+          status = "ready";
+
+          console.log(
+            "✅ HeyGen upload successful! Audio Asset ID:",
+            heygenAudioAssetId
+          );
+        } catch (heygenError) {
+          console.error("❌ HeyGen upload failed:", heygenError);
+          status = "failed";
+          // Continue anyway - user can still manage the voice in library
+        }
+
+        // Create custom voice record with HeyGen asset ID
+        const voice = await storage.createCustomVoice({
+          userId: user.id,
+          name: name.trim(),
+          audioUrl,
+          fileSize: stats.size,
+          heygenAudioAssetId,
+          status,
+        });
+
+        // Clean up uploaded file
+        fs.unlinkSync(file.path);
+
+        res.status(201).json(voice);
+      } catch (error) {
+        console.error("Failed to create custom voice:", error);
+        res.status(500).json({ error: "Failed to create custom voice" });
+      }
+    }
+  );
+
+  // Delete a custom voice
+  app.delete("/api/custom-voices/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+
+      await storage.deleteCustomVoice(id, user.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete custom voice:", error);
+      res.status(500).json({ error: "Failed to delete custom voice" });
+    }
+  });
+
+  // Serve custom voice audio file from S3
+  app.get("/api/custom-voices/:id/audio", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+
+      console.log(`🎵 Fetching audio for voice ID: ${id}, user ID: ${user.id}`);
+
+      const voice = await storage.getCustomVoice(id);
+      console.log(
+        `📊 Voice found:`,
+        voice
+          ? `Yes (userId: ${voice.userId}, audioUrl: ${voice.audioUrl})`
+          : "No"
+      );
+
+      if (!voice) {
+        console.log(`❌ Voice not found in database`);
+        return res.status(404).json({ error: "Voice not found" });
+      }
+
+      if (voice.userId !== user.id.toString()) {
+        console.log(
+          `❌ User ID mismatch: voice.userId=${voice.userId}, user.id=${user.id}`
+        );
+        return res.status(404).json({ error: "Voice not found" });
+      }
+
+      console.log(`📥 Fetching file from S3: ${voice.audioUrl}`);
+      const s3Service = new S3UploadService();
+      const audioBuffer = await s3Service.getFile(voice.audioUrl);
+      console.log(
+        `✅ Audio file retrieved from S3, size: ${audioBuffer.length} bytes`
+      );
+
+      // Determine content type from file extension
+      const ext = path.extname(voice.audioUrl).toLowerCase();
+      const contentType =
+        ext === ".wav"
+          ? "audio/wav"
+          : ext === ".mp3"
+          ? "audio/mpeg"
+          : "audio/mpeg";
+
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400"); // Cache for 1 day
+      res.send(audioBuffer);
+    } catch (error) {
+      console.error("❌ Failed to serve custom voice audio:", error);
+      res.status(500).json({ error: "Failed to load audio file" });
+    }
+  });
+
   // Proxy endpoint for HeyGen images to avoid CORS issues
   app.get("/api/proxy/heygen-image", async (req, res) => {
     try {
       const imageUrl = req.query.url as string;
-      
-      if (!imageUrl || !imageUrl.includes('heygen.ai')) {
+
+      if (!imageUrl || !imageUrl.includes("heygen.ai")) {
         return res.status(400).json({ error: "Invalid image URL" });
       }
 
       const response = await fetch(imageUrl);
-      
+
       if (!response.ok) {
         return res.status(404).json({ error: "Image not found" });
       }
 
-      const contentType = response.headers.get('content-type') || 'image/webp';
-      res.set('Content-Type', contentType);
-      res.set('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-      
+      const contentType = response.headers.get("content-type") || "image/webp";
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=86400"); // Cache for 1 day
+
       if (response.body) {
         const reader = response.body.getReader();
         const pump = async () => {
@@ -1934,35 +3916,46 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  // Video Content endpoints
-  app.get("/api/videos", async (req, res) => {
+  // Get video history for authenticated user (all completed videos)
+  app.get("/api/videos/history", requireAuth, async (req, res) => {
     try {
-      const user = await storage.getUserByUsername("mikebjork");
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
       }
 
-      const status = req.query.status as string;
-      const videos = await storage.getVideoContent(user.id, status);
-      res.json(videos);
+      console.log("📚 Fetching video history for user:", userId);
+
+      // Get all completed videos (status: 'ready' or 'uploaded')
+      const allVideos = await storage.getVideoContent(userId);
+      const completedVideos = allVideos.filter(
+        (video) => video.status === "ready" || video.status === "uploaded"
+      );
+
+      console.log(`✅ Found ${completedVideos.length} completed videos`);
+
+      res.json({
+        videos: completedVideos,
+        count: completedVideos.length,
+      });
     } catch (error) {
-      console.error("Get videos error:", error);
-      res.status(500).json({ error: "Failed to fetch videos" });
+      console.error("Get video history error:", error);
+      res.status(500).json({ error: "Failed to fetch video history" });
     }
   });
 
-  app.post("/api/videos", async (req, res) => {
+  app.post("/api/videos", requireAuth, async (req, res) => {
     try {
-      const user = await storage.getUserByUsername("mikebjork");
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
+      const userId = String(req.user?.id);
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
       }
 
       const validatedData = insertVideoContentSchema.parse({
         ...req.body,
-        userId: user.id,
+        userId,
       });
-      
+
       const video = await storage.createVideoContent(validatedData);
       res.status(201).json(video);
     } catch (error) {
@@ -1975,13 +3968,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { id } = req.params;
       const updates = req.body;
-      
+
       const updatedVideo = await storage.updateVideoContent(id, updates);
-      
+
       if (!updatedVideo) {
         return res.status(404).json({ error: "Video not found" });
       }
-      
+
       res.json(updatedVideo);
     } catch (error) {
       console.error("Update video error:", error);
@@ -1989,12 +3982,25 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  app.post("/api/videos/:id/generate-script", async (req, res) => {
+  app.post("/api/videos/:id/generate-script", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { topic, neighborhood, videoType, platform = "youtube", duration = 60 } = req.body;
-      
-      const video = await storage.getVideoById(id);
+      const userId = String(req.user?.id);
+
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const {
+        topic,
+        neighborhood,
+        videoType,
+        platform = "youtube",
+        duration = 60,
+      } = req.body;
+
+      // Ownership check - only allow users to generate scripts for their own videos
+      const video = await storage.getVideoByIdAndUser(id, userId);
       if (!video) {
         return res.status(404).json({ error: "Video not found" });
       }
@@ -2007,19 +4013,25 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
           neighborhood,
           videoType,
           platform,
-          duration
+          duration,
         });
       } catch (error: any) {
         console.error("OpenAI API error:", error);
-        
+
         // If API quota exceeded or other OpenAI issues, provide a fallback script
-        if (error.status === 429 || error.code === 'insufficient_quota') {
-          script = generateFallbackScript(topic, neighborhood || "Omaha", videoType, duration, platform);
+        if (error.status === 429 || error.code === "insufficient_quota") {
+          script = generateFallbackScript(
+            topic,
+            neighborhood || "Omaha",
+            videoType,
+            duration,
+            platform
+          );
         } else {
           throw error; // Re-throw if it's not a quota issue
         }
       }
-      
+
       const updatedVideo = await storage.updateVideoContent(id, {
         script,
         topic,
@@ -2027,37 +4039,50 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         videoType,
         platform,
         duration,
-        status: "ready"
+        status: "ready",
       });
-      
+
       res.json({ script, video: updatedVideo });
     } catch (error) {
       console.error("Generate video script error:", error);
-      res.status(500).json({ error: "Failed to generate video script. Please try again later." });
+      res.status(500).json({
+        error: "Failed to generate video script. Please try again later.",
+      });
     }
   });
 
-  app.post("/api/videos/:id/generate-video", async (req, res) => {
+  app.post("/api/videos/:id/generate-video", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
+      const userId = String(req.user?.id);
+
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
       const { avatarId } = req.body;
-      
-      const video = await storage.getVideoById(id);
+
+      // Ownership check - only allow users to generate videos for their own video content
+      const video = await storage.getVideoByIdAndUser(id, userId);
       if (!video) {
         return res.status(404).json({ error: "Video not found" });
       }
 
       const avatar = avatarId ? await storage.getAvatarById(avatarId) : null;
-      
+
       // Check if we have an avatar
       if (avatar) {
         // For testing purposes, generate a demo video first
         // This ensures the avatar test flow works while we fix HeyGen integration
-        
-        if (!avatar.metadata || typeof avatar.metadata !== 'object' || !('heygenAvatarId' in avatar.metadata)) {
+
+        if (
+          !avatar.metadata ||
+          typeof avatar.metadata !== "object" ||
+          !("heygenAvatarId" in avatar.metadata)
+        ) {
           // No HeyGen integration yet - create a demo video for testing
           console.log("No HeyGen avatar ID found, creating demo test video");
-          
+
           await storage.updateVideoContent(id, {
             status: "ready",
             avatarId: avatarId || video.avatarId,
@@ -2066,52 +4091,64 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             metadata: {
               ...(video.metadata || {}),
               isDemo: true,
-              message: "Demo video for testing - HeyGen integration pending"
-            }
+              message: "Demo video for testing - HeyGen integration pending",
+            },
           });
 
           return res.json({
             success: true,
             message: "Test video created successfully (demo mode)",
-            videoUrl: "https://example.com/demo-video.mp4"
+            videoUrl: "https://example.com/demo-video.mp4",
           });
         }
-        
+
         // Has HeyGen integration - try to generate real video
         const heygenService = new HeyGenService();
-        
+
         // Determine aspect ratio based on platform
-        let aspectRatio: '16:9' | '9:16' | '1:1' = '16:9';
-        if (video.platform === 'reels' || video.platform === 'story') {
-          aspectRatio = '9:16';
+        let aspectRatio: "16:9" | "9:16" | "1:1" = "16:9";
+        if (video.platform === "reels" || video.platform === "story") {
+          aspectRatio = "9:16";
         }
 
         try {
-          console.log(`Generating HeyGen video for platform: ${video.platform}, aspect ratio: ${aspectRatio}`);
-          console.log(`Using HeyGen avatar ID: ${(avatar.metadata as any).heygenAvatarId}`);
-          
+          console.log(
+            `Generating HeyGen video for platform: ${video.platform}, aspect ratio: ${aspectRatio}`
+          );
+          console.log(
+            `Using HeyGen avatar ID: ${(avatar.metadata as any).heygenAvatarId}`
+          );
+
           // Check if this is a talking photo avatar (created from uploaded photo)
-          const isTalkingPhoto = !!avatar.avatarImageUrl && avatar.avatarImageUrl.includes('/uploads/');
-          console.log(`Avatar type: ${isTalkingPhoto ? 'talking_photo' : 'avatar'}`);
+          const isTalkingPhoto =
+            !!avatar.avatarImageUrl &&
+            avatar.avatarImageUrl.includes("/uploads/");
+          console.log(
+            `Avatar type: ${isTalkingPhoto ? "talking_photo" : "avatar"}`
+          );
 
           // Handle voice selection - use a valid HeyGen voice ID
           let voiceId = avatar.voiceId;
-          if (voiceId === 'custom_voice') {
+          if (voiceId === "custom_voice") {
             // Custom voice recording uploaded but not yet integrated with HeyGen voice cloning
             // Default to professional male voice for now
-            voiceId = '119caed25533477ba63822d5d1552d25'; // Professional Male voice
-            console.log('Custom voice detected, using default male voice as fallback');
+            voiceId = "119caed25533477ba63822d5d1552d25"; // Professional Male voice
+            console.log(
+              "Custom voice detected, using default male voice as fallback"
+            );
           }
-          
+
           const heygenResponse = await heygenService.generateVideo({
             avatarId: (avatar.metadata as any).heygenAvatarId,
-            script: video.script || "Welcome to the future of real estate marketing with AI-powered video content.",
+            script:
+              video.script ||
+              "Welcome to the future of real estate marketing with AI-powered video content.",
             title: video.title,
             voiceId: voiceId || undefined,
             aspectRatio,
-            quality: '720p', // 720p for free tier as per documentation
+            quality: "720p", // 720p for free tier as per documentation
             speed: 1.1, // Slightly faster speech as shown in docs
-            isTalkingPhoto // Pass this flag to the service
+            isTalkingPhoto, // Pass this flag to the service
           });
 
           if (heygenResponse.data?.video_id) {
@@ -2122,22 +4159,22 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               metadata: {
                 ...(video.metadata || {}),
                 heygenVideoId: heygenResponse.data.video_id,
-              }
+              },
             });
 
             res.json({
               success: true,
               videoId: heygenResponse.data.video_id,
               message: "HeyGen video generation started successfully",
-              estimatedTime: "3-5 minutes"
+              estimatedTime: "3-5 minutes",
             });
             return;
           }
         } catch (heygenError) {
           console.error("HeyGen video generation failed:", heygenError);
-          
+
           // Fallback to demo video on HeyGen failure
-          await storage.updateVideoContent(id, { 
+          await storage.updateVideoContent(id, {
             status: "ready",
             avatarId: avatarId || video.avatarId,
             videoUrl: "https://example.com/demo-video.mp4",
@@ -2145,23 +4182,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
             metadata: {
               ...(video.metadata || {}),
               isDemo: true,
-              heygenError: heygenError instanceof Error ? heygenError.message : "Unknown error"
-            }
+              heygenError:
+                heygenError instanceof Error
+                  ? heygenError.message
+                  : "Unknown error",
+            },
           });
-          
+
           return res.json({
             success: true,
             message: "Test video created (demo mode due to HeyGen error)",
             videoUrl: "https://example.com/demo-video.mp4",
-            warning: "HeyGen integration encountered an error. Using demo video."
+            warning:
+              "HeyGen integration encountered an error. Using demo video.",
           });
         }
       }
 
       // If no avatar at all, return error
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: "Avatar required for video generation",
-        message: "Please select or create an avatar first"
+        message: "Please select or create an avatar first",
       });
     } catch (error) {
       console.error("Generate video error:", error);
@@ -2169,84 +4210,21 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  // Check video generation status (with HeyGen support)
-  app.get("/api/videos/:id/status", async (req, res) => {
+  // Note: Old video status route removed - using HeyGen-compatible route at line ~3425
+
+  app.post("/api/videos/:id/upload-youtube", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const video = await storage.getVideoById(id);
-      
-      if (!video) {
-        return res.status(404).json({ error: "Video not found" });
+      const userId = String(req.user?.id);
+
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
       }
 
-      // If video has HeyGen video ID, check HeyGen status using correct endpoint
-      if (video.metadata && typeof video.metadata === 'object' && 'heygenVideoId' in video.metadata) {
-        try {
-          const heygenService = new HeyGenService();
-          const heygenVideo = await heygenService.getVideo((video.metadata as any).heygenVideoId);
-
-          if (heygenVideo.code === 100 && heygenVideo.data) {
-            const status = heygenVideo.data.status;
-            let newStatus = "generating";
-            
-            // Map HeyGen status to our status (per documentation: pending, processing, completed, failed)
-            if (status === 'completed') {
-              newStatus = "ready";
-              // Update video with final URL
-              await storage.updateVideoContent(id, {
-                status: newStatus,
-                videoUrl: heygenVideo.data.video_url,
-                thumbnailUrl: heygenVideo.data.thumbnail_url,
-                duration: heygenVideo.data.duration,
-              });
-            } else if (status === 'failed') {
-              newStatus = "failed";
-              const errorMessage = heygenVideo.data.error?.message || "Video generation failed";
-              await storage.updateVideoContent(id, { 
-                status: newStatus,
-                metadata: {
-                  ...(video.metadata || {}),
-                  error: errorMessage
-                }
-              });
-            } else if (status === 'pending' || status === 'waiting') {
-              newStatus = "pending";
-            } else if (status === 'processing') {
-              newStatus = "generating";
-            }
-
-            return res.json({
-              status: newStatus,
-              heygenStatus: status,
-              videoUrl: heygenVideo.data.video_url,
-              thumbnailUrl: heygenVideo.data.thumbnail_url,
-              duration: heygenVideo.data.duration,
-              error: heygenVideo.data.error
-            });
-          }
-        } catch (heygenError) {
-          console.error("Failed to get HeyGen video status:", heygenError);
-        }
-      }
-
-      // Return current video status from database
-      res.json({
-        status: video.status,
-        videoUrl: video.videoUrl,
-        thumbnailUrl: video.thumbnailUrl,
-      });
-    } catch (error) {
-      console.error("Get video status error:", error);
-      res.status(500).json({ error: "Failed to get video status" });
-    }
-  });
-
-  app.post("/api/videos/:id/upload-youtube", async (req, res) => {
-    try {
-      const { id } = req.params;
       const { title, description, tags, privacy = "public" } = req.body;
-      
-      const video = await storage.getVideoById(id);
+
+      // Ownership check - only allow users to upload their own videos
+      const video = await storage.getVideoByIdAndUser(id, userId);
       if (!video || !video.videoUrl) {
         return res.status(404).json({ error: "Video not ready for upload" });
       }
@@ -2255,18 +4233,18 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // For now, we'll simulate the upload
       const mockYoutubeVideoId = `mock_yt_${id.substring(0, 8)}`;
       const mockYoutubeUrl = `https://youtube.com/watch?v=${mockYoutubeVideoId}`;
-      
+
       const updatedVideo = await storage.updateVideoContent(id, {
         status: "uploaded",
         youtubeVideoId: mockYoutubeVideoId,
         youtubeUrl: mockYoutubeUrl,
-        title: title || video.title
+        title: title || video.title,
       });
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         youtubeUrl: mockYoutubeUrl,
-        video: updatedVideo
+        video: updatedVideo,
       });
     } catch (error) {
       console.error("Upload to YouTube error:", error);
@@ -2275,7 +4253,19 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // ==================== STREAMING AVATAR ENDPOINTS ====================
-  
+
+  // List available streaming avatars
+  app.get("/api/streaming/avatars", async (req, res) => {
+    try {
+      const streamingService = new HeyGenStreamingService();
+      const avatars = await streamingService.listStreamingAvatars();
+      res.json({ avatars });
+    } catch (error) {
+      console.error("Failed to list streaming avatars:", error);
+      res.status(500).json({ error: "Failed to list streaming avatars" });
+    }
+  });
+
   // Create streaming avatar session
   app.post("/api/streaming/sessions", async (req, res) => {
     try {
@@ -2286,7 +4276,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
       const { avatarId } = req.body;
       const streamingService = new HeyGenStreamingService();
-      
+
       const session = await streamingService.createSession(user.id, avatarId);
       res.json(session);
     } catch (error) {
@@ -2299,11 +4289,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/streaming/sessions/:sessionId/speak", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      const { text, taskType = 'TALK' } = req.body;
+      const { text, taskType = "TALK" } = req.body;
 
       const streamingService = new HeyGenStreamingService();
       await streamingService.speak(sessionId, text, taskType);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to make avatar speak:", error);
@@ -2312,43 +4302,49 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Start voice chat
-  app.post("/api/streaming/sessions/:sessionId/voice-chat", async (req, res) => {
-    try {
-      const { sessionId } = req.params;
-      
-      const streamingService = new HeyGenStreamingService();
-      await streamingService.startVoiceChat(sessionId);
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Failed to start voice chat:", error);
-      res.status(500).json({ error: "Failed to start voice chat" });
+  app.post(
+    "/api/streaming/sessions/:sessionId/voice-chat",
+    async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+
+        const streamingService = new HeyGenStreamingService();
+        await streamingService.startVoiceChat(sessionId);
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to start voice chat:", error);
+        res.status(500).json({ error: "Failed to start voice chat" });
+      }
     }
-  });
+  );
 
   // Stop voice chat
-  app.delete("/api/streaming/sessions/:sessionId/voice-chat", async (req, res) => {
-    try {
-      const { sessionId } = req.params;
-      
-      const streamingService = new HeyGenStreamingService();
-      await streamingService.stopVoiceChat(sessionId);
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Failed to stop voice chat:", error);
-      res.status(500).json({ error: "Failed to stop voice chat" });
+  app.delete(
+    "/api/streaming/sessions/:sessionId/voice-chat",
+    async (req, res) => {
+      try {
+        const { sessionId } = req.params;
+
+        const streamingService = new HeyGenStreamingService();
+        await streamingService.stopVoiceChat(sessionId);
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to stop voice chat:", error);
+        res.status(500).json({ error: "Failed to stop voice chat" });
+      }
     }
-  });
+  );
 
   // Interrupt avatar
   app.post("/api/streaming/sessions/:sessionId/interrupt", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      
+
       const streamingService = new HeyGenStreamingService();
       await streamingService.interrupt(sessionId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to interrupt avatar:", error);
@@ -2360,10 +4356,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.delete("/api/streaming/sessions/:sessionId", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      
+
       const streamingService = new HeyGenStreamingService();
       await streamingService.endSession(sessionId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to end session:", error);
@@ -2381,7 +4377,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
 
       const streamingService = new HeyGenStreamingService();
       const sessions = streamingService.getActiveSessions(user.id);
-      
+
       res.json({ sessions });
     } catch (error) {
       console.error("Failed to get sessions:", error);
@@ -2390,44 +4386,139 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // ==================== PHOTO AVATAR ENDPOINTS ====================
-  
+
   // Generate AI photos for avatars
-  app.post("/api/photo-avatars/generate-photos", async (req, res) => {
-    try {
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const result = await photoAvatarService.generateAIPhotos(req.body);
-      
-      res.json(result);
-    } catch (error) {
-      console.error("Failed to generate AI photos:", error);
-      res.status(500).json({ error: "Failed to generate AI photos" });
+  app.post(
+    "/api/photo-avatars/generate-photos",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        console.log("📸 Photo generation request:", req.body);
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const result = await photoAvatarService.generateAIPhotos(req.body);
+
+        console.log("✅ Photo generation result:", result);
+
+        // Send real-time notification
+        realtimeService.notifyPhotoGenerated(
+          userId,
+          req.body.name || "Avatar",
+          5 // HeyGen generates 5 photos
+        );
+
+        res.json(result);
+      } catch (error) {
+        console.error("❌ Failed to generate AI photos:", error);
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Failed to generate AI photos";
+        res.status(500).json({
+          error: "Failed to generate AI photos",
+          details: errorMessage,
+        });
+      }
     }
-  });
+  );
 
   // Get photo generation status
-  app.get("/api/photo-avatars/generation/:generationId", async (req, res) => {
-    try {
-      const { generationId } = req.params;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const status = await photoAvatarService.getGenerationStatus(generationId);
-      
-      res.json(status);
-    } catch (error) {
-      console.error("Failed to get generation status:", error);
-      res.status(500).json({ error: "Failed to get generation status" });
+  app.get(
+    "/api/photo-avatars/generation/:generationId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        const { generationId } = req.params;
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const status = await photoAvatarService.getGenerationStatus(
+          generationId
+        );
+
+        res.json(status);
+      } catch (error) {
+        console.error("Failed to get generation status:", error);
+        res.status(500).json({ error: "Failed to get generation status" });
+      }
     }
-  });
+  );
 
   // Create avatar group
-  app.post("/api/photo-avatars/groups", async (req, res) => {
+  app.post("/api/photo-avatars/groups", requireAuth, async (req, res) => {
     try {
+      const userId = String(req.user?.id);
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
       const { name, imageKey } = req.body;
-      
+
+      // Create group in HeyGen
       const photoAvatarService = new HeyGenPhotoAvatarService();
-      const group = await photoAvatarService.createAvatarGroup(name, imageKey);
-      
-      res.json(group);
+      const heygenGroup = await photoAvatarService.createAvatarGroup(
+        name,
+        imageKey
+      );
+
+      // Persist to database with userId for ownership tracking
+      const dbGroup = await storage.createPhotoAvatarGroup({
+        userId,
+        heygenGroupId: heygenGroup.group_id,
+        name,
+        status: "created",
+      });
+
+      console.log(
+        "✅ Avatar group created and persisted to database:",
+        dbGroup.id
+      );
+
+      // Fetch and persist individual avatars
+      try {
+        const looks = await photoAvatarService.getAvatarGroupLooks(
+          heygenGroup.group_id
+        );
+        if (looks.avatar_list && Array.isArray(looks.avatar_list)) {
+          for (const avatar of looks.avatar_list) {
+            await storage.createPhotoAvatar({
+              userId,
+              heygenAvatarId: avatar.id,
+              groupDbId: dbGroup.id,
+              heygenGroupId: heygenGroup.group_id,
+              name: avatar.name || name,
+              pose: avatar.business_type,
+              status: avatar.status || "pending",
+              metadata: avatar,
+            });
+          }
+          console.log(
+            `✅ Persisted ${looks.avatar_list.length} individual avatars to database`
+          );
+
+          // Send notification
+          realtimeService.notifyAvatarGroupCreated(
+            parseInt(userId),
+            heygenGroup.group_id,
+            name,
+            looks.avatar_list.length
+          );
+        }
+      } catch (err) {
+        console.error("⚠️ Failed to persist individual avatars:", err);
+        // Don't fail the request if avatar persistence fails
+      }
+
+      res.json(heygenGroup);
     } catch (error) {
       console.error("Failed to create avatar group:", error);
       res.status(500).json({ error: "Failed to create avatar group" });
@@ -2435,158 +4526,1467 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Add photos to avatar group
-  app.post("/api/photo-avatars/groups/:groupId/photos", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      const { imageKeys, name } = req.body;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const result = await photoAvatarService.addPhotosToGroup(groupId, imageKeys, name);
-      
-      res.json(result);
-    } catch (error) {
-      console.error("Failed to add photos to group:", error);
-      res.status(500).json({ error: "Failed to add photos to group" });
-    }
-  });
+  app.post(
+    "/api/photo-avatars/groups/:groupId/photos",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+        const { imageKeys, name } = req.body;
 
-  // List avatar groups
-  app.get("/api/photo-avatars/groups", async (req, res) => {
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check - ensure user owns this avatar group
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const result = await photoAvatarService.addPhotosToGroup(
+          groupId,
+          imageKeys,
+          name
+        );
+
+        // Fetch and persist newly added avatars
+        try {
+          const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
+          if (looks.avatar_list && Array.isArray(looks.avatar_list)) {
+            for (const avatar of looks.avatar_list) {
+              // Try to create, skip if already exists (unique constraint)
+              try {
+                await storage.createPhotoAvatar({
+                  userId,
+                  heygenAvatarId: avatar.id,
+                  groupDbId: dbGroup.id,
+                  heygenGroupId: groupId,
+                  name: avatar.name || name,
+                  pose: avatar.business_type,
+                  status: avatar.status || "pending",
+                  metadata: avatar,
+                });
+              } catch (err) {
+                // Ignore duplicate errors (avatar already exists)
+                if (!String(err).includes("unique")) {
+                  throw err;
+                }
+              }
+            }
+            console.log(`✅ Synced avatars to database for group ${groupId}`);
+          }
+        } catch (err) {
+          console.error("⚠️ Failed to sync avatars after adding photos:", err);
+          // Don't fail the request if avatar sync fails
+        }
+
+        res.json(result);
+      } catch (error) {
+        console.error("Failed to add photos to group:", error);
+        res.status(500).json({ error: "Failed to add photos to group" });
+      }
+    }
+  );
+
+  // List avatar groups (DATABASE-FIRST WITH PRIVACY)
+  app.get("/api/photo-avatars/groups", requireAuth, async (req, res) => {
     try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const userIdString = String(userId);
+      const dbGroups = await storage.listPhotoAvatarGroups(userIdString);
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
-      const groups = await photoAvatarService.listAvatarGroups();
-      
-      res.json(groups);
+
+      // Enrich each user's group with HeyGen data
+      const mappedGroups = await Promise.all(
+        dbGroups.map(async (dbGroup) => {
+          const groupId = dbGroup.heygenGroupId;
+          let looksCount = 0;
+          let heygenStatus = dbGroup.status;
+          let previewImage = dbGroup.s3ImageUrl;
+
+          try {
+            const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
+            looksCount = Array.isArray(looks?.avatar_list)
+              ? looks.avatar_list.length
+              : 0;
+
+            // If s3ImageUrl is not available, use the first avatar's image from HeyGen
+            if (
+              !previewImage &&
+              looks?.avatar_list &&
+              looks.avatar_list.length > 0
+            ) {
+              previewImage = looks.avatar_list[0].image_url;
+            }
+          } catch (e) {
+            console.warn(
+              `⚠️ Failed to fetch looks for group ${groupId}:`,
+              (e as Error)?.message || e
+            );
+          }
+
+          // Get custom voice for this group if any
+          let defaultVoiceId = null;
+          try {
+            const customVoice = await storage.getPhotoAvatarGroupVoice(
+              groupId,
+              userId
+            );
+            if (customVoice?.heygenAudioAssetId) {
+              defaultVoiceId = customVoice.heygenAudioAssetId;
+            }
+          } catch (e) {
+            console.warn(
+              `⚠️ Error fetching custom voice for group ${groupId}:`,
+              e
+            );
+          }
+
+          // Use database status as source of truth
+          const rawStatus = dbGroup.status || "pending";
+          const isCompleted =
+            rawStatus === "completed" || rawStatus === "ready";
+          const status = isCompleted
+            ? "ready"
+            : looksCount > 0
+            ? "pending"
+            : rawStatus;
+
+          return {
+            group_id: groupId,
+            name: dbGroup.name,
+            status,
+            default_voice_id: defaultVoiceId,
+            created_at: dbGroup.createdAt || new Date().toISOString(),
+            avatar_count: looksCount,
+            training_progress:
+              status === "processing" || rawStatus === "processing"
+                ? dbGroup.trainingProgress || 50
+                : undefined,
+            preview_image: previewImage,
+            num_looks: looksCount,
+          };
+        })
+      );
+
+      res.json({
+        avatar_group_list: mappedGroups,
+      });
     } catch (error) {
       console.error("Failed to list avatar groups:", error);
       res.status(500).json({ error: "Failed to list avatar groups" });
     }
   });
 
-  // Get avatar group details
-  app.get("/api/photo-avatars/groups/:groupId", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const group = await photoAvatarService.getAvatarGroup(groupId);
-      
-      res.json(group);
-    } catch (error) {
-      console.error("Failed to get avatar group:", error);
-      res.status(500).json({ error: "Failed to get avatar group" });
-    }
-  });
+  // Get avatar group details (WITH OWNERSHIP CHECK)
+  app.get(
+    "/api/photo-avatars/groups/:groupId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
 
-  // Get avatar group looks
-  app.get("/api/photo-avatars/groups/:groupId/looks", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
-      
-      res.json(looks);
-    } catch (error) {
-      console.error("Failed to get avatar looks:", error);
-      res.status(500).json({ error: "Failed to get avatar looks" });
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        let looksCount = 0;
+        try {
+          const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
+          looksCount = Array.isArray(looks?.avatar_list)
+            ? looks.avatar_list.length
+            : 0;
+        } catch (e) {
+          console.warn(
+            `⚠️ Failed to fetch looks for group ${groupId} while building details:`,
+            (e as Error)?.message || e
+          );
+        }
+
+        const rawStatus = dbGroup.status || "pending";
+        const isCompleted = rawStatus === "completed" || rawStatus === "ready";
+        const detail = {
+          group_id: groupId,
+          name: dbGroup.name,
+          status: isCompleted
+            ? "ready"
+            : looksCount > 0
+            ? "pending"
+            : rawStatus,
+          created_at: dbGroup.createdAt || new Date().toISOString(),
+          avatar_count: looksCount,
+          preview_image: dbGroup.s3ImageUrl,
+        };
+
+        res.json(detail);
+      } catch (error) {
+        console.error("Failed to get avatar group:", error);
+        res.status(500).json({ error: "Failed to get avatar group" });
+      }
     }
-  });
+  );
+
+  // Get avatar group photos (generated images) (WITH OWNERSHIP CHECK)
+  app.get(
+    "/api/photo-avatars/groups/:groupId/photos",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const looksData = await photoAvatarService.getAvatarGroupLooks(groupId);
+
+        // Transform avatar looks into photo format
+        const photos = (looksData.avatar_list || []).map((avatar: any) => ({
+          id: avatar.id,
+          url: avatar.image_url,
+          thumbnail: avatar.image_url,
+          name: avatar.name,
+          type: "avatar",
+          created_at: avatar.created_at,
+          status: avatar.status,
+          motion_preview_url: avatar.motion_preview_url,
+        }));
+
+        res.json({
+          group_id: groupId,
+          photos: photos,
+          count: photos.length,
+        });
+      } catch (error) {
+        console.error("Failed to get avatar group photos:", error);
+        res.status(500).json({ error: "Failed to get avatar group photos" });
+      }
+    }
+  );
+
+  // Get avatar group looks (WITH OWNERSHIP CHECK)
+  app.get(
+    "/api/photo-avatars/groups/:groupId/looks",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
+
+        res.json(looks);
+      } catch (error) {
+        console.error("Failed to get avatar looks:", error);
+        res.status(500).json({ error: "Failed to get avatar looks" });
+      }
+    }
+  );
 
   // Train avatar group
-  app.post("/api/photo-avatars/groups/:groupId/train", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const result = await photoAvatarService.trainAvatarGroup(groupId);
-      
-      res.json(result);
-    } catch (error) {
-      console.error("Failed to train avatar group:", error);
-      res.status(500).json({ error: "Failed to train avatar group" });
+  app.post(
+    "/api/photo-avatars/groups/:groupId/train",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+        const { defaultVoiceId } = req.body;
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const result = await photoAvatarService.trainAvatarGroup(
+          groupId,
+          defaultVoiceId
+        );
+
+        res.json(result);
+      } catch (error) {
+        console.error("Failed to train avatar group:", error);
+        res.status(500).json({ error: "Failed to train avatar group" });
+      }
     }
-  });
+  );
 
   // Generate new looks
-  app.post("/api/photo-avatars/groups/:groupId/generate-looks", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      const { numLooks = 3 } = req.body;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const looks = await photoAvatarService.generateNewLooks(groupId, numLooks);
-      
-      res.json(looks);
-    } catch (error) {
-      console.error("Failed to generate new looks:", error);
-      res.status(500).json({ error: "Failed to generate new looks" });
+  app.post(
+    "/api/photo-avatars/groups/:groupId/generate-looks",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+        const { numLooks = 3 } = req.body;
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const looks = await photoAvatarService.generateNewLooks(
+          groupId,
+          numLooks
+        );
+
+        res.json(looks);
+      } catch (error) {
+        console.error("Failed to generate new looks:", error);
+        res.status(500).json({ error: "Failed to generate new looks" });
+      }
     }
-  });
+  );
 
   // Check training status
-  app.get("/api/photo-avatars/groups/:groupId/status", async (req, res) => {
-    try {
-      const { groupId } = req.params;
-      
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const status = await photoAvatarService.checkTrainingStatus(groupId);
-      
-      res.json(status);
-    } catch (error) {
-      console.error("Failed to check training status:", error);
-      res.status(500).json({ error: "Failed to check training status" });
+  app.get(
+    "/api/photo-avatars/groups/:groupId/status",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const status = await photoAvatarService.checkTrainingStatus(groupId);
+
+        res.json(status);
+      } catch (error) {
+        console.error("Failed to check training status:", error);
+        res.status(500).json({ error: "Failed to check training status" });
+      }
     }
-  });
+  );
 
   // Delete avatar group
-  app.delete("/api/photo-avatars/groups/:groupId", async (req, res) => {
+  app.delete(
+    "/api/photo-avatars/groups/:groupId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check and delete
+        const deleted = await storage.deletePhotoAvatarGroup(groupId, userId);
+        if (!deleted) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        await photoAvatarService.deleteAvatarGroup(groupId);
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to delete avatar group:", error);
+        res.status(500).json({ error: "Failed to delete avatar group" });
+      }
+    }
+  );
+
+  // Delete individual avatar
+  app.delete("/api/photo-avatars/:avatarId", requireAuth, async (req, res) => {
     try {
-      const { groupId } = req.params;
-      
+      const userId = String(req.user?.id);
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { avatarId } = req.params;
+
+      // First, try to find the avatar in the database (uploaded avatars)
+      const dbAvatar = await storage.getPhotoAvatarByHeygenIdAndUser(
+        avatarId,
+        userId
+      );
+
+      // If not in database, verify ownership via group (AI-generated avatars)
+      if (!dbAvatar) {
+        console.log(
+          "⚠️ Avatar not in database, checking group ownership via HeyGen API"
+        );
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+
+        try {
+          // Get avatar details from HeyGen to find its group
+          const avatarDetails = await photoAvatarService.getAvatarDetails(
+            avatarId
+          );
+          const groupId = avatarDetails?.data?.group_id;
+
+          if (!groupId) {
+            return res.status(404).json({ error: "Avatar not found" });
+          }
+
+          // Verify user owns the group
+          const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+            groupId,
+            userId
+          );
+          if (!dbGroup) {
+            return res.status(404).json({ error: "Avatar not found" });
+          }
+
+          console.log("✅ Group ownership verified for AI-generated avatar");
+        } catch (error) {
+          console.error("Failed to verify avatar ownership:", error);
+          return res.status(404).json({ error: "Avatar not found" });
+        }
+      }
+
+      console.log("🗑️ Deleting individual avatar:", avatarId);
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
-      await photoAvatarService.deleteAvatarGroup(groupId);
-      
+      await photoAvatarService.deleteIndividualAvatar(avatarId);
+
+      // Delete from database if it exists there
+      if (dbAvatar) {
+        await storage.deletePhotoAvatar(avatarId, userId);
+      }
+
+      console.log("✅ Individual avatar deleted successfully");
+
       res.json({ success: true });
     } catch (error) {
-      console.error("Failed to delete avatar group:", error);
-      res.status(500).json({ error: "Failed to delete avatar group" });
+      console.error("Failed to delete individual avatar:", error);
+      res.status(500).json({ error: "Failed to delete individual avatar" });
     }
   });
 
-  // Upload custom photo for photo avatar
-  app.post("/api/photo-avatars/upload", upload.single('photo'), async (req, res) => {
+  // Edit/Generate new look with custom prompt
+  app.post("/api/heygen/avatars/:groupId/generate-look", async (req, res) => {
     try {
-      if (!req.file) {
-        return res.status(400).json({ error: "No photo uploaded" });
+      const { groupId } = req.params;
+      const { prompt, orientation, pose, style, referenceImages } = req.body;
+
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
       }
 
+      console.log("✏️ Editing look for group:", groupId);
+      console.log("✏️ Edit prompt:", prompt);
+      console.log("✏️ Orientation:", orientation || "square");
+      console.log("✏️ Pose:", pose || "half_body");
+      console.log("✏️ Style:", style || "Realistic");
+
       const photoAvatarService = new HeyGenPhotoAvatarService();
-      
-      const filePath = path.join(process.cwd(), 'uploads', req.file.filename);
-      const fileBuffer = fs.readFileSync(filePath);
-      const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-      
-      const imageKey = await photoAvatarService.uploadCustomPhoto(blob);
-      
-      res.json({ imageKey });
+      const result = await photoAvatarService.editLook({
+        groupId,
+        prompt,
+        orientation,
+        pose,
+        style,
+        referenceImages,
+      });
+
+      res.json(result);
     } catch (error) {
-      console.error("Failed to upload photo:", error);
-      res.status(500).json({ error: "Failed to upload photo" });
+      console.error("Failed to edit look:", error);
+      res.status(500).json({ error: "Failed to edit look" });
+    }
+  });
+
+  // Add looks to existing avatar group
+  app.post(
+    "/api/photo-avatars/groups/:groupId/add-looks",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const userId = String(req.user?.id);
+        const { imageKeys, name } = req.body;
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Ownership check
+        const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+          groupId,
+          userId
+        );
+        if (!dbGroup) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+
+        if (!imageKeys || !Array.isArray(imageKeys) || imageKeys.length === 0) {
+          return res
+            .status(400)
+            .json({ error: "Image keys array is required" });
+        }
+
+        console.log("➕ Adding looks to group:", groupId);
+        console.log("➕ Number of images:", imageKeys.length);
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const result = await photoAvatarService.addLooks({
+          groupId,
+          imageKeys,
+          name,
+        });
+
+        res.json(result);
+      } catch (error) {
+        console.error("Failed to add looks:", error);
+        res.status(500).json({ error: "Failed to add looks" });
+      }
+    }
+  );
+
+  // Add motion to photo avatar
+  app.post(
+    "/api/photo-avatars/:avatarId/add-motion",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        const { avatarId } = req.params;
+
+        // Ownership validation: verify user owns a group containing this avatar
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const allUserGroups = await storage.listPhotoAvatarGroups(userId);
+
+        let ownsAvatar = false;
+        let avatarGroupId: string | null = null;
+
+        for (const group of allUserGroups) {
+          try {
+            const looks = await photoAvatarService.getAvatarGroupLooks(
+              group.heygenGroupId
+            );
+            if (
+              looks.avatar_list &&
+              looks.avatar_list.some((a: any) => a.id === avatarId)
+            ) {
+              ownsAvatar = true;
+              avatarGroupId = group.heygenGroupId;
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+
+        if (!ownsAvatar) {
+          return res.status(404).json({ error: "Avatar not found" });
+        }
+
+        console.log("🎬 Adding motion to avatar:", avatarId);
+
+        const result = await photoAvatarService.addMotion(avatarId);
+
+        // Get avatar name for notification
+        let avatarName = "Avatar";
+        try {
+          const dbAvatar = await storage.getPhotoAvatarByHeygenIdAndUser(
+            avatarId,
+            userId
+          );
+          if (dbAvatar) {
+            avatarName = dbAvatar.name || avatarName;
+            await storage.updatePhotoAvatar(avatarId, userId, {
+              status: "processing",
+              metadata: { ...dbAvatar.metadata, is_motion: true },
+            });
+          }
+        } catch (e) {
+          console.warn("Could not update avatar in database:", e);
+        }
+
+        // Send notification
+        realtimeService.notifyMotionAdded(
+          parseInt(userId),
+          avatarId,
+          avatarName
+        );
+
+        res.json(result);
+      } catch (error) {
+        console.error("Failed to add motion:", error);
+        res.status(500).json({ error: "Failed to add motion" });
+      }
+    }
+  );
+
+  // Add sound effect to photo avatar
+  app.post(
+    "/api/photo-avatars/:avatarId/add-sound-effect",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        const { avatarId } = req.params;
+
+        // Ownership validation: verify user owns a group containing this avatar
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const allUserGroups = await storage.listPhotoAvatarGroups(userId);
+
+        let ownsAvatar = false;
+
+        for (const group of allUserGroups) {
+          try {
+            const looks = await photoAvatarService.getAvatarGroupLooks(
+              group.heygenGroupId
+            );
+            if (
+              looks.avatar_list &&
+              looks.avatar_list.some((a: any) => a.id === avatarId)
+            ) {
+              ownsAvatar = true;
+              break;
+            }
+          } catch (e) {
+            continue;
+          }
+        }
+
+        if (!ownsAvatar) {
+          return res.status(404).json({ error: "Avatar not found" });
+        }
+
+        console.log("🔊 Adding sound effect to avatar:", avatarId);
+
+        const result = await photoAvatarService.addSoundEffect(avatarId);
+
+        // Get avatar name for notification
+        let avatarName = "Avatar";
+        try {
+          const dbAvatar = await storage.getPhotoAvatarByHeygenIdAndUser(
+            avatarId,
+            userId
+          );
+          if (dbAvatar) {
+            avatarName = dbAvatar.name || avatarName;
+            await storage.updatePhotoAvatar(avatarId, userId, {
+              status: "processing",
+              metadata: { ...dbAvatar.metadata, background_sound_effect: true },
+            });
+          }
+        } catch (e) {
+          console.warn("Could not update avatar in database:", e);
+        }
+
+        // Send notification
+        realtimeService.notifySoundEffectAdded(
+          parseInt(userId),
+          avatarId,
+          avatarName
+        );
+
+        res.json(result);
+      } catch (error) {
+        console.error("Failed to add sound effect:", error);
+        res.status(500).json({ error: "Failed to add sound effect" });
+      }
+    }
+  );
+
+  // Get avatar status (for checking motion/sound effect processing)
+  app.get(
+    "/api/photo-avatars/:avatarId/status",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        const { avatarId } = req.params;
+
+        // Ownership validation
+        const dbAvatar = await storage.getPhotoAvatarByHeygenIdAndUser(
+          avatarId,
+          userId
+        );
+        if (!dbAvatar) {
+          return res.status(404).json({ error: "Avatar not found" });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const status = await photoAvatarService.getAvatarStatus(avatarId);
+
+        // Update status in database if changed
+        if (status.status && status.status !== dbAvatar.status) {
+          await storage.updatePhotoAvatar(avatarId, userId, {
+            status: status.status,
+            metadata: { ...dbAvatar.metadata, ...status },
+          });
+        }
+
+        res.json(status);
+      } catch (error) {
+        console.error("Failed to get avatar status:", error);
+        res.status(500).json({ error: "Failed to get avatar status" });
+      }
+    }
+  );
+
+  // Save voice recording to avatar group
+  app.post(
+    "/api/photo-avatars/groups/:groupId/voice",
+    requireAuth,
+    upload.single("voiceRecording"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No voice recording uploaded" });
+        }
+
+        const userId = req.user?.id;
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        const { groupId } = req.params;
+
+        console.log("🎤 Uploading voice recording to avatar group:", {
+          groupId,
+          filename: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+        });
+
+        // Read the file buffer
+        const fileBuffer = fs.readFileSync(req.file.path);
+
+        // Upload audio file to S3
+        const s3Service = new S3UploadService();
+        const audioUrl = await s3Service.uploadFile(
+          userId,
+          fileBuffer,
+          `avatar-voices/${groupId}/${nanoid()}_${req.file.originalname}`,
+          req.file.mimetype
+        );
+
+        console.log("✅ Voice uploaded to S3:", audioUrl);
+
+        let heygenAudioAssetId: string | undefined;
+
+        // Upload to HeyGen for voice cloning
+        try {
+          console.log("🎤 Uploading audio to HeyGen for voice cloning...");
+
+          const heygenService = new HeyGenService();
+          heygenAudioAssetId = await heygenService.uploadAudio(
+            fileBuffer,
+            req.file.mimetype
+          );
+
+          console.log(
+            "✅ HeyGen upload successful! Audio Asset ID:",
+            heygenAudioAssetId
+          );
+        } catch (heygenError) {
+          console.error("❌ HeyGen upload failed:", heygenError);
+          // Continue anyway - voice is saved to S3
+        }
+
+        // Store the voice metadata in the database
+        if (heygenAudioAssetId) {
+          try {
+            await storage.savePhotoAvatarGroupVoice({
+              userId,
+              groupId,
+              audioUrl,
+              heygenAudioAssetId,
+            });
+            console.log(
+              `✅ Voice ${heygenAudioAssetId} saved to database for group ${groupId}`
+            );
+          } catch (dbError) {
+            console.error("Failed to save voice to database:", dbError);
+          }
+        }
+
+        // Clean up uploaded file
+        fs.unlinkSync(req.file.path);
+
+        res.json({
+          success: true,
+          audioUrl,
+          heygenAudioAssetId,
+          message: "Voice recording saved successfully",
+        });
+      } catch (error) {
+        console.error("Failed to save voice recording:", error);
+        res.status(500).json({ error: "Failed to save voice recording" });
+      }
+    }
+  );
+
+  // Upload custom photo for photo avatar
+  app.post(
+    "/api/photo-avatars/upload",
+    requireAuth,
+    upload.single("photo"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No photo uploaded" });
+        }
+
+        const userId = req.user?.id;
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        console.log("📤 Uploading photo to HeyGen:", {
+          filename: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+        });
+
+        const fileBuffer = fs.readFileSync(req.file.path);
+
+        // ✨ AVATAR REUSE DETECTION: Check if this image already exists
+        const crypto = await import("crypto");
+        const imageHash = crypto
+          .createHash("sha256")
+          .update(fileBuffer)
+          .digest("hex");
+        console.log("🔍 Image hash:", imageHash);
+
+        const existingAvatar = await storage.getPhotoAvatarGroupByImageHash(
+          imageHash,
+          userId
+        );
+        if (existingAvatar) {
+          console.log(
+            "♻️ Avatar reuse detected! Returning existing avatar:",
+            existingAvatar.heygenGroupId
+          );
+          fs.unlinkSync(req.file.path); // Clean up temp file
+          return res.json({
+            imageKey: existingAvatar.heygenImageKey,
+            s3Url: existingAvatar.s3ImageUrl,
+            groupId: existingAvatar.heygenGroupId,
+            reused: true,
+            message:
+              "This image was already uploaded. Reusing existing avatar.",
+          });
+        }
+
+        // Upload to S3 for backup
+        const s3Service = new S3UploadService();
+        const s3ImageUrl = await s3Service.uploadFile(
+          userId,
+          fileBuffer,
+          `avatar-images/${nanoid()}_${req.file.originalname}`,
+          req.file.mimetype
+        );
+        console.log("✅ Photo backed up to S3:", s3ImageUrl);
+
+        // Upload to HeyGen and get the image key
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const heygenImageKey = await photoAvatarService.uploadCustomPhoto(
+          fileBuffer,
+          req.file.mimetype
+        );
+
+        console.log("✅ Photo uploaded to HeyGen, key:", heygenImageKey);
+
+        // Clean up temporary file
+        fs.unlinkSync(req.file.path);
+
+        res.json({
+          imageKey: heygenImageKey,
+          s3Url: s3ImageUrl,
+          imageHash, // Return hash for storage when avatar group is created
+          reused: false,
+        });
+      } catch (error: any) {
+        console.error("❌ Failed to upload photo:");
+        console.error("Error message:", error?.message);
+        console.error("Full error:", error);
+        res.status(500).json({
+          error: "Failed to upload photo",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
+  // Create avatar group from uploaded photos
+  app.post(
+    "/api/photo-avatars/create-from-uploads",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { name, imageKeys, imageHash, s3ImageUrl } = req.body;
+        const userId = req.user?.id;
+
+        console.log("🎭 Backend: Create avatar group request received");
+        console.log("🎭 Backend: Request name:", name);
+        console.log("🎭 Backend: Request imageKeys:", imageKeys);
+        console.log("🎭 Backend: Request imageKeys type:", typeof imageKeys);
+        console.log(
+          "🎭 Backend: Request imageKeys isArray:",
+          Array.isArray(imageKeys)
+        );
+        console.log("🎭 Backend: Image hash:", imageHash);
+
+        if (
+          !name ||
+          !imageKeys ||
+          !Array.isArray(imageKeys) ||
+          imageKeys.length < 1
+        ) {
+          console.log("❌ Backend: Validation failed:", {
+            hasName: !!name,
+            hasImageKeys: !!imageKeys,
+            isArray: Array.isArray(imageKeys),
+            length: Array.isArray(imageKeys) ? imageKeys.length : 0,
+          });
+          return res.status(400).json({
+            error: "Please provide a name and at least 1 photo",
+          });
+        }
+
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+
+        console.log("🎭 Backend: Calling photoAvatarService.createAvatarGroup");
+        // imageKeys are already HeyGen image keys from the upload endpoint
+        console.log(
+          "✅ Backend: Creating avatar group with HeyGen image keys:",
+          imageKeys
+        );
+
+        // Create avatar group with HeyGen image keys
+        const createResult = await photoAvatarService.createAvatarGroup(
+          name,
+          imageKeys
+        );
+
+        console.log(
+          "✅ Backend: Avatar group creation result:",
+          JSON.stringify(createResult, null, 2)
+        );
+
+        // Automatically start training
+        const groupId = createResult.group_id || createResult.avatar_group_id;
+        console.log("🎭 Backend: Extracted groupId for training:", groupId);
+
+        // ✨ Save avatar group metadata to database for duplicate detection
+        if (userId && groupId) {
+          try {
+            await storage.createPhotoAvatarGroup({
+              userId,
+              heygenGroupId: groupId,
+              name,
+              imageHash: imageHash || null,
+              s3ImageUrl: s3ImageUrl || null,
+              heygenImageKey: imageKeys[0], // Primary image key
+              status: "pending",
+              trainingProgress: 0,
+            });
+            console.log("💾 Avatar group metadata saved to database");
+          } catch (dbError) {
+            console.error("⚠️ Failed to save avatar group metadata:", dbError);
+            // Don't fail the request, just log the error
+          }
+        }
+
+        if (groupId) {
+          try {
+            console.log("🚀 Backend: Starting training for group:", groupId);
+            await photoAvatarService.trainAvatarGroup(groupId);
+            console.log("✅ Backend: Training started successfully");
+          } catch (trainingError: any) {
+            console.log(
+              "⚠️ Backend: Training failed, but group was created successfully:",
+              trainingError?.message
+            );
+            console.log(
+              "⚠️ Backend: Group creation was successful, training may happen automatically"
+            );
+          }
+        } else {
+          console.log("⚠️ Backend: No groupId found, skipping training");
+        }
+
+        const responseData = {
+          success: true,
+          groupId: groupId,
+          message: "Avatar group created and training started",
+        };
+
+        console.log(
+          "🎭 Backend: Sending response:",
+          JSON.stringify(responseData, null, 2)
+        );
+        res.json(responseData);
+      } catch (error: any) {
+        console.error("❌ Backend: Failed to create avatar group from uploads");
+        console.error("❌ Backend: Error message:", error?.message);
+        console.error("❌ Backend: Error stack:", error?.stack);
+        console.error("❌ Backend: Full error:", error);
+        res.status(500).json({
+          error: "Failed to create avatar group",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
+  // ==================== VIDEO GENERATION ENDPOINTS ====================
+
+  // Generate video from avatar and script
+  app.post("/api/videos/generate", requireAuth, async (req, res) => {
+    try {
+      const {
+        avatarId,
+        script,
+        title,
+        test,
+        isTalkingPhoto,
+        voiceSpeed,
+        voiceId,
+        customVoiceAvatarId,
+        voiceLibraryId,
+      } = req.body;
+
+      console.log("🎬 Backend: Video generation request received");
+      console.log("🎬 Backend: Avatar ID:", avatarId);
+      console.log("🎬 Backend: Script length:", script?.length);
+      console.log("🎬 Backend: Title:", title);
+      console.log("🎬 Backend: Test mode:", test);
+      console.log("🎬 Backend: isTalkingPhoto:", isTalkingPhoto);
+      console.log("🎬 Backend: Voice speed:", voiceSpeed);
+      console.log("🎬 Backend: Voice ID:", voiceId);
+      console.log("🎬 Backend: Custom voice avatar ID:", customVoiceAvatarId);
+      console.log("🎬 Backend: Voice Library ID:", voiceLibraryId);
+
+      if (!avatarId || !script) {
+        console.log("❌ Backend: Validation failed:", {
+          hasAvatarId: !!avatarId,
+          hasScript: !!script,
+        });
+        return res.status(400).json({
+          error: "Please provide an avatar ID and script",
+        });
+      }
+
+      // Handle custom voice if provided
+      let finalVoiceId = voiceId;
+      let audioAssetId: string | undefined;
+
+      // Handle Voice Library voices
+      if (voiceId === "voice_library" && voiceLibraryId) {
+        const user = (req as any).user;
+        const voices = await storage.listCustomVoices(user.id);
+        const voiceLibraryVoice = voices.find((v) => v.id === voiceLibraryId);
+
+        if (
+          voiceLibraryVoice?.heygenAudioAssetId &&
+          voiceLibraryVoice.status === "ready"
+        ) {
+          console.log("🎤 Backend: Voice Library voice detected!");
+          console.log(
+            "🎤 Backend: Audio Asset ID:",
+            voiceLibraryVoice.heygenAudioAssetId
+          );
+          audioAssetId = voiceLibraryVoice.heygenAudioAssetId;
+          finalVoiceId = undefined; // Don't use text voice when using audio
+        } else {
+          console.log(
+            "⚠️ Backend: Voice Library voice not ready or missing asset ID, using fallback"
+          );
+          finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
+        }
+      } else if (voiceId === "custom_voice" && customVoiceAvatarId) {
+        // Look up the photo avatar group voice for this avatar
+        const user = (req as any).user;
+        const customAvatar = await storage.getAvatarById(customVoiceAvatarId);
+
+        if (customAvatar?.groupId) {
+          console.log("🎤 Backend: Custom voice avatar detected!");
+          console.log("🎤 Backend: Avatar Group ID:", customAvatar.groupId);
+
+          const groupVoice = await storage.getPhotoAvatarGroupVoice(
+            customAvatar.groupId,
+            user.id
+          );
+
+          if (groupVoice?.heygenAudioAssetId) {
+            console.log(
+              "🎤 Backend: Found group voice with Audio Asset ID:",
+              groupVoice.heygenAudioAssetId
+            );
+            audioAssetId = groupVoice.heygenAudioAssetId;
+            finalVoiceId = undefined; // Don't use text voice when using audio
+          } else {
+            console.log(
+              "⚠️ Backend: No group voice found for avatar group, using fallback"
+            );
+            finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
+          }
+        } else {
+          console.log("⚠️ Backend: Avatar has no groupId, using fallback");
+          finalVoiceId = "119caed25533477ba63822d5d1552d25"; // Neutral - Balanced
+        }
+      } else if (voiceId) {
+        // Check if voiceId is actually a custom voice audio asset ID from a photo avatar group
+        const user = (req as any).user;
+        const allPhotoAvatarGroupVoices =
+          await storage.listPhotoAvatarGroupVoices(user.id);
+        const matchingGroupVoice = allPhotoAvatarGroupVoices.find(
+          (v) => v.heygenAudioAssetId === voiceId
+        );
+
+        if (matchingGroupVoice) {
+          console.log("🎤 Backend: Photo Avatar Group custom voice detected!");
+          console.log("🎤 Backend: Group ID:", matchingGroupVoice.groupId);
+          console.log(
+            "🎤 Backend: Audio Asset ID:",
+            matchingGroupVoice.heygenAudioAssetId
+          );
+          audioAssetId = matchingGroupVoice.heygenAudioAssetId;
+          finalVoiceId = undefined; // Don't use text voice when using audio
+        }
+      }
+
+      const heyGenService = new HeyGenService();
+      console.log("🎬 Backend: Calling HeyGenService.generateVideo");
+
+      const result = await heyGenService.generateVideo({
+        avatarId,
+        script,
+        title: title || "Generated Video",
+        test: test || false,
+        isTalkingPhoto: !!isTalkingPhoto,
+        speed: voiceSpeed || 1.0,
+        voiceId: finalVoiceId,
+        audioAssetId,
+      });
+
+      console.log("✅ Backend: Video generation result:", result);
+
+      // Validate that we got a video_id from HeyGen
+      if (!result.data?.video_id) {
+        console.error("❌ Backend: HeyGen did not return a video_id");
+        return res.status(500).json({
+          error: "Video generation failed - no video ID received",
+        });
+      }
+
+      // Save video to database
+      const user = (req as any).user;
+      const videoRecord = await storage.createVideoContent({
+        userId: String(user.id),
+        avatarId,
+        title: title || "Generated Video",
+        script,
+        status: "generating",
+        metadata: {
+          heygenVideoId: result.data.video_id,
+          test,
+          voiceSpeed,
+          voiceId: finalVoiceId,
+          audioAssetId,
+        },
+      });
+
+      console.log("💾 Backend: Saved video to database:", videoRecord.id);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("❌ Backend: Failed to generate video");
+      console.error("❌ Backend: Error message:", error?.message);
+      console.error("❌ Backend: Error stack:", error?.stack);
+      res.status(500).json({
+        error: "Failed to generate video",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Get video generation status
+  app.get("/api/videos/:videoId/status", requireAuth, async (req, res) => {
+    try {
+      const { videoId } = req.params;
+      const userId = req.user?.id;
+
+      console.log("📊 Backend: Getting video status for:", videoId);
+
+      const heyGenService = new HeyGenService();
+      const status = await heyGenService.getVideoStatus(videoId);
+
+      console.log("✅ Backend: Video status result:", status);
+
+      // Extended response with S3 backup URLs
+      let response: any = { ...status };
+
+      // If video is completed, update database first with HeyGen URLs
+      if (status.status === "completed" && status.video_url && userId) {
+        // Find and update the database record
+        try {
+          const allVideos = await storage.getVideoContent(String(userId));
+          const videoRecord = allVideos.find(
+            (v: any) =>
+              v.metadata &&
+              typeof v.metadata === "object" &&
+              "heygenVideoId" in v.metadata &&
+              v.metadata.heygenVideoId === videoId
+          );
+
+          if (videoRecord) {
+            // First, mark video as ready with HeyGen URLs
+            await storage.updateVideoContent(videoRecord.id, {
+              status: "ready",
+              videoUrl: status.video_url,
+              thumbnailUrl: status.thumbnail_url,
+            });
+            console.log(
+              "💾 Backend: Updated video record with HeyGen URLs:",
+              videoRecord.id
+            );
+
+            // Then attempt S3 backup (optional enhancement)
+            try {
+              console.log("💾 Backend: Attempting S3 backup...");
+
+              // Download video from HeyGen CDN
+              const videoResponse = await fetch(status.video_url);
+              if (videoResponse.ok) {
+                const videoBuffer = Buffer.from(
+                  await videoResponse.arrayBuffer()
+                );
+
+                // Upload to S3
+                const s3Service = new S3UploadService();
+                const s3VideoUrl = await s3Service.uploadFile(
+                  userId,
+                  videoBuffer,
+                  `generated-videos/${videoId}.mp4`,
+                  "video/mp4"
+                );
+
+                console.log("✅ Backend: Video backed up to S3:", s3VideoUrl);
+                response.s3_video_url = s3VideoUrl;
+
+                // Download and backup thumbnail if available
+                let s3ThumbnailUrl = null;
+                if (status.thumbnail_url) {
+                  try {
+                    const thumbnailResponse = await fetch(status.thumbnail_url);
+                    if (thumbnailResponse.ok) {
+                      const thumbnailBuffer = Buffer.from(
+                        await thumbnailResponse.arrayBuffer()
+                      );
+                      s3ThumbnailUrl = await s3Service.uploadFile(
+                        userId,
+                        thumbnailBuffer,
+                        `generated-videos/${videoId}_thumbnail.jpg`,
+                        "image/jpeg"
+                      );
+                      response.s3_thumbnail_url = s3ThumbnailUrl;
+                      console.log(
+                        "✅ Backend: Thumbnail backed up to S3:",
+                        s3ThumbnailUrl
+                      );
+                    }
+                  } catch (thumbError) {
+                    console.error(
+                      "⚠️ Backend: Thumbnail backup failed:",
+                      thumbError
+                    );
+                  }
+                }
+
+                // Update database with S3 URLs (enhancement)
+                await storage.updateVideoContent(videoRecord.id, {
+                  videoUrl: s3VideoUrl,
+                  thumbnailUrl: s3ThumbnailUrl || status.thumbnail_url,
+                });
+                console.log(
+                  "💾 Backend: Updated video record with S3 URLs:",
+                  videoRecord.id
+                );
+              }
+            } catch (backupError) {
+              console.error(
+                "⚠️ Backend: S3 backup failed, HeyGen URLs still available:",
+                backupError
+              );
+            }
+          }
+        } catch (dbError) {
+          console.error("⚠️ Backend: Database update failed:", dbError);
+        }
+      }
+
+      res.json(response);
+    } catch (error: any) {
+      console.error("❌ Backend: Failed to get video status");
+      console.error("❌ Backend: Error message:", error?.message);
+
+      // If HeyGen returns 404, treat as transient (job not yet visible in status service)
+      if ((error as any)?.status === 404) {
+        console.log(
+          "⏱️ Backend: Video not found in HeyGen status service yet, returning 'processing'"
+        );
+        return res.json({ video_id: req.params.videoId, status: "processing" });
+      }
+
+      res.status(500).json({
+        error: "Failed to get video status",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Get all user videos from database
+  app.get("/api/videos", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      const status = req.query.status as string | undefined;
+
+      console.log(
+        "📹 Backend: Getting videos for user:",
+        userId,
+        "status filter:",
+        status
+      );
+
+      const videos = await storage.getVideoContent(String(userId), status);
+
+      console.log("✅ Backend: Found", videos.length, "videos");
+      res.json(videos);
+    } catch (error: any) {
+      console.error("❌ Backend: Failed to get videos");
+      console.error("❌ Backend: Error message:", error?.message);
+      res.status(500).json({
+        error: "Failed to get videos",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Get video details
+  app.get("/api/videos/:videoId", requireAuth, async (req, res) => {
+    try {
+      const { videoId } = req.params;
+
+      console.log("📹 Backend: Getting video details for:", videoId);
+
+      const heyGenService = new HeyGenService();
+      const video = await heyGenService.getVideo(videoId);
+
+      console.log("✅ Backend: Video details result:", video);
+      res.json(video);
+    } catch (error: any) {
+      console.error("❌ Backend: Failed to get video details");
+      console.error("❌ Backend: Error message:", error?.message);
+      res.status(500).json({
+        error: "Failed to get video details",
+        details: error?.message || String(error),
+      });
     }
   });
 
   // ==================== TEMPLATE ENDPOINTS ====================
-  
+
   // List templates
   app.get("/api/templates", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const offset = parseInt(req.query.offset as string) || 0;
-      
+
       const templateService = new HeyGenTemplateService();
       const templates = await templateService.listTemplates(limit, offset);
-      
+
       res.json(templates);
     } catch (error) {
       console.error("Failed to list templates:", error);
@@ -2598,10 +5998,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
       const template = await templateService.getTemplate(templateId);
-      
+
       res.json(template);
     } catch (error) {
       console.error("Failed to get template:", error);
@@ -2613,10 +6013,14 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/templates", async (req, res) => {
     try {
       const { name, description, elements } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
-      const template = await templateService.createTemplate(name, description, elements);
-      
+      const template = await templateService.createTemplate(
+        name,
+        description,
+        elements
+      );
+
       res.json(template);
     } catch (error) {
       console.error("Failed to create template:", error);
@@ -2629,15 +6033,15 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { templateId } = req.params;
       const { variables, title, test } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
       const result = await templateService.generateFromTemplate({
         templateId,
         variables,
         title,
-        test
+        test,
       });
-      
+
       res.json(result);
     } catch (error) {
       console.error("Failed to generate from template:", error);
@@ -2649,10 +6053,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.put("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
-      const updated = await templateService.updateTemplate(templateId, req.body);
-      
+      const updated = await templateService.updateTemplate(
+        templateId,
+        req.body
+      );
+
       res.json(updated);
     } catch (error) {
       console.error("Failed to update template:", error);
@@ -2664,10 +6071,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.delete("/api/templates/:templateId", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
       await templateService.deleteTemplate(templateId);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Failed to delete template:", error);
@@ -2679,10 +6086,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.get("/api/templates/:templateId/variables", async (req, res) => {
     try {
       const { templateId } = req.params;
-      
+
       const templateService = new HeyGenTemplateService();
       const variables = await templateService.getTemplateVariables(templateId);
-      
+
       res.json(variables);
     } catch (error) {
       console.error("Failed to get template variables:", error);
@@ -2694,10 +6101,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/templates/from-video", async (req, res) => {
     try {
       const { videoId, name } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
-      const template = await templateService.createTemplateFromVideo(videoId, name);
-      
+      const template = await templateService.createTemplateFromVideo(
+        videoId,
+        name
+      );
+
       res.json(template);
     } catch (error) {
       console.error("Failed to create template from video:", error);
@@ -2710,10 +6120,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     try {
       const { templateId } = req.params;
       const { name } = req.body;
-      
+
       const templateService = new HeyGenTemplateService();
-      const duplicated = await templateService.duplicateTemplate(templateId, name);
-      
+      const duplicated = await templateService.duplicateTemplate(
+        templateId,
+        name
+      );
+
       res.json(duplicated);
     } catch (error) {
       console.error("Failed to duplicate template:", error);
@@ -2722,26 +6135,31 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   });
 
   // Get template generation status
-  app.get("/api/templates/generation/:generationId/status", async (req, res) => {
-    try {
-      const { generationId } = req.params;
-      
-      const templateService = new HeyGenTemplateService();
-      const status = await templateService.getTemplateGenerationStatus(generationId);
-      
-      res.json(status);
-    } catch (error) {
-      console.error("Failed to get generation status:", error);
-      res.status(500).json({ error: "Failed to get generation status" });
+  app.get(
+    "/api/templates/generation/:generationId/status",
+    async (req, res) => {
+      try {
+        const { generationId } = req.params;
+
+        const templateService = new HeyGenTemplateService();
+        const status = await templateService.getTemplateGenerationStatus(
+          generationId
+        );
+
+        res.json(status);
+      } catch (error) {
+        console.error("Failed to get generation status:", error);
+        res.status(500).json({ error: "Failed to get generation status" });
+      }
     }
-  });
+  );
 
   // Get real estate templates
   app.get("/api/templates/real-estate", async (req, res) => {
     try {
       const templateService = new HeyGenTemplateService();
       const templates = await templateService.getRealEstateTemplates();
-      
+
       res.json(templates);
     } catch (error) {
       console.error("Failed to get real estate templates:", error);
@@ -2757,8 +6175,8 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               agent_avatar: "avatar",
               property_images: "image[]",
               price: "text",
-              features: "text"
-            }
+              features: "text",
+            },
           },
           {
             name: "Market Update Template",
@@ -2767,8 +6185,8 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               month: "text",
               market_stats: "text",
               agent_avatar: "avatar",
-              charts: "image[]"
-            }
+              charts: "image[]",
+            },
           },
           {
             name: "Agent Introduction Template",
@@ -2777,10 +6195,10 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               agent_name: "text",
               agent_avatar: "avatar",
               expertise: "text",
-              contact_info: "text"
-            }
-          }
-        ]
+              contact_info: "text",
+            },
+          },
+        ],
       });
     }
   });
@@ -2809,15 +6227,15 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         photoUrls: [
           "https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=500&q=80",
           "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=500&q=80",
-          "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=500&q=80"
-        ]
+          "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=500&q=80",
+        ],
       },
       {
-        id: "DEMO-002", 
+        id: "DEMO-002",
         mlsNumber: "21234568",
         address: "456 Farnam Street",
         city: "Omaha",
-        state: "NE", 
+        state: "NE",
         zipCode: "68131",
         listPrice: 425000,
         bedrooms: 4,
@@ -2833,9 +6251,9 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         photoUrls: [
           "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?w=500&q=80",
           "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=500&q=80",
-          "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=500&q=80"
-        ]
-      }
+          "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=500&q=80",
+        ],
+      },
     ];
 
     return {
@@ -2845,7 +6263,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       properties: sampleProperties,
       searchCriteria: searchParams,
       fallback: true,
-      message: "Demo data - External property service temporarily unavailable"
+      message: "Demo data - External property service temporarily unavailable",
     };
   }
 
@@ -2858,19 +6276,19 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         mlsNumber: query.mls_number || query.mls,
         address: query.address,
         city: query.city,
-        listingAgent: query.agent || query.listing_agent_name
+        listingAgent: query.agent || query.listing_agent_name,
       });
       if (paragonResult && paragonResult.length > 0) {
-        console.log('Fallback: Paragon MLS returned results');
+        console.log("Fallback: Paragon MLS returned results");
         return res.json({
           success: true,
           count: paragonResult.length,
           properties: paragonResult,
-          source: 'paragon-mls'
+          source: "paragon-mls",
         });
       }
     } catch (error) {
-      console.warn('Paragon MLS fallback failed:', error);
+      console.warn("Paragon MLS fallback failed:", error);
     }
 
     // Try IDX service
@@ -2878,65 +6296,69 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const idxService = new IDXService();
       const idxResult = await idxService.searchProperties({
         city: query.city,
-        state: query.state || 'NE'
+        state: query.state || "NE",
       });
       if (idxResult && idxResult.length > 0) {
-        console.log('Fallback: IDX service returned results');
+        console.log("Fallback: IDX service returned results");
         return res.json({
           success: true,
           count: idxResult.length,
           properties: idxResult,
-          source: 'idx-service'
+          source: "idx-service",
         });
       }
     } catch (error) {
-      console.warn('IDX service fallback failed:', error);
+      console.warn("IDX service fallback failed:", error);
     }
 
     // Final fallback to sample data
-    console.log('All services failed, returning sample data');
+    console.log("All services failed, returning sample data");
     return res.json(getFallbackPropertyData(query));
   }
 
   // GBCMA API proxy endpoint to handle CORS
   app.get("/api/property/search", async (req, res) => {
     try {
-      const baseUrl = 'http://gbcma.us-east-2.elasticbeanstalk.com/api/property-search-new';
+      const baseUrl =
+        "http://gbcma.us-east-2.elasticbeanstalk.com/api/property-search-new";
       const params = new URLSearchParams();
-      
+
       // Parameter mapping and forwarding to gbcma API
       if (req.query.mls_number || req.query.mls) {
         const mlsNumber = req.query.mls_number || req.query.mls;
-        params.append('mls_number', mlsNumber as string);
+        params.append("mls_number", mlsNumber as string);
       }
-      if (req.query.address) params.append('address', req.query.address as string);
+      if (req.query.address)
+        params.append("address", req.query.address as string);
       if (req.query.agent || req.query.listing_agent_name) {
         const agent = req.query.agent || req.query.listing_agent_name;
-        params.append('listing_agent_name', agent as string);
+        params.append("listing_agent_name", agent as string);
       }
-      if (req.query.city) params.append('city', req.query.city as string);
-      
+      if (req.query.city) params.append("city", req.query.city as string);
+
       const fullUrl = `${baseUrl}?${params.toString()}`;
-      console.log('Proxying to gbcma API:', fullUrl);
-      
+      console.log("Proxying to gbcma API:", fullUrl);
+
       // Use global fetch (available in Node.js 18+)
       const response = await globalThis.fetch(fullUrl);
-      
+
       if (!response.ok) {
-        console.warn(`GBCMA API unavailable (${response.status}), trying fallback chain`);
+        console.warn(
+          `GBCMA API unavailable (${response.status}), trying fallback chain`
+        );
         return await tryFallbackChain(req.query, res);
       }
-      
+
       const data = await response.json();
-      console.log('GBCMA API response:', data);
-      
+      console.log("GBCMA API response:", data);
+
       // If API returns no results, try fallback chain
       if (data.success && data.count === 0) {
-        console.log('No properties found in GBCMA, trying fallback chain');
+        console.log("No properties found in GBCMA, trying fallback chain");
         return await tryFallbackChain(req.query, res);
       }
-      
-      res.json({...data, source: 'gbcma'});
+
+      res.json({ ...data, source: "gbcma" });
     } catch (error: any) {
       console.error("GBCMA proxy error:", error);
       // Try fallback chain instead of immediate sample data
@@ -2948,45 +6370,51 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.post("/api/property/details-by-address", async (req, res) => {
     try {
       const { address, mlsNumber } = req.body;
-      
+
       if (!address && !mlsNumber) {
-        return res.status(400).json({ error: "Address or MLS number is required" });
+        return res
+          .status(400)
+          .json({ error: "Address or MLS number is required" });
       }
 
-      const apiUrl = 'http://simple-cma.com/api/property-details-from-address';
-      console.log('Getting property details for address:', address);
-      
+      const apiUrl = "http://simple-cma.com/api/property-details-from-address";
+      console.log("Getting property details for address:", address);
+
       const response = await globalThis.fetch(apiUrl, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': '*/*',
-          'User-Agent': 'Mozilla/5.0 (compatible; Real Estate Platform)',
+          "Content-Type": "application/json",
+          Accept: "*/*",
+          "User-Agent": "Mozilla/5.0 (compatible; Real Estate Platform)",
         },
-        body: JSON.stringify({ address: address || mlsNumber })
+        body: JSON.stringify({ address: address || mlsNumber }),
       });
-      
+
       if (!response.ok) {
-        console.warn(`Property details API unavailable (${response.status}), returning fallback response`);
+        console.warn(
+          `Property details API unavailable (${response.status}), returning fallback response`
+        );
         // Return a fallback response when API is down
         return res.json({
           success: false,
-          message: "Property details service temporarily unavailable. Please try the general property search instead.",
-          property: null
+          message:
+            "Property details service temporarily unavailable. Please try the general property search instead.",
+          property: null,
         });
       }
-      
+
       const data = await response.json();
-      console.log('GBCMA property details response:', data);
+      console.log("GBCMA property details response:", data);
       res.json(data);
     } catch (error: any) {
       console.error("GBCMA property details error:", error);
       // Return graceful fallback instead of error
       res.json({
         success: false,
-        message: "Property details service temporarily unavailable. Please try the general property search instead.",
+        message:
+          "Property details service temporarily unavailable. Please try the general property search instead.",
         property: null,
-        fallback: true
+        fallback: true,
       });
     }
   });
@@ -3001,12 +6429,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Check if public object search paths are configured
       if (!objectStorageService.hasPublicPaths()) {
         console.warn("Public object search paths not configured");
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Object storage service unavailable",
-          message: "PUBLIC_OBJECT_SEARCH_PATHS environment variable is not configured"
+          message:
+            "PUBLIC_OBJECT_SEARCH_PATHS environment variable is not configured",
         });
       }
-      
+
       const file = await objectStorageService.searchPublicObject(filePath);
       if (!file) {
         return res.status(404).json({ error: "File not found" });
@@ -3018,19 +6447,21 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
-  // Serve private objects  
+  // Serve private objects
   app.get("/objects/:objectPath(*)", async (req, res) => {
     try {
       // Check if private object directory is configured
       if (!objectStorageService.hasPrivateDir()) {
         console.warn("Private object directory not configured");
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Object storage service unavailable",
-          message: "PRIVATE_OBJECT_DIR environment variable is not configured"
+          message: "PRIVATE_OBJECT_DIR environment variable is not configured",
         });
       }
-      
-      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        req.path
+      );
       objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
       console.error("Error checking object access:", error);
@@ -3047,12 +6478,12 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // Check if private object directory is configured
       if (!objectStorageService.hasPrivateDir()) {
         console.warn("Private object directory not configured for uploads");
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Object storage service unavailable",
-          message: "PRIVATE_OBJECT_DIR environment variable is not configured"
+          message: "PRIVATE_OBJECT_DIR environment variable is not configured",
         });
       }
-      
+
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
       res.json({ uploadURL });
     } catch (error) {
@@ -3064,26 +6495,30 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   // Brand Guide Analysis API
   app.post("/api/brand-guide/analyze", async (req, res) => {
     try {
-      console.log('🔍 Brand guide analysis started:', { fileType: req.body.fileType, fileUrl: req.body.fileUrl?.substring(0, 50) + '...' });
+      console.log("🔍 Brand guide analysis started:", {
+        fileType: req.body.fileType,
+        fileUrl: req.body.fileUrl?.substring(0, 50) + "...",
+      });
       const { fileUrl, fileType } = req.body;
-      
+
       if (!fileUrl) {
         return res.status(400).json({ error: "File URL is required" });
       }
 
       // Import OpenAI here to avoid issues with module loading
-      const { default: OpenAI } = await import('openai');
+      const { default: OpenAI } = await import("openai");
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
       let messages: any[] = [];
-      let extractedText = '';
+      let extractedText = "";
 
-      if (fileType?.startsWith('image/')) {
+      if (fileType?.startsWith("image/")) {
         // For image files (JPG, PNG, etc.)
         messages = [
           {
             role: "system",
-            content: "You are a brand analysis expert. Analyze the uploaded brand guide image and extract brand information in JSON format."
+            content:
+              "You are a brand analysis expert. Analyze the uploaded brand guide image and extract brand information in JSON format.",
           },
           {
             role: "user",
@@ -3094,7 +6529,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
                 {
                   "colors": {
                     "primary": "#hexcode",
-                    "secondary": "#hexcode", 
+                    "secondary": "#hexcode",
                     "accent": "#hexcode",
                     "background": "#hexcode",
                     "text": "#hexcode"
@@ -3108,73 +6543,86 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
                   "brandDescription": "Brief brand description and personality",
                   "extractedText": "Any important text found in the guide"
                 }
-                
+
                 Look for:
                 - Color swatches with hex codes, RGB values, or color names
-                - Font names and typography examples  
+                - Font names and typography examples
                 - Brand logos and visual elements
                 - Brand messaging and descriptions
                 - Style guidelines and brand personality
-                
-                Provide actual hex color codes where possible. If you see color swatches, try to determine the hex values. For fonts, look for font family names displayed in the guide.`
+
+                Provide actual hex color codes where possible. If you see color swatches, try to determine the hex values. For fonts, look for font family names displayed in the guide.`,
               },
               {
                 type: "image_url",
                 image_url: {
-                  url: fileUrl
-                }
-              }
-            ]
-          }
+                  url: fileUrl,
+                },
+              },
+            ],
+          },
         ];
-      } else if (fileType === 'application/pdf') {
+      } else if (fileType === "application/pdf") {
         // For PDF files, use object storage to read the file
         try {
-          console.log('📁 Reading PDF from object storage:', fileUrl);
-          
+          console.log("📁 Reading PDF from object storage:", fileUrl);
+
           // Extract the object path from the URL
           const pdfObjectStorageService = new ObjectStorageService();
-          
+
           // Check if private object directory is configured for PDF analysis
           if (!pdfObjectStorageService.hasPrivateDir()) {
-            console.warn('Private object directory not configured for PDF analysis');
+            console.warn(
+              "Private object directory not configured for PDF analysis"
+            );
             return res.status(503).json({
               error: "Object storage service unavailable",
-              message: "Cannot analyze PDF files without PRIVATE_OBJECT_DIR configuration"
+              message:
+                "Cannot analyze PDF files without PRIVATE_OBJECT_DIR configuration",
             });
           }
-          
-          const objectPath = pdfObjectStorageService.normalizeObjectEntityPath(fileUrl);
-          const objectFile = await pdfObjectStorageService.getObjectEntityFile(objectPath);
-          
+
+          const objectPath =
+            pdfObjectStorageService.normalizeObjectEntityPath(fileUrl);
+          const objectFile = await pdfObjectStorageService.getObjectEntityFile(
+            objectPath
+          );
+
           // Get the file contents as a buffer
           const chunks: Buffer[] = [];
           const stream = objectFile.createReadStream();
-          
+
           for await (const chunk of stream) {
             chunks.push(chunk);
           }
-          
+
           const pdfBuffer = Buffer.concat(chunks);
-          console.log('📋 PDF buffer size:', pdfBuffer.length, 'bytes');
-          
+          console.log("📋 PDF buffer size:", pdfBuffer.length, "bytes");
+
           // Try alternative PDF parsing approach
           try {
-            const pdfParse = await import('pdf-parse');
+            const pdfParse = await import("pdf-parse");
             const data = await pdfParse.default(pdfBuffer);
             extractedText = data.text;
           } catch (parseError) {
-            console.log('⚠️ PDF parsing failed, trying alternative approach...');
+            console.log(
+              "⚠️ PDF parsing failed, trying alternative approach..."
+            );
             // Fallback: treat as plain text extraction or skip complex parsing
-            extractedText = 'PDF content could not be parsed as text. Using image analysis instead.';
+            extractedText =
+              "PDF content could not be parsed as text. Using image analysis instead.";
           }
-          
-          console.log('📄 PDF text extracted:', extractedText.substring(0, 200) + '...');
-          
+
+          console.log(
+            "📄 PDF text extracted:",
+            extractedText.substring(0, 200) + "..."
+          );
+
           messages = [
             {
               role: "system",
-              content: "You are a brand analysis expert. Analyze the text content from a brand guide PDF and extract brand information in JSON format."
+              content:
+                "You are a brand analysis expert. Analyze the text content from a brand guide PDF and extract brand information in JSON format.",
             },
             {
               role: "user",
@@ -3182,7 +6630,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               {
                 "colors": {
                   "primary": "#hexcode",
-                  "secondary": "#hexcode", 
+                  "secondary": "#hexcode",
                   "accent": "#hexcode",
                   "background": "#hexcode",
                   "text": "#hexcode"
@@ -3201,7 +6649,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
                 "brandDescription": "Brief brand description and personality",
                 "extractedText": "Key brand guidelines and information"
               }
-              
+
               Look for:
               - Color names, hex codes, RGB values, or color specifications
               - Font family names and typography guidelines
@@ -3209,39 +6657,40 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
               - Logo usage guidelines and descriptions
               - Logo colors, style, and visual elements
               - Brand values and positioning statements
-              
+
               Brand Guide Content:
               ${extractedText}
-              
+
               IMPORTANT: Return actual color values found in the document. Look for:
               - Exact hex codes (like #FF5733, #1A1A1A)
               - RGB values that can be converted to hex
               - Named colors that can be converted to hex
               - Pantone colors with hex equivalents
-              
+
               For fonts, look for:
               - Specific font family names mentioned in the text
               - Typography sections listing font families
-              - Headers mentioning font choices`
-            }
+              - Headers mentioning font choices`,
+            },
           ];
-          
         } catch (pdfError: any) {
-          console.error('❌ PDF processing error:', pdfError);
+          console.error("❌ PDF processing error:", pdfError);
           return res.status(400).json({
-            error: "Failed to process PDF file. Please ensure the PDF contains readable text content.",
-            details: pdfError?.message || 'Unknown error'
+            error:
+              "Failed to process PDF file. Please ensure the PDF contains readable text content.",
+            details: pdfError?.message || "Unknown error",
           });
         }
       } else {
         // For other document types
-        return res.status(400).json({ 
-          error: "Please upload an image format (JPG, PNG, etc.) or PDF of your brand guide." 
+        return res.status(400).json({
+          error:
+            "Please upload an image format (JPG, PNG, etc.) or PDF of your brand guide.",
         });
       }
 
-      console.log('🤖 Sending to OpenAI for analysis...');
-      
+      console.log("🤖 Sending to OpenAI for analysis...");
+
       const response = await openai.chat.completions.create({
         model: "gpt-4o", // Use GPT-4O for vision capabilities
         messages,
@@ -3249,22 +6698,29 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         max_tokens: 1500,
       });
 
-      const analysisResult = JSON.parse(response.choices[0].message.content || '{}');
-      
+      const analysisResult = JSON.parse(
+        response.choices[0].message.content || "{}"
+      );
+
       // Debug logging to help troubleshoot
-      console.log('✅ Analysis Result:', JSON.stringify(analysisResult, null, 2));
-      
+      console.log(
+        "✅ Analysis Result:",
+        JSON.stringify(analysisResult, null, 2)
+      );
+
       res.json({
         success: true,
         analysis: analysisResult,
-        rawContent: fileType === 'application/pdf' ? extractedText.substring(0, 500) + '...' : 'Image analysis'
+        rawContent:
+          fileType === "application/pdf"
+            ? extractedText.substring(0, 500) + "..."
+            : "Image analysis",
       });
-
     } catch (error: any) {
-      console.error('❌ Brand guide analysis error:', error);
-      res.status(500).json({ 
+      console.error("❌ Brand guide analysis error:", error);
+      res.status(500).json({
         error: "Failed to analyze brand guide. Please try again.",
-        details: error?.message || 'Unknown error'
+        details: error?.message || "Unknown error",
       });
     }
   });
@@ -3273,15 +6729,20 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
   app.put("/api/brand-settings", async (req, res) => {
     try {
       const { assets, colors, fonts, description } = req.body;
-      
+
       // In a real implementation, you would save this to the database
       // For now, we'll just simulate success
-      
-      console.log("Brand settings updated:", { assets, colors, fonts, description });
-      
-      res.json({ 
-        success: true, 
-        message: "Brand settings saved successfully" 
+
+      console.log("Brand settings updated:", {
+        assets,
+        colors,
+        fonts,
+        description,
+      });
+
+      res.json({
+        success: true,
+        message: "Brand settings saved successfully",
       });
     } catch (error) {
       console.error("Error saving brand settings:", error);
@@ -3295,26 +6756,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       // In a real implementation, fetch from database
       const defaultBrandSettings = {
         assets: [
-          { id: 'primary-logo', name: 'Primary Logo', type: 'logo' },
-          { id: 'icon', name: 'Icon/Favicon', type: 'icon' },
-          { id: 'banner', name: 'Banner/Header Image', type: 'banner' },
-          { id: 'background', name: 'Background Pattern', type: 'background' },
+          { id: "primary-logo", name: "Primary Logo", type: "logo" },
+          { id: "icon", name: "Icon/Favicon", type: "icon" },
+          { id: "banner", name: "Banner/Header Image", type: "banner" },
+          { id: "background", name: "Background Pattern", type: "background" },
         ],
         colors: {
-          primary: '#daa520',
-          secondary: '#b8860b',
-          accent: '#ffd700',
-          background: '#ffffff',
-          text: '#333333'
+          primary: "#daa520",
+          secondary: "#b8860b",
+          accent: "#ffd700",
+          background: "#ffffff",
+          text: "#333333",
         },
         fonts: {
-          heading: 'Playfair Display',
-          body: 'Inter',
-          accent: 'Cormorant Garamond'
+          heading: "Playfair Display",
+          body: "Inter",
+          accent: "Cormorant Garamond",
         },
-        description: 'Golden Brick Real Estate - Premium luxury properties in Omaha, Nebraska. Specializing in high-end residential and commercial real estate with personalized service and expert market knowledge.'
+        description:
+          "Golden Brick Real Estate - Premium luxury properties in Omaha, Nebraska. Specializing in high-end residential and commercial real estate with personalized service and expert market knowledge.",
       };
-      
+
       res.json(defaultBrandSettings);
     } catch (error) {
       console.error("Error fetching brand settings:", error);
@@ -3322,8 +6784,810 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
     }
   });
 
+  // ==================== TUTORIAL VIDEOS ENDPOINTS ====================
+
+  // Get all tutorial videos or filter by category/subcategory
+  app.get("/api/tutorial-videos", async (req, res) => {
+    try {
+      const { category, subcategory } = req.query;
+
+      let query = db
+        .select()
+        .from(tutorialVideos)
+        .where(eq(tutorialVideos.isActive, true));
+
+      if (category) {
+        query = query.where(eq(tutorialVideos.category, category as string));
+      }
+      if (subcategory) {
+        query = query.where(
+          eq(tutorialVideos.subcategory, subcategory as string)
+        );
+      }
+
+      const videos = await query.orderBy(
+        tutorialVideos.order,
+        tutorialVideos.createdAt
+      );
+
+      // Convert S3 paths to full URLs
+      const s3Service = new S3UploadService();
+      const videosWithUrls = videos.map((video) => ({
+        ...video,
+        videoUrl: s3Service.getS3Url(video.videoUrl),
+        thumbnailUrl: video.thumbnailUrl
+          ? s3Service.getS3Url(video.thumbnailUrl)
+          : null,
+      }));
+
+      res.json(videosWithUrls);
+    } catch (error) {
+      console.error("Error fetching tutorial videos:", error);
+      res.status(500).json({ error: "Failed to fetch tutorial videos" });
+    }
+  });
+
+  // Upload a tutorial video
+  app.post(
+    "/api/tutorial-videos/upload",
+    videoUpload.single("video"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No video file uploaded" });
+        }
+
+        const { category, subcategory, title, description, duration, order } =
+          req.body;
+
+        if (!category || !subcategory || !title) {
+          return res
+            .status(400)
+            .json({ error: "Category, subcategory, and title are required" });
+        }
+
+        console.log("📹 Uploading tutorial video:", {
+          filename: req.file.originalname,
+          category,
+          subcategory,
+          title,
+        });
+
+        const fileBuffer = fs.readFileSync(req.file.path);
+
+        // Upload to S3 under RealtyFlow Tutorials structure
+        const s3Service = new S3UploadService();
+        const s3VideoUrl = await s3Service.uploadFile(
+          0, // Admin user ID for tutorials
+          fileBuffer,
+          `realtyflow-tutorials/${category}/${subcategory}/${nanoid()}_${
+            req.file.originalname
+          }`,
+          req.file.mimetype
+        );
+
+        console.log("✅ Tutorial video uploaded to S3:", s3VideoUrl);
+
+        // Clean up temporary file
+        fs.unlinkSync(req.file.path);
+
+        // Save to database
+        const [newVideo] = await db
+          .insert(tutorialVideos)
+          .values({
+            category,
+            subcategory,
+            title,
+            description: description || null,
+            videoUrl: s3VideoUrl,
+            duration: duration ? parseInt(duration) : null,
+            order: order ? parseInt(order) : 0,
+          })
+          .returning();
+
+        res.json(newVideo);
+      } catch (error) {
+        console.error("Failed to upload tutorial video:", error);
+        res.status(500).json({ error: "Failed to upload tutorial video" });
+      }
+    }
+  );
+
+  // Delete a tutorial video
+  app.delete("/api/tutorial-videos/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      await db
+        .update(tutorialVideos)
+        .set({ isActive: false })
+        .where(eq(tutorialVideos.id, parseInt(id)));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete tutorial video:", error);
+      res.status(500).json({ error: "Failed to delete tutorial video" });
+    }
+  });
+
+  // HeyGen Template routes
+  const heygenTemplateService = new HeyGenTemplateService();
+
+  // List all HeyGen templates
+  app.get("/api/heygen/templates", requireAuth, async (req, res) => {
+    try {
+      const templates = await heygenTemplateService.listTemplates();
+      // templates is already an array, don't wrap it again
+      res.json(templates);
+    } catch (error) {
+      console.error("Failed to list HeyGen templates:", error);
+      res.status(500).json({ error: "Failed to list templates" });
+    }
+  });
+
+  // Get template details
+  app.get(
+    "/api/heygen/templates/:templateId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { templateId } = req.params;
+        const details = await heygenTemplateService.getTemplateDetails(
+          templateId
+        );
+        res.json(details);
+      } catch (error) {
+        console.error("Failed to get template details:", error);
+        res.status(500).json({ error: "Failed to get template details" });
+      }
+    }
+  );
+
+  // Generate video from template
+  app.post(
+    "/api/heygen/templates/:templateId/generate",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { templateId } = req.params;
+        const user = req.user;
+
+        if (!user) {
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        const {
+          title,
+          variables,
+          caption,
+          dimension,
+          include_gif,
+          enable_sharing,
+          scene_ids,
+        } = req.body;
+
+        console.log("🎬 Generating video from template:", templateId);
+        console.log("📝 Title:", title);
+
+        const result = await heygenTemplateService.generateVideoFromTemplate(
+          templateId,
+          {
+            title,
+            variables,
+            caption,
+            dimension,
+            include_gif,
+            enable_sharing,
+            scene_ids,
+          }
+        );
+
+        // Save the video to database so it appears in the videos list
+        if (result.data?.video_id) {
+          console.log(
+            "💾 Saving template video to database, video_id:",
+            result.data.video_id
+          );
+
+          const videoData = {
+            userId: user.id,
+            title: title || "Template Video",
+            script: "",
+            status: "generating" as const,
+            videoType: "template" as const,
+            heygenVideoId: result.data.video_id,
+            heygenTemplateId: templateId,
+            metadata: {
+              templateVariables: variables,
+              dimension,
+              caption,
+              include_gif,
+              enable_sharing,
+            },
+          };
+
+          const savedVideo = await storage.createVideoContent(videoData);
+          console.log("✅ Template video saved with ID:", savedVideo.id);
+
+          res.json({ ...result, savedVideoId: savedVideo.id });
+        } else {
+          res.json(result);
+        }
+      } catch (error) {
+        console.error("Failed to generate video from template:", error);
+        res
+          .status(500)
+          .json({ error: "Failed to generate video from template" });
+      }
+    }
+  );
+
+  // =====================================================
+  // COMPANY PROFILE ROUTES
+  // =====================================================
+
+  // Get company profile
+  app.get("/api/company/profile", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const profile = await storage.getCompanyProfile(userId);
+      res.json(profile);
+    } catch (error) {
+      console.error("Error fetching company profile:", error);
+      res.status(500).json({ error: "Failed to fetch company profile" });
+    }
+  });
+
+  // Create or update company profile
+  app.post("/api/company/profile", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      // Validate request body
+      const validation = insertCompanyProfileSchema.safeParse({
+        ...req.body,
+        userId,
+      });
+
+      if (!validation.success) {
+        return res.status(400).json({
+          error: "Invalid company profile data",
+          details: validation.error.errors,
+        });
+      }
+
+      const profile = await storage.upsertCompanyProfile(validation.data);
+      res.json(profile);
+    } catch (error) {
+      console.error("Error saving company profile:", error);
+      res.status(500).json({ error: "Failed to save company profile" });
+    }
+  });
+
   // Serve uploaded files statically
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+  // ====================================
+  // ENGAGEMENT TRACKING & ANALYTICS ENDPOINTS
+  // ====================================
+
+  // Track user session
+  app.post("/api/track/session", async (req, res) => {
+    try {
+      const { sessionId, agentSlug, pageVisited, deviceType } = req.body;
+
+      if (!sessionId || !agentSlug) {
+        return res
+          .status(400)
+          .json({ error: "sessionId and agentSlug are required" });
+      }
+
+      // Import tracking schemas
+      const { userSessions } = await import("@shared/schema");
+      const { sql: drizzleSql, eq, and } = await import("drizzle-orm");
+
+      // Check if session exists
+      const existing = await db
+        .select()
+        .from(userSessions)
+        .where(eq(userSessions.sessionId, sessionId))
+        .limit(1);
+
+      if (existing.length > 0) {
+        // Update existing session
+        await db
+          .update(userSessions)
+          .set({
+            lastPageVisited: pageVisited,
+            totalPageViews: drizzleSql`${userSessions.totalPageViews} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(userSessions.sessionId, sessionId));
+      } else {
+        // Create new session
+        await db.insert(userSessions).values({
+          sessionId,
+          agentSlug,
+          firstPageVisited: pageVisited || "/",
+          lastPageVisited: pageVisited || "/",
+          deviceType: deviceType || "desktop",
+          ipAddress: (req.ip || "").substring(0, 50),
+          userAgent: (req.get("user-agent") || "").substring(0, 500),
+          totalPageViews: 1,
+          isActive: true,
+        });
+      }
+
+      res.json({ success: true, sessionId });
+    } catch (error) {
+      console.error("❌ Error tracking session:", error);
+      res.status(500).json({ error: "Failed to track session" });
+    }
+  });
+
+  // Track property interaction
+  app.post("/api/track/property-interaction", async (req, res) => {
+    try {
+      const {
+        sessionId,
+        agentSlug,
+        propertyId,
+        interactionType,
+        interactionValue,
+        timeSpentSeconds,
+        currentUrl,
+      } = req.body;
+
+      if (!agentSlug || !interactionType) {
+        return res
+          .status(400)
+          .json({ error: "agentSlug and interactionType are required" });
+      }
+
+      const { propertyInteractions, userSessions } = await import(
+        "@shared/schema"
+      );
+      const { sql: drizzleSql, eq } = await import("drizzle-orm");
+
+      // Track the interaction
+      await db.insert(propertyInteractions).values({
+        propertyId: propertyId || null,
+        agentSlug,
+        interactionType,
+        interactionValue: interactionValue || null,
+        timeSpentSeconds: timeSpentSeconds || 0,
+        currentUrl: currentUrl || null,
+        sessionId: sessionId || null,
+        ipAddress: (req.ip || "").substring(0, 50),
+        userAgent: (req.get("user-agent") || "").substring(0, 500),
+      });
+
+      // Update session counters if applicable
+      if (sessionId) {
+        if (interactionType === "view" && propertyId) {
+          await db
+            .update(userSessions)
+            .set({
+              totalPropertiesViewed: drizzleSql`${userSessions.totalPropertiesViewed} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(eq(userSessions.sessionId, sessionId));
+        }
+
+        if (timeSpentSeconds && timeSpentSeconds > 0) {
+          await db
+            .update(userSessions)
+            .set({
+              totalTimeSpentSeconds: drizzleSql`${userSessions.totalTimeSpentSeconds} + ${timeSpentSeconds}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(userSessions.sessionId, sessionId));
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("❌ Error tracking interaction:", error);
+      res.status(500).json({ error: "Failed to track interaction" });
+    }
+  });
+
+  // Track property like
+  app.post("/api/track/property-like", async (req, res) => {
+    try {
+      const { sessionId, agentSlug, propertyId, liked } = req.body;
+
+      if (!agentSlug || !propertyId) {
+        return res
+          .status(400)
+          .json({ error: "agentSlug and propertyId are required" });
+      }
+
+      const { propertyLikes, userSessions } = await import("@shared/schema");
+      const { eq, and, sql: drizzleSql } = await import("drizzle-orm");
+
+      if (liked) {
+        // Add like
+        await db.insert(propertyLikes).values({
+          propertyId,
+          agentSlug,
+          sessionId: sessionId || null,
+          ipAddress: (req.ip || "").substring(0, 50),
+          userAgent: (req.get("user-agent") || "").substring(0, 500),
+        });
+
+        // Update session counter
+        if (sessionId) {
+          await db
+            .update(userSessions)
+            .set({
+              totalPropertiesLiked: drizzleSql`${userSessions.totalPropertiesLiked} + 1`,
+              updatedAt: new Date(),
+            })
+            .where(eq(userSessions.sessionId, sessionId));
+        }
+      } else {
+        // Remove like
+        const conditions = [eq(propertyLikes.propertyId, propertyId)];
+        if (sessionId) {
+          conditions.push(eq(propertyLikes.sessionId, sessionId));
+        }
+
+        await db.delete(propertyLikes).where(and(...conditions));
+
+        // Update session counter
+        if (sessionId) {
+          await db
+            .update(userSessions)
+            .set({
+              totalPropertiesLiked: drizzleSql`GREATEST(${userSessions.totalPropertiesLiked} - 1, 0)`,
+              updatedAt: new Date(),
+            })
+            .where(eq(userSessions.sessionId, sessionId));
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("❌ Error tracking like:", error);
+      res.status(500).json({ error: "Failed to track like" });
+    }
+  });
+
+  // Generate engagement lead
+  app.post("/api/track/generate-engagement-lead", async (req, res) => {
+    try {
+      const { sessionId, agentSlug } = req.body;
+
+      if (!sessionId || !agentSlug) {
+        return res
+          .status(400)
+          .json({ error: "sessionId and agentSlug required" });
+      }
+
+      const {
+        engagementLeads,
+        userSessions,
+        propertyInteractions,
+        propertyLikes,
+      } = await import("@shared/schema");
+      const { eq, and, sql: drizzleSql, desc } = await import("drizzle-orm");
+
+      // Check if lead already exists for this session
+      const existingLead = await db
+        .select()
+        .from(engagementLeads)
+        .where(eq(engagementLeads.sessionId, sessionId))
+        .limit(1);
+
+      if (existingLead.length > 0) {
+        return res.json({
+          success: true,
+          leadId: existingLead[0].id,
+          alreadyExists: true,
+        });
+      }
+
+      // Get session data
+      const session = await db
+        .select()
+        .from(userSessions)
+        .where(eq(userSessions.sessionId, sessionId))
+        .limit(1);
+
+      if (session.length === 0) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      // Calculate engagement score
+      const sessionData = session[0];
+      let score = 0;
+
+      if (sessionData.totalTimeSpentSeconds > 300) score += 20;
+      if (sessionData.totalPropertiesViewed > 3) score += 15;
+      if (sessionData.totalPropertiesLiked > 0)
+        score += sessionData.totalPropertiesLiked * 10;
+
+      // Get liked properties
+      const likedProps = await db
+        .select()
+        .from(propertyLikes)
+        .where(eq(propertyLikes.sessionId, sessionId));
+
+      const likedPropertyIds = likedProps.map((p) => p.propertyId);
+
+      // Determine reason
+      let reason = "high_engagement";
+      if (sessionData.totalPropertiesLiked >= 2)
+        reason = "liked_multiple_properties";
+      else if (sessionData.totalTimeSpentSeconds > 600)
+        reason = "spent_long_time_on_site";
+      else if (sessionData.totalPropertiesViewed > 5)
+        reason = "viewed_many_properties";
+
+      // Determine quality
+      let quality = "warm";
+      if (score >= 40) quality = "hot";
+      else if (score < 25) quality = "cold";
+
+      // Create engagement lead
+      const lead = await db
+        .insert(engagementLeads)
+        .values({
+          sessionId,
+          agentSlug,
+          engagementScore: score,
+          engagementReason: reason,
+          engagementDetails: {
+            timeSpent: sessionData.totalTimeSpentSeconds,
+            propertiesViewed: sessionData.totalPropertiesViewed,
+            propertiesLiked: sessionData.totalPropertiesLiked,
+          },
+          likedPropertyIds:
+            likedPropertyIds.length > 0 ? likedPropertyIds : null,
+          leadQuality: quality,
+          leadStatus: "auto_generated",
+          ipAddress: sessionData.ipAddress,
+          userAgent: sessionData.userAgent,
+        })
+        .returning();
+
+      console.log(
+        `✅ Generated ${quality} lead for session ${sessionId} (score: ${score})`
+      );
+
+      res.json({ success: true, leadId: lead[0].id, score, quality });
+    } catch (error) {
+      console.error("❌ Error generating engagement lead:", error);
+      res.status(500).json({ error: "Failed to generate lead" });
+    }
+  });
+
+  // ====================================
+  // ANALYTICS ENDPOINTS
+  // ====================================
+
+  // Get engagement overview for agent
+  app.get("/api/analytics/engagement/:agentSlug", async (req, res) => {
+    try {
+      const { agentSlug } = req.params;
+      const {
+        userSessions,
+        propertyInteractions,
+        propertyLikes,
+        engagementLeads,
+      } = await import("@shared/schema");
+      const {
+        eq,
+        and,
+        gte,
+        sql: drizzleSql,
+        count,
+      } = await import("drizzle-orm");
+
+      // Get date range (last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Total sessions
+      const totalSessionsResult = await db
+        .select({ count: count() })
+        .from(userSessions)
+        .where(
+          and(
+            eq(userSessions.agentSlug, agentSlug),
+            gte(userSessions.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      // Active sessions (visited in last 24 hours)
+      const oneDayAgo = new Date();
+      oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+
+      const activeSessionsResult = await db
+        .select({ count: count() })
+        .from(userSessions)
+        .where(
+          and(
+            eq(userSessions.agentSlug, agentSlug),
+            eq(userSessions.isActive, true),
+            gte(userSessions.updatedAt, oneDayAgo)
+          )
+        );
+
+      // Total property views
+      const propertyViewsResult = await db
+        .select({ count: count() })
+        .from(propertyInteractions)
+        .where(
+          and(
+            eq(propertyInteractions.agentSlug, agentSlug),
+            eq(propertyInteractions.interactionType, "view"),
+            gte(propertyInteractions.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      // Total likes
+      const likesResult = await db
+        .select({ count: count() })
+        .from(propertyLikes)
+        .where(
+          and(
+            eq(propertyLikes.agentSlug, agentSlug),
+            gte(propertyLikes.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      // Total engagement leads
+      const leadsResult = await db
+        .select({ count: count() })
+        .from(engagementLeads)
+        .where(
+          and(
+            eq(engagementLeads.agentSlug, agentSlug),
+            gte(engagementLeads.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      // Hot leads (score >= 40)
+      const hotLeadsResult = await db
+        .select({ count: count() })
+        .from(engagementLeads)
+        .where(
+          and(
+            eq(engagementLeads.agentSlug, agentSlug),
+            eq(engagementLeads.leadQuality, "hot"),
+            gte(engagementLeads.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      // Average session time
+      const avgTimeResult = await db
+        .select({
+          avgTime: drizzleSql<number>`AVG(${userSessions.totalTimeSpentSeconds})`,
+        })
+        .from(userSessions)
+        .where(
+          and(
+            eq(userSessions.agentSlug, agentSlug),
+            gte(userSessions.createdAt, thirtyDaysAgo)
+          )
+        );
+
+      res.json({
+        totalSessions: totalSessionsResult[0]?.count || 0,
+        activeSessions: activeSessionsResult[0]?.count || 0,
+        totalPropertyViews: propertyViewsResult[0]?.count || 0,
+        totalLikes: likesResult[0]?.count || 0,
+        totalLeads: leadsResult[0]?.count || 0,
+        hotLeads: hotLeadsResult[0]?.count || 0,
+        averageSessionTime: Math.round(avgTimeResult[0]?.avgTime || 0),
+      });
+    } catch (error) {
+      console.error("❌ Error fetching engagement analytics:", error);
+      res.status(500).json({ error: "Failed to fetch analytics" });
+    }
+  });
+
+  // Get recent engagement leads
+  app.get("/api/analytics/leads/:agentSlug", async (req, res) => {
+    try {
+      const { agentSlug } = req.params;
+      const limit = parseInt(req.query.limit as string) || 20;
+
+      const { engagementLeads } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+
+      const leads = await db
+        .select()
+        .from(engagementLeads)
+        .where(eq(engagementLeads.agentSlug, agentSlug))
+        .orderBy(desc(engagementLeads.createdAt))
+        .limit(limit);
+
+      res.json(leads);
+    } catch (error) {
+      console.error("❌ Error fetching leads:", error);
+      res.status(500).json({ error: "Failed to fetch leads" });
+    }
+  });
+
+  // Get property engagement stats
+  app.get("/api/analytics/properties/:agentSlug", async (req, res) => {
+    try {
+      const { agentSlug } = req.params;
+      const { propertyInteractions, propertyLikes } = await import(
+        "@shared/schema"
+      );
+      const { eq, and, sql: drizzleSql } = await import("drizzle-orm");
+
+      // Get top properties by views
+      const topViewed = await db
+        .select({
+          propertyId: propertyInteractions.propertyId,
+          viewCount: drizzleSql<number>`COUNT(*)`,
+          totalTimeSpent: drizzleSql<number>`SUM(${propertyInteractions.timeSpentSeconds})`,
+        })
+        .from(propertyInteractions)
+        .where(
+          and(
+            eq(propertyInteractions.agentSlug, agentSlug),
+            eq(propertyInteractions.interactionType, "view")
+          )
+        )
+        .groupBy(propertyInteractions.propertyId)
+        .orderBy(drizzleSql`COUNT(*) DESC`)
+        .limit(10);
+
+      // Get like counts
+      const likeCounts = await db
+        .select({
+          propertyId: propertyLikes.propertyId,
+          likeCount: drizzleSql<number>`COUNT(*)`,
+        })
+        .from(propertyLikes)
+        .where(eq(propertyLikes.agentSlug, agentSlug))
+        .groupBy(propertyLikes.propertyId);
+
+      res.json({
+        topViewed,
+        likeCounts,
+      });
+    } catch (error) {
+      console.error("❌ Error fetching property analytics:", error);
+      res.status(500).json({ error: "Failed to fetch property analytics" });
+    }
+  });
+
+  // Get session details
+  app.get("/api/analytics/sessions/:agentSlug", async (req, res) => {
+    try {
+      const { agentSlug } = req.params;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      const { userSessions } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+
+      const sessions = await db
+        .select()
+        .from(userSessions)
+        .where(eq(userSessions.agentSlug, agentSlug))
+        .orderBy(desc(userSessions.updatedAt))
+        .limit(limit);
+
+      res.json(sessions);
+    } catch (error) {
+      console.error("❌ Error fetching sessions:", error);
+      res.status(500).json({ error: "Failed to fetch sessions" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

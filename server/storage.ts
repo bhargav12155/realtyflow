@@ -16,9 +16,28 @@ import {
   type Avatar,
   type InsertAvatar,
   type VideoContent,
-  type InsertVideoContent
+  type InsertVideoContent,
+  type CustomVoice,
+  type InsertCustomVoice,
+  type PhotoAvatarGroup,
+  type InsertPhotoAvatarGroup,
+  type PhotoAvatarGroupVoice,
+  type InsertPhotoAvatarGroupVoice,
+  type PhotoAvatar,
+  type InsertPhotoAvatar,
+  type CompanyProfile,
+  type InsertCompanyProfile,
+  photoAvatarGroups,
+  photoAvatarGroupVoices,
+  photoAvatars,
+  customVoices,
+  companyProfiles,
+  videoContent as videoContentTable,
+  scheduledPosts as scheduledPostsTable
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, and, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -45,10 +64,11 @@ export interface IStorage {
   updateSeoKeyword(id: string, updates: Partial<SeoKeyword>): Promise<SeoKeyword | undefined>;
 
   // Market Data
-  getMarketData(): Promise<MarketData[]>;
-  getMarketDataByNeighborhood(neighborhood: string): Promise<MarketData | undefined>;
+  getMarketData(userId: string): Promise<MarketData[]>;
+  getMarketDataByNeighborhood(userId: string, neighborhood: string): Promise<MarketData | undefined>;
   createMarketData(data: InsertMarketData): Promise<MarketData>;
   updateMarketData(id: string, updates: Partial<MarketData>): Promise<MarketData | undefined>;
+  refreshMarketData(userId: string, neighborhoods: InsertMarketData[]): Promise<MarketData[]>;
 
   // Analytics
   getAnalytics(userId: string, metric?: string): Promise<Analytics[]>;
@@ -71,9 +91,43 @@ export interface IStorage {
   // Video Content
   getVideoContent(userId: string, status?: string): Promise<VideoContent[]>;
   getVideoById(id: string): Promise<VideoContent | undefined>;
+  getVideoByIdAndUser(id: string, userId: string): Promise<VideoContent | undefined>;
   createVideoContent(video: InsertVideoContent): Promise<VideoContent>;
   updateVideoContent(id: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined>;
+  updateVideoContentWithUserGuard(id: string, userId: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined>;
   deleteVideoContent(id: string): Promise<boolean>;
+  deleteVideoContentWithUserGuard(id: string, userId: string): Promise<boolean>;
+
+  // Custom Voices
+  listCustomVoices(userId: string): Promise<CustomVoice[]>;
+  getCustomVoice(id: string): Promise<CustomVoice | undefined>;
+  createCustomVoice(voice: InsertCustomVoice): Promise<CustomVoice>;
+  deleteCustomVoice(id: string, userId: string): Promise<boolean>;
+
+  // Photo Avatar Groups
+  createPhotoAvatarGroup(group: InsertPhotoAvatarGroup): Promise<PhotoAvatarGroup>;
+  getPhotoAvatarGroup(groupId: string): Promise<PhotoAvatarGroup | undefined>;
+  getPhotoAvatarGroupByHeygenId(heygenGroupId: string): Promise<PhotoAvatarGroup | undefined>;
+  getPhotoAvatarGroupByHeygenIdAndUser(heygenGroupId: string, userId: string): Promise<PhotoAvatarGroup | undefined>;
+  getPhotoAvatarGroupByImageHash(imageHash: string, userId: string): Promise<PhotoAvatarGroup | undefined>;
+  listPhotoAvatarGroups(userId: string): Promise<PhotoAvatarGroup[]>;
+  updatePhotoAvatarGroup(id: string, updates: Partial<PhotoAvatarGroup>): Promise<PhotoAvatarGroup | undefined>;
+  deletePhotoAvatarGroup(groupId: string, userId: string): Promise<boolean>;
+
+  // Photo Avatar Group Voices
+  savePhotoAvatarGroupVoice(voice: InsertPhotoAvatarGroupVoice): Promise<PhotoAvatarGroupVoice>;
+  getPhotoAvatarGroupVoice(groupId: string, userId: number): Promise<PhotoAvatarGroupVoice | undefined>;
+  listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]>;
+
+  // Individual Photo Avatars
+  createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar>;
+  getPhotoAvatarByHeygenIdAndUser(heygenAvatarId: string, userId: string): Promise<PhotoAvatar | undefined>;
+  updatePhotoAvatar(heygenAvatarId: string, userId: string, updates: Partial<PhotoAvatar>): Promise<PhotoAvatar | undefined>;
+  deletePhotoAvatar(heygenAvatarId: string, userId: string): Promise<boolean>;
+
+  // Company Profile
+  getCompanyProfile(userId: string): Promise<CompanyProfile | null>;
+  upsertCompanyProfile(profile: InsertCompanyProfile): Promise<CompanyProfile>;
 }
 
 export class MemStorage implements IStorage {
@@ -86,6 +140,8 @@ export class MemStorage implements IStorage {
   private scheduledPosts: Map<string, ScheduledPost> = new Map();
   private avatars: Map<string, Avatar> = new Map();
   private videoContent: Map<string, VideoContent> = new Map();
+  private customVoices: Map<string, CustomVoice> = new Map();
+  private photoAvatarGroupVoices: Map<string, PhotoAvatarGroupVoice> = new Map();
 
   constructor() {
     this.seedData();
@@ -118,6 +174,7 @@ export class MemStorage implements IStorage {
       const marketId = randomUUID();
       const market: MarketData = {
         id: marketId,
+        userId, // Associate market data with the seeded user
         neighborhood: n.name,
         avgPrice: n.avgPrice,
         daysOnMarket: n.daysOnMarket,
@@ -129,30 +186,8 @@ export class MemStorage implements IStorage {
       this.marketData.set(marketId, market);
     });
 
-    // Seed SEO keywords
-    const keywords = [
-      { keyword: "omaha real estate agent", currentRank: 3, searchVolume: 1200, difficulty: 75 },
-      { keyword: "dundee homes for sale", currentRank: 1, searchVolume: 450, difficulty: 45, neighborhood: "Dundee" },
-      { keyword: "aksarben luxury condos", currentRank: 7, searchVolume: 320, difficulty: 60, neighborhood: "Aksarben" },
-      { keyword: "moving to omaha guide", currentRank: 2, searchVolume: 890, difficulty: 55 },
-    ];
-
-    keywords.forEach(k => {
-      const keywordId = randomUUID();
-      const seoKeyword: SeoKeyword = {
-        id: keywordId,
-        userId,
-        keyword: k.keyword,
-        currentRank: k.currentRank,
-        previousRank: k.currentRank + Math.floor(Math.random() * 3),
-        searchVolume: k.searchVolume,
-        difficulty: k.difficulty,
-        neighborhood: k.neighborhood || null,
-        lastChecked: new Date(),
-        createdAt: new Date(),
-      };
-      this.seoKeywords.set(keywordId, seoKeyword);
-    });
+    // SEO keywords will be AI-generated on first login based on user's service areas and specialties
+    // No seed keywords - users start with empty keyword list
 
     // Seed analytics data
     const metrics = [
@@ -177,11 +212,11 @@ export class MemStorage implements IStorage {
       this.analytics.set(analyticsId, analytic);
     });
 
-    // Seed scheduled posts focused on local markets and moving to Omaha
-    this.generateWeeklyScheduledPosts(userId);
+    // Scheduled posts will be generated on-demand via "Generate Content Plan" button
+    // No seed posts - users start with empty calendar
 
-    // Create default avatar for Mike Bjork
-    this.createDefaultAvatar(userId);
+    // Create default avatar with user's actual name
+    this.createDefaultAvatar(userId, user.name);
 
     // Create sample video content
     this.createSampleVideoContent(userId);
@@ -306,12 +341,12 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async getMarketData(): Promise<MarketData[]> {
-    return Array.from(this.marketData.values());
+  async getMarketData(userId: string): Promise<MarketData[]> {
+    return Array.from(this.marketData.values()).filter(data => data.userId === userId);
   }
 
-  async getMarketDataByNeighborhood(neighborhood: string): Promise<MarketData | undefined> {
-    return Array.from(this.marketData.values()).find(data => data.neighborhood === neighborhood);
+  async getMarketDataByNeighborhood(userId: string, neighborhood: string): Promise<MarketData | undefined> {
+    return Array.from(this.marketData.values()).find(data => data.userId === userId && data.neighborhood === neighborhood);
   }
 
   async createMarketData(insertData: InsertMarketData): Promise<MarketData> {
@@ -339,6 +374,43 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
+  async refreshMarketData(userId: string, neighborhoods: InsertMarketData[]): Promise<MarketData[]> {
+    // Clear existing market data for this user only
+    const userMarketDataIds = Array.from(this.marketData.entries())
+      .filter(([_, data]) => data.userId === userId)
+      .map(([id, _]) => id);
+    
+    userMarketDataIds.forEach(id => this.marketData.delete(id));
+    
+    // Create new market data from AI-generated neighborhoods for this user
+    const newMarketData: MarketData[] = [];
+    
+    for (const neighborhood of neighborhoods) {
+      // Verify userId matches (security check)
+      if (neighborhood.userId !== userId) {
+        console.warn(`⚠️  Skipping neighborhood with mismatched userId: ${neighborhood.userId} !== ${userId}`);
+        continue;
+      }
+      
+      const id = randomUUID();
+      const data: MarketData = {
+        ...neighborhood,
+        id,
+        avgPrice: neighborhood.avgPrice || null,
+        daysOnMarket: neighborhood.daysOnMarket || null,
+        inventory: neighborhood.inventory || null,
+        priceGrowth: neighborhood.priceGrowth || null,
+        trend: neighborhood.trend || null,
+        lastUpdated: new Date(),
+      };
+      this.marketData.set(id, data);
+      newMarketData.push(data);
+    }
+    
+    console.log(`📊 Refreshed market data for user ${userId}: ${newMarketData.length} neighborhoods`);
+    return newMarketData;
+  }
+
   async getAnalytics(userId: string, metric?: string): Promise<Analytics[]> {
     const userAnalytics = Array.from(this.analytics.values()).filter(a => a.userId === userId);
     if (metric) {
@@ -360,53 +432,73 @@ export class MemStorage implements IStorage {
   }
 
   async getScheduledPosts(userId: string, status?: string): Promise<ScheduledPost[]> {
-    const userPosts = Array.from(this.scheduledPosts.values()).filter(post => post.userId === userId);
     if (status) {
-      return userPosts.filter(post => post.status === status);
+      return await db
+        .select()
+        .from(scheduledPostsTable)
+        .where(and(
+          eq(scheduledPostsTable.userId, userId),
+          eq(scheduledPostsTable.status, status)
+        ))
+        .orderBy(scheduledPostsTable.scheduledFor);
     }
-    return userPosts.sort((a, b) => new Date(a.scheduledFor).getTime() - new Date(b.scheduledFor).getTime());
+    
+    return await db
+      .select()
+      .from(scheduledPostsTable)
+      .where(eq(scheduledPostsTable.userId, userId))
+      .orderBy(scheduledPostsTable.scheduledFor);
   }
 
   async getScheduledPostById(id: string): Promise<ScheduledPost | undefined> {
-    return this.scheduledPosts.get(id);
+    const [post] = await db
+      .select()
+      .from(scheduledPostsTable)
+      .where(eq(scheduledPostsTable.id, id))
+      .limit(1);
+    return post;
   }
 
   async createScheduledPost(insertPost: InsertScheduledPost): Promise<ScheduledPost> {
-    const id = randomUUID();
-    const post: ScheduledPost = {
-      ...insertPost,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      metadata: insertPost.metadata || null,
-      isEdited: insertPost.isEdited || false,
-      originalContent: insertPost.originalContent || null,
-      neighborhood: insertPost.neighborhood || null,
-      hashtags: insertPost.hashtags || null,
-      postType: insertPost.postType || null,
-      status: insertPost.status || "pending",
-      seoScore: insertPost.seoScore ?? 0
-    };
-    this.scheduledPosts.set(id, post);
+    const [post] = await db
+      .insert(scheduledPostsTable)
+      .values({
+        ...insertPost,
+        metadata: insertPost.metadata || null,
+        isEdited: insertPost.isEdited || false,
+        originalContent: insertPost.originalContent || null,
+        neighborhood: insertPost.neighborhood || null,
+        hashtags: insertPost.hashtags || null,
+        postType: insertPost.postType || null,
+        status: insertPost.status || "pending",
+        seoScore: insertPost.seoScore ?? 0
+      })
+      .returning();
     return post;
   }
 
   async updateScheduledPost(id: string, updates: Partial<ScheduledPost>): Promise<ScheduledPost | undefined> {
-    const post = this.scheduledPosts.get(id);
-    if (!post) return undefined;
+    const existing = await this.getScheduledPostById(id);
+    if (!existing) return undefined;
     
-    const updated = { 
-      ...post, 
-      ...updates, 
-      updatedAt: new Date(),
-      isEdited: updates.content && updates.content !== post.originalContent ? true : post.isEdited
-    };
-    this.scheduledPosts.set(id, updated);
-    return updated;
+    const [post] = await db
+      .update(scheduledPostsTable)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+        isEdited: updates.content && updates.content !== existing.originalContent ? true : existing.isEdited
+      })
+      .where(eq(scheduledPostsTable.id, id))
+      .returning();
+    return post;
   }
 
   async deleteScheduledPost(id: string): Promise<boolean> {
-    return this.scheduledPosts.delete(id);
+    const result = await db
+      .delete(scheduledPostsTable)
+      .where(eq(scheduledPostsTable.id, id))
+      .returning();
+    return result.length > 0;
   }
 
   private generateWeeklyScheduledPosts(userId: string) {
@@ -479,11 +571,12 @@ export class MemStorage implements IStorage {
     }
   }
 
-  private createDefaultAvatar(userId: string) {
+  private createDefaultAvatar(userId: string, userName?: string) {
+    const displayName = userName || "Professional Agent";
     const avatar: Avatar = {
       id: randomUUID(),
       userId,
-      name: "Mike Bjork - Professional",
+      name: `${displayName} - Professional`,
       description: "Professional real estate agent avatar for client-facing content",
       avatarImageUrl: null, // Would be set when user uploads their photo
       voiceId: "119caed25533477ba63822d5d1552d25", // HeyGen default professional voice
@@ -586,57 +679,340 @@ export class MemStorage implements IStorage {
 
   // Video Content methods
   async getVideoContent(userId: string, status?: string): Promise<VideoContent[]> {
-    const userVideos = Array.from(this.videoContent.values()).filter(video => video.userId === userId);
+    const conditions = [eq(videoContentTable.userId, userId)];
     if (status) {
-      return userVideos.filter(video => video.status === status);
+      conditions.push(eq(videoContentTable.status, status));
     }
-    return userVideos.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+    return await db
+      .select()
+      .from(videoContentTable)
+      .where(and(...conditions))
+      .orderBy(desc(videoContentTable.createdAt));
   }
 
   async getVideoById(id: string): Promise<VideoContent | undefined> {
-    return this.videoContent.get(id);
+    const [video] = await db
+      .select()
+      .from(videoContentTable)
+      .where(eq(videoContentTable.id, id))
+      .limit(1);
+    return video;
   }
 
   async createVideoContent(insertVideo: InsertVideoContent): Promise<VideoContent> {
-    const id = randomUUID();
-    const video: VideoContent = {
-      ...insertVideo,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      avatarId: insertVideo.avatarId || null,
-      topic: insertVideo.topic || null,
-      neighborhood: insertVideo.neighborhood || null,
-      videoType: insertVideo.videoType || null,
-      duration: insertVideo.duration || null,
-      thumbnailUrl: insertVideo.thumbnailUrl || null,
-      videoUrl: insertVideo.videoUrl || null,
-      youtubeUrl: insertVideo.youtubeUrl || null,
-      youtubeVideoId: insertVideo.youtubeVideoId || null,
-      tags: insertVideo.tags || null,
-      seoOptimized: insertVideo.seoOptimized || false,
-      metadata: insertVideo.metadata || null,
-      status: insertVideo.status || "draft"
-    };
-    this.videoContent.set(id, video);
+    const [video] = await db
+      .insert(videoContentTable)
+      .values({
+        ...insertVideo,
+        avatarId: insertVideo.avatarId || null,
+        topic: insertVideo.topic || null,
+        neighborhood: insertVideo.neighborhood || null,
+        videoType: insertVideo.videoType || null,
+        duration: insertVideo.duration || null,
+        thumbnailUrl: insertVideo.thumbnailUrl || null,
+        videoUrl: insertVideo.videoUrl || null,
+        youtubeUrl: insertVideo.youtubeUrl || null,
+        youtubeVideoId: insertVideo.youtubeVideoId || null,
+        tags: insertVideo.tags || null,
+        seoOptimized: insertVideo.seoOptimized || false,
+        metadata: insertVideo.metadata || null,
+        status: insertVideo.status || "draft",
+        platform: insertVideo.platform || null,
+        heygenVideoId: insertVideo.heygenVideoId || null,
+        heygenAvatarId: insertVideo.heygenAvatarId || null,
+        heygenVoiceId: insertVideo.heygenVoiceId || null,
+        heygenTemplateId: insertVideo.heygenTemplateId || null,
+      })
+      .returning();
     return video;
   }
 
   async updateVideoContent(id: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined> {
-    const video = this.videoContent.get(id);
-    if (!video) return undefined;
-    
-    const updated = { 
-      ...video, 
-      ...updates, 
-      updatedAt: new Date()
-    };
-    this.videoContent.set(id, updated);
+    const [updated] = await db
+      .update(videoContentTable)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(videoContentTable.id, id))
+      .returning();
     return updated;
   }
 
   async deleteVideoContent(id: string): Promise<boolean> {
-    return this.videoContent.delete(id);
+    const result = await db
+      .delete(videoContentTable)
+      .where(eq(videoContentTable.id, id));
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  async getVideoByIdAndUser(id: string, userId: string): Promise<VideoContent | undefined> {
+    const [video] = await db
+      .select()
+      .from(videoContentTable)
+      .where(
+        and(
+          eq(videoContentTable.id, id),
+          eq(videoContentTable.userId, userId)
+        )
+      )
+      .limit(1);
+    return video;
+  }
+
+  async updateVideoContentWithUserGuard(id: string, userId: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined> {
+    const [updated] = await db
+      .update(videoContentTable)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(
+        and(
+          eq(videoContentTable.id, id),
+          eq(videoContentTable.userId, userId)
+        )
+      )
+      .returning();
+    return updated;
+  }
+
+  async deleteVideoContentWithUserGuard(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(videoContentTable)
+      .where(
+        and(
+          eq(videoContentTable.id, id),
+          eq(videoContentTable.userId, userId)
+        )
+      );
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  // Custom Voices
+  async listCustomVoices(userId: string): Promise<CustomVoice[]> {
+    return await db
+      .select()
+      .from(customVoices)
+      .where(eq(customVoices.userId, userId));
+  }
+
+  async getCustomVoice(id: string): Promise<CustomVoice | undefined> {
+    const [voice] = await db
+      .select()
+      .from(customVoices)
+      .where(eq(customVoices.id, id))
+      .limit(1);
+    return voice;
+  }
+
+  async createCustomVoice(insertVoice: InsertCustomVoice): Promise<CustomVoice> {
+    const [voice] = await db
+      .insert(customVoices)
+      .values({
+        ...insertVoice,
+        duration: insertVoice.duration || null,
+        fileSize: insertVoice.fileSize || null,
+        heygenAudioAssetId: insertVoice.heygenAudioAssetId || null,
+        status: insertVoice.status || 'pending',
+      })
+      .returning();
+    return voice;
+  }
+
+  async deleteCustomVoice(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(customVoices)
+      .where(
+        and(
+          eq(customVoices.id, id),
+          eq(customVoices.userId, userId)
+        )
+      );
+    return true;
+  }
+
+  async savePhotoAvatarGroupVoice(insertVoice: InsertPhotoAvatarGroupVoice): Promise<PhotoAvatarGroupVoice> {
+    const [voice] = await db
+      .insert(photoAvatarGroupVoices)
+      .values({
+        ...insertVoice,
+        heygenAudioAssetId: insertVoice.heygenAudioAssetId || null,
+      })
+      .returning();
+    return voice;
+  }
+
+  async getPhotoAvatarGroupVoice(groupId: string, userId: number): Promise<PhotoAvatarGroupVoice | undefined> {
+    const [voice] = await db
+      .select()
+      .from(photoAvatarGroupVoices)
+      .where(
+        and(
+          eq(photoAvatarGroupVoices.groupId, groupId),
+          eq(photoAvatarGroupVoices.userId, userId)
+        )
+      )
+      .limit(1);
+    return voice;
+  }
+
+  async listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]> {
+    return await db
+      .select()
+      .from(photoAvatarGroupVoices)
+      .where(eq(photoAvatarGroupVoices.userId, userId));
+  }
+
+  // Photo Avatar Groups
+  async createPhotoAvatarGroup(insertGroup: InsertPhotoAvatarGroup): Promise<PhotoAvatarGroup> {
+    const [group] = await db
+      .insert(photoAvatarGroups)
+      .values(insertGroup)
+      .returning();
+    return group;
+  }
+
+  async getPhotoAvatarGroup(id: string): Promise<PhotoAvatarGroup | undefined> {
+    const [group] = await db
+      .select()
+      .from(photoAvatarGroups)
+      .where(eq(photoAvatarGroups.id, id))
+      .limit(1);
+    return group;
+  }
+
+  async getPhotoAvatarGroupByHeygenId(heygenGroupId: string): Promise<PhotoAvatarGroup | undefined> {
+    const [group] = await db
+      .select()
+      .from(photoAvatarGroups)
+      .where(eq(photoAvatarGroups.heygenGroupId, heygenGroupId))
+      .limit(1);
+    return group;
+  }
+
+  async getPhotoAvatarGroupByImageHash(imageHash: string, userId: string): Promise<PhotoAvatarGroup | undefined> {
+    const [group] = await db
+      .select()
+      .from(photoAvatarGroups)
+      .where(
+        and(
+          eq(photoAvatarGroups.imageHash, imageHash),
+          eq(photoAvatarGroups.userId, userId)
+        )
+      )
+      .limit(1);
+    return group;
+  }
+
+  async listPhotoAvatarGroups(userId: string): Promise<PhotoAvatarGroup[]> {
+    return await db
+      .select()
+      .from(photoAvatarGroups)
+      .where(eq(photoAvatarGroups.userId, userId));
+  }
+
+  async updatePhotoAvatarGroup(id: string, updates: Partial<PhotoAvatarGroup>): Promise<PhotoAvatarGroup | undefined> {
+    const [updated] = await db
+      .update(photoAvatarGroups)
+      .set(updates)
+      .where(eq(photoAvatarGroups.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getPhotoAvatarGroupByHeygenIdAndUser(heygenGroupId: string, userId: string): Promise<PhotoAvatarGroup | undefined> {
+    const [group] = await db
+      .select()
+      .from(photoAvatarGroups)
+      .where(
+        and(
+          eq(photoAvatarGroups.heygenGroupId, heygenGroupId),
+          eq(photoAvatarGroups.userId, userId)
+        )
+      )
+      .limit(1);
+    return group;
+  }
+
+  async deletePhotoAvatarGroup(groupId: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(photoAvatarGroups)
+      .where(
+        and(
+          eq(photoAvatarGroups.heygenGroupId, groupId),
+          eq(photoAvatarGroups.userId, userId)
+        )
+      );
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  // Individual Photo Avatars
+  async createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar> {
+    const [result] = await db
+      .insert(photoAvatars)
+      .values(avatar)
+      .returning();
+    return result;
+  }
+
+  async getPhotoAvatarByHeygenIdAndUser(heygenAvatarId: string, userId: string): Promise<PhotoAvatar | undefined> {
+    const [avatar] = await db
+      .select()
+      .from(photoAvatars)
+      .where(
+        and(
+          eq(photoAvatars.heygenAvatarId, heygenAvatarId),
+          eq(photoAvatars.userId, userId)
+        )
+      )
+      .limit(1);
+    return avatar;
+  }
+
+  async updatePhotoAvatar(heygenAvatarId: string, userId: string, updates: Partial<PhotoAvatar>): Promise<PhotoAvatar | undefined> {
+    const [result] = await db
+      .update(photoAvatars)
+      .set(updates)
+      .where(
+        and(
+          eq(photoAvatars.heygenAvatarId, heygenAvatarId),
+          eq(photoAvatars.userId, userId)
+        )
+      )
+      .returning();
+    return result;
+  }
+
+  async deletePhotoAvatar(heygenAvatarId: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(photoAvatars)
+      .where(
+        and(
+          eq(photoAvatars.heygenAvatarId, heygenAvatarId),
+          eq(photoAvatars.userId, userId)
+        )
+      );
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
+  async getCompanyProfile(userId: string): Promise<CompanyProfile | null> {
+    const [profile] = await db
+      .select()
+      .from(companyProfiles)
+      .where(eq(companyProfiles.userId, userId))
+      .limit(1);
+    return profile || null;
+  }
+
+  async upsertCompanyProfile(profile: InsertCompanyProfile): Promise<CompanyProfile> {
+    const [result] = await db
+      .insert(companyProfiles)
+      .values(profile)
+      .onConflictDoUpdate({
+        target: companyProfiles.userId,
+        set: {
+          ...profile,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return result;
   }
 }
 

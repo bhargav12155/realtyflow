@@ -165,9 +165,9 @@ export function ObjectUploader({
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Selected Files:</p>
                     {selectedFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{file.name}</p>
+                      <div key={index} className="flex items-center justify-between gap-2 p-2 bg-muted rounded overflow-hidden">
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <p className="text-sm truncate" title={file.name}>{file.name}</p>
                           <p className="text-xs text-muted-foreground">
                             {(file.size / 1024 / 1024).toFixed(2)} MB
                           </p>
@@ -176,6 +176,7 @@ export function ObjectUploader({
                           variant="ghost"
                           size="sm"
                           onClick={() => removeFile(index)}
+                          className="flex-shrink-0"
                         >
                           <X className="h-4 w-4" />
                         </Button>

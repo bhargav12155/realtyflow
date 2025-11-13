@@ -5,13 +5,52 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Sparkles, FileText, Eye, Search, Clock, ChevronDown, ChevronUp, Copy, Share2, ImagePlus, Send, X, RefreshCw, Home, Edit2, Save, Heart, MessageCircle, Bookmark, MoreHorizontal, Globe } from "lucide-react";
-import { FaFacebook, FaInstagram, FaLinkedin, FaTwitter, FaYoutube, FaTiktok } from "react-icons/fa";
+import {
+  Sparkles,
+  FileText,
+  Eye,
+  Search,
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Share2,
+  ImagePlus,
+  Send,
+  X,
+  RefreshCw,
+  Home,
+  Edit2,
+  Save,
+  Heart,
+  MessageCircle,
+  Bookmark,
+  MoreHorizontal,
+  Globe,
+  Bed,
+  Bath,
+  Square,
+  MapPin,
+} from "lucide-react";
+import {
+  FaFacebook,
+  FaInstagram,
+  FaLinkedin,
+  FaTwitter,
+  FaYoutube,
+  FaTiktok,
+} from "react-icons/fa";
 import { format } from "date-fns";
 import {
   Dialog,
@@ -20,7 +59,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { useOptimizationPrereqs } from "@/hooks/use-optimization-prereqs";
+import {
+  classifyContent,
+  calculateMarketSignals,
+  scorePlatform,
+} from "@/lib/platform-intelligence";
+import type { PlatformScore as PlatformScoreType } from "@shared/schema";
 
 interface AIContentGeneratorProps {
   isGenerating: boolean;
@@ -81,220 +133,146 @@ const neighborhoods = [
 interface PlatformSuggestion {
   platform: string;
   icon: any;
-  fit: 'excellent' | 'very-good' | 'good';
+  fit: "excellent" | "very-good" | "good";
   reason: string;
   optimization: string;
   score: number;
 }
 
-const getPlatformSuggestions = (content: GeneratedContent): PlatformSuggestion[] => {
-  const { content: text, wordCount, keywords } = content;
-  
-  const hasEmojis = text ? /[\uD83C-\uDBFF\uDC00-\uDFFF]|[\u2600-\u27FF]/.test(text) : false;
-  const hasHashtags = text?.includes('#') || false;
-  const isEducational = text?.toLowerCase().includes('tips') || text?.toLowerCase().includes('guide') || text?.toLowerCase().includes('first-time') || false;
-  const isVisual = text?.toLowerCase().includes('home') || text?.toLowerCase().includes('property') || text?.toLowerCase().includes('house') || false;
-  const isProfessional = text?.toLowerCase().includes('expert') || text?.toLowerCase().includes('professional') || false;
-  
-  const suggestions: PlatformSuggestion[] = [];
-  
-  // Instagram analysis
-  let instagramScore = 0;
-  if (hasEmojis) instagramScore += 25;
-  if (hasHashtags) instagramScore += 25;
-  if (isEducational) instagramScore += 20;
-  if (isVisual) instagramScore += 15;
-  if (wordCount <= 150) instagramScore += 15;
-  
-  suggestions.push({
-    platform: 'Instagram',
-    icon: FaInstagram,
-    fit: instagramScore >= 80 ? 'excellent' : instagramScore >= 60 ? 'very-good' : 'good',
-    reason: isEducational ? 'Educational content + visual appeal + younger demographic' : 'Great for visual storytelling and hashtags',
-    optimization: 'Pair with home photos or create an infographic with buying tips',
-    score: instagramScore
-  });
-  
-  // Facebook analysis
-  let facebookScore = 0;
-  if (isEducational) facebookScore += 30;
-  if (wordCount >= 100 && wordCount <= 300) facebookScore += 25;
-  if (text?.toLowerCase().includes('omaha') || text?.toLowerCase().includes('local')) facebookScore += 20;
-  if (hasEmojis) facebookScore += 15;
-  if (text?.includes('?')) facebookScore += 10;
-  
-  suggestions.push({
-    platform: 'Facebook',
-    icon: FaFacebook,
-    fit: facebookScore >= 80 ? 'excellent' : facebookScore >= 60 ? 'very-good' : 'good',
-    reason: 'Perfect for community engagement and local groups',
-    optimization: 'Add engagement question: "What\'s your biggest concern as a first-time buyer?"',
-    score: facebookScore
-  });
-  
-  // LinkedIn analysis
-  let linkedinScore = 0;
-  if (isProfessional) linkedinScore += 30;
-  if (wordCount >= 200) linkedinScore += 25;
-  if (text?.toLowerCase().includes('market') || text?.toLowerCase().includes('insight')) linkedinScore += 20;
-  if (!hasEmojis || hasEmojis && text?.split('').filter(char => /[\uD83C-\uDBFF\uDC00-\uDFFF]|[\u2600-\u27FF]/.test(char)).length <= 2) linkedinScore += 15;
-  if (text?.toLowerCase().includes('expert') || text?.toLowerCase().includes('professional')) linkedinScore += 10;
-  
-  suggestions.push({
-    platform: 'LinkedIn',
-    icon: FaLinkedin,
-    fit: linkedinScore >= 80 ? 'excellent' : linkedinScore >= 60 ? 'very-good' : 'good',
-    reason: 'Professional expertise positioning and business networking',
-    optimization: 'Make more professional: "As your Omaha real estate professional..."',
-    score: linkedinScore
-  });
-  
-  // Twitter/X analysis
-  let twitterScore = 0;
-  if (wordCount <= 200) twitterScore += 30;
-  if (hasHashtags) twitterScore += 25;
-  if (text?.toLowerCase().includes('omaha') || text?.toLowerCase().includes('local')) twitterScore += 20;
-  if (hasEmojis) twitterScore += 15;
-  if (text?.includes('?') || text?.includes('!')) twitterScore += 10;
-  
-  suggestions.push({
-    platform: 'X (Twitter)',
-    icon: FaTwitter,
-    fit: twitterScore >= 80 ? 'excellent' : twitterScore >= 60 ? 'very-good' : 'good',
-    reason: 'Perfect character count and real-time engagement',
-    optimization: 'Add trending local hashtags like #OmahaLife',
-    score: twitterScore
-  });
-  
-  // TikTok analysis
-  let tiktokScore = 0;
-  if (wordCount <= 150) tiktokScore += 30; // Short, engaging content
-  if (hasEmojis) tiktokScore += 25; // TikTok loves emojis
-  if (text?.toLowerCase().includes('home') || text?.toLowerCase().includes('house') || text?.toLowerCase().includes('tip')) tiktokScore += 20; // Visual/educational content
-  if (hasHashtags) tiktokScore += 15; // Hashtag discovery is key
-  if (text?.includes('!') || text?.includes('?')) tiktokScore += 10; // Engaging punctuation
-  
-  suggestions.push({
-    platform: 'TikTok',
-    icon: FaTiktok,
-    fit: tiktokScore >= 80 ? 'excellent' : tiktokScore >= 60 ? 'very-good' : 'good',
-    reason: 'Short-form video content with high engagement potential',
-    optimization: 'Create quick home tour or real estate tip video with trending audio',
-    score: tiktokScore
-  });
-  
-  // YouTube analysis
-  let youtubeScore = 0;
-  if (wordCount >= 300) youtubeScore += 25; // Detailed descriptions perform better
-  if (text?.toLowerCase().includes('omaha') || text?.toLowerCase().includes('local')) youtubeScore += 25; // Local SEO crucial for YouTube
-  if (text?.toLowerCase().includes('mike bjork') || text?.toLowerCase().includes('expert')) youtubeScore += 20; // Personal branding
-  if (text?.toLowerCase().includes('home') || text?.toLowerCase().includes('property') || text?.toLowerCase().includes('real estate')) youtubeScore += 15; // Relevant keywords
-  if (text?.includes('?') || text?.includes('!')) youtubeScore += 10; // Engagement
-  if (hasHashtags) youtubeScore += 5; // YouTube hashtags help but less critical
-  
-  suggestions.push({
-    platform: 'YouTube',
-    icon: FaYoutube,
-    fit: youtubeScore >= 80 ? 'excellent' : youtubeScore >= 60 ? 'very-good' : 'good',
-    reason: 'Long-form video content with strong local SEO potential',
-    optimization: 'Create detailed description with local keywords and Mike Bjork expert positioning',
-    score: youtubeScore
-  });
-  
-  // Website analysis
-  let websiteScore = 0;
-  if (wordCount >= 300) websiteScore += 30; // Blog-length content works best for website
-  if (text?.toLowerCase().includes('omaha') || text?.toLowerCase().includes('local')) websiteScore += 25; // Local SEO crucial for website
-  if (isEducational) websiteScore += 20; // Educational content drives website traffic
-  if (keywords && keywords.length >= 3) websiteScore += 15; // Keyword rich content
-  if (text?.toLowerCase().includes('market') || text?.toLowerCase().includes('insight')) websiteScore += 10; // Authority content
-  
-  suggestions.push({
-    platform: 'Website',
-    icon: Globe,
-    fit: websiteScore >= 80 ? 'excellent' : websiteScore >= 60 ? 'very-good' : 'good',
-    reason: 'SEO-optimized content perfect for driving organic website traffic',
-    optimization: 'Add meta description and internal links to boost search rankings',
-    score: websiteScore
-  });
-  
+const platformIcons: Record<string, any> = {
+  "Instagram": FaInstagram,
+  "Facebook": FaFacebook,
+  "LinkedIn": FaLinkedin,
+  "X (Twitter)": FaTwitter,
+  "TikTok": FaTiktok,
+  "YouTube": FaYoutube,
+};
+
+const getPlatformSuggestions = (
+  content: GeneratedContent | null,
+  marketData?: any[]
+): PlatformSuggestion[] => {
+  if (!content) {
+    return [];
+  }
+
+  const profile = classifyContent(content);
+  const signals = calculateMarketSignals(marketData);
+
+  const platforms = ["Instagram", "Facebook", "LinkedIn", "X (Twitter)", "TikTok", "YouTube"];
+  const scores: PlatformScoreType[] = platforms.map(platform =>
+    scorePlatform(platform, profile, signals)
+  );
+
+  const suggestions: PlatformSuggestion[] = scores
+    .filter(s => s.fit !== "fair")
+    .map(score => ({
+      platform: score.platform,
+      icon: platformIcons[score.platform] || FaFacebook,
+      fit: score.fit as "excellent" | "very-good" | "good",
+      reason: score.reasons.slice(0, 2).join("; ") || "Good platform for this content",
+      optimization: score.optimization,
+      score: score.score,
+    }));
+
   return suggestions.sort((a, b) => b.score - a.score);
 };
 
 export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const [contentType, setContentType] = useState("blog");
   const [topic, setTopic] = useState("");
-  const [aiPrompt, setAiPrompt] = useState("Create engaging, SEO-optimized content for Omaha real estate that drives leads and builds trust with potential clients.");
+  const [aiPrompt, setAiPrompt] = useState(
+    "Create engaging, SEO-optimized content for Omaha real estate that drives leads and builds trust with potential clients."
+  );
   const [neighborhood, setNeighborhood] = useState("All Omaha Areas");
   const [seoOptimized, setSeoOptimized] = useState(true);
   const [longTailKeywords, setLongTailKeywords] = useState(true);
-  
+
   // Style selection for each content type
   const [contentStyles, setContentStyles] = useState<Record<string, string>>({
     blog: "None",
-    social_media: "None", 
+    social_media: "None",
     property_feature: "None",
     market_analysis: "Market data",
     newsletter: "Things around town",
-    listing_description: "Luxury"
+    listing_description: "Luxury",
   });
-  const [lastGenerated, setLastGenerated] = useState<GeneratedContent | null>(null);
+  const [lastGenerated, setLastGenerated] = useState<GeneratedContent | null>(
+    null
+  );
   const [showFullContent, setShowFullContent] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [postingTo, setPostingTo] = useState<string | null>(null);
   const [regeneratingFor, setRegeneratingFor] = useState<string | null>(null);
-  const [optimizedContent, setOptimizedContent] = useState<Record<string, any>>({});
+  const [optimizedContent, setOptimizedContent] = useState<Record<string, any>>(
+    {}
+  );
   const [viewingPlatform, setViewingPlatform] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState<Record<string, number>>({});
-  
+
   // Content editing states
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState("");
   const [showPlatformPreview, setShowPlatformPreview] = useState(false);
   const [previewPlatform, setPreviewPlatform] = useState<string | null>(null);
-  
+
   // Photo upload dialog states
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
-  const [photoUploadMode, setPhotoUploadMode] = useState<"upload" | "stock" | "ai">("upload");
-  
+  const [photoUploadMode, setPhotoUploadMode] = useState<
+    "upload" | "stock" | "ai"
+  >("upload");
+
   // MLS Property Search States
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const [selectedProperty, setSelectedProperty] = useState<Property | null>(
+    null
+  );
   const [propertySearchParams, setPropertySearchParams] = useState({
     mlsNumber: "",
     address: "",
     city: "",
     listingAgent: "",
   });
-  
+
   // Google Places autocomplete states
-  const [addressAutocomplete, setAddressAutocomplete] = useState<google.maps.places.AutocompleteService | null>(null);
-  const [googleMapsStatus, setGoogleMapsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [addressAutocomplete, setAddressAutocomplete] =
+    useState<google.maps.places.AutocompleteService | null>(null);
+  const [googleMapsStatus, setGoogleMapsStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [addressSuggestions, setAddressSuggestions] = useState<google.maps.places.QueryAutocompletePrediction[]>([]);
+  const [addressSuggestions, setAddressSuggestions] = useState<
+    google.maps.places.QueryAutocompletePrediction[]
+  >([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const { data: marketData } = useQuery({
+    queryKey: ['/api/market/data'],
+    staleTime: 15 * 60 * 1000,
+  });
+
   // Style options for all content types
   const styleOptions = [
     { value: "None", label: "None" },
+    { value: "Professional", label: "Professional" },
     { value: "Funny", label: "Funny" },
     { value: "Luxury", label: "Luxury" },
     { value: "Market data", label: "Market data" },
     { value: "Things around town", label: "Things around town" },
-    { value: "Custom template", label: "Custom template" }
+    { value: "Custom template", label: "Custom template" },
   ];
-  
+
   // Initialize Google Maps
   useEffect(() => {
     const initializeGoogleMaps = () => {
       if (window.google && window.google.maps && window.google.maps.places) {
-        console.log('Google Maps loaded successfully');
-        setGoogleMapsStatus('ready');
-        
+        console.log("Google Maps loaded successfully");
+        setGoogleMapsStatus("ready");
+
         // Initialize AutocompleteService for dropdown suggestions
         if (!addressAutocomplete) {
           const service = new window.google.maps.places.AutocompleteService();
@@ -304,75 +282,79 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         setTimeout(initializeGoogleMaps, 500);
       }
     };
-    
+
     initializeGoogleMaps();
   }, [addressAutocomplete]);
-  
+
   // Debounced auto-search function
   const handleAddressAutoSearch = async (address: string) => {
     if (!address || address.length < 5) return;
-    
+
     setIsLoadingDetails(true);
     try {
-      console.log('Fetching property details for address:', address);
-      const response = await fetch('/api/property/details-by-address', {
-        method: 'POST',
+      console.log("Fetching property details for address:", address);
+      const response = await fetch("/api/property/details-by-address", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ address: address.split(',')[0] })
+        body: JSON.stringify({ address: address.split(",")[0] }),
       });
-      
+
       if (response.ok) {
         const propertyData = await response.json();
-        console.log('GBCMA property details for address:', address, propertyData);
-        
+        console.log(
+          "GBCMA property details for address:",
+          address,
+          propertyData
+        );
+
         // Auto-fill other form fields
-        setPropertySearchParams(prev => ({
+        setPropertySearchParams((prev) => ({
           ...prev,
           city: propertyData.City || prev.city,
           mlsNumber: propertyData.ListAgentMlsId || prev.mlsNumber,
           listingAgent: propertyData.ListAgentFullName || prev.listingAgent,
-          address: propertyData.UnparsedAddress || address
+          address: propertyData.UnparsedAddress || address,
         }));
-        
-        console.log('AI Content Generator form auto-filled with:', {
+
+        console.log("AI Content Generator form auto-filled with:", {
           mlsNumber: propertyData.ListAgentMlsId,
           listingAgent: propertyData.ListAgentFullName,
           city: propertyData.City,
-          address: propertyData.UnparsedAddress
+          address: propertyData.UnparsedAddress,
         });
-        
+
         // Auto-select this property
         const foundProperty: Property = {
-          id: propertyData.ListingKey || 'auto-found',
-          mlsNumber: propertyData.ListAgentMlsId || '',
+          id: propertyData.ListingKey || "auto-found",
+          mlsNumber: propertyData.ListAgentMlsId || "",
           address: propertyData.UnparsedAddress || address,
-          city: propertyData.City || '',
-          state: 'NE',
-          zipCode: propertyData.PostalCode || '',
+          city: propertyData.City || "",
+          state: "NE",
+          zipCode: propertyData.PostalCode || "",
           price: Number(propertyData.ListPrice) || 0,
           bedrooms: Number(propertyData.BedroomsTotal) || 0,
           bathrooms: Number(propertyData.BathroomsTotal) || 0,
           squareFootage: Number(propertyData.LivingArea) || 0,
           yearBuilt: Number(propertyData.YearBuilt) || 0,
-          propertyType: 'Residential',
+          propertyType: "Residential",
           listingAgent: propertyData.ListAgentFullName || null,
-          photos: propertyData.Media?.slice(0, 3)?.map((m: any) => m.MediaURL) || [],
-          description: propertyData.PublicRemarks || ''
+          photos:
+            propertyData.Media?.slice(0, 3)?.map((m: any) => m.MediaURL) || [],
+          description: propertyData.PublicRemarks || "",
         };
         setSelectedProperty(foundProperty);
-        
       } else {
-        console.log('No property details found for address:', address);
+        console.log("No property details found for address:", address);
       }
     } catch (error) {
-      console.error('Error fetching property details:', error);
+      console.error("Error fetching property details:", error);
     } finally {
       setIsLoadingDetails(false);
     }
   };
-  
+
   // Get address suggestions as user types
   const getAddressSuggestions = async (input: string) => {
     if (!addressAutocomplete || !input || input.length < 3) {
@@ -380,38 +362,48 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       setShowSuggestions(false);
       return;
     }
-    
+
     try {
       const request = {
         input: input,
-        types: ['address'],
-        componentRestrictions: { country: 'US' }
+        types: ["address"],
+        componentRestrictions: { country: "US" },
       };
-      
-      addressAutocomplete.getPlacePredictions(request, (predictions: google.maps.places.QueryAutocompletePrediction[] | null) => {
-        if (predictions) {
-          setAddressSuggestions(predictions);
-          setShowSuggestions(true);
+
+      addressAutocomplete.getPlacePredictions(
+        request,
+        (
+          predictions: google.maps.places.QueryAutocompletePrediction[] | null
+        ) => {
+          if (predictions) {
+            setAddressSuggestions(predictions);
+            setShowSuggestions(true);
+          }
         }
-      });
+      );
     } catch (error) {
-      console.error('Error fetching address suggestions:', error);
+      console.error("Error fetching address suggestions:", error);
     }
   };
-  
+
   // Handle address suggestion selection
-  const selectAddressSuggestion = async (suggestion: google.maps.places.QueryAutocompletePrediction) => {
+  const selectAddressSuggestion = async (
+    suggestion: google.maps.places.QueryAutocompletePrediction
+  ) => {
     const address = suggestion.description;
-    setPropertySearchParams(prev => ({ ...prev, address }));
+    setPropertySearchParams((prev) => ({ ...prev, address }));
     setShowSuggestions(false);
-    
+
     // Auto-search for property details immediately
     await handleAddressAutoSearch(address);
   };
-  
+
   // Get suggestions when address changes
   useEffect(() => {
-    if (propertySearchParams.address && propertySearchParams.address.length >= 3) {
+    if (
+      propertySearchParams.address &&
+      propertySearchParams.address.length >= 3
+    ) {
       getAddressSuggestions(propertySearchParams.address);
     } else {
       setShowSuggestions(false);
@@ -420,150 +412,183 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   }, [propertySearchParams.address, addressAutocomplete]);
 
   // MLS Property Search Query - using the same API as the dropdown for consistency
-  const { data: properties, isLoading: isSearchingProperties, refetch: searchProperties } = useQuery<Property[]>({
+  const {
+    data: properties,
+    isLoading: isSearchingProperties,
+    refetch: searchProperties,
+  } = useQuery<Property[]>({
     queryKey: ["gbcma-ai-content-search", propertySearchParams],
     queryFn: async () => {
-      const hasAddress = propertySearchParams.address && propertySearchParams.address.trim() !== '';
-      const hasMlsNumber = propertySearchParams.mlsNumber && propertySearchParams.mlsNumber.trim() !== '';
-      const hasListingAgent = propertySearchParams.listingAgent && propertySearchParams.listingAgent.trim() !== '';
-      
-      
+      const hasAddress =
+        propertySearchParams.address &&
+        propertySearchParams.address.trim() !== "";
+      const hasMlsNumber =
+        propertySearchParams.mlsNumber &&
+        propertySearchParams.mlsNumber.trim() !== "";
+      const hasListingAgent =
+        propertySearchParams.listingAgent &&
+        propertySearchParams.listingAgent.trim() !== "";
+
       // If we have an address, use the same details-by-address API that works for dropdown
       if (hasAddress) {
-        console.log('Search Properties using details-by-address API for:', propertySearchParams.address);
-        
-        const response = await fetch('/api/property/details-by-address', {
-          method: 'POST',
+        console.log(
+          "Search Properties using details-by-address API for:",
+          propertySearchParams.address
+        );
+
+        const response = await fetch("/api/property/details-by-address", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
-          credentials: 'include',
+          credentials: "include",
           body: JSON.stringify({
-            address: propertySearchParams.address.trim().split(',')[0] // Extract just the street address
-          })
+            address: propertySearchParams.address.trim().split(",")[0], // Extract just the street address
+          }),
         });
-        
+
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Property details API error:', response.status, errorText);
+          console.error(
+            "Property details API error:",
+            response.status,
+            errorText
+          );
           throw new Error(`Property details API error: ${response.status}`);
         }
-        
+
         const propertyData = await response.json();
-        console.log('Search Properties API response:', propertyData);
-        
+        console.log("Search Properties API response:", propertyData);
+
         // Convert single property to array format using the same structure as dropdown
         const property: Property = {
-          id: propertyData.ListingKey || 'search-result',
-          mlsNumber: propertyData.ListAgentMlsId || '',
+          id: propertyData.ListingKey || "search-result",
+          mlsNumber: propertyData.ListAgentMlsId || "",
           address: propertyData.UnparsedAddress || propertySearchParams.address,
-          city: propertyData.City || '',
-          state: 'NE',
-          zipCode: propertyData.PostalCode || '',
+          city: propertyData.City || "",
+          state: "NE",
+          zipCode: propertyData.PostalCode || "",
           price: Number(propertyData.ListPrice) || 0,
           listPrice: Number(propertyData.ListPrice) || 0,
           bedrooms: Number(propertyData.BedroomsTotal) || 0,
           bathrooms: Number(propertyData.BathroomsTotal) || 0,
           squareFootage: Number(propertyData.LivingArea) || 0,
           yearBuilt: Number(propertyData.YearBuilt) || 0,
-          propertyType: 'Residential',
-          listingStatus: propertyData.MlsStatus || '',
-          description: propertyData.PublicRemarks || '',
+          propertyType: "Residential",
+          listingStatus: propertyData.MlsStatus || "",
+          description: propertyData.PublicRemarks || "",
           features: [],
-          photoUrls: propertyData.Media?.slice(0, 3)?.map((m: any) => m.MediaURL) || [],
+          photoUrls:
+            propertyData.Media?.slice(0, 3)?.map((m: any) => m.MediaURL) || [],
           neighborhood: propertyData.SubdivisionName || null,
-          agentName: propertyData.ListAgentFullName || null
+          agentName: propertyData.ListAgentFullName || null,
         };
-        
+
         return [property];
       }
-      
+
       // If no address but has MLS number, use the GBCMA search API
       if (hasMlsNumber) {
-        
-        const response = await fetch(`/api/property/search?mls_number=${encodeURIComponent(propertySearchParams.mlsNumber.trim())}`, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        
+        const response = await fetch(
+          `/api/property/search?mls_number=${encodeURIComponent(
+            propertySearchParams.mlsNumber.trim()
+          )}`,
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        );
+
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Property search API error:', response.status, errorText);
+          console.error(
+            "Property search API error:",
+            response.status,
+            errorText
+          );
           throw new Error(`Property search API error: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
+
         // Transform GBCMA API response to our Property interface
         const properties = data.properties || [];
-        
+
         return properties.map((prop: any) => ({
           id: prop.id || Math.random().toString(),
-          mlsNumber: propertySearchParams.mlsNumber || prop.id || '', // Use the searched MLS number
-          address: prop.address || '',
-          city: prop.city || '',
-          state: prop.state || 'NE',
-          zipCode: prop.zipCode || '',
+          mlsNumber: propertySearchParams.mlsNumber || prop.id || "", // Use the searched MLS number
+          address: prop.address || "",
+          city: prop.city || "",
+          state: prop.state || "NE",
+          zipCode: prop.zipCode || "",
           price: prop.listPrice || 0,
           listPrice: prop.listPrice || 0,
           bedrooms: prop.beds || 0,
           bathrooms: prop.baths || 0,
           squareFootage: prop.sqft || 0,
           yearBuilt: prop.yearBuilt || 0,
-          propertyType: prop.propertyType || 'Residential',
-          listingStatus: prop.status || 'Active',
-          listingDate: prop.onMarketDate || '',
-          description: '',
+          propertyType: prop.propertyType || "Residential",
+          listingStatus: prop.status || "Active",
+          listingDate: prop.onMarketDate || "",
+          description: "",
           features: prop.condition ? [prop.condition] : [],
           photoUrls: prop.imageUrl ? [prop.imageUrl] : [],
           neighborhood: prop.subdivision || null,
           agentName: null,
         }));
       }
-      
+
       // If no address or MLS but has listing agent, use the GBCMA search API
       if (hasListingAgent) {
-        
-        const response = await fetch(`/api/property/search?agent=${encodeURIComponent(propertySearchParams.listingAgent.trim())}`, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        
+        const response = await fetch(
+          `/api/property/search?agent=${encodeURIComponent(
+            propertySearchParams.listingAgent.trim()
+          )}`,
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        );
+
         if (!response.ok) {
           const errorText = await response.text();
-          console.error('Property search API error:', response.status, errorText);
+          console.error(
+            "Property search API error:",
+            response.status,
+            errorText
+          );
           throw new Error(`Property search API error: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
+
         // Transform GBCMA API response to our Property interface
         const properties = data.properties || [];
-        
+
         return properties.map((prop: any) => ({
           id: prop.id || Math.random().toString(),
-          mlsNumber: prop.id || '', // gbcma uses 'id' field as MLS number
-          address: prop.address || '',
-          city: prop.city || '',
-          state: prop.state || 'NE',
-          zipCode: prop.zipCode || '',
+          mlsNumber: prop.id || "", // gbcma uses 'id' field as MLS number
+          address: prop.address || "",
+          city: prop.city || "",
+          state: prop.state || "NE",
+          zipCode: prop.zipCode || "",
           price: prop.listPrice || 0,
           listPrice: prop.listPrice || 0,
           bedrooms: prop.beds || 0,
           bathrooms: prop.baths || 0,
           squareFootage: prop.sqft || 0,
           yearBuilt: prop.yearBuilt || 0,
-          propertyType: prop.propertyType || 'Residential',
-          listingStatus: prop.status || 'Active',
-          listingDate: prop.onMarketDate || '',
-          description: '',
+          propertyType: prop.propertyType || "Residential",
+          listingStatus: prop.status || "Active",
+          listingDate: prop.onMarketDate || "",
+          description: "",
           features: prop.condition ? [prop.condition] : [],
           photoUrls: prop.imageUrl ? [prop.imageUrl] : [],
           neighborhood: prop.subdivision || null,
           agentName: null,
         }));
       }
-      
+
       // No valid search criteria
       return [];
     },
@@ -573,7 +598,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      if (file.size > 10 * 1024 * 1024) {
+        // 10MB limit
         toast({
           title: "File Too Large",
           description: "Please select an image under 10MB",
@@ -581,7 +607,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         });
         return;
       }
-      
+
       setSelectedPhoto(file);
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -597,82 +623,93 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   };
 
   const postToPlatformMutation = useMutation({
-    mutationFn: async ({ platform, content, photo }: { platform: string; content: string; photo?: File }) => {
+    mutationFn: async ({
+      platform,
+      content,
+      photo,
+    }: {
+      platform: string;
+      content: string;
+      photo?: File;
+    }) => {
       // Handle Facebook posting separately using Facebook Pages API
-      if (platform.toLowerCase() === 'facebook') {
-        const response = await fetch('/api/facebook/post', {
-          method: 'POST',
+      if (platform.toLowerCase() === "facebook") {
+        const response = await fetch("/api/facebook/post", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             content: content,
-            pageId: "749034191633605" // Golden Brick page ID
+            pageId: "61581294927027", // Golden Brick page ID
           }),
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to post to Facebook');
+          throw new Error(errorData.error || "Failed to post to Facebook");
         }
-        
+
         return response.json();
-      } else if (platform.toLowerCase() === 'instagram') {
+      } else if (platform.toLowerCase() === "instagram") {
         // Handle Instagram posting using Instagram Graph API
         const formData = new FormData();
-        formData.append('content', content);
+        formData.append("content", content);
         if (photo) {
-          formData.append('photo', photo);
+          formData.append("photo", photo);
         }
-        
-        const response = await fetch('/api/instagram/post', {
-          method: 'POST',
+
+        const response = await fetch("/api/instagram/post", {
+          method: "POST",
           body: formData,
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to post to Instagram');
+          throw new Error(errorData.error || "Failed to post to Instagram");
         }
-        
+
         return response.json();
-      } else if (platform.toLowerCase() === 'x (twitter)' || platform.toLowerCase() === 'twitter') {
+      } else if (
+        platform.toLowerCase() === "x (twitter)" ||
+        platform.toLowerCase() === "twitter"
+      ) {
         // Handle Twitter posting using Twitter API v2
         const formData = new FormData();
-        formData.append('content', content);
+        formData.append("content", content);
         if (photo) {
-          formData.append('photo', photo);
+          formData.append("photo", photo);
         }
-        
-        const response = await fetch('/api/twitter/post', {
-          method: 'POST',
+
+        const response = await fetch("/api/twitter/post", {
+          method: "POST",
           body: formData,
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to post to Twitter');
+          throw new Error(errorData.error || "Failed to post to Twitter");
         }
-        
+
         return response.json();
       } else {
         // For other platforms, use the general endpoint
         const formData = new FormData();
-        formData.append('platform', platform);
-        formData.append('content', content);
+        formData.append("platform", platform);
+        formData.append("content", content);
         if (photo) {
-          formData.append('photo', photo);
+          formData.append("photo", photo);
         }
-        
-        const response = await fetch('/api/social/post', {
-          method: 'POST',
+
+        const response = await fetch("/api/social/post", {
+          method: "POST",
           body: formData,
         });
-        
+
         if (!response.ok) {
           throw new Error(await response.text());
         }
-        
+
         return response.json();
       }
     },
@@ -696,7 +733,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
   const handlePostToPlatform = (platform: string) => {
     if (!lastGenerated) return;
-    
+
     setPostingTo(platform);
     postToPlatformMutation.mutate({
       platform: platform.toLowerCase(),
@@ -706,14 +743,17 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   };
 
   const handlePostToWebsite = (platform: string) => {
-    const content = optimizedContent[platform]?.content || lastGenerated?.content;
+    const content =
+      optimizedContent[platform]?.content || lastGenerated?.content;
     if (!content) return;
-    
+
     toast({
       title: "Posting to Website",
-      description: `Publishing "${lastGenerated?.title || 'Real Estate Content'}" to your website...`,
+      description: `Publishing "${
+        lastGenerated?.title || "Real Estate Content"
+      }" to your website...`,
     });
-    
+
     // Simulate posting to website - this would integrate with CMS
     setTimeout(() => {
       toast({
@@ -721,94 +761,6 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         description: "Your content has been published to your website!",
       });
     }, 2000);
-  };
-
-  const regenerateForPlatformMutation = useMutation<GeneratedContent, Error, { 
-    platform: string; 
-    originalContent: string; 
-    contentType: string; 
-    topic: string;
-    neighborhood: string;
-  }>({
-    mutationFn: async ({ platform, originalContent, contentType, topic, neighborhood }) => {
-      const response = await apiRequest("POST", "/api/content/regenerate-for-platform", {
-        platform: platform.toLowerCase(),
-        originalContent,
-        contentType,
-        topic,
-        neighborhood,
-        seoOptimized: true,
-        longTailKeywords: true,
-      });
-      return await response.json();
-    },
-    onSuccess: (data: GeneratedContent, variables) => {
-      // Check if SEO score is below 80%, if so, automatically regenerate (max 2 retries)
-      const seoScore = data.seoScore || 0;
-      const currentRetries = retryCount[variables.platform] || 0;
-      
-      if (seoScore < 80 && currentRetries < 2) {
-        // Automatically retry to get better SEO score
-        console.log(`SEO score ${seoScore}% below target, auto-regenerating for ${variables.platform} (attempt ${currentRetries + 1})...`);
-        setRetryCount(prev => ({
-          ...prev,
-          [variables.platform]: currentRetries + 1
-        }));
-        
-        regenerateForPlatformMutation.mutate({
-          platform: variables.platform,
-          originalContent: variables.originalContent,
-          contentType: variables.contentType,
-          topic: variables.topic,
-          neighborhood: variables.neighborhood,
-        });
-        return;
-      }
-      
-      // Reset retry count for this platform
-      setRetryCount(prev => ({
-        ...prev,
-        [variables.platform]: 0
-      }));
-      
-      // Store optimized content for this platform
-      setOptimizedContent(prev => ({
-        ...prev,
-        [variables.platform]: data
-      }));
-      setLastGenerated(data);
-      
-      const message = seoScore >= 80 ? 
-        `Content optimized for ${variables.platform} with ${seoScore}% SEO score` :
-        `Content optimized for ${variables.platform} with ${seoScore}% SEO score (reached max retries)`;
-        
-      toast({
-        title: "Content Optimized!",
-        description: message,
-      });
-      setRegeneratingFor(null);
-    },
-    onError: (error: any, variables) => {
-      toast({
-        title: "Regeneration Failed",
-        description: `Failed to regenerate content for ${variables.platform}`,
-        variant: "destructive",
-      });
-      setRegeneratingFor(null);
-    },
-  });
-
-  const handleRegenerateForPlatform = (platform: string) => {
-    if (!lastGenerated) return;
-    
-    setRegeneratingFor(platform);
-    regenerateForPlatformMutation.mutate({
-      platform,
-      originalContent: lastGenerated.content,
-      contentType,
-      topic,
-      neighborhood,
-    });
   };
 
   const generateContentMutation = useMutation({
@@ -833,6 +785,113 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     },
   });
 
+  const regenerateForPlatformMutation = useMutation<
+    GeneratedContent,
+    Error,
+    {
+      platform: string;
+      originalContent: string;
+      contentType: string;
+      topic: string;
+      neighborhood: string;
+    }
+  >({
+    mutationFn: async ({
+      platform,
+      originalContent,
+      contentType,
+      topic,
+      neighborhood,
+    }) => {
+      const response = await apiRequest(
+        "POST",
+        "/api/content/regenerate-for-platform",
+        {
+          platform: platform.toLowerCase(),
+          originalContent,
+          contentType,
+          topic,
+          neighborhood,
+          seoOptimized: true,
+          longTailKeywords: true,
+        }
+      );
+      return await response.json();
+    },
+    onSuccess: (data: GeneratedContent, variables) => {
+      // Check if SEO score is below 80%, if so, automatically regenerate (max 2 retries)
+      const seoScore = data.seoScore || 0;
+      const currentRetries = retryCount[variables.platform] || 0;
+
+      if (seoScore < 80 && currentRetries < 2) {
+        // Automatically retry to get better SEO score
+        console.log(
+          `SEO score ${seoScore}% below target, auto-regenerating for ${
+            variables.platform
+          } (attempt ${currentRetries + 1})...`
+        );
+        setRetryCount((prev) => ({
+          ...prev,
+          [variables.platform]: currentRetries + 1,
+        }));
+
+        regenerateForPlatformMutation.mutate({
+          platform: variables.platform,
+          originalContent: variables.originalContent,
+          contentType: variables.contentType,
+          topic: variables.topic,
+          neighborhood: variables.neighborhood,
+        });
+        return;
+      }
+
+      // Reset retry count for this platform
+      setRetryCount((prev) => ({
+        ...prev,
+        [variables.platform]: 0,
+      }));
+
+      // Store optimized content for this platform
+      setOptimizedContent((prev) => ({
+        ...prev,
+        [variables.platform]: data,
+      }));
+      setLastGenerated(data);
+
+      const message =
+        seoScore >= 80
+          ? `Content optimized for ${variables.platform} with ${seoScore}% SEO score`
+          : `Content optimized for ${variables.platform} with ${seoScore}% SEO score (reached max retries)`;
+
+      toast({
+        title: "Content Optimized!",
+        description: message,
+      });
+      setRegeneratingFor(null);
+    },
+    onError: (error: any, variables) => {
+      toast({
+        title: "Regeneration Failed",
+        description: `Failed to regenerate content for ${variables.platform}`,
+        variant: "destructive",
+      });
+      setRegeneratingFor(null);
+    },
+  });
+
+  const handleRegenerateForPlatform = (platform: string) => {
+    if (!lastGenerated) return;
+
+    setRegeneratingFor(platform);
+    regenerateForPlatformMutation.mutate({
+      platform,
+      originalContent: lastGenerated.content,
+      contentType,
+      topic,
+      neighborhood,
+    });
+  };
+
   const handleGenerate = () => {
     if (!topic.trim() && contentType !== "property_feature") {
       toast({
@@ -846,45 +905,63 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     if (contentType === "property_feature" && !selectedProperty) {
       toast({
         title: "Property Required",
-        description: "Please search and select a property for property feature content",
+        description:
+          "Please search and select a property for property feature content",
         variant: "destructive",
       });
       return;
     }
 
     const selectedStyle = contentStyles[contentType] || "None";
-    const enhancedPrompt = selectedStyle === "None" 
-      ? aiPrompt.trim()
-      : `${aiPrompt.trim()} Use a ${selectedStyle.toLowerCase()} style and tone for this content.`;
-    
+    const enhancedPrompt =
+      selectedStyle === "None"
+        ? aiPrompt.trim()
+        : `${aiPrompt.trim()} Use a ${selectedStyle.toLowerCase()} style and tone for this content.`;
+
     generateContentMutation.mutate({
       type: contentType,
       topic: topic.trim(),
       aiPrompt: enhancedPrompt,
-      neighborhood: neighborhood === "All Omaha Areas" ? undefined : neighborhood,
+      neighborhood:
+        neighborhood === "All Omaha Areas" ? undefined : neighborhood,
       seoOptimized,
       longTailKeywords,
       localSeoFocus: true,
-      propertyData: contentType === "property_feature" ? selectedProperty : undefined,
+      propertyData:
+        contentType === "property_feature" ? selectedProperty : undefined,
     });
   };
 
   // Determine if generator is active (ready to generate content)
-  const isActive = !isGenerating && !generateContentMutation.isPending && (
-    (contentType !== "property_feature") || 
-    (contentType === "property_feature" && selectedProperty)
-  );
+  const isActive =
+    !isGenerating &&
+    !generateContentMutation.isPending &&
+    (contentType !== "property_feature" ||
+      (contentType === "property_feature" && selectedProperty));
+
+  // Optimization prerequisites validation
+  const optimizationPrereqs = useOptimizationPrereqs({
+    contentType,
+    topic,
+    lastGenerated,
+    selectedProperty,
+    isGenerating,
+    isPending: regenerateForPlatformMutation.isPending,
+  });
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-foreground">AI Content Generator</CardTitle>
-          <Badge 
-            variant="secondary" 
-            className={isActive 
-              ? "bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700" 
-              : "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700"
+          <CardTitle className="text-lg font-semibold text-foreground">
+            AI Content Generator
+          </CardTitle>
+          <Badge
+            variant="secondary"
+            className={
+              isActive
+                ? "bg-green-100 text-green-700 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700"
+                : "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700"
             }
           >
             {isActive ? "Active" : "Not Active"}
@@ -893,41 +970,50 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Content Type Selection */}
-        <div>
-          <Label className="text-sm font-medium text-foreground mb-2 block">Content Type</Label>
+        <div className="space-y-3">
+          <Label className="text-sm font-medium text-foreground mb-2 block">
+            Content Type
+          </Label>
           <div className="grid grid-cols-3 gap-3">
             {contentTypes.map((type) => (
-              <div key={type.value} className="space-y-2">
-                <Button
-                  variant={contentType === type.value ? "default" : "secondary"}
-                  className="w-full text-sm font-medium"
-                  onClick={() => setContentType(type.value)}
-                  data-testid={`content-type-${type.value}`}
-                >
-                  <type.icon className="mr-2 h-4 w-4" />
-                  {type.label}
-                </Button>
-                
-                {/* Style Dropdown */}
-                <Select
-                  value={contentStyles[type.value] || "None"}
-                  onValueChange={(value) => 
-                    setContentStyles(prev => ({ ...prev, [type.value]: value }))
-                  }
-                >
-                  <SelectTrigger className="w-full h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {styleOptions.map((style) => (
-                      <SelectItem key={style.value} value={style.value}>
-                        {style.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Button
+                key={type.value}
+                variant={contentType === type.value ? "default" : "secondary"}
+                className="w-full text-sm font-medium"
+                onClick={() => setContentType(type.value)}
+                data-testid={`content-type-${type.value}`}
+              >
+                <type.icon className="mr-2 h-4 w-4" />
+                {type.label}
+              </Button>
             ))}
+          </div>
+          
+          {/* Single Style Dropdown */}
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1 block">
+              Content Style
+            </Label>
+            <Select
+              value={contentStyles[contentType] || "None"}
+              onValueChange={(value) =>
+                setContentStyles((prev) => ({
+                  ...prev,
+                  [contentType]: value,
+                }))
+              }
+            >
+              <SelectTrigger className="w-full h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {styleOptions.map((style) => (
+                  <SelectItem key={style.value} value={style.value}>
+                    {style.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -936,31 +1022,56 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           <div className="space-y-4 p-4 bg-muted/30 rounded-lg border">
             <div className="flex items-center space-x-2">
               <Home className="h-4 w-4 text-muted-foreground" />
-              <Label className="text-sm font-medium text-foreground">Select Property from MLS</Label>
+              <Label className="text-sm font-medium text-foreground">
+                Select Property from MLS
+              </Label>
             </div>
-            
+
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label htmlFor="mls-number" className="text-xs text-muted-foreground mb-1 block">MLS#</Label>
+                <Label
+                  htmlFor="mls-number"
+                  className="text-xs text-muted-foreground mb-1 block"
+                >
+                  MLS#
+                </Label>
                 <Input
                   id="mls-number"
                   placeholder="e.g., 22301234"
                   value={propertySearchParams.mlsNumber}
-                  onChange={(e) => setPropertySearchParams(prev => ({ ...prev, mlsNumber: e.target.value }))}
+                  onChange={(e) =>
+                    setPropertySearchParams((prev) => ({
+                      ...prev,
+                      mlsNumber: e.target.value,
+                    }))
+                  }
                   className="w-full"
                   data-testid="input-mls-number"
                 />
               </div>
               <div className="relative">
-                <Label htmlFor="property-address" className="text-xs text-muted-foreground mb-1 block">
-                  Address {isLoadingDetails && <span className="text-blue-600">(Loading property details...)</span>}
+                <Label
+                  htmlFor="property-address"
+                  className="text-xs text-muted-foreground mb-1 block"
+                >
+                  Address{" "}
+                  {isLoadingDetails && (
+                    <span className="text-blue-600">
+                      (Loading property details...)
+                    </span>
+                  )}
                 </Label>
                 <Input
                   ref={addressInputRef}
                   id="property-address"
                   placeholder="Start typing address..."
                   value={propertySearchParams.address}
-                  onChange={(e) => setPropertySearchParams(prev => ({ ...prev, address: e.target.value }))}
+                  onChange={(e) =>
+                    setPropertySearchParams((prev) => ({
+                      ...prev,
+                      address: e.target.value,
+                    }))
+                  }
                   className="w-full"
                   data-testid="input-property-address"
                   onBlur={() => {
@@ -973,7 +1084,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     }
                   }}
                 />
-                
+
                 {/* Address Suggestions Dropdown */}
                 {showSuggestions && addressSuggestions.length > 0 && (
                   <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg max-h-48 overflow-y-auto">
@@ -991,30 +1102,49 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     ))}
                   </div>
                 )}
-                
-                {googleMapsStatus === 'loading' && (
-                  <p className="text-xs text-muted-foreground mt-1">Loading address suggestions...</p>
+
+                {googleMapsStatus === "loading" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Loading address suggestions...
+                  </p>
                 )}
-                {googleMapsStatus === 'ready' && (
-                  <p className="text-xs text-muted-foreground mt-1">✓ Type to see address suggestions</p>
+                {googleMapsStatus === "ready" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    ✓ Type to see address suggestions
+                  </p>
                 )}
               </div>
               <div>
-                <Label htmlFor="listing-agent" className="text-xs text-muted-foreground mb-1 block">Listing Agent</Label>
+                <Label
+                  htmlFor="listing-agent"
+                  className="text-xs text-muted-foreground mb-1 block"
+                >
+                  Listing Agent
+                </Label>
                 <Input
                   id="listing-agent"
                   placeholder="e.g., Mike Bjork"
                   value={propertySearchParams.listingAgent}
-                  onChange={(e) => setPropertySearchParams(prev => ({ ...prev, listingAgent: e.target.value }))}
+                  onChange={(e) =>
+                    setPropertySearchParams((prev) => ({
+                      ...prev,
+                      listingAgent: e.target.value,
+                    }))
+                  }
                   className="w-full"
                   data-testid="input-listing-agent"
                 />
               </div>
             </div>
-            
+
             <Button
               onClick={() => searchProperties()}
-              disabled={isSearchingProperties || (!propertySearchParams.mlsNumber && !propertySearchParams.address && !propertySearchParams.listingAgent)}
+              disabled={
+                isSearchingProperties ||
+                (!propertySearchParams.mlsNumber &&
+                  !propertySearchParams.address &&
+                  !propertySearchParams.listingAgent)
+              }
               className="w-full"
               variant="outline"
               data-testid="button-search-properties"
@@ -1022,28 +1152,34 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
               <Search className="mr-2 h-4 w-4" />
               {isSearchingProperties ? "Searching..." : "Search Properties"}
             </Button>
-            
+
             {properties && properties.length > 0 && (
               <div className="space-y-2">
-                <Label className="text-xs text-muted-foreground">Found Properties</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Found Properties
+                </Label>
                 <div className="max-h-32 overflow-y-auto space-y-2">
                   {properties.map((property) => (
                     <div
                       key={property.id}
                       className={`p-2 rounded border cursor-pointer transition-colors ${
-                        selectedProperty?.id === property.id 
-                          ? 'bg-primary text-primary-foreground border-primary' 
-                          : 'bg-background hover:bg-muted border-border'
+                        selectedProperty?.id === property.id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background hover:bg-muted border-border"
                       }`}
                       onClick={() => setSelectedProperty(property)}
                       data-testid={`property-option-${property.id}`}
                     >
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
-                          <p className="text-xs font-medium">#{property.mlsNumber}</p>
+                          <p className="text-xs font-medium">
+                            #{property.mlsNumber}
+                          </p>
                           <p className="text-xs">{property.address}</p>
                           <p className="text-xs opacity-75">
-                            ${property.price?.toLocaleString() || 'N/A'} • {property.bedrooms || 0}BR/{property.bathrooms || 0}BA
+                            ${property.price?.toLocaleString() || "N/A"} •{" "}
+                            {property.bedrooms || 0}BR/{property.bathrooms || 0}
+                            BA
                           </p>
                         </div>
                       </div>
@@ -1052,26 +1188,87 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </div>
               </div>
             )}
-            
+
             {selectedProperty && (
-              <div className="p-3 bg-background rounded border">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-medium text-foreground">Selected Property</p>
+              <div className="p-4 bg-muted/30 rounded-lg border space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    Selected Property
+                  </h4>
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={() => setSelectedProperty(null)}
-                    className="h-6 w-6 p-0"
+                    className="h-7 text-xs"
                     data-testid="button-clear-property"
                   >
-                    <X className="h-3 w-3" />
+                    Change Property
                   </Button>
                 </div>
-                <p className="text-xs font-medium">#{selectedProperty.mlsNumber}</p>
-                <p className="text-xs">{selectedProperty.address}, {selectedProperty.city}</p>
-                <p className="text-xs text-muted-foreground">
-                  ${selectedProperty.price?.toLocaleString() || 'N/A'} • {selectedProperty.bedrooms || 0}BR/{selectedProperty.bathrooms || 0}BA • {selectedProperty.squareFootage?.toLocaleString() || 'N/A'} sq ft
-                </p>
+                
+                <div className="flex gap-4">
+                  {/* Property Image */}
+                  <div className="w-28 h-28 bg-muted rounded-lg flex-shrink-0 overflow-hidden">
+                    {selectedProperty.photoUrls?.[0] ? (
+                      <img 
+                        src={selectedProperty.photoUrls[0]} 
+                        alt={selectedProperty.address}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Home className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Property Details */}
+                  <div className="flex-1 space-y-2">
+                    <div>
+                      <h5 className="font-semibold text-base text-foreground line-clamp-1">
+                        {selectedProperty.address}
+                      </h5>
+                      <p className="text-sm text-muted-foreground">
+                        {selectedProperty.city}, {selectedProperty.state} {selectedProperty.zipCode}
+                      </p>
+                    </div>
+                    
+                    {selectedProperty.neighborhood && (
+                      <Badge variant="outline" className="text-xs">
+                        <MapPin className="h-3 w-3 mr-1" />
+                        {selectedProperty.neighborhood}
+                      </Badge>
+                    )}
+                    
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      <div className="flex items-center gap-1 text-sm">
+                        <Bed className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{selectedProperty.bedrooms || 0}</span>
+                        <span className="text-xs text-muted-foreground">beds</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-sm">
+                        <Bath className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{selectedProperty.bathrooms || 0}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-sm">
+                        <Square className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">{selectedProperty.squareFootage?.toLocaleString() || "N/A"}</span>
+                        <span className="text-xs text-muted-foreground">sqft</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-1 border-t">
+                      <div className="text-xs text-muted-foreground">
+                        MLS# {selectedProperty.mlsNumber}
+                      </div>
+                      {selectedProperty.agent && (
+                        <div className="text-xs text-muted-foreground">
+                          Agent: {selectedProperty.agent}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1079,12 +1276,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
         {/* Topic Input */}
         <div>
-          <Label htmlFor="topic" className="text-sm font-medium text-foreground mb-2 block">
-            {contentType === "property_feature" ? "Additional Keywords (Optional)" : "Topic or Keywords"}
+          <Label
+            htmlFor="topic"
+            className="text-sm font-medium text-foreground mb-2 block"
+          >
+            {contentType === "property_feature"
+              ? "Additional Keywords (Optional)"
+              : "Topic or Keywords"}
           </Label>
           <Input
             id="topic"
-            placeholder={contentType === "property_feature" ? "e.g., luxury features, family-friendly" : "e.g., Dundee neighborhood guide, luxury homes Aksarben"}
+            placeholder={
+              contentType === "property_feature"
+                ? "e.g., luxury features, family-friendly"
+                : "e.g., Dundee neighborhood guide, luxury homes Aksarben"
+            }
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             className="w-full"
@@ -1094,7 +1300,10 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
         {/* AI Prompt Input */}
         <div>
-          <Label htmlFor="ai-prompt" className="text-sm font-medium text-foreground mb-2 block">
+          <Label
+            htmlFor="ai-prompt"
+            className="text-sm font-medium text-foreground mb-2 block"
+          >
             AI Instructions
           </Label>
           <Textarea
@@ -1107,7 +1316,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
             data-testid="input-ai-prompt"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Customize how AI creates your content - specify tone, style, call-to-actions, or any special requirements.
+            Customize how AI creates your content - specify tone, style,
+            call-to-actions, or any special requirements.
           </p>
         </div>
 
@@ -1132,16 +1342,23 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
         {/* SEO Options */}
         <div>
-          <Label className="text-sm font-medium text-foreground mb-2 block">SEO Optimization</Label>
+          <Label className="text-sm font-medium text-foreground mb-2 block">
+            SEO Optimization
+          </Label>
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="long-tail"
                 checked={longTailKeywords}
-                onCheckedChange={(checked) => setLongTailKeywords(checked === true)}
+                onCheckedChange={(checked) =>
+                  setLongTailKeywords(checked === true)
+                }
                 data-testid="checkbox-long-tail"
               />
-              <Label htmlFor="long-tail" className="text-sm text-muted-foreground">
+              <Label
+                htmlFor="long-tail"
+                className="text-sm text-muted-foreground"
+              >
                 Long-tail keywords
               </Label>
             </div>
@@ -1152,7 +1369,10 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 onCheckedChange={(checked) => setSeoOptimized(checked === true)}
                 data-testid="checkbox-local-seo"
               />
-              <Label htmlFor="local-seo" className="text-sm text-muted-foreground">
+              <Label
+                htmlFor="local-seo"
+                className="text-sm text-muted-foreground"
+              >
                 Local SEO focus
               </Label>
             </div>
@@ -1166,14 +1386,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           data-testid="button-generate-ai-content"
         >
           <Sparkles className="mr-2 h-4 w-4" />
-          {isGenerating || generateContentMutation.isPending ? "Generating..." : "Generate Content with AI"}
+          {isGenerating || generateContentMutation.isPending
+            ? "Generating..."
+            : "Generate Content with AI"}
         </Button>
 
         {/* Generated Content Preview */}
         {lastGenerated && (
-          <div className="mt-6 p-4 bg-muted rounded-lg" data-testid="content-preview">
+          <div
+            className="mt-6 p-4 bg-muted rounded-lg"
+            data-testid="content-preview"
+          >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-foreground">Latest Generated Content</h3>
+              <h3 className="font-medium text-foreground">
+                Latest Generated Content
+              </h3>
               <div className="flex items-center space-x-2">
                 <Button
                   variant="ghost"
@@ -1209,17 +1436,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </Button>
               </div>
             </div>
-            
-            <p className="text-sm font-medium text-foreground mb-3">"{lastGenerated.title}"</p>
-            
+
+            <p className="text-sm font-medium text-foreground mb-3">
+              "{lastGenerated.title}"
+            </p>
+
             {/* Photo Upload Section */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-2">
-                <Label className="text-xs font-medium text-foreground">Add Photo (Optional)</Label>
+                <Label className="text-xs font-medium text-foreground">
+                  Add Photo (Optional)
+                </Label>
                 {!selectedPhoto && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setShowPhotoUpload(true)}
                     data-testid="button-add-photo"
                   >
@@ -1228,12 +1459,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   </Button>
                 )}
               </div>
-              
+
               {photoPreview && (
                 <div className="relative inline-block">
-                  <img 
-                    src={photoPreview} 
-                    alt="Selected photo" 
+                  <img
+                    src={photoPreview}
+                    alt="Selected photo"
                     className="max-w-full h-32 object-cover rounded border"
                   />
                   <Button
@@ -1248,11 +1479,13 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </div>
               )}
             </div>
-            
+
             {showFullContent && (
               <div className="mb-4 p-3 bg-background rounded border">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-medium text-muted-foreground">Generated Content</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Generated Content
+                  </span>
                   <Button
                     variant="outline"
                     size="sm"
@@ -1261,7 +1494,9 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                         setEditedContent(lastGenerated.content);
                       } else {
                         // Save edited content
-                        setLastGenerated(prev => prev ? { ...prev, content: editedContent } : null);
+                        setLastGenerated((prev) =>
+                          prev ? { ...prev, content: editedContent } : null
+                        );
                       }
                       setIsEditing(!isEditing);
                     }}
@@ -1295,7 +1530,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 )}
               </div>
             )}
-            
+
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4 text-xs text-muted-foreground">
                 <span className="flex items-center">
@@ -1311,17 +1546,23 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   Generated just now
                 </span>
               </div>
-              
+
               {lastGenerated.seoScore && (
-                <Badge 
-                  variant="outline" 
-                  className={`text-xs ${lastGenerated.seoScore >= 80 ? 'border-green-500 text-green-700 dark:text-green-400' : lastGenerated.seoScore >= 70 ? 'border-yellow-500 text-yellow-700 dark:text-yellow-400' : 'border-red-500 text-red-700 dark:text-red-400'}`}
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${
+                    lastGenerated.seoScore >= 80
+                      ? "border-green-500 text-green-700 dark:text-green-400"
+                      : lastGenerated.seoScore >= 70
+                      ? "border-yellow-500 text-yellow-700 dark:text-yellow-400"
+                      : "border-red-500 text-red-700 dark:text-red-400"
+                  }`}
                 >
                   SEO Score: {lastGenerated.seoScore}%
                 </Badge>
               )}
             </div>
-            
+
             {(lastGenerated.keywords?.length || 0) > 0 && (
               <div className="mt-3 pt-3 border-t">
                 <p className="text-xs text-muted-foreground mb-2">Keywords:</p>
@@ -1334,162 +1575,275 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </div>
               </div>
             )}
-            
+
             {lastGenerated.seoBreakdown && (
               <div className="mt-3 pt-3 border-t">
-                <p className="text-xs text-muted-foreground mb-2">SEO Breakdown:</p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  SEO Breakdown:
+                </p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex justify-between">
                     <span>Keywords:</span>
-                    <span className="font-mono">{lastGenerated.seoBreakdown.keywordOptimization}/25</span>
+                    <span className="font-mono">
+                      {lastGenerated.seoBreakdown.keywordOptimization}/25
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Structure:</span>
-                    <span className="font-mono">{lastGenerated.seoBreakdown.contentStructure}/20</span>
+                    <span className="font-mono">
+                      {lastGenerated.seoBreakdown.contentStructure}/20
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Local SEO:</span>
-                    <span className="font-mono">{lastGenerated.seoBreakdown.localSEO}/20</span>
+                    <span className="font-mono">
+                      {lastGenerated.seoBreakdown.localSEO}/20
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Quality:</span>
-                    <span className="font-mono">{lastGenerated.seoBreakdown.contentQuality}/15</span>
+                    <span className="font-mono">
+                      {lastGenerated.seoBreakdown.contentQuality}/15
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Meta:</span>
-                    <span className="font-mono">{lastGenerated.seoBreakdown.metaOptimization}/10</span>
+                    <span className="font-mono">
+                      {lastGenerated.seoBreakdown.metaOptimization}/10
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Call-to-Action:</span>
-                    <span className="font-mono">{lastGenerated.seoBreakdown.callToAction}/10</span>
+                    <span className="font-mono">
+                      {lastGenerated.seoBreakdown.callToAction}/10
+                    </span>
                   </div>
                 </div>
               </div>
             )}
-            
+
             {/* Platform Suggestions */}
             <div className="mt-3 pt-3 border-t">
               <div className="flex items-center mb-3">
                 <Share2 className="mr-2 h-4 w-4 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Recommended Platforms:</p>
+                <p className="text-xs text-muted-foreground">
+                  Recommended Platforms:
+                </p>
               </div>
-              <div className="space-y-2">
-                {getPlatformSuggestions(lastGenerated).map((suggestion, index) => {
-                  const IconComponent = suggestion.icon;
-                  return (
-                    <div key={suggestion.platform} className="flex items-start space-x-3 p-2 bg-background rounded border">
-                      <div className="flex items-center space-x-2">
-                        <IconComponent className="h-4 w-4" style={{ color: 
-                          suggestion.platform === 'Facebook' ? '#1877F2' :
-                          suggestion.platform === 'Instagram' ? '#E4405F' :
-                          suggestion.platform === 'LinkedIn' ? '#0077B5' :
-                          suggestion.platform === 'YouTube' ? '#FF0000' :
-                          '#1DA1F2'
-                        }} />
-                        <Badge 
-                          variant="outline" 
-                          className={`text-xs ${
-                            suggestion.fit === 'excellent' ? 'border-green-500 text-green-700 dark:text-green-400' :
-                            suggestion.fit === 'very-good' ? 'border-blue-500 text-blue-700 dark:text-blue-400' :
-                            'border-yellow-500 text-yellow-700 dark:text-yellow-400'
-                          }`}
-                        >
-                          {suggestion.fit === 'excellent' ? '🏆 Excellent' : 
-                           suggestion.fit === 'very-good' ? '⭐ Very Good' : '👍 Good'} Fit
-                        </Badge>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-foreground">{suggestion.platform}</p>
-                          <div className="flex items-center space-x-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 px-2 text-xs"
-                              onClick={() => handleRegenerateForPlatform(suggestion.platform)}
-                              disabled={regeneratingFor === suggestion.platform || regenerateForPlatformMutation.isPending}
-                              data-testid={`button-regenerate-${suggestion.platform.toLowerCase()}`}
-                            >
-                              {regeneratingFor === suggestion.platform ? (
-                                <>
-                                  <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-                                  Optimizing...
-                                </>
-                              ) : (
-                                <>
-                                  <RefreshCw className="mr-1 h-3 w-3" />
-                                  Optimize
-                                </>
-                              )}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="h-6 px-2 text-xs"
-                              onClick={() => {
-                                setPreviewPlatform(suggestion.platform);
-                                setShowPlatformPreview(true);
-                              }}
-                              data-testid={`button-view-${suggestion.platform.toLowerCase()}`}
-                            >
-                              <Eye className="mr-1 h-3 w-3" />
-                              Preview
-                            </Button>
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="h-6 px-2 text-xs"
-                              onClick={() => {
-                                if (suggestion.platform === 'Website') {
-                                  handlePostToWebsite(suggestion.platform);
-                                } else {
-                                  handlePostToPlatform(suggestion.platform);
-                                }
-                              }}
-                              disabled={postingTo === suggestion.platform || postToPlatformMutation.isPending}
-                              data-testid={`button-post-${suggestion.platform.toLowerCase()}`}
-                            >
-                              {postingTo === suggestion.platform ? (
-                                <>
-                                  <span className="animate-spin mr-1">⏳</span>
-                                  Posting...
-                                </>
-                              ) : (
-                                <>
-                                  {suggestion.platform === 'Website' ? <Globe className="mr-1 h-3 w-3" /> : <Send className="mr-1 h-3 w-3" />}
-                                  {suggestion.platform === 'Website' ? 'Post to Website' : 'Post Now'}
-                                </>
-                              )}
-                            </Button>
-                          </div>
+
+              {/* Optimization Prerequisites Checklist */}
+              <div className="mb-3 p-2 bg-muted/30 rounded-md border">
+                <p className="text-xs font-medium text-foreground mb-2">Optimization Requirements:</p>
+                <div className="space-y-1">
+                  {optimizationPrereqs.checklistItems.map((item) => (
+                    <div key={item.id} className="flex items-center space-x-2">
+                      {item.isMet ? (
+                        <div className="h-4 w-4 rounded-full bg-green-500 flex items-center justify-center">
+                          <span className="text-white text-xs">✓</span>
                         </div>
-                        <p className="text-xs text-muted-foreground">{suggestion.reason}</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          <span className="font-medium">Tip:</span> {suggestion.optimization}
-                        </p>
-                        {optimizedContent[suggestion.platform] && (
-                          <div className="flex items-center space-x-2 mt-2">
-                            <Badge 
-                              variant="outline" 
-                              className="text-xs border-green-500 text-green-700 dark:text-green-400"
-                            >
-                              SEO: {optimizedContent[suggestion.platform].seoScore || 82}%
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              Optimized for {suggestion.platform}
-                            </span>
-                          </div>
-                        )}
-                      </div>
+                      ) : (
+                        <div className="h-4 w-4 rounded-full bg-red-500 flex items-center justify-center">
+                          <span className="text-white text-xs">✗</span>
+                        </div>
+                      )}
+                      <span className={`text-xs ${item.isMet ? 'text-muted-foreground' : 'text-foreground font-medium'}`}>
+                        {item.label}
+                      </span>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {getPlatformSuggestions(lastGenerated, marketData).map(
+                  (suggestion, index) => {
+                    const IconComponent = suggestion.icon;
+                    return (
+                      <div
+                        key={suggestion.platform}
+                        className="flex items-start space-x-3 p-2 bg-background rounded border"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <IconComponent
+                            className="h-4 w-4"
+                            style={{
+                              color:
+                                suggestion.platform === "Facebook"
+                                  ? "#1877F2"
+                                  : suggestion.platform === "Instagram"
+                                  ? "#E4405F"
+                                  : suggestion.platform === "LinkedIn"
+                                  ? "#0077B5"
+                                  : suggestion.platform === "YouTube"
+                                  ? "#FF0000"
+                                  : "#1DA1F2",
+                            }}
+                          />
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${
+                              suggestion.fit === "excellent"
+                                ? "border-green-500 text-green-700 dark:text-green-400"
+                                : suggestion.fit === "very-good"
+                                ? "border-blue-500 text-blue-700 dark:text-blue-400"
+                                : "border-yellow-500 text-yellow-700 dark:text-yellow-400"
+                            }`}
+                          >
+                            {suggestion.fit === "excellent"
+                              ? "🏆 Excellent"
+                              : suggestion.fit === "very-good"
+                              ? "⭐ Very Good"
+                              : "👍 Good"}{" "}
+                            Fit
+                          </Badge>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-foreground">
+                              {suggestion.platform}
+                            </p>
+                            <div className="flex items-center space-x-1">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  {optimizationPrereqs.ready && regeneratingFor !== suggestion.platform ? (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 px-2 text-xs"
+                                      onClick={() =>
+                                        handleRegenerateForPlatform(
+                                          suggestion.platform
+                                        )
+                                      }
+                                      data-testid={`button-regenerate-${suggestion.platform.toLowerCase()}`}
+                                    >
+                                      <RefreshCw className="mr-1 h-3 w-3" />
+                                      Optimize
+                                    </Button>
+                                  ) : (
+                                    <TooltipTrigger asChild>
+                                      <span
+                                        tabIndex={0}
+                                        role="button"
+                                        className="inline-flex cursor-not-allowed"
+                                      >
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 px-2 text-xs pointer-events-none"
+                                          disabled
+                                          data-testid={`button-regenerate-${suggestion.platform.toLowerCase()}`}
+                                        >
+                                          {regeneratingFor === suggestion.platform ? (
+                                            <>
+                                              <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                                              Optimizing...
+                                            </>
+                                          ) : (
+                                            <>
+                                              <RefreshCw className="mr-1 h-3 w-3" />
+                                              Optimize
+                                            </>
+                                          )}
+                                        </Button>
+                                      </span>
+                                    </TooltipTrigger>
+                                  )}
+                                  {!optimizationPrereqs.ready && (
+                                    <TooltipContent>
+                                      <div className="text-xs">
+                                        {optimizationPrereqs.unmetReasons.join(" • ")}
+                                      </div>
+                                    </TooltipContent>
+                                  )}
+                                </Tooltip>
+                              </TooltipProvider>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => {
+                                  setPreviewPlatform(suggestion.platform);
+                                  setShowPlatformPreview(true);
+                                }}
+                                data-testid={`button-view-${suggestion.platform.toLowerCase()}`}
+                              >
+                                <Eye className="mr-1 h-3 w-3" />
+                                Preview
+                              </Button>
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="h-6 px-2 text-xs"
+                                onClick={() => {
+                                  if (suggestion.platform === "Website") {
+                                    handlePostToWebsite(suggestion.platform);
+                                  } else {
+                                    handlePostToPlatform(suggestion.platform);
+                                  }
+                                }}
+                                disabled={
+                                  postingTo === suggestion.platform ||
+                                  postToPlatformMutation.isPending
+                                }
+                                data-testid={`button-post-${suggestion.platform.toLowerCase()}`}
+                              >
+                                {postingTo === suggestion.platform ? (
+                                  <>
+                                    <span className="animate-spin mr-1">
+                                      ⏳
+                                    </span>
+                                    Posting...
+                                  </>
+                                ) : (
+                                  <>
+                                    {suggestion.platform === "Website" ? (
+                                      <Globe className="mr-1 h-3 w-3" />
+                                    ) : (
+                                      <Send className="mr-1 h-3 w-3" />
+                                    )}
+                                    {suggestion.platform === "Website"
+                                      ? "Post to Website"
+                                      : "Post Now"}
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {suggestion.reason}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            <span className="font-medium">Tip:</span>{" "}
+                            {suggestion.optimization}
+                          </p>
+                          {optimizedContent[suggestion.platform] && (
+                            <div className="flex items-center space-x-2 mt-2">
+                              <Badge
+                                variant="outline"
+                                className="text-xs border-green-500 text-green-700 dark:text-green-400"
+                              >
+                                SEO:{" "}
+                                {optimizedContent[suggestion.platform]
+                                  .seoScore || 82}
+                                %
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                Optimized for {suggestion.platform}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                )}
               </div>
             </div>
           </div>
         )}
       </CardContent>
-      
+
       {/* Platform Preview Dialog */}
       <Dialog open={showPlatformPreview} onOpenChange={setShowPlatformPreview}>
         <DialogContent className="max-w-sm p-0 overflow-hidden">
@@ -1499,11 +1853,13 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           {previewPlatform && (
             <div>
               {/* Facebook Preview */}
-              {previewPlatform === 'Facebook' && (
+              {previewPlatform === "Facebook" && (
                 <div className="bg-white text-black">
                   <div className="flex items-center gap-3 p-3">
                     <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
-                      <span className="text-sm font-bold text-golden-foreground">MB</span>
+                      <span className="text-sm font-bold text-golden-foreground">
+                        MB
+                      </span>
                     </div>
                     <div className="flex-1">
                       <div className="font-semibold text-sm">Mike Bjork</div>
@@ -1514,12 +1870,16 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                           setIsEditing(true);
-                          setEditedContent(optimizedContent[previewPlatform]?.content || lastGenerated?.content || '');
+                          setEditedContent(
+                            optimizedContent[previewPlatform]?.content ||
+                              lastGenerated?.content ||
+                              ""
+                          );
                         }}
                         className="h-8 w-8 p-0 hover:bg-gray-100"
                       >
@@ -1528,7 +1888,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       <MoreHorizontal className="h-5 w-5 text-gray-500" />
                     </div>
                   </div>
-                  
+
                   <div className="px-3 pb-3">
                     {isEditing ? (
                       <Textarea
@@ -1539,14 +1899,17 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       />
                     ) : (
                       <div className="text-sm mb-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                        {optimizedContent[previewPlatform]?.content || lastGenerated?.content}
+                        {optimizedContent[previewPlatform]?.content ||
+                          lastGenerated?.content}
                       </div>
                     )}
                   </div>
-                  
+
                   {photoPreview && (
-                    <div className="aspect-video bg-cover bg-center" style={{ backgroundImage: `url(${photoPreview})` }}>
-                    </div>
+                    <div
+                      className="aspect-video bg-cover bg-center"
+                      style={{ backgroundImage: `url(${photoPreview})` }}
+                    ></div>
                   )}
                   {!photoPreview && (
                     <div className="aspect-video bg-gradient-to-br from-golden-accent/20 to-golden-muted/40 flex items-center justify-center">
@@ -1556,55 +1919,81 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="p-3 border-t">
                     <div className="flex items-center justify-between text-sm text-gray-600">
                       <div className="flex items-center gap-1">
                         <div className="flex -space-x-1">
-                          <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-xs text-white">👍</div>
-                          <div className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-xs text-white">❤️</div>
+                          <div className="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center text-xs text-white">
+                            👍
+                          </div>
+                          <div className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-xs text-white">
+                            ❤️
+                          </div>
                         </div>
                         <span className="ml-2">43</span>
                       </div>
                       <div>8 comments</div>
                     </div>
                     <div className="flex items-center justify-around mt-3 pt-2 border-t">
-                      <Button variant="ghost" size="sm" className="flex-1 text-gray-600">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-gray-600"
+                      >
                         👍 Like
                       </Button>
-                      <Button variant="ghost" size="sm" className="flex-1 text-gray-600">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-gray-600"
+                      >
                         💬 Comment
                       </Button>
-                      <Button variant="ghost" size="sm" className="flex-1 text-gray-600">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-gray-600"
+                      >
                         📤 Share
                       </Button>
                     </div>
                   </div>
                 </div>
               )}
-              
+
               {/* Instagram Preview */}
-              {previewPlatform === 'Instagram' && (
+              {previewPlatform === "Instagram" && (
                 <div className="bg-white text-black">
                   <div className="flex items-center justify-between p-3 border-b">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 bg-gradient-to-tr from-purple-500 via-pink-500 to-orange-400 rounded-full p-[2px]">
                         <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
-                          <span className="text-xs font-bold text-golden-accent">MB</span>
+                          <span className="text-xs font-bold text-golden-accent">
+                            MB
+                          </span>
                         </div>
                       </div>
                       <div>
-                        <div className="font-semibold text-sm">mikebjork_realtor</div>
-                        <div className="text-xs text-gray-500">Omaha, Nebraska</div>
+                        <div className="font-semibold text-sm">
+                          mikebjork_realtor
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Omaha, Nebraska
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                           setIsEditing(true);
-                          setEditedContent(optimizedContent[previewPlatform]?.content || lastGenerated?.content || '');
+                          setEditedContent(
+                            optimizedContent[previewPlatform]?.content ||
+                              lastGenerated?.content ||
+                              ""
+                          );
                         }}
                         className="h-8 w-8 p-0 hover:bg-gray-100"
                       >
@@ -1613,10 +2002,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       <MoreHorizontal className="h-4 w-4" />
                     </div>
                   </div>
-                  
+
                   {photoPreview ? (
-                    <div className="aspect-square bg-cover bg-center" style={{ backgroundImage: `url(${photoPreview})` }}>
-                    </div>
+                    <div
+                      className="aspect-square bg-cover bg-center"
+                      style={{ backgroundImage: `url(${photoPreview})` }}
+                    ></div>
                   ) : (
                     <div className="aspect-square bg-gradient-to-br from-golden-accent/20 to-golden-muted/40 flex items-center justify-center">
                       <div className="text-center text-gray-600">
@@ -1625,7 +2016,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-4">
@@ -1647,38 +2038,52 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                             placeholder="Edit your caption..."
                           />
                         ) : (
-                          <span className="whitespace-pre-wrap">{optimizedContent[previewPlatform]?.content || lastGenerated?.content}</span>
+                          <span className="whitespace-pre-wrap">
+                            {optimizedContent[previewPlatform]?.content ||
+                              lastGenerated?.content}
+                          </span>
                         )}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500 mt-2">View all 5 comments</div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      View all 5 comments
+                    </div>
                     <div className="text-xs text-gray-500 mt-1">
                       {format(new Date(), "MMMM d")}
                     </div>
                   </div>
                 </div>
               )}
-              
+
               {/* LinkedIn/X Preview */}
-              {(previewPlatform === 'LinkedIn' || previewPlatform === 'X (Twitter)') && (
+              {(previewPlatform === "LinkedIn" ||
+                previewPlatform === "X (Twitter)") && (
                 <div className="bg-white text-black p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
-                      <span className="text-sm font-bold text-golden-foreground">MB</span>
+                      <span className="text-sm font-bold text-golden-foreground">
+                        MB
+                      </span>
                     </div>
                     <div className="flex-1">
                       <div className="font-semibold text-sm">Mike Bjork</div>
-                      <div className="text-xs text-gray-500">Real Estate Professional at BHHS</div>
+                      <div className="text-xs text-gray-500">
+                        Real Estate Professional at BHHS
+                      </div>
                       <div className="text-xs text-gray-400">
                         {format(new Date(), "MMM d, h:mm a")}
                       </div>
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
                         setIsEditing(true);
-                        setEditedContent(optimizedContent[previewPlatform]?.content || lastGenerated?.content || '');
+                        setEditedContent(
+                          optimizedContent[previewPlatform]?.content ||
+                            lastGenerated?.content ||
+                            ""
+                        );
                       }}
                       className="h-8 w-8 p-0 hover:bg-gray-100"
                     >
@@ -1694,14 +2099,15 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     />
                   ) : (
                     <div className="text-sm mb-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                      {optimizedContent[previewPlatform]?.content || lastGenerated?.content}
+                      {optimizedContent[previewPlatform]?.content ||
+                        lastGenerated?.content}
                     </div>
                   )}
                   {photoPreview && (
                     <div className="border rounded bg-gray-50 p-1 mb-3">
-                      <img 
-                        src={photoPreview} 
-                        alt="Property" 
+                      <img
+                        src={photoPreview}
+                        alt="Property"
                         className="w-full aspect-video object-cover rounded"
                       />
                     </div>
@@ -1710,40 +2116,55 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     <div className="border rounded bg-gray-50 p-4">
                       <div className="text-center text-gray-600">
                         <Home className="h-8 w-8 mx-auto mb-2" />
-                        <div className="text-sm font-medium">Property Listing</div>
+                        <div className="text-sm font-medium">
+                          Property Listing
+                        </div>
                         <div className="text-xs">Click to view details</div>
                       </div>
                     </div>
                   )}
                 </div>
               )}
-              
+
               {/* YouTube Preview */}
-              {previewPlatform === 'YouTube' && (
+              {previewPlatform === "YouTube" && (
                 <div className="bg-white text-black p-4">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
-                      <span className="text-sm font-bold text-golden-foreground">MB</span>
+                      <span className="text-sm font-bold text-golden-foreground">
+                        MB
+                      </span>
                     </div>
                     <div className="flex-1">
-                      <div className="font-semibold text-sm">Mike Bjork Real Estate</div>
-                      <div className="text-xs text-gray-500">Omaha Real Estate Expert</div>
+                      <div className="font-semibold text-sm">
+                        Mike Bjork Real Estate
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Omaha Real Estate Expert
+                      </div>
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => {
                         setIsEditing(true);
-                        setEditedContent(optimizedContent[previewPlatform]?.content || lastGenerated?.content || '');
+                        setEditedContent(
+                          optimizedContent[previewPlatform]?.content ||
+                            lastGenerated?.content ||
+                            ""
+                        );
                       }}
                       className="h-8 w-8 p-0 hover:bg-gray-100"
                     >
                       <Edit2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  
+
                   {photoPreview ? (
-                    <div className="aspect-video bg-cover bg-center rounded mb-3 relative" style={{ backgroundImage: `url(${photoPreview})` }}>
+                    <div
+                      className="aspect-video bg-cover bg-center rounded mb-3 relative"
+                      style={{ backgroundImage: `url(${photoPreview})` }}
+                    >
                       <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded">
                         <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center">
                           <div className="w-0 h-0 border-l-[8px] border-l-white border-y-[6px] border-y-transparent ml-1"></div>
@@ -1754,11 +2175,13 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     <div className="aspect-video bg-gradient-to-br from-golden-accent/20 to-golden-muted/40 flex items-center justify-center rounded mb-3">
                       <div className="text-center text-gray-600">
                         <Home className="h-12 w-12 mx-auto mb-2" />
-                        <div className="text-sm font-medium">Video Thumbnail</div>
+                        <div className="text-sm font-medium">
+                          Video Thumbnail
+                        </div>
                       </div>
                     </div>
                   )}
-                  
+
                   <div className="space-y-2">
                     <div className="text-sm font-semibold line-clamp-2">
                       {lastGenerated?.title || "Real Estate Video Content"}
@@ -1772,7 +2195,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       />
                     ) : (
                       <div className="text-xs text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap">
-                        {optimizedContent[previewPlatform]?.content || lastGenerated?.content}
+                        {optimizedContent[previewPlatform]?.content ||
+                          lastGenerated?.content}
                       </div>
                     )}
                   </div>
@@ -1780,17 +2204,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
               )}
             </div>
           )}
-          
+
           {/* Edit Controls */}
           {previewPlatform && (
             <div className="p-4 border-t bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
               {!isEditing ? (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => {
                     setIsEditing(true);
-                    setEditedContent(optimizedContent[previewPlatform]?.content || lastGenerated?.content || '');
+                    setEditedContent(
+                      optimizedContent[previewPlatform]?.content ||
+                        lastGenerated?.content ||
+                        ""
+                    );
                   }}
                   className="flex items-center gap-2"
                 >
@@ -1799,26 +2227,26 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </Button>
               ) : (
                 <div className="flex items-center gap-2 w-full">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       setIsEditing(false);
-                      setEditedContent('');
+                      setEditedContent("");
                     }}
                   >
                     Cancel
                   </Button>
-                  <Button 
+                  <Button
                     size="sm"
                     onClick={() => {
                       if (previewPlatform) {
-                        setOptimizedContent(prev => ({
+                        setOptimizedContent((prev) => ({
                           ...prev,
                           [previewPlatform]: {
                             ...prev[previewPlatform],
-                            content: editedContent
-                          }
+                            content: editedContent,
+                          },
                         }));
                       }
                       setIsEditing(false);
@@ -1838,39 +2266,45 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           )}
         </DialogContent>
       </Dialog>
-      
+
       {/* Photo Upload Dialog */}
       <Dialog open={showPhotoUpload} onOpenChange={setShowPhotoUpload}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Photo to Content</DialogTitle>
           </DialogHeader>
-          
-          <Tabs value={photoUploadMode} onValueChange={(value) => setPhotoUploadMode(value as "upload" | "stock" | "ai")} className="w-full">
+
+          <Tabs
+            value={photoUploadMode}
+            onValueChange={(value) =>
+              setPhotoUploadMode(value as "upload" | "stock" | "ai")
+            }
+            className="w-full"
+          >
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="upload">Upload Photo</TabsTrigger>
               <TabsTrigger value="stock">Stock Photos</TabsTrigger>
               <TabsTrigger value="ai">AI Image</TabsTrigger>
             </TabsList>
-            
+
             <TabsContent value="upload" className="space-y-4">
               <ObjectUploader
                 maxNumberOfFiles={1}
                 maxFileSize={10485760}
                 onGetUploadParameters={async () => {
-                  const response = await fetch('/api/objects/upload', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                  const response = await fetch("/api/objects/upload", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
                   });
                   const data = await response.json();
                   return {
-                    method: 'PUT' as const,
+                    method: "PUT" as const,
                     url: data.uploadURL,
                   };
                 }}
                 onComplete={(uploadedFileUrl) => {
                   // Convert Google Cloud Storage URL to local /objects/ endpoint
-                  const fileName = uploadedFileUrl.split('/').pop();
+                  const fileName = uploadedFileUrl.split("/").pop();
                   const localImageUrl = `/objects/${fileName}`;
                   setPhotoPreview(localImageUrl);
                   setShowPhotoUpload(false);
@@ -1885,12 +2319,13 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   <span>Select Photo to Upload</span>
                 </div>
               </ObjectUploader>
-              
+
               <div className="text-xs text-muted-foreground text-center">
-                Upload your own photos for a personal touch. Supports JPG, PNG up to 10MB.
+                Upload your own photos for a personal touch. Supports JPG, PNG
+                up to 10MB.
               </div>
             </TabsContent>
-            
+
             <TabsContent value="stock" className="space-y-4">
               <div className="grid grid-cols-3 gap-3">
                 {[
@@ -1899,7 +2334,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   "https://images.unsplash.com/photo-1570129477492-45c003edd2be?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200&q=80",
                   "https://images.unsplash.com/photo-1601760562234-9814eea6663a?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200&q=80",
                   "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200&q=80",
-                  "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200&q=80"
+                  "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?ixlib=rb-4.0.3&auto=format&fit=crop&w=300&h=200&q=80",
                 ].map((image, index) => (
                   <div
                     key={index}
@@ -1909,7 +2344,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       setShowPhotoUpload(false);
                       toast({
                         title: "Stock photo selected",
-                        description: "Professional stock photo added to your content.",
+                        description:
+                          "Professional stock photo added to your content.",
                       });
                     }}
                   >
@@ -1929,16 +2365,20 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   </div>
                 ))}
               </div>
-              
+
               <div className="text-xs text-muted-foreground text-center">
-                Choose from our curated collection of professional real estate photos.
+                Choose from our curated collection of professional real estate
+                photos.
               </div>
             </TabsContent>
-            
+
             <TabsContent value="ai" className="space-y-4">
               <div className="space-y-3">
                 <div className="space-y-2">
-                  <Label htmlFor="ai-image-prompt" className="text-sm font-medium">
+                  <Label
+                    htmlFor="ai-image-prompt"
+                    className="text-sm font-medium"
+                  >
                     Describe the image you want to generate
                   </Label>
                   <Input
@@ -1947,30 +2387,32 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     className="w-full"
                   />
                 </div>
-                
+
                 <Button
                   className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
                   onClick={() => {
                     toast({
                       title: "AI Image Generation",
-                      description: "This feature will generate custom images using AI. Coming soon!",
+                      description:
+                        "This feature will generate custom images using AI. Coming soon!",
                     });
                   }}
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
                   Generate AI Image
                 </Button>
-                
+
                 <div className="text-xs text-muted-foreground text-center">
-                  AI will create a custom image based on your description, perfectly tailored for your content.
+                  AI will create a custom image based on your description,
+                  perfectly tailored for your content.
                 </div>
               </div>
             </TabsContent>
           </Tabs>
-          
+
           <div className="flex items-center gap-2 pt-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => setShowPhotoUpload(false)}
               className="flex-1"
             >

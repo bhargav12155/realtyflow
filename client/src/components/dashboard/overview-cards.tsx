@@ -4,6 +4,7 @@ import { Users, Edit, Search, Heart } from "lucide-react";
 
 interface OverviewData {
   monthly_leads: number;
+  monthly_leads_change?: number;
   content_published: number;
   seo_ranking: number;
   social_engagement: number;
@@ -13,10 +14,10 @@ const cards = [
   {
     title: "Monthly Leads",
     key: "monthly_leads" as keyof OverviewData,
+    changeKey: "monthly_leads_change" as keyof OverviewData,
     icon: Users,
     color: "text-chart-1",
     bgColor: "bg-chart-1/10",
-    change: "+12.5%",
     changeLabel: "vs last month",
   },
   {
@@ -75,14 +76,36 @@ export function OverviewCards() {
         const value = overview?.[card.key] || 0;
         const formattedValue = card.format ? card.format(value) : value.toLocaleString();
         
+        // Get change value (either from API or hardcoded)
+        let changeText = card.change || "";
+        let changeValue: number | undefined;
+        
+        if (card.changeKey && overview) {
+          changeValue = overview[card.changeKey] as number | undefined;
+          if (changeValue !== undefined) {
+            const prefix = changeValue > 0 ? '+' : '';
+            changeText = `${prefix}${changeValue.toFixed(1)}%`;
+          } else if (value === 0) {
+            changeText = "No data";
+          }
+        }
+        
         // Determine color based on positive/negative change
-        const getChangeColor = (change: string) => {
+        const getChangeColor = (change: string, numValue?: number) => {
+          if (change === "No data") {
+            return 'text-muted-foreground';
+          }
+          if (numValue !== undefined) {
+            if (numValue > 0) return 'text-green-600';
+            if (numValue < 0) return 'text-red-600';
+            return 'text-muted-foreground';
+          }
           if (change.startsWith('+')) {
             return 'text-green-600';
           } else if (change.startsWith('-')) {
             return 'text-red-600';
           }
-          return 'text-chart-3'; // fallback for neutral
+          return 'text-chart-3';
         };
         
         return (
@@ -100,7 +123,7 @@ export function OverviewCards() {
                 </div>
               </div>
               <div className="mt-4 flex items-center text-sm">
-                <span className={`${getChangeColor(card.change)} font-medium`}>{card.change}</span>
+                <span className={`${getChangeColor(changeText, changeValue)} font-medium`}>{changeText}</span>
                 <span className="text-muted-foreground ml-1">{card.changeLabel}</span>
               </div>
             </CardContent>

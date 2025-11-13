@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,7 +18,7 @@ interface StreamingSession {
 
 export function StreamingAvatar() {
   const { toast } = useToast();
-  const [selectedAvatar, setSelectedAvatar] = useState<string>('default');
+  const [selectedAvatar, setSelectedAvatar] = useState<string>('');
   const [session, setSession] = useState<StreamingSession | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -31,13 +31,28 @@ export function StreamingAvatar() {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
+  // HeyGen's public streaming avatars (these always work)
+  const defaultStreamingAvatars = [
+    { avatar_id: 'Wayne_20240711', avatar_name: 'Wayne - Professional Male' },
+    { avatar_id: 'Angela-inblackskirt-20220820', avatar_name: 'Angela - Professional Female' },
+    { avatar_id: 'josh_lite3_20230714', avatar_name: 'Josh - Casual Male' },
+    { avatar_id: 'Anna_public_3_20240108', avatar_name: 'Anna - Business Woman' },
+    { avatar_id: 'Tyler-incasualsuit-20220721', avatar_name: 'Tyler - Casual Male' },
+  ];
+
+  // Set default avatar
+  useEffect(() => {
+    if (!selectedAvatar && defaultStreamingAvatars.length > 0) {
+      setSelectedAvatar(defaultStreamingAvatars[0].avatar_id);
+    }
+  }, [selectedAvatar]);
+
   // Create streaming session
   const createSessionMutation = useMutation({
-    mutationFn: (avatarId: string) =>
-      apiRequest('/api/streaming/sessions', {
-        method: 'POST',
-        body: JSON.stringify({ avatarId })
-      }),
+    mutationFn: async (avatarId: string) => {
+      const res = await apiRequest('POST', '/api/streaming/sessions', { avatarId });
+      return await res.json();
+    },
     onSuccess: async (data) => {
       setSession(data);
       setIsConnecting(true);
@@ -108,11 +123,10 @@ export function StreamingAvatar() {
 
   // Make avatar speak
   const speakMutation = useMutation({
-    mutationFn: (text: string) =>
-      apiRequest(`/api/streaming/sessions/${session?.sessionId}/speak`, {
-        method: 'POST',
-        body: JSON.stringify({ text })
-      }),
+    mutationFn: async (text: string) => {
+      const res = await apiRequest('POST', `/api/streaming/sessions/${session?.sessionId}/speak`, { text });
+      return await res.json();
+    },
     onSuccess: () => {
       setMessage('');
     },
@@ -127,10 +141,10 @@ export function StreamingAvatar() {
 
   // Start voice chat
   const startVoiceChatMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(`/api/streaming/sessions/${session?.sessionId}/voice-chat`, {
-        method: 'POST'
-      }),
+    mutationFn: async () => {
+      const res = await apiRequest('POST', `/api/streaming/sessions/${session?.sessionId}/voice-chat`);
+      return await res.json();
+    },
     onSuccess: async () => {
       // Get user's microphone
       try {
@@ -159,10 +173,10 @@ export function StreamingAvatar() {
 
   // Stop voice chat
   const stopVoiceChatMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(`/api/streaming/sessions/${session?.sessionId}/voice-chat`, {
-        method: 'DELETE'
-      }),
+    mutationFn: async () => {
+      const res = await apiRequest('DELETE', `/api/streaming/sessions/${session?.sessionId}/voice-chat`);
+      return await res.json();
+    },
     onSuccess: () => {
       // Stop local audio stream
       if (localStreamRef.current) {
@@ -175,18 +189,18 @@ export function StreamingAvatar() {
 
   // Interrupt avatar
   const interruptMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(`/api/streaming/sessions/${session?.sessionId}/interrupt`, {
-        method: 'POST'
-      })
+    mutationFn: async () => {
+      const res = await apiRequest('POST', `/api/streaming/sessions/${session?.sessionId}/interrupt`);
+      return await res.json();
+    }
   });
 
   // End session
   const endSessionMutation = useMutation({
-    mutationFn: () =>
-      apiRequest(`/api/streaming/sessions/${session?.sessionId}`, {
-        method: 'DELETE'
-      }),
+    mutationFn: async () => {
+      const res = await apiRequest('DELETE', `/api/streaming/sessions/${session?.sessionId}`);
+      return await res.json();
+    },
     onSuccess: () => {
       cleanup();
       setSession(null);
@@ -245,7 +259,9 @@ export function StreamingAvatar() {
       <CardHeader>
         <CardTitle>Interactive Streaming Avatar</CardTitle>
         <CardDescription>
-          Real-time interactive AI avatar for engaging conversations with your audience
+          Real-time interactive AI avatar with live video streaming, text-to-speech, and two-way voice chat.
+          <br />
+          <strong>Note:</strong> This uses HeyGen's Streaming Avatars (different from Photo Avatars). Only streaming-compatible avatars appear in the dropdown.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -259,17 +275,18 @@ export function StreamingAvatar() {
                   <SelectValue placeholder="Choose an avatar" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="default">Default Avatar</SelectItem>
-                  <SelectItem value="professional">Professional Mike</SelectItem>
-                  <SelectItem value="casual">Casual Mike</SelectItem>
-                  <SelectItem value="formal">Formal Mike</SelectItem>
+                  {defaultStreamingAvatars.map((avatar) => (
+                    <SelectItem key={avatar.avatar_id} value={avatar.avatar_id}>
+                      {avatar.avatar_name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             
             <Button
               onClick={() => createSessionMutation.mutate(selectedAvatar)}
-              disabled={createSessionMutation.isPending}
+              disabled={createSessionMutation.isPending || !selectedAvatar}
               className="w-full"
               data-testid="button-start-session"
             >

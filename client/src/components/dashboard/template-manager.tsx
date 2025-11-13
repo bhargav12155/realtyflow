@@ -36,6 +36,14 @@ interface RealEstateTemplate {
   recommended_variables: Record<string, string>;
 }
 
+interface TemplatesResponse {
+  templates: Template[];
+}
+
+interface RealEstateTemplatesResponse {
+  suggestions: RealEstateTemplate[];
+}
+
 export function TemplateManager() {
   const { toast } = useToast();
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
@@ -45,22 +53,19 @@ export function TemplateManager() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Query templates
-  const { data: templates, isLoading: isLoadingTemplates } = useQuery({
+  const { data: templates, isLoading: isLoadingTemplates } = useQuery<TemplatesResponse>({
     queryKey: ['/api/templates'],
   });
 
   // Query real estate templates
-  const { data: realEstateTemplates, isLoading: isLoadingRealEstate } = useQuery({
+  const { data: realEstateTemplates, isLoading: isLoadingRealEstate } = useQuery<RealEstateTemplatesResponse>({
     queryKey: ['/api/templates/real-estate'],
   });
 
   // Generate from template
   const generateMutation = useMutation({
     mutationFn: ({ templateId, variables, title }: any) =>
-      apiRequest(`/api/templates/${templateId}/generate`, {
-        method: 'POST',
-        body: JSON.stringify({ variables, title, test: false })
-      }),
+      apiRequest('POST', `/api/templates/${templateId}/generate`, { variables, title, test: false }),
     onSuccess: (data) => {
       toast({
         title: "Video Generation Started",
@@ -81,10 +86,7 @@ export function TemplateManager() {
   // Create custom template
   const createTemplateMutation = useMutation({
     mutationFn: (data: { name: string; description: string; elements: any[] }) =>
-      apiRequest('/api/templates', {
-        method: 'POST',
-        body: JSON.stringify(data)
-      }),
+      apiRequest('POST', '/api/templates', data),
     onSuccess: () => {
       toast({
         title: "Template Created",
@@ -99,10 +101,7 @@ export function TemplateManager() {
   // Duplicate template
   const duplicateMutation = useMutation({
     mutationFn: ({ templateId, name }: { templateId: string; name: string }) =>
-      apiRequest(`/api/templates/${templateId}/duplicate`, {
-        method: 'POST',
-        body: JSON.stringify({ name })
-      }),
+      apiRequest('POST', `/api/templates/${templateId}/duplicate`, { name }),
     onSuccess: () => {
       toast({
         title: "Template Duplicated",
@@ -115,9 +114,7 @@ export function TemplateManager() {
   // Delete template
   const deleteMutation = useMutation({
     mutationFn: (templateId: string) =>
-      apiRequest(`/api/templates/${templateId}`, {
-        method: 'DELETE'
-      }),
+      apiRequest('DELETE', `/api/templates/${templateId}`),
     onSuccess: () => {
       toast({
         title: "Template Deleted",
@@ -426,26 +423,46 @@ export function TemplateManager() {
                   ))}
                 </div>
               </>
-            ) : (
+            ) : realEstateTemplates?.suggestions && realEstateTemplates.suggestions.length > 0 ? (
               <div className="grid grid-cols-2 gap-4">
-                {realEstateTemplates?.templates?.map((template: Template) => (
+                {realEstateTemplates.suggestions.map((template: RealEstateTemplate, index: number) => (
                   <div
-                    key={template.template_id}
+                    key={index}
                     className="border rounded-lg p-4 space-y-3"
-                    data-testid={`card-re-template-${template.template_id}`}
+                    data-testid={`card-re-template-${index}`}
                   >
                     <h3 className="font-medium">{template.name}</h3>
                     <p className="text-sm text-gray-600">{template.description}</p>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Recommended Variables:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(template.recommended_variables).map(([key, type]) => (
+                          <Badge key={key} variant="secondary">
+                            {key}: {type}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
                     <Button
                       size="sm"
-                      onClick={() => setSelectedTemplate(template)}
-                      data-testid={`button-use-re-${template.template_id}`}
+                      onClick={() => {
+                        setNewTemplateName(template.name);
+                        setNewTemplateDescription(template.description);
+                      }}
+                      data-testid={`button-use-re-${index}`}
                     >
-                      Use Template
+                      <Plus className="w-3 h-3 mr-1" />
+                      Create from this
                     </Button>
                   </div>
                 ))}
               </div>
+            ) : (
+              <Alert>
+                <AlertDescription>
+                  No real estate templates available.
+                </AlertDescription>
+              </Alert>
             )}
           </TabsContent>
 

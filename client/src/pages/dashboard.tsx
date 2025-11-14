@@ -3,6 +3,8 @@ import { AISearchOptimizer } from "@/components/dashboard/ai-search-optimizer";
 import { APIKeyManager } from "@/components/dashboard/api-key-manager";
 import { BrandSettings } from "@/components/dashboard/brand-settings";
 import { ContentCalendar } from "@/components/dashboard/content-calendar";
+import { FacebookTestPosts } from "@/components/dashboard/facebook-test-posts";
+import { InstagramTestPosts } from "@/components/dashboard/instagram-test-posts";
 import { LocalMarketTools } from "@/components/dashboard/local-market-tools";
 import { OverviewCards } from "@/components/dashboard/overview-cards";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
@@ -16,6 +18,7 @@ import { TwitterTestPosts } from "@/components/dashboard/twitter-test-posts";
 import { VideoGenerationManager } from "@/components/dashboard/video-generation-manager";
 import { VideoGenerator } from "@/components/dashboard/video-generator";
 import { VideoTemplates } from "@/components/dashboard/video-templates";
+import { YouTubeTestPosts } from "@/components/dashboard/youtube-test-posts";
 import { Sidebar } from "@/components/layout/sidebar";
 import { NotificationPanel } from "@/components/notifications/notification-panel";
 import { SocialMediaSetup } from "@/components/setup/social-media-setup";
@@ -147,6 +150,9 @@ export default function Dashboard() {
               <div className="space-y-6">
                 <SocialMediaManager />
                 <TwitterTestPosts />
+                <FacebookTestPosts />
+                <InstagramTestPosts />
+                <YouTubeTestPosts />
               </div>
             </div>
 

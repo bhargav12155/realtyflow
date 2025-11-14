@@ -29,7 +29,7 @@ import { MLSService } from "./services/mls";
 import { getAPIKeyStatus, openaiService } from "./services/openai";
 import { S3UploadService } from "./services/s3Upload";
 import { seoService } from "./services/seo";
-import { socialMediaService } from "./services/socialMedia";
+import { SocialMediaError, socialMediaService } from "./services/socialMedia";
 import { storage } from "./storage";
 import { realtimeService } from "./websocket";
 
@@ -38,6 +38,10 @@ const pkceStore = new Map<
   string,
   { codeVerifier: string; expiresAt: number }
 >();
+
+const DEFAULT_SOCIAL_SAMPLE_IMAGE =
+  process.env.SOCIAL_TEST_IMAGE_URL ||
+  "https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1080&q=80";
 
 // PKCE helper functions
 function generateCodeVerifier(): string {
@@ -252,6 +256,57 @@ Whether you're a first-time buyer, growing family, or savvy investor, I'll help 
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  const resolveMemStorageUser = async (req: any) => {
+    if (!req?.user) {
+      return null;
+    }
+
+    const sessionId = req.user.id ? String(req.user.id) : undefined;
+    let user = sessionId ? await storage.getUser(sessionId) : undefined;
+
+    const memUsers: Map<string, any> | undefined = (storage as any).users;
+
+    if (!user && req.user.email && memUsers) {
+      const allUsers = Array.from(memUsers.values());
+      user = allUsers.find((u) => u.email === req.user.email);
+    }
+
+    if (!user && req.user.username) {
+      user = await storage.getUserByUsername(req.user.username);
+    }
+
+    if (!user && sessionId) {
+      const derivedRole =
+        req.user.type === "public"
+          ? "public"
+          : req.user.type === "team_lead"
+          ? "team_lead"
+          : "agent";
+
+      const fallbackEmail =
+        req.user.email || `${sessionId}@placeholder.realtyflow`;
+
+      user = await storage.createUser({
+        username:
+          req.user.username ||
+          req.user.email?.split("@")[0] ||
+          `user_${sessionId}`,
+        email: fallbackEmail,
+        password: "",
+        name: req.user.email || `User ${sessionId}`,
+        role: derivedRole as "agent" | "public" | "team_lead",
+      });
+    }
+
+    return user || null;
+  };
+
+  const toBoolean = (value: any) => {
+    if (typeof value === "string") {
+      return ["true", "1", "on", "yes"].includes(value.toLowerCase());
+    }
+    return Boolean(value);
+  };
   // =====================================================
   // NEBRASKA HOME HUB INTEGRATION ENDPOINT
   // =====================================================
@@ -896,11 +951,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         )}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
       }
 
+      const facebookClientId =
+        process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+
       const oauthUrls: Record<string, string | null> = {
-        facebook: process.env.FACEBOOK_CLIENT_ID
-          ? `https://www.facebook.com/v18.0/dialog/oauth?client_id=${
-              process.env.FACEBOOK_CLIENT_ID
-            }&redirect_uri=${encodeURIComponent(
+        facebook: facebookClientId
+          ? `https://www.facebook.com/v18.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
               baseUrl + "/api/social/callback/facebook"
             )}&scope=pages_manage_posts,pages_read_engagement&state=${encodeURIComponent(
               state
@@ -1114,6 +1170,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error("LinkedIn OAuth error:", fetchError);
           return res.redirect(`${baseUrl}/?oauth_error=token_exchange_error`);
         }
+      } else if (platform.toLowerCase() === "facebook") {
+        const clientId =
+          process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+        const clientSecret =
+          process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+        const redirectUri = `${baseUrl}/api/social/callback/facebook`;
+
+        if (!clientId || !clientSecret) {
+          return res.send(`
+            <html>
+              <body>
+                <h1>Facebook OAuth Not Configured</h1>
+                <p>You must set <code>FACEBOOK_CLIENT_ID</code> (or <code>FACEBOOK_APP_ID</code>) and <code>FACEBOOK_CLIENT_SECRET</code> (or <code>FACEBOOK_APP_SECRET</code>) in your environment.</p>
+                <p>Add these to Replit Secrets and re-run the connect flow.</p>
+                <script>
+                  window.opener?.postMessage({ success: false, platform: 'facebook', error: 'missing_credentials' }, '*');
+                  setTimeout(() => window.close(), 4000);
+                </script>
+              </body>
+            </html>
+          `);
+        }
+
+        try {
+          const tokenParams = new URLSearchParams({
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            client_secret: clientSecret,
+            code: code as string,
+          });
+
+          const tokenResponse = await fetch(
+            `https://graph.facebook.com/v18.0/oauth/access_token?${tokenParams.toString()}`
+          );
+
+          if (!tokenResponse.ok) {
+            const errorPayload = await tokenResponse.text();
+            console.error("Facebook token exchange failed:", errorPayload);
+            return res.send(`
+              <html>
+                <body>
+                  <h1>❌ Facebook Connection Failed</h1>
+                  <p>Facebook token exchange failed. Check your app settings and try again.</p>
+                  <script>
+                    window.opener?.postMessage({ success: false, platform: 'facebook', error: 'token_exchange_failed' }, '*');
+                    setTimeout(() => window.close(), 4000);
+                  </script>
+                </body>
+              </html>
+            `);
+          }
+
+          const tokenData = await tokenResponse.json();
+          const accessToken = tokenData.access_token as string;
+          const expiresIn = tokenData.expires_in as number | undefined;
+
+          if (!accessToken) {
+            throw new Error("Facebook token response missing access_token");
+          }
+
+          const user = await storage.getUser(String(userId));
+          if (!user) {
+            return res.send(`
+              <html>
+                <body>
+                  <h1>User Not Found</h1>
+                  <p>We could not locate your session user. Please restart the connection flow.</p>
+                  <script>
+                    window.opener?.postMessage({ success: false, platform: 'facebook', error: 'user_not_found' }, '*');
+                    setTimeout(() => window.close(), 4000);
+                  </script>
+                </body>
+              </html>
+            `);
+          }
+
+          let profile: any = null;
+          try {
+            const profileResp = await fetch(
+              `https://graph.facebook.com/v18.0/me?fields=id,name,email&access_token=${accessToken}`
+            );
+            if (profileResp.ok) {
+              profile = await profileResp.json();
+            }
+          } catch (profileError) {
+            console.warn("Facebook profile lookup failed:", profileError);
+          }
+
+          const existingAccounts = await storage.getSocialMediaAccounts(
+            user.id
+          );
+          const facebookAccount = existingAccounts.find(
+            (acc) => acc.platform.toLowerCase() === "facebook"
+          );
+
+          const metadata = {
+            ...(facebookAccount?.metadata as any),
+            profileId: profile?.id || null,
+            profileName: profile?.name || null,
+            profileEmail: profile?.email || null,
+            tokenType: tokenData.token_type || "bearer",
+            expiresIn: expiresIn || null,
+          };
+
+          if (facebookAccount) {
+            await storage.updateSocialMediaAccount(facebookAccount.id, {
+              accessToken,
+              metadata,
+              isConnected: true,
+              lastSync: new Date(),
+            });
+          } else {
+            await storage.createSocialMediaAccount({
+              userId: user.id,
+              platform: "facebook",
+              accountId: profile?.id || "facebook_account",
+              accessToken,
+              metadata,
+              isConnected: true,
+            });
+          }
+
+          return res.send(`
+            <html>
+              <body>
+                <h1>✅ Facebook Connected Successfully!</h1>
+                <p>Your Facebook account has been connected. You can now post to your pages using the quick-test cards.</p>
+                <script>
+                  window.opener?.postMessage({ success: true, platform: 'facebook' }, '*');
+                  setTimeout(() => window.close(), 2000);
+                </script>
+              </body>
+            </html>
+          `);
+        } catch (fbError) {
+          console.error("Facebook OAuth error:", fbError);
+          return res.send(`
+            <html>
+              <body>
+                <h1>Facebook OAuth Error</h1>
+                <p>${(fbError as Error).message}</p>
+                <script>
+                  window.opener?.postMessage({ success: false, platform: 'facebook', error: 'oauth_error' }, '*');
+                  setTimeout(() => window.close(), 4000);
+                </script>
+              </body>
+            </html>
+          `);
+        }
       } else if (platform.toLowerCase() === "youtube") {
         const clientId = process.env.YOUTUBE_CLIENT_ID;
         const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
@@ -1153,6 +1358,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const tokenData = await tokenResponse.json();
           const accessToken = tokenData.access_token;
           const refreshToken = tokenData.refresh_token; // YouTube provides refresh tokens
+          console.log("🎥 YouTube OAuth token exchange successful", {
+            hasAccessToken: !!accessToken,
+            hasRefreshToken: !!refreshToken,
+          });
 
           // Get user from database using userId from state parameter
           const user = await storage.getUser(String(userId));
@@ -1160,9 +1369,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.redirect(`${baseUrl}/?oauth_error=user_not_found`);
           }
 
+          console.log("🎥 YouTube OAuth callback for user:", {
+            userId: user.id,
+            email: user.email,
+            username: user.username,
+          });
+
           // Save access token and refresh token to database
           const existingAccounts = await storage.getSocialMediaAccounts(
             user.id
+          );
+          console.log(
+            "   Existing social accounts:",
+            existingAccounts.map((a) => ({
+              id: a.id,
+              platform: a.platform,
+              hasAccessToken: !!a.accessToken,
+              hasRefreshToken: !!(a as any).refreshToken,
+            }))
           );
           const youtubeAccount = existingAccounts.find(
             (acc) => acc.platform.toLowerCase() === "youtube"
@@ -1176,6 +1400,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               isConnected: true,
               lastSync: new Date(),
             });
+            console.log(
+              `🔄 Updated existing YouTube account ${youtubeAccount.id} for user ${user.id}`
+            );
           } else {
             // Create new account
             await storage.createSocialMediaAccount({
@@ -1186,7 +1413,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               refreshToken: refreshToken || undefined,
               isConnected: true,
             });
+            console.log(
+              `➕ Created new YouTube account for user ${user.id} with platform 'youtube'`
+            );
           }
+
+          console.log("✅ YouTube tokens stored", {
+            accessTokenLength: accessToken ? String(accessToken).length : 0,
+            refreshTokenLength: refreshToken ? String(refreshToken).length : 0,
+          });
 
           // Success! Show confirmation and close window
           res.send(`
@@ -1648,9 +1883,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Facebook-specific endpoints
-  app.get("/api/facebook/pages", async (req, res) => {
+  app.get("/api/facebook/pages", requireAuth, async (req: any, res) => {
     try {
-      const pages = await socialMediaService.getFacebookPageInfo();
+      const user = await resolveMemStorageUser(req);
+
+      const socialAccounts = user
+        ? await storage.getSocialMediaAccounts(user.id)
+        : [];
+      const facebookAccount = socialAccounts.find(
+        (acc) => acc.platform.toLowerCase() === "facebook"
+      );
+
+      const metadata = (facebookAccount?.metadata as any) || {};
+      const delegatedToken =
+        metadata?.pageAccessToken ||
+        facebookAccount?.accessToken ||
+        process.env.FACEBOOK_USER_TOKEN;
+
+      if (!delegatedToken) {
+        return res.status(400).json({
+          error:
+            "Facebook token missing. Connect your Facebook Page or set FACEBOOK_USER_TOKEN.",
+        });
+      }
+
+      const pages = await socialMediaService.getFacebookPageInfo(
+        delegatedToken
+      );
       res.json(pages);
     } catch (error: any) {
       console.error("Error fetching Facebook pages:", error?.message || error);
@@ -1663,57 +1922,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/facebook/post", upload.single("photo"), async (req, res) => {
-    try {
-      const { content, pageId } = req.body;
-      const defaultPageId = process.env.FACEBOOK_PAGE_ID;
-      const resolvedPageId = pageId || defaultPageId;
-      const photo = req.file;
+  app.post(
+    "/api/facebook/post",
+    requireAuth,
+    upload.single("photo"),
+    async (req: any, res) => {
+      try {
+        const { content, pageId } = req.body;
+        if (!content) {
+          return res.status(400).json({ error: "Content is required" });
+        }
 
-      if (!content) {
-        return res.status(400).json({ error: "Content is required" });
-      }
+        const user = await resolveMemStorageUser(req);
+        if (!user) {
+          return res.status(401).json({ error: "Authentication required" });
+        }
 
-      let photoUrl = null;
-      if (photo) {
-        photoUrl = `/uploads/${path.basename(photo.path)}`;
-      }
+        const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+        const facebookAccount = socialAccounts.find(
+          (acc) => acc.platform.toLowerCase() === "facebook"
+        );
 
-      let postResult;
-      if (resolvedPageId) {
-        // Post to specific Facebook page
+        const metadata = (facebookAccount?.metadata as any) || {};
+        const resolvedPageId =
+          pageId ||
+          metadata?.pageId ||
+          facebookAccount?.accountId ||
+          process.env.FACEBOOK_PAGE_ID;
+
+        if (!resolvedPageId) {
+          return res.status(400).json({
+            error:
+              "Page ID is required for Facebook posting. Connect your page or supply a pageId.",
+          });
+        }
+
+        const resolvedToken =
+          metadata?.pageAccessToken ||
+          facebookAccount?.accessToken ||
+          process.env.FACEBOOK_PAGE_ACCESS_TOKEN ||
+          process.env.FACEBOOK_USER_TOKEN;
+
+        if (!resolvedToken) {
+          return res.status(400).json({
+            error:
+              "Facebook token missing. Reconnect your Facebook account or set FACEBOOK_USER_TOKEN.",
+          });
+        }
+
+        const useSampleImage = toBoolean(req.body.useSampleImage);
+        const photo = req.file;
+        let photoUrl: string | null = null;
+        let usedSampleImage = false;
+
+        if (photo) {
+          photoUrl = `/uploads/${path.basename(photo.path)}`;
+        } else if (useSampleImage) {
+          photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
+          usedSampleImage = true;
+        }
+
         const baseUrl = `${req.protocol}://${req.get("host")}`;
-        postResult = await socialMediaService.postToFacebookPage(
+        const postResult = await socialMediaService.postToFacebookPage(
           resolvedPageId,
           content,
           photoUrl || undefined,
-          undefined,
+          resolvedToken,
           baseUrl
         );
-      } else {
-        return res.status(400).json({
-          error:
-            "Page ID is required for Facebook posting. Direct profile posting is not supported.",
+
+        const scheduledPost = await storage.createScheduledPost({
+          userId: user.id,
+          platform: "facebook",
+          content,
+          scheduledFor: new Date(),
+          status: "posted",
+          postType: "quick_test",
+          hashtags: content.match(/#\w+/g) || [],
+          isEdited: false,
+          originalContent: content,
+          neighborhood: null,
+        });
+
+        realtimeService.notifySocialPostScheduled(
+          user.id,
+          scheduledPost.id,
+          "facebook",
+          new Date().toISOString()
+        );
+
+        res.json({
+          success: true,
+          message: "Content posted successfully to Facebook page",
+          postId: postResult.postId,
+          pageId: resolvedPageId,
+          usedSampleImage,
+          scheduledPostId: scheduledPost.id,
+          permalinkHint: `https://www.facebook.com/${resolvedPageId}`,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Facebook post error:", error);
+
+        if (error instanceof SocialMediaError) {
+          return res.status(error.statusCode).json({
+            error: error.message,
+            details: error.details,
+            requiresReconnect: error.statusCode === 401,
+          });
+        }
+
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        res.status(500).json({
+          error: `Failed to post to Facebook: ${message}`,
         });
       }
-
-      res.json({
-        success: true,
-        message: resolvedPageId
-          ? "Content posted successfully to Facebook page"
-          : "Content posted successfully to Facebook",
-        postId: postResult.postId,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("Facebook post error:", error);
-      res.status(500).json({
-        error: `Failed to post to Facebook: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      });
     }
-  });
+  );
 
   app.get("/api/facebook/posts", async (req, res) => {
     try {
@@ -1874,46 +2200,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Instagram endpoints
-  app.post("/api/instagram/post", upload.single("photo"), async (req, res) => {
-    try {
-      const { content, userId } = req.body;
-      const photo = req.file;
+  app.post(
+    "/api/instagram/post",
+    requireAuth,
+    upload.single("photo"),
+    async (req: any, res) => {
+      try {
+        const { content } = req.body;
+        const photo = req.file;
 
-      if (!content) {
-        return res.status(400).json({ error: "Content is required" });
+        if (!content) {
+          return res.status(400).json({ error: "Content is required" });
+        }
+
+        const user = await resolveMemStorageUser(req);
+        if (!user) {
+          return res.status(401).json({ error: "Authentication required" });
+        }
+
+        const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+        const instagramAccount = socialAccounts.find(
+          (acc) => acc.platform.toLowerCase() === "instagram"
+        );
+
+        const metadata = (instagramAccount?.metadata as any) || {};
+        const instagramUserId =
+          metadata?.instagramUserId ||
+          metadata?.instagramBusinessAccountId ||
+          instagramAccount?.accountId ||
+          process.env.INSTAGRAM_USER_ID;
+
+        if (!instagramUserId) {
+          return res.status(400).json({
+            error:
+              "Instagram Business/Creator account ID missing. Connect Instagram or supply INSTAGRAM_USER_ID.",
+          });
+        }
+
+        const resolvedToken =
+          instagramAccount?.accessToken ||
+          metadata?.instagramAccessToken ||
+          process.env.INSTAGRAM_ACCESS_TOKEN;
+
+        if (!resolvedToken) {
+          return res.status(400).json({
+            error:
+              "Instagram token missing. Reconnect Instagram or set INSTAGRAM_ACCESS_TOKEN.",
+          });
+        }
+
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        const useSampleImage = toBoolean(
+          req.body.useSampleImage ?? (!photo ? "true" : "false")
+        );
+
+        let photoUrl: string | null = null;
+        let usedSampleImage = false;
+
+        if (photo) {
+          photoUrl = `${baseUrl}/uploads/${path.basename(photo.path)}`;
+        } else if (useSampleImage) {
+          photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
+          usedSampleImage = true;
+        } else {
+          return res.status(400).json({
+            error:
+              "Instagram requires an image. Upload a photo or enable the sample image option.",
+          });
+        }
+
+        const postResult = await socialMediaService.postToInstagram(
+          content,
+          photoUrl,
+          resolvedToken,
+          instagramUserId
+        );
+
+        const scheduledPost = await storage.createScheduledPost({
+          userId: user.id,
+          platform: "instagram",
+          content,
+          scheduledFor: new Date(),
+          status: "posted",
+          postType: "quick_test",
+          hashtags: content.match(/#\w+/g) || [],
+          isEdited: false,
+          originalContent: content,
+          neighborhood: null,
+        });
+
+        realtimeService.notifySocialPostScheduled(
+          user.id,
+          scheduledPost.id,
+          "instagram",
+          new Date().toISOString()
+        );
+
+        res.json({
+          success: true,
+          message: "Content posted successfully to Instagram",
+          postId: postResult.postId,
+          instagramUserId,
+          usedSampleImage,
+          scheduledPostId: scheduledPost.id,
+          permalinkHint: "https://www.instagram.com",
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Instagram post error:", error);
+        res.status(500).json({
+          error: `Failed to post to Instagram: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        });
       }
-
-      let photoUrl = null;
-      if (photo) {
-        photoUrl = `/uploads/${path.basename(photo.path)}`;
-      }
-
-      // Build absolute URL for image if provided
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
-      const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
-
-      const postResult = await socialMediaService.postToInstagram(
-        content,
-        fullPhotoUrl,
-        undefined, // accessToken will be read from env
-        userId // Instagram User ID
-      );
-
-      res.json({
-        success: true,
-        message: "Content posted successfully to Instagram",
-        postId: postResult.postId,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("Instagram post error:", error);
-      res.status(500).json({
-        error: `Failed to post to Instagram: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      });
     }
-  });
+  );
 
   app.get("/api/instagram/validate", async (req, res) => {
     try {
@@ -2060,55 +2462,165 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // YouTube endpoints
-  app.post("/api/youtube/post", upload.single("video"), async (req, res) => {
-    try {
-      const { title, description, content, accessToken } = req.body;
-      const video = req.file;
+  app.post(
+    "/api/youtube/post",
+    requireAuth,
+    upload.single("video"),
+    async (req: any, res) => {
+      try {
+        const {
+          title,
+          description,
+          content,
+          accessToken: overrideToken,
+        } = req.body;
+        const video = req.file;
 
-      if (!title && !content) {
-        return res.status(400).json({ error: "Title or content is required" });
+        console.log("🎥 YouTube post request:", {
+          rawUserId: req.user?.id,
+          email: req.user?.email,
+          username: req.user?.username,
+          contentType: req.get("content-type"),
+          bodyKeys: Object.keys(req.body),
+          hasVideo: !!video,
+        });
+
+        if (!title && !content) {
+          return res
+            .status(400)
+            .json({ error: "Title or content is required" });
+        }
+
+        if (!req.user?.id) {
+          return res.status(401).json({ error: "Authentication required" });
+        }
+
+        // Resolve DB user ID to MemStorage UUID (same pattern as Twitter)
+        let userId = String(req.user.id);
+        let user = await storage.getUser(userId);
+
+        if (!user && req.user?.email) {
+          const allUsers = Array.from(storage.users?.values() || []);
+          user = allUsers.find((u) => u.email === req.user.email);
+        }
+
+        if (!user && req.user?.username) {
+          user = await storage.getUserByUsername(req.user.username);
+        }
+
+        if (!user) {
+          console.error(
+            "❌ YouTube post: user not found in storage for session id",
+            userId
+          );
+          return res.status(404).json({
+            error:
+              "User not found in storage. Please reconnect your YouTube account.",
+          });
+        }
+
+        console.log("✅ YouTube post resolved user:", {
+          userId: user.id,
+          email: user.email,
+          username: user.username,
+        });
+
+        const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+        console.log(
+          `📊 Social accounts for user ${user.id}:`,
+          socialAccounts.map((a) => ({
+            id: a.id,
+            platform: a.platform,
+            hasAccessToken: !!a.accessToken,
+          }))
+        );
+
+        const youtubeAccount = socialAccounts.find(
+          (acc) => acc.platform.toLowerCase() === "youtube"
+        );
+
+        const effectiveAccessToken =
+          overrideToken || youtubeAccount?.accessToken || null;
+
+        console.log("🔑 YouTube token resolution:", {
+          hasOverride: !!overrideToken,
+          hasStoredToken: !!youtubeAccount?.accessToken,
+          usingTokenSource: overrideToken
+            ? "override"
+            : youtubeAccount?.accessToken
+            ? "stored"
+            : "none",
+        });
+
+        if (!effectiveAccessToken) {
+          return res.status(400).json({
+            error:
+              "YouTube access token is required. Please connect your YouTube account again.",
+          });
+        }
+
+        const sampleVideoPath =
+          process.env.YOUTUBE_SAMPLE_VIDEO_PATH ||
+          path.join(process.cwd(), "uploads/videos/demo-property-tour.mp4");
+
+        let videoSourcePath: string | undefined;
+        let usedSampleVideo = false;
+
+        if (video?.path) {
+          videoSourcePath = path.resolve(video.path);
+        } else if (fs.existsSync(sampleVideoPath)) {
+          videoSourcePath = sampleVideoPath;
+          usedSampleVideo = true;
+        }
+
+        const finalTitle = title || content?.substring(0, 100) + "...";
+        const finalDescription = description || content || "";
+
+        console.log("🚀 Posting to YouTube with:", {
+          finalTitle,
+          hasDescription: !!finalDescription,
+          videoSourcePath,
+          usedSampleVideo,
+        });
+
+        const postResult = await socialMediaService.postToYoutube(
+          finalTitle,
+          finalDescription,
+          videoSourcePath,
+          effectiveAccessToken
+        );
+
+        if (video?.path) {
+          fs.unlink(video.path, (unlinkErr) => {
+            if (unlinkErr) {
+              console.error("Failed to remove uploaded temp video:", unlinkErr);
+            }
+          });
+        }
+
+        res.json({
+          success: true,
+          message: usedSampleVideo
+            ? "Uploaded built-in sample video to YouTube"
+            : video
+            ? "Uploaded your video to YouTube"
+            : "Content posted successfully to YouTube",
+          postId: postResult.postId,
+          watchUrl: postResult.watchUrl,
+          studioUrl: postResult.studioUrl,
+          usedSampleVideo,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("YouTube post error:", error);
+        res.status(500).json({
+          error: `Failed to post to YouTube: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+        });
       }
-
-      if (!accessToken) {
-        return res
-          .status(400)
-          .json({ error: "YouTube access token is required" });
-      }
-
-      let videoUrl = null;
-      if (video) {
-        videoUrl = `/uploads/${path.basename(video.path)}`;
-      }
-
-      const finalTitle = title || content?.substring(0, 100) + "...";
-      const finalDescription = description || content || "";
-
-      // Build absolute URL for video if provided
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
-      const fullVideoUrl = videoUrl ? baseUrl + videoUrl : undefined;
-
-      const postResult = await socialMediaService.postToYoutube(
-        finalTitle,
-        finalDescription,
-        fullVideoUrl,
-        accessToken
-      );
-
-      res.json({
-        success: true,
-        message: "Content posted successfully to YouTube",
-        postId: postResult.postId,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("YouTube post error:", error);
-      res.status(500).json({
-        error: `Failed to post to YouTube: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      });
     }
-  });
+  );
 
   // Dedicated YouTube video upload endpoint
   app.post(
@@ -2133,17 +2645,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .json({ error: "YouTube access token is required" });
         }
 
-        // Build absolute URL for the uploaded video
-        const baseUrl = `${req.protocol}://${req.get("host")}`;
-        const videoUrl = `${baseUrl}/uploads/videos/${path.basename(
-          videoFile.path
-        )}`;
+        const absoluteVideoPath = path.resolve(videoFile.path);
 
         console.log("Processing YouTube video upload:", {
           title,
           description,
           videoPath: videoFile.path,
-          videoUrl,
+          absoluteVideoPath,
           fileSize: videoFile.size,
           mimetype: videoFile.mimetype,
         });
@@ -2151,15 +2659,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const uploadResult = await socialMediaService.postToYoutube(
           title,
           description || title,
-          videoUrl,
+          absoluteVideoPath,
           accessToken
         );
+
+        fs.unlink(videoFile.path, (unlinkErr) => {
+          if (unlinkErr) {
+            console.error("Failed to cleanup uploaded file:", unlinkErr);
+          }
+        });
 
         res.json({
           success: true,
           message: "Video uploaded successfully to YouTube",
           videoId: uploadResult.postId,
-          videoUrl: videoUrl,
+          watchUrl: uploadResult.watchUrl,
+          studioUrl: uploadResult.studioUrl,
           timestamp: new Date().toISOString(),
         });
       } catch (error) {

@@ -1,15 +1,8 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ObjectUploader } from "@/components/ObjectUploader";
+import { SocialMediaSetup } from "@/components/setup/social-media-setup";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PropertySelector } from "./property-selector";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -17,33 +10,38 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  Brain,
+  Calendar,
+  CheckCircle,
+  CreditCard,
+  Eye,
   Facebook,
+  Home,
+  Image,
   Instagram,
   Linkedin,
-  Twitter as X,
-  Image,
-  Calendar,
-  Sparkles,
-  Home,
-  Tag,
-  CheckCircle,
-  TrendingDown,
-  Eye,
-  Upload,
-  ImageIcon,
-  CreditCard,
-  Brain,
   Music,
-  Video,
-  RefreshCw,
   Plug,
   PlugZap,
+  RefreshCw,
+  Settings,
+  Sparkles,
+  Tag,
+  TrendingDown,
+  Upload,
+  Video,
+  Twitter as X,
 } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SocialMediaSetup } from "@/components/setup/social-media-setup";
-import { Settings } from "lucide-react";
+import { useEffect, useState } from "react";
+import { PropertySelector } from "./property-selector";
 
 interface SocialMediaAccount {
   id: string;
@@ -206,89 +204,104 @@ export function SocialMediaManager() {
   const [videoUploadUrl, setVideoUploadUrl] = useState<string | null>(null);
   const [showVideoUpload, setShowVideoUpload] = useState(false);
   const [showSocialSetup, setShowSocialSetup] = useState(false);
-  const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
+  const [connectingPlatform, setConnectingPlatform] = useState<string | null>(
+    null
+  );
   const { toast } = useToast();
 
   // OAuth-enabled platforms (only platforms with full OAuth backend support)
-  const oauthPlatforms = ['linkedin', 'youtube', 'x', 'twitter'];
-  
+  const oauthPlatforms = [
+    "facebook",
+    "instagram",
+    "linkedin",
+    "youtube",
+    "x",
+    "twitter",
+  ];
+
   // Handle OAuth connection
   const handleOAuthConnect = async (platform: string) => {
     let popup: Window | null = null;
     let checkClosedInterval: NodeJS.Timeout | null = null;
-    
+
     try {
       setConnectingPlatform(platform);
-      
+
       // Get OAuth URL from backend
       const response = await fetch(`/api/social/connect/${platform}`, {
-        method: 'POST',
+        method: "POST",
       });
-      
+
       if (!response.ok) {
-        throw new Error(`Failed to get OAuth URL for ${platform}`);
+        const errorData = await response.json().catch(() => null);
+        const message =
+          errorData?.message ||
+          errorData?.error ||
+          `Failed to get OAuth URL for ${platform}`;
+        throw new Error(message);
       }
-      
+
       const data = await response.json();
       const { authUrl } = data;
-      
+
       // Open OAuth popup window
       const width = 600;
       const height = 700;
       const left = window.screenX + (window.outerWidth - width) / 2;
       const top = window.screenY + (window.outerHeight - height) / 2;
-      
+
       popup = window.open(
         authUrl,
         `${platform}_oauth`,
         `width=${width},height=${height},left=${left},top=${top}`
       );
-      
+
       if (!popup) {
-        throw new Error('Popup blocked. Please allow popups for this site.');
+        throw new Error("Popup blocked. Please allow popups for this site.");
       }
-      
+
       // Listen for OAuth callback message
       const messageHandler = (event: MessageEvent) => {
         // Security: Validate origin AND source window
         if (event.origin !== window.location.origin) return;
         if (event.source !== popup) return;
-        
+
         // Handle success
         if (event.data.success && event.data.platform === platform) {
           // Success! Refresh accounts list
-          queryClient.invalidateQueries({ queryKey: ['/api/social/accounts'] });
-          
+          queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
+
           toast({
             title: "Connected Successfully!",
             description: `Your ${platform} account has been connected.`,
           });
-          
+
           cleanup();
         }
         // Handle errors
         else if (event.data.error) {
           toast({
             title: "Connection Failed",
-            description: event.data.error || `Failed to connect ${platform} account.`,
+            description:
+              event.data.error || `Failed to connect ${platform} account.`,
             variant: "destructive",
           });
-          
+
           cleanup();
         }
       };
-      
+
       const cleanup = () => {
         if (checkClosedInterval) {
           clearInterval(checkClosedInterval);
           checkClosedInterval = null;
         }
-        window.removeEventListener('message', messageHandler);
+        window.removeEventListener("message", messageHandler);
         setConnectingPlatform(null);
       };
-      
-      window.addEventListener('message', messageHandler);
-      
+
+      window.addEventListener("message", messageHandler);
+
       // Also check if popup was closed without success
       checkClosedInterval = setInterval(() => {
         if (popup && popup.closed) {
@@ -299,16 +312,15 @@ export function SocialMediaManager() {
           cleanup();
         }
       }, 500);
-      
     } catch (error: any) {
-      console.error('OAuth connection error:', error);
+      console.error("OAuth connection error:", error);
       toast({
         title: "Connection Failed",
         description: error.message || `Failed to connect ${platform} account.`,
         variant: "destructive",
       });
       setConnectingPlatform(null);
-      
+
       if (checkClosedInterval) {
         clearInterval(checkClosedInterval);
       }
@@ -487,17 +499,17 @@ export function SocialMediaManager() {
         // Use Twitter API for Twitter posting - must use FormData for multer
         const formData = new FormData();
         formData.append("content", data.content);
-        
+
         const response = await fetch("/api/twitter/post", {
           method: "POST",
           body: formData,
         });
-        
+
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.error || "Failed to post to Twitter");
         }
-        
+
         return response.json();
       } else {
         // For other platforms, use the general endpoint
@@ -630,7 +642,7 @@ export function SocialMediaManager() {
 
     const templates = {
       just_listed: {
-        facebook: `🏠 JUST LISTED! 
+        facebook: `🏠 JUST LISTED!
 
 ${property.address}
 ${property.city}, ${property.state} ${property.zipCode}
@@ -652,7 +664,7 @@ Contact Mike Bjork at Berkshire Hathaway HomeServices for more information!
           neighborhoodTag ? `#${neighborhoodTag}` : ""
         }`,
 
-        instagram: `🏠 NEW LISTING ALERT! 
+        instagram: `🏠 NEW LISTING ALERT!
 
 ${property.address}
 ${formatPrice(property.listPrice)}
@@ -745,7 +757,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
 
 #JustSold #OmahaRealEstate #MikeBjork #BHHS #RealEstateSuccess`,
 
-        instagram: `✅ SOLD! 
+        instagram: `✅ SOLD!
 
 ${property.address}
 
@@ -868,7 +880,7 @@ Exciting news! This beautiful ${property.bedrooms} bedroom, ${
 ${property.description.substring(0, 300)}
 
 What makes this price improvement significant:
-• Reflects current market conditions  
+• Reflects current market conditions
 • Creates opportunity for serious buyers
 • Perfect timing for today's market
 
@@ -916,7 +928,7 @@ ${
   property.neighborhood
     ? `${property.neighborhood} living awaits!`
     : "Your dream home awaits!"
-} 
+}
 
 See you there! 👋
 
@@ -1067,7 +1079,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
             <h3 className="text-sm font-medium text-foreground">
               Select Platforms
             </h3>
-            {accounts?.some(acc => !acc.isConnected) && (
+            {accounts?.some((acc) => !acc.isConnected) && (
               <Button
                 onClick={() => setShowSocialSetup(true)}
                 variant="outline"
@@ -1110,7 +1122,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
                     {account.platform}
                   </span>
                 </div>
-                <div 
+                <div
                   className="flex items-center gap-2"
                   data-testid={`status-${account.platform}`}
                   title={account.isConnected ? "Connected" : "Disconnected"}
@@ -1120,16 +1132,24 @@ Mike Bjork | Berkshire Hathaway HomeServices
                   ) : (
                     <>
                       <PlugZap className="h-5 w-5 text-red-600" />
-                      {oauthPlatforms.includes(account.platform.toLowerCase()) && (
+                      {oauthPlatforms.includes(
+                        account.platform.toLowerCase()
+                      ) && (
                         <Button
-                          onClick={() => handleOAuthConnect(account.platform.toLowerCase())}
-                          disabled={connectingPlatform === account.platform.toLowerCase()}
+                          onClick={() =>
+                            handleOAuthConnect(account.platform.toLowerCase())
+                          }
+                          disabled={
+                            connectingPlatform ===
+                            account.platform.toLowerCase()
+                          }
                           size="sm"
                           variant="outline"
                           className="h-7 px-2 text-xs"
                           data-testid={`button-connect-${account.platform}`}
                         >
-                          {connectingPlatform === account.platform.toLowerCase() ? (
+                          {connectingPlatform ===
+                          account.platform.toLowerCase() ? (
                             <>
                               <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
                               Connecting...
@@ -1744,7 +1764,8 @@ Mike Bjork | Berkshire Hathaway HomeServices
           setShowSocialSetup(false);
           toast({
             title: "API Keys Configured!",
-            description: "Your social media connections have been updated successfully.",
+            description:
+              "Your social media connections have been updated successfully.",
           });
           // Invalidate cache to refresh the accounts data
           queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });

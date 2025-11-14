@@ -1,7 +1,19 @@
 import crypto from "crypto";
+import fs from "fs";
 import OAuth from "oauth-1.0a";
-import { youtube_v3 } from "@googleapis/youtube";
-import { Readable } from "stream";
+import path from "path";
+
+export class SocialMediaError extends Error {
+  statusCode: number;
+  details?: any;
+
+  constructor(message: string, statusCode = 500, details?: any) {
+    super(message);
+    this.name = "SocialMediaError";
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
 
 export interface SocialMediaPost {
   platform: string;
@@ -37,7 +49,7 @@ export class SocialMediaService {
     description: string,
     videoUrl?: string,
     accessToken?: string
-  ): Promise<{ postId: string }> {
+  ): Promise<{ postId: string; watchUrl?: string; studioUrl?: string }> {
     try {
       if (!accessToken) {
         throw new Error("YouTube access token required for posting");
@@ -50,23 +62,42 @@ export class SocialMediaService {
 
       // For YouTube, we can create a Community post (text-only) or upload a video
       // Community posts require specific channel permissions
+      let resolvedVideoSource = videoUrl;
 
-      if (videoUrl) {
+      if (!resolvedVideoSource) {
+        const defaultSamplePath =
+          process.env.YOUTUBE_SAMPLE_VIDEO_PATH ||
+          path.join(process.cwd(), "uploads/videos/demo-property-tour.mp4");
+
+        if (fs.existsSync(defaultSamplePath)) {
+          resolvedVideoSource = defaultSamplePath;
+          console.log(
+            "🎬 Using bundled sample video for YouTube upload:",
+            defaultSamplePath
+          );
+        } else {
+          console.warn(
+            "⚠️ No uploaded video and sample video missing. Falling back to text-only YouTube post."
+          );
+        }
+      }
+
+      if (resolvedVideoSource) {
         // Upload video to YouTube
         return await this.uploadVideoToYoutube(
           title,
           description,
-          videoUrl,
-          accessToken
-        );
-      } else {
-        // Create a Community post (text-only)
-        return await this.createYoutubeCommunityPost(
-          title,
-          description,
+          resolvedVideoSource,
           accessToken
         );
       }
+
+      // Create a Community post (text-only) if we have no video source
+      return await this.createYoutubeCommunityPost(
+        title,
+        description,
+        accessToken
+      );
     } catch (error) {
       console.error("YouTube posting error:", error);
       throw error;
@@ -76,14 +107,14 @@ export class SocialMediaService {
   private async uploadVideoToYoutube(
     title: string,
     description: string,
-    videoUrl: string,
+    videoSource: string,
     accessToken: string
-  ): Promise<{ postId: string }> {
+  ): Promise<{ postId: string; watchUrl?: string; studioUrl?: string }> {
     try {
       console.log("Starting YouTube video upload:", {
         title,
         description,
-        videoUrl,
+        videoSource,
       });
 
       // Check if this is a mock token for testing
@@ -94,31 +125,52 @@ export class SocialMediaService {
         console.log("Mock YouTube video upload simulated:", {
           title,
           description,
-          videoUrl,
+          videoSource,
         });
         return {
           postId: `mock_yt_video_${Date.now()}`,
         };
       }
 
-      // Create YouTube client with OAuth2 credentials
-      const youtube = new youtube_v3.Youtube({
-        auth: accessToken,
-      });
+      let videoBuffer: Buffer;
+      let videoSizeBytes = 0;
+      let mimeType = "video/mp4";
 
-      // Download video file from URL to upload
-      console.log("Downloading video file from:", videoUrl);
-      const videoResponse = await fetch(videoUrl);
+      if (
+        videoSource.startsWith("http://") ||
+        videoSource.startsWith("https://")
+      ) {
+        console.log("Downloading video file from URL:", videoSource);
+        const videoResponse = await fetch(videoSource);
 
-      if (!videoResponse.ok) {
-        throw new Error(
-          `Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`
-        );
+        if (!videoResponse.ok) {
+          throw new Error(
+            `Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`
+          );
+        }
+
+        const arrayBuffer = await videoResponse.arrayBuffer();
+        videoBuffer = Buffer.from(arrayBuffer);
+        videoSizeBytes = videoBuffer.length;
+        mimeType = videoResponse.headers.get("content-type") || mimeType;
+      } else {
+        const absolutePath = path.isAbsolute(videoSource)
+          ? videoSource
+          : path.join(process.cwd(), videoSource);
+
+        await fs.promises.access(absolutePath, fs.constants.R_OK);
+        const stats = await fs.promises.stat(absolutePath);
+        videoSizeBytes = stats.size;
+        console.log("Uploading local video file:", {
+          absolutePath,
+          sizeMB: (videoSizeBytes / (1024 * 1024)).toFixed(2),
+        });
+        videoBuffer = await fs.promises.readFile(absolutePath);
+        const ext = path.extname(absolutePath).toLowerCase();
+        if (ext === ".mov") mimeType = "video/quicktime";
+        else if (ext === ".webm") mimeType = "video/webm";
+        else if (ext === ".mkv") mimeType = "video/x-matroska";
       }
-
-      // Get video file data
-      const videoBuffer = await videoResponse.arrayBuffer();
-      const videoStream = Readable.from(Buffer.from(videoBuffer));
 
       // Prepare video metadata
       const videoMetadata = {
@@ -135,21 +187,65 @@ export class SocialMediaService {
       };
 
       console.log("Uploading video to YouTube with metadata:", videoMetadata);
+      console.log("YouTube upload payload size (bytes):", videoSizeBytes);
 
-      // Upload video to YouTube
-      const uploadResponse = await youtube.videos.insert({
-        part: ["snippet", "status"],
-        requestBody: videoMetadata,
-        media: {
-          body: videoStream,
+      const boundary = `yt_boundary_${Date.now()}`;
+      const metadataPart =
+        `--${boundary}\r\n` +
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+        JSON.stringify(videoMetadata) +
+        "\r\n";
+
+      const mediaHeader =
+        `--${boundary}\r\n` + `Content-Type: ${mimeType}\r\n\r\n`;
+
+      const closing = `\r\n--${boundary}--\r\n`;
+
+      const requestBuffer = Buffer.concat([
+        Buffer.from(metadataPart, "utf8"),
+        Buffer.from(mediaHeader, "utf8"),
+        videoBuffer,
+        Buffer.from(closing, "utf8"),
+      ]);
+
+      const uploadUrl =
+        "https://www.googleapis.com/upload/youtube/v3/videos" +
+        "?part=snippet,status&uploadType=multipart";
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary=${boundary}`,
+          "Content-Length": requestBuffer.length.toString(),
         },
+        body: requestBuffer,
       });
 
-      const videoId = uploadResponse.data.id;
+      if (!uploadResponse.ok) {
+        const errorPayload = await uploadResponse.text();
+        console.error(
+          "YouTube upload HTTP error:",
+          uploadResponse.status,
+          errorPayload
+        );
+        throw new Error(
+          `YouTube API error ${uploadResponse.status}: ${errorPayload}`
+        );
+      }
+
+      const uploadJson = await uploadResponse.json();
+      const videoId = uploadJson.id;
       console.log("Video uploaded successfully! Video ID:", videoId);
 
       return {
         postId: videoId || `yt_upload_${Date.now()}`,
+        watchUrl: videoId
+          ? `https://www.youtube.com/watch?v=${videoId}`
+          : undefined,
+        studioUrl: videoId
+          ? `https://studio.youtube.com/video/${videoId}/edit`
+          : undefined,
       };
     } catch (error) {
       console.error("YouTube video upload error:", error);
@@ -183,7 +279,7 @@ export class SocialMediaService {
     title: string,
     description: string,
     accessToken: string
-  ): Promise<{ postId: string }> {
+  ): Promise<{ postId: string; watchUrl?: string; studioUrl?: string }> {
     try {
       // Check if this is a mock token
       if (
@@ -284,7 +380,10 @@ export class SocialMediaService {
 
       // Add image URL if provided
       if (imageUrl) {
-        const baseUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.CLIENT_URL || "http://localhost:5000";
+        const baseUrl =
+          process.env.REPLIT_DEPLOYMENT_URL ||
+          process.env.CLIENT_URL ||
+          "http://localhost:5000";
         containerData.image_url = imageUrl.startsWith("http")
           ? imageUrl
           : `${baseUrl}${imageUrl}`;
@@ -375,11 +474,14 @@ export class SocialMediaService {
       console.log("Posting to LinkedIn:", content);
 
       // Step 1: Get user's LinkedIn profile ID (person URN)
-      const profileResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+      const profileResponse = await fetch(
+        "https://api.linkedin.com/v2/userinfo",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
 
       if (!profileResponse.ok) {
         const errorText = await profileResponse.text();
@@ -430,7 +532,11 @@ export class SocialMediaService {
       return { postId: postResult.id || `li_${Date.now()}` };
     } catch (error) {
       console.error("LinkedIn posting error:", error);
-      throw new Error(`Failed to post to LinkedIn: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Failed to post to LinkedIn: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }
 
@@ -439,16 +545,22 @@ export class SocialMediaService {
     refreshToken?: string;
     scopes?: string[];
   }> {
-    const { storage } = await import('../storage.js');
+    const { storage } = await import("../storage.js");
     const accounts = await storage.getSocialMediaAccounts(userId);
-    const twitterAccount = accounts.find(acc => acc.platform === 'x' || acc.platform === 'twitter');
+    const twitterAccount = accounts.find(
+      (acc) => acc.platform === "x" || acc.platform === "twitter"
+    );
 
     if (!twitterAccount || !twitterAccount.accessToken) {
-      throw new Error('Twitter account not connected. Please connect your Twitter/X account first.');
+      throw new Error(
+        "Twitter account not connected. Please connect your Twitter/X account first."
+      );
     }
 
     if (!twitterAccount.isConnected) {
-      throw new Error('Twitter account is disconnected. Please reconnect your account.');
+      throw new Error(
+        "Twitter account is disconnected. Please reconnect your account."
+      );
     }
 
     // TODO: Add token refresh logic here if token is expired
@@ -456,7 +568,7 @@ export class SocialMediaService {
     return {
       accessToken: twitterAccount.accessToken,
       refreshToken: twitterAccount.refreshToken || undefined,
-      scopes: [] // TODO: Parse scopes from metadata
+      scopes: [], // TODO: Parse scopes from metadata
     };
   }
 
@@ -756,7 +868,7 @@ export class SocialMediaService {
       );
 
       if (!token) {
-        throw new Error("Facebook access token not available");
+        throw new SocialMediaError("Facebook access token not available", 401);
       }
 
       console.log("🔍 Facebook Debug - Making API call to me/accounts");
@@ -817,7 +929,10 @@ export class SocialMediaService {
         formData.append("access_token", presetPageAccessToken);
 
         if (imageUrl) {
-          const deploymentUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.CLIENT_URL || "http://localhost:5000";
+          const deploymentUrl =
+            process.env.REPLIT_DEPLOYMENT_URL ||
+            process.env.CLIENT_URL ||
+            "http://localhost:5000";
           const fullImageUrl = imageUrl.startsWith("http")
             ? imageUrl
             : `${baseUrl || deploymentUrl}${imageUrl}`;
@@ -840,8 +955,10 @@ export class SocialMediaService {
           result
         );
         if (!response.ok) {
-          throw new Error(
-            result.error?.message || "Failed to post to Facebook page"
+          throw new SocialMediaError(
+            result.error?.message || "Failed to post to Facebook page",
+            response.status,
+            result
           );
         }
 
@@ -863,19 +980,25 @@ export class SocialMediaService {
         const errorData = await pagesResponse.json();
         console.log("🔍 Facebook Post Debug - Pages error:", errorData);
         if (errorData.error?.code === 190) {
-          throw new Error(
-            "Invalid Facebook access token. Please reconnect your Facebook account."
+          throw new SocialMediaError(
+            "Invalid Facebook access token. Please reconnect your Facebook account.",
+            401,
+            errorData
           );
         }
         if (errorData.error?.code === 200) {
-          throw new Error(
-            "Insufficient permissions. Please grant pages access to your Facebook account."
+          throw new SocialMediaError(
+            "Insufficient permissions. Please grant pages access to your Facebook account.",
+            403,
+            errorData
           );
         }
-        throw new Error(
+        throw new SocialMediaError(
           `Failed to fetch page access token: ${
             errorData.error?.message || "Unknown error"
-          }`
+          }`,
+          400,
+          errorData
         );
       }
 
@@ -922,8 +1045,15 @@ export class SocialMediaService {
           "🔍 Facebook Post Debug - Available page IDs:",
           pagesData.data?.map((p: any) => p.id)
         );
-        throw new Error(
-          "Page not found or no access. Ensure your user is an admin of the Page and the token has pages_show_list, pages_manage_posts, pages_read_engagement, and pages_manage_metadata."
+        throw new SocialMediaError(
+          "Page not found or no access. Ensure your user is an admin of the Page and the token has pages_show_list, pages_manage_posts, pages_read_engagement, and pages_manage_metadata.",
+          403,
+          {
+            availablePages: pagesData.data?.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+            })),
+          }
         );
       }
 
@@ -934,7 +1064,10 @@ export class SocialMediaService {
 
       // Convert relative image URL to absolute if provided
       if (imageUrl) {
-        const deploymentUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.CLIENT_URL || "http://localhost:5000";
+        const deploymentUrl =
+          process.env.REPLIT_DEPLOYMENT_URL ||
+          process.env.CLIENT_URL ||
+          "http://localhost:5000";
         const fullImageUrl = imageUrl.startsWith("http")
           ? imageUrl
           : `${baseUrl || deploymentUrl}${imageUrl}`;
@@ -958,25 +1091,33 @@ export class SocialMediaService {
 
         // Provide more specific error messages
         if (errorData.error?.code === 190) {
-          throw new Error(
-            "Facebook session expired. Please reconnect your account."
+          throw new SocialMediaError(
+            "Facebook session expired. Please reconnect your account.",
+            401,
+            errorData
           );
         }
         if (errorData.error?.code === 200) {
-          throw new Error(
-            "Insufficient permissions for this page. Please check page roles."
+          throw new SocialMediaError(
+            "Insufficient permissions for this page. Please check page roles.",
+            403,
+            errorData
           );
         }
         if (errorData.error?.code === 100) {
-          throw new Error(
-            "Invalid parameters. Please check your content and try again."
+          throw new SocialMediaError(
+            "Invalid parameters. Please check your content and try again.",
+            400,
+            errorData
           );
         }
 
-        throw new Error(
+        throw new SocialMediaError(
           `Facebook posting failed: ${
             errorData.error?.message || "Unknown error"
-          }`
+          }`,
+          response.status,
+          errorData
         );
       }
 

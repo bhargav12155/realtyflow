@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useMutation } from "@tanstack/react-query";
 import { RefreshCw, Send } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { useFacebookPages } from "@/hooks/use-facebook-pages";
+import { FacebookPageSelector } from "@/components/facebook/facebook-page-selector";
 
 interface MockFacebookPost {
   id: string;
@@ -99,7 +101,6 @@ function buildMockFacebookPost(seed: number): MockFacebookPost {
 export function FacebookTestPosts() {
   const { toast } = useToast();
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 500));
-  const [pageId, setPageId] = useState("");
   const [selectedPhoto, setSelectedPhoto] = useState<File | null>(null);
   const [useSampleImage, setUseSampleImage] = useState(false);
   const [lastPost, setLastPost] = useState<{
@@ -109,6 +110,16 @@ export function FacebookTestPosts() {
     usedSampleImage?: boolean;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Facebook Pages hook for page selection
+  const {
+    pages: facebookPages,
+    isLoading: isLoadingPages,
+    isError: isPagesError,
+    selectedPageId,
+    setSelectedPageId,
+    isReady: isFacebookPagesReady,
+  } = useFacebookPages({ autoSelect: true });
 
   const posts = useMemo(() => {
     return Array.from({ length: 3 }, (_, index) =>
@@ -133,8 +144,9 @@ export function FacebookTestPosts() {
       const formData = new FormData();
       formData.append("content", payload.body);
 
-      if (pageId.trim()) {
-        formData.append("pageId", pageId.trim());
+      // Only include pageId if explicitly selected, otherwise backend uses saved default
+      if (selectedPageId) {
+        formData.append("pageId", selectedPageId);
       }
 
       if (selectedPhoto) {
@@ -198,23 +210,20 @@ export function FacebookTestPosts() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="rounded-md border border-dashed border-border bg-muted/30 p-4 space-y-3">
+          <FacebookPageSelector
+            pages={facebookPages}
+            isLoading={isLoadingPages}
+            isError={isPagesError}
+            value={selectedPageId}
+            onChange={setSelectedPageId}
+            label="Select Facebook Page"
+            placeholder="Choose a page to post to..."
+            disabled={postMutation.isPending}
+            showLabel={true}
+          />
+
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="facebook-page-id">
-                Facebook Page ID (optional)
-              </Label>
-              <Input
-                id="facebook-page-id"
-                placeholder="6158..."
-                value={pageId}
-                onChange={(event) => setPageId(event.target.value)}
-                disabled={postMutation.isPending}
-              />
-              <p className="text-xs text-muted-foreground">
-                Leave blank to use your saved Page from the Facebook connect
-                flow.
-              </p>
-            </div>
+            
             <div className="space-y-1">
               <Label htmlFor="facebook-photo">Optional photo upload</Label>
               <Input

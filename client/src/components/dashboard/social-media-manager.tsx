@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { messages, friendlyError } from "@/lib/messages";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -226,6 +227,13 @@ export function SocialMediaManager() {
 
     try {
       setConnectingPlatform(platform);
+      
+      // Show connecting message
+      const connectingMsg = messages.oauth.connecting(platform);
+      toast({
+        title: connectingMsg.title,
+        description: connectingMsg.description,
+      });
 
       // Get OAuth URL from backend
       const response = await fetch(`/api/social/connect/${platform}`, {
@@ -233,18 +241,14 @@ export function SocialMediaManager() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        const message =
-          errorData?.message ||
-          errorData?.error ||
-          `Failed to get OAuth URL for ${platform}`;
-        throw new Error(message);
+        const error = friendlyError({ status: response.status });
+        throw new Error(error.description);
       }
 
       const data = await response.json();
       const { authUrl } = data;
 
-      // Open OAuth popup window
+      // Try to open OAuth window
       const width = 600;
       const height = 700;
       const left = window.screenX + (window.outerWidth - width) / 2;
@@ -256,8 +260,9 @@ export function SocialMediaManager() {
         `width=${width},height=${height},left=${left},top=${top}`
       );
 
-      if (!popup) {
-        throw new Error("Popup blocked. Please allow popups for this site.");
+      // Handle popup blocking with friendly message
+      if (!popup || popup.closed) {
+        throw new Error("POPUP_BLOCKED");
       }
 
       // Listen for OAuth callback message
@@ -271,19 +276,20 @@ export function SocialMediaManager() {
           // Success! Refresh accounts list
           queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
 
+          const successMsg = messages.oauth.success(platform);
           toast({
-            title: "Connected Successfully!",
-            description: `Your ${platform} account has been connected.`,
+            title: successMsg.title,
+            description: successMsg.description,
           });
 
           cleanup();
         }
         // Handle errors
         else if (event.data.error) {
+          const errorMsg = messages.oauth.error(platform, event.data.error);
           toast({
-            title: "Connection Failed",
-            description:
-              event.data.error || `Failed to connect ${platform} account.`,
+            title: errorMsg.title,
+            description: errorMsg.description,
             variant: "destructive",
           });
 
@@ -305,20 +311,35 @@ export function SocialMediaManager() {
       // Also check if popup was closed without success
       checkClosedInterval = setInterval(() => {
         if (popup && popup.closed) {
+          const cancelledMsg = messages.oauth.cancelled(platform);
           toast({
-            title: "Connection Cancelled",
-            description: `${platform} connection was cancelled.`,
+            title: cancelledMsg.title,
+            description: cancelledMsg.description,
           });
           cleanup();
         }
       }, 500);
     } catch (error: any) {
       console.error("OAuth connection error:", error);
-      toast({
-        title: "Connection Failed",
-        description: error.message || `Failed to connect ${platform} account.`,
-        variant: "destructive",
-      });
+      
+      // Handle popup blocking specifically
+      if (error.message === "POPUP_BLOCKED") {
+        toast({
+          title: "Pop-ups are blocked",
+          description: `To connect your ${platform} account, please allow pop-ups for this site in your browser settings. On mobile, try using the browser's desktop mode.`,
+          variant: "destructive",
+        });
+      } else {
+        // Use friendlyError to provide context-aware messages (network, auth, etc.)
+        const friendlyMsg = friendlyError(error);
+        const errorMsg = messages.oauth.error(platform, friendlyMsg.description);
+        toast({
+          title: errorMsg.title,
+          description: errorMsg.description,
+          variant: "destructive",
+        });
+      }
+      
       setConnectingPlatform(null);
 
       if (checkClosedInterval) {
@@ -329,6 +350,30 @@ export function SocialMediaManager() {
 
   const { data: accounts, isLoading } = useQuery<SocialMediaAccount[]>({
     queryKey: ["/api/social/accounts"],
+  });
+
+  // Handle disconnect
+  const disconnectMutation = useMutation({
+    mutationFn: async (platform: string) => {
+      const response = await apiRequest("POST", `/api/social/disconnect/${platform}`, {});
+      return response.json();
+    },
+    onSuccess: (_, platform) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
+      const successMsg = messages.oauth.disconnectSuccess(platform);
+      toast({
+        title: successMsg.title,
+        description: successMsg.description,
+      });
+    },
+    onError: (error: Error, platform) => {
+      const errorMsg = messages.oauth.disconnectError(platform);
+      toast({
+        title: errorMsg.title,
+        description: errorMsg.description,
+        variant: "destructive",
+      });
+    },
   });
 
   // Load Facebook pages when component mounts
@@ -358,9 +403,13 @@ export function SocialMediaManager() {
       const mlsPhoto = selectedProperty.photoUrls[0];
       setUploadedPhoto(mlsPhoto);
 
+      const photoMsg = {
+        title: "Photo added!",
+        description: `Your property photo from ${selectedProperty.address} is ready to post`
+      };
       toast({
-        title: "MLS Photo Added",
-        description: `Automatically added photo from ${selectedProperty.address}`,
+        title: photoMsg.title,
+        description: photoMsg.description
       });
     }
   }, [selectedProperty]);
@@ -471,13 +520,18 @@ export function SocialMediaManager() {
 
       // Handle other platform-specific posting
       if (data.platforms.includes("facebook")) {
+        // Check if a Facebook Page is selected
+        if (!selectedFacebookPage) {
+          throw new Error("Please select a Facebook Page before posting");
+        }
+        
         // Use Facebook Pages API for Facebook posting
         const facebookResponse = await apiRequest(
           "POST",
           "/api/facebook/post",
           {
             content: data.content,
-            pageId: "61581294927027", // Golden Brick page ID
+            pageId: selectedFacebookPage,
           }
         );
         return facebookResponse.json();
@@ -518,6 +572,9 @@ export function SocialMediaManager() {
       }
     },
     onSuccess: () => {
+      // Refresh accounts to ensure connection status is up-to-date
+      queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
+      
       toast({
         title: "Posted Successfully!",
         description: "Your content has been shared across selected platforms",
@@ -563,6 +620,9 @@ export function SocialMediaManager() {
       return response.json();
     },
     onSuccess: (data) => {
+      // Refresh accounts to ensure connection status is up-to-date
+      queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
+      
       toast({
         title: "Facebook Post Successful!",
         description:
@@ -1128,7 +1188,29 @@ Mike Bjork | Berkshire Hathaway HomeServices
                   title={account.isConnected ? "Connected" : "Disconnected"}
                 >
                   {account.isConnected ? (
-                    <Plug className="h-5 w-5 text-green-600" />
+                    <>
+                      <Plug className="h-5 w-5 text-green-600" />
+                      <Button
+                        onClick={() => disconnectMutation.mutate(account.platform.toLowerCase())}
+                        disabled={disconnectMutation.isPending}
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                        data-testid={`button-disconnect-${account.platform}`}
+                      >
+                        {disconnectMutation.isPending ? (
+                          <>
+                            <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                            Disconnecting...
+                          </>
+                        ) : (
+                          <>
+                            <PlugZap className="mr-1 h-3 w-3" />
+                            Disconnect
+                          </>
+                        )}
+                      </Button>
+                    </>
                   ) : (
                     <>
                       <PlugZap className="h-5 w-5 text-red-600" />
@@ -1145,7 +1227,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
                           }
                           size="sm"
                           variant="outline"
-                          className="h-7 px-2 text-xs"
+                          className="h-7 px-2 text-xs border-green-200 text-green-600 hover:bg-green-50 hover:border-green-300"
                           data-testid={`button-connect-${account.platform}`}
                         >
                           {connectingPlatform ===
@@ -1157,7 +1239,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
                           ) : (
                             <>
                               <Plug className="mr-1 h-3 w-3" />
-                              Connect
+                              Reconnect
                             </>
                           )}
                         </Button>
@@ -1294,6 +1376,34 @@ Mike Bjork | Berkshire Hathaway HomeServices
               ))}
             </div>
           </div>
+
+          {/* Facebook Page Selector */}
+          {selectedPlatforms.includes("facebook") && facebookPages.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="facebook-page-select" className="text-sm font-medium">
+                Facebook Page
+              </Label>
+              <select
+                id="facebook-page-select"
+                value={selectedFacebookPage}
+                onChange={(e) => setSelectedFacebookPage(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                data-testid="select-facebook-page"
+              >
+                <option value="">Select a Facebook Page to post to...</option>
+                {facebookPages.map((page: any) => (
+                  <option key={page.id} value={page.id}>
+                    {page.name}
+                  </option>
+                ))}
+              </select>
+              {!selectedFacebookPage && (
+                <p className="text-xs text-amber-600">
+                  ⚠️ Please select a Facebook Page before posting
+                </p>
+              )}
+            </div>
+          )}
 
           <Textarea
             placeholder={

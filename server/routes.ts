@@ -1012,6 +1012,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Disconnect social media account
+  app.post(
+    "/api/social/disconnect/:platform",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { platform } = req.params;
+
+        if (!req.user?.id) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // CRITICAL: Resolve the authenticated user to their MemStorage UUID
+        let userId = String(req.user.id);
+        console.log(
+          `🔌 Disconnecting ${platform} for JWT user ${userId} (${req.user.email})`
+        );
+
+        // Try to find user by ID first
+        let user = await storage.getUser(userId);
+
+        // If not found by ID, try by email (critical for DB-authenticated users)
+        if (!user && req.user.email) {
+          const allUsers = Array.from(storage.users?.values() || []);
+          user = allUsers.find((u) => u.email === req.user.email);
+        }
+
+        // If not found by email, try by username as fallback
+        if (!user && req.user.username) {
+          user = await storage.getUserByUsername(req.user.username);
+        }
+
+        if (!user) {
+          return res.status(404).json({
+            error: "User not found",
+            message:
+              "Could not find user in storage. Please reconnect your account.",
+          });
+        }
+
+        // Use the MemStorage UUID for the disconnect operation
+        const resolvedUserId = user.id;
+        console.log(`   → Resolved to MemStorage UUID: ${resolvedUserId}`);
+
+        // Disconnect the account (marks isConnected=false and clears tokens)
+        const disconnectedAccount = await storage.disconnectSocialMediaAccount(
+          resolvedUserId,
+          platform
+        );
+
+        if (!disconnectedAccount) {
+          return res.status(404).json({
+            error: "Account not found",
+            message: `No ${platform} account found for this user`,
+          });
+        }
+
+        console.log(`✅ ${platform} disconnected successfully`);
+
+        res.json({
+          success: true,
+          message: `${platform} account disconnected successfully`,
+          account: {
+            id: disconnectedAccount.id,
+            platform: disconnectedAccount.platform,
+            isConnected: disconnectedAccount.isConnected,
+          },
+        });
+      } catch (error) {
+        console.error("Disconnect error:", error);
+        res.status(500).json({ error: "Failed to disconnect account" });
+      }
+    }
+  );
+
   app.get("/api/social/status/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
@@ -1261,6 +1336,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const existingAccounts = await storage.getSocialMediaAccounts(
             user.id
           );
+          console.log(
+            `🔍 Facebook OAuth - Found ${existingAccounts.length} existing accounts for user ${user.id}`
+          );
+          console.log(
+            `   → Platforms: ${existingAccounts
+              .map((a) => `${a.platform}(${a.isConnected})`)
+              .join(", ")}`
+          );
+
           const facebookAccount = existingAccounts.find(
             (acc) => acc.platform.toLowerCase() === "facebook"
           );
@@ -1275,14 +1359,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
           };
 
           if (facebookAccount) {
+            console.log(
+              `🔄 Updating existing Facebook account ${facebookAccount.id} (was: ${facebookAccount.isConnected})`
+            );
             await storage.updateSocialMediaAccount(facebookAccount.id, {
               accessToken,
               metadata,
               isConnected: true,
               lastSync: new Date(),
             });
+            console.log(`✅ Facebook account updated successfully`);
           } else {
-            await storage.createSocialMediaAccount({
+            console.log(`➕ Creating new Facebook account for user ${user.id}`);
+            const newAccount = await storage.createSocialMediaAccount({
               userId: user.id,
               platform: "facebook",
               accountId: profile?.id || "facebook_account",
@@ -1290,6 +1379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               metadata,
               isConnected: true,
             });
+            console.log(`✅ Facebook account created: ${newAccount.id}`);
           }
 
           return res.send(`
@@ -1769,14 +1859,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : "Not found"
           );
 
-          if (
-            !connectedAccount &&
-            socialAccounts.length > 0 &&
-            platform.toLowerCase() !== "youtube"
-          ) {
-            return res.status(400).json({
-              error: `${platform} account not connected. Please connect your account first.`,
-            });
+          // Check if account is connected (except YouTube which uses mock token)
+          if (platform.toLowerCase() !== "youtube") {
+            if (!connectedAccount) {
+              return res.status(401).json({
+                error: `${platform} account not connected. Please connect your ${platform} account first.`,
+                action: "connect_account",
+                platform: platform.toLowerCase(),
+              });
+            }
+
+            if (
+              !connectedAccount.accessToken ||
+              connectedAccount.accessToken.trim() === ""
+            ) {
+              return res.status(401).json({
+                error: `${platform} account token is missing or expired. Please reconnect your ${platform} account.`,
+                action: "reconnect_account",
+                platform: platform.toLowerCase(),
+              });
+            }
           }
 
           // Get photo URL if uploaded
@@ -1882,6 +1984,282 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  const PLATFORM_BASE_WEIGHTS: Record<string, number> = {
+    instagram: 66,
+    tiktok: 70,
+    facebook: 58,
+    youtube: 62,
+    linkedin: 52,
+    x: 48,
+  };
+
+  const PLATFORM_DURATION_GUIDELINES: Record<
+    string,
+    { min: number; max: number; penalty: number }
+  > = {
+    instagram: { min: 15, max: 90, penalty: 0.35 },
+    tiktok: { min: 15, max: 60, penalty: 0.45 },
+    facebook: { min: 30, max: 120, penalty: 0.25 },
+    youtube: { min: 60, max: 480, penalty: 0.12 },
+    linkedin: { min: 30, max: 90, penalty: 0.3 },
+    x: { min: 15, max: 75, penalty: 0.4 },
+  };
+
+  const PLATFORM_NOTES: Record<string, string> = {
+    instagram: "Reels favor tight 30-60s clips with quick hooks.",
+    tiktok: "Trendy audio + punchy captions drive the best lift here.",
+    facebook: "Great for neighborhood updates and listing walk-throughs.",
+    youtube: "Leverage longer watch time and playlist placement.",
+    linkedin: "Focus on professional takeaways or market education.",
+    x: "Lead with the headline and pin follow-up threads for depth.",
+  };
+
+  const DEFAULT_SCORE_PLATFORMS = [
+    "instagram",
+    "tiktok",
+    "facebook",
+    "youtube",
+    "linkedin",
+    "x",
+  ];
+
+  const normalizeNumber = (value: unknown): number | undefined => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
+  };
+
+  const inferDurationFromMetadata = (video: any): number | undefined => {
+    if (!video) return undefined;
+    const direct = normalizeNumber(video?.duration);
+    if (direct) return direct;
+
+    const metadata =
+      video?.metadata && typeof video.metadata === "object"
+        ? video.metadata
+        : undefined;
+    if (metadata) {
+      const mdDuration = normalizeNumber(
+        (metadata as any).duration || (metadata as any).videoDuration
+      );
+      if (mdDuration) return mdDuration;
+
+      const scriptWordCount = normalizeNumber(
+        (metadata as any).scriptWordCount
+      );
+      if (scriptWordCount) {
+        return Math.round(scriptWordCount / 2.5);
+      }
+    }
+
+    if (typeof video?.script === "string" && video.script.trim().length) {
+      const estimatedWords = video.script.trim().split(/\s+/).length;
+      return Math.round(estimatedWords / 2.5);
+    }
+
+    return undefined;
+  };
+
+  const clampScore = (value: number, min = 30, max = 100) =>
+    Math.max(min, Math.min(max, value));
+
+  const getDurationFitScore = (platform: string, duration: number) => {
+    if (!duration) return 12;
+    const guide = PLATFORM_DURATION_GUIDELINES[platform];
+    if (!guide) return 12;
+    if (duration >= guide.min && duration <= guide.max) {
+      return 25;
+    }
+    const delta =
+      duration < guide.min ? guide.min - duration : duration - guide.max;
+    return Math.max(6, 25 - delta * guide.penalty);
+  };
+
+  const getPastPerformanceScore = (
+    platform: string,
+    stats: Record<string, { posted: number; avgSeo: number }>
+  ) => {
+    const entry = stats[platform];
+    if (!entry) return 8;
+    const volumeScore = Math.min(15, entry.posted * 3);
+    const seoScore = entry.avgSeo ? Math.min(10, entry.avgSeo / 10) : 0;
+    return volumeScore + seoScore;
+  };
+
+  const buildReasons = (
+    platform: string,
+    durationFit: number,
+    pastPerformance: number,
+    isConnected: boolean
+  ): string[] => {
+    const reasons: string[] = [];
+
+    if (durationFit >= 20) {
+      reasons.push("Clip length sits in this platform's sweet spot.");
+    } else if (durationFit <= 8) {
+      reasons.push("Consider trimming the clip before posting here.");
+    }
+
+    if (pastPerformance >= 15) {
+      reasons.push("Recent posts have performed well on this channel.");
+    } else if (pastPerformance <= 6) {
+      reasons.push("Limited history — great place to experiment.");
+    }
+
+    if (!isConnected) {
+      reasons.push("Connect this account to publish directly from RealtyFlow.");
+    }
+
+    if (PLATFORM_NOTES[platform]) {
+      reasons.push(PLATFORM_NOTES[platform]);
+    }
+
+    return reasons;
+  };
+
+  app.get("/api/social/platform-scores", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const rawVideoId = Array.isArray(req.query.videoId)
+        ? req.query.videoId[0]
+        : (req.query.videoId as string | undefined);
+      const rawHeygenId = Array.isArray(req.query.heygenVideoId)
+        ? req.query.heygenVideoId[0]
+        : (req.query.heygenVideoId as string | undefined);
+
+      let videoRecord = null;
+      if (rawVideoId) {
+        videoRecord = await storage.getVideoByIdAndUser(
+          rawVideoId,
+          String(userId)
+        );
+      }
+      if (!videoRecord && rawHeygenId) {
+        videoRecord = await storage.getVideoByHeygenVideoId(
+          String(userId),
+          rawHeygenId
+        );
+      }
+
+      const [socialAccounts, scheduledPosts] = await Promise.all([
+        storage.getSocialMediaAccounts(String(userId)),
+        storage.getScheduledPosts(String(userId)),
+      ]);
+
+      const connectedAccounts = socialAccounts.filter(
+        (account) => account.isConnected
+      );
+      const connectionMap = new Map<string, boolean>();
+      connectedAccounts.forEach((account) => {
+        connectionMap.set(account.platform.toLowerCase(), true);
+      });
+
+      const targetPlatforms = connectedAccounts.length
+        ? connectedAccounts.map((account) => account.platform.toLowerCase())
+        : DEFAULT_SCORE_PLATFORMS;
+      const uniqueTargets = Array.from(new Set(targetPlatforms));
+
+      const rawDuration =
+        videoRecord?.duration ?? inferDurationFromMetadata(videoRecord);
+      const resolvedDuration = rawDuration ?? 60;
+      const durationSource = rawDuration == null ? "estimated" : "exact";
+
+      const performanceAggregate = scheduledPosts.reduce<
+        Record<string, { posted: number; totalSeo: number; seoSamples: number }>
+      >((acc, post) => {
+        const key = (post.platform || "").toLowerCase();
+        if (!key) return acc;
+        if (!acc[key]) {
+          acc[key] = { posted: 0, totalSeo: 0, seoSamples: 0 };
+        }
+        if (post.status === "posted") {
+          acc[key].posted += 1;
+          if (
+            typeof post.seoScore === "number" &&
+            Number.isFinite(post.seoScore)
+          ) {
+            acc[key].totalSeo += post.seoScore;
+            acc[key].seoSamples += 1;
+          }
+        }
+        return acc;
+      }, {});
+
+      const performanceStats = Object.fromEntries(
+        Object.entries(performanceAggregate).map(([platform, stats]) => [
+          platform,
+          {
+            posted: stats.posted,
+            avgSeo:
+              stats.seoSamples > 0 ? stats.totalSeo / stats.seoSamples : 0,
+          },
+        ])
+      );
+
+      const platformScores = uniqueTargets
+        .map((platform) => {
+          const normalizedPlatform = platform.toLowerCase();
+          const base = PLATFORM_BASE_WEIGHTS[normalizedPlatform] ?? 52;
+          const durationFit = getDurationFitScore(
+            normalizedPlatform,
+            resolvedDuration
+          );
+          const pastPerformance = getPastPerformanceScore(
+            normalizedPlatform,
+            performanceStats
+          );
+          const isConnected = connectionMap.has(normalizedPlatform);
+          const score = clampScore(base + durationFit + pastPerformance);
+
+          const reasons = buildReasons(
+            normalizedPlatform,
+            durationFit,
+            pastPerformance,
+            isConnected
+          );
+
+          return {
+            platform: normalizedPlatform,
+            score,
+            tier: score >= 80 ? "strong" : score >= 60 ? "good" : "emerging",
+            recommendation:
+              PLATFORM_NOTES[normalizedPlatform] ||
+              (durationFit >= 20
+                ? "Length sweet spot for this network."
+                : "Repurpose the clip slightly for better results."),
+            reasons,
+            connected: isConnected,
+            factors: {
+              engagementWeight: base,
+              durationFit,
+              pastPerformance,
+            },
+          };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      res.json({
+        videoId: videoRecord?.id ?? rawVideoId ?? null,
+        heygenVideoId: videoRecord?.heygenVideoId ?? rawHeygenId ?? null,
+        durationSeconds: resolvedDuration,
+        durationSource,
+        platformScores,
+      });
+    } catch (error) {
+      console.error("Platform score error:", error);
+      res.status(500).json({ error: "Failed to score platforms" });
+    }
+  });
+
   // Facebook-specific endpoints
   app.get("/api/facebook/pages", requireAuth, async (req: any, res) => {
     try {
@@ -1921,6 +2299,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
   });
+
+  // Get all Instagram Business Accounts linked to user's Facebook Pages
+  app.get("/api/instagram/accounts", requireAuth, async (req: any, res) => {
+    try {
+      const user = await resolveMemStorageUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+      const facebookAccount = socialAccounts.find(
+        (acc) => acc.platform.toLowerCase() === "facebook"
+      );
+
+      const metadata = (facebookAccount?.metadata as any) || {};
+      const delegatedToken =
+        metadata?.pageAccessToken ||
+        facebookAccount?.accessToken ||
+        process.env.FACEBOOK_USER_TOKEN;
+
+      if (!delegatedToken) {
+        return res.json([]);
+      }
+
+      // First, get all Facebook Pages
+      const pages = await socialMediaService.getFacebookPageInfo(
+        delegatedToken
+      );
+
+      // Then fetch Instagram Business Account for each page
+      const instagramAccounts = [];
+      for (const page of pages) {
+        try {
+          const response = await fetch(
+            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account{username,id}&access_token=${delegatedToken}`
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.instagram_business_account) {
+              instagramAccounts.push({
+                instagramBusinessAccountId: data.instagram_business_account.id,
+                pageId: page.id,
+                pageName: page.name,
+                username: data.instagram_business_account.username,
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching Instagram for page ${page.id}:`, error);
+          // Continue with other pages
+        }
+      }
+
+      res.json(instagramAccounts);
+    } catch (error: any) {
+      console.error(
+        "Error fetching Instagram accounts:",
+        error?.message || error
+      );
+      res.status(500).json({
+        error: "Failed to fetch Instagram accounts",
+        details: error?.message || "Unknown error",
+      });
+    }
+  });
+
+  // Get Instagram Business Account linked to specific Facebook Page
+  app.get(
+    "/api/instagram/account/:pageId",
+    requireAuth,
+    async (req: any, res) => {
+      try {
+        const { pageId } = req.params;
+        const user = await resolveMemStorageUser(req);
+
+        const socialAccounts = user
+          ? await storage.getSocialMediaAccounts(user.id)
+          : [];
+        const facebookAccount = socialAccounts.find(
+          (acc) => acc.platform.toLowerCase() === "facebook"
+        );
+
+        const metadata = (facebookAccount?.metadata as any) || {};
+        const delegatedToken =
+          metadata?.pageAccessToken ||
+          facebookAccount?.accessToken ||
+          process.env.FACEBOOK_USER_TOKEN;
+
+        if (!delegatedToken) {
+          return res.status(400).json({
+            error:
+              "Facebook token missing. Please reconnect your Facebook account.",
+          });
+        }
+
+        // Fetch Instagram Business Account linked to this Page
+        const response = await fetch(
+          `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account&access_token=${delegatedToken}`
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          return res.status(400).json({
+            error: "Failed to fetch Instagram account",
+            details: errorData.error?.message || "Unknown error",
+          });
+        }
+
+        const data = await response.json();
+
+        if (!data.instagram_business_account) {
+          return res.status(404).json({
+            error: "No Instagram Business Account linked",
+            message:
+              "Please link an Instagram Business account to your Facebook Page first.",
+          });
+        }
+
+        res.json({
+          instagramBusinessAccountId: data.instagram_business_account.id,
+          pageId: pageId,
+        });
+      } catch (error: any) {
+        console.error(
+          "Error fetching Instagram account:",
+          error?.message || error
+        );
+        res.status(500).json({
+          error: "Failed to fetch Instagram account",
+          details: error?.message || "Unknown error",
+        });
+      }
+    }
+  );
 
   app.post(
     "/api/facebook/post",
@@ -2206,11 +2719,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req: any, res) => {
       try {
-        const { content } = req.body;
+        const { content, instagramBusinessAccountId } = req.body;
         const photo = req.file;
 
         if (!content) {
           return res.status(400).json({ error: "Content is required" });
+        }
+
+        if (!instagramBusinessAccountId) {
+          return res.status(400).json({
+            error:
+              "Instagram Business Account ID is required. Please select an Instagram account.",
+          });
         }
 
         const user = await resolveMemStorageUser(req);
@@ -2218,34 +2738,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(401).json({ error: "Authentication required" });
         }
 
+        // Instagram uses Facebook's Graph API, so we need the Facebook token
         const socialAccounts = await storage.getSocialMediaAccounts(user.id);
-        const instagramAccount = socialAccounts.find(
-          (acc) => acc.platform.toLowerCase() === "instagram"
+        const facebookAccount = socialAccounts.find(
+          (acc) => acc.platform.toLowerCase() === "facebook"
         );
 
-        const metadata = (instagramAccount?.metadata as any) || {};
-        const instagramUserId =
-          metadata?.instagramUserId ||
-          metadata?.instagramBusinessAccountId ||
-          instagramAccount?.accountId ||
-          process.env.INSTAGRAM_USER_ID;
-
-        if (!instagramUserId) {
-          return res.status(400).json({
-            error:
-              "Instagram Business/Creator account ID missing. Connect Instagram or supply INSTAGRAM_USER_ID.",
-          });
-        }
-
+        const metadata = (facebookAccount?.metadata as any) || {};
         const resolvedToken =
-          instagramAccount?.accessToken ||
-          metadata?.instagramAccessToken ||
-          process.env.INSTAGRAM_ACCESS_TOKEN;
+          metadata?.pageAccessToken ||
+          facebookAccount?.accessToken ||
+          process.env.FACEBOOK_USER_TOKEN;
 
         if (!resolvedToken) {
           return res.status(400).json({
             error:
-              "Instagram token missing. Reconnect Instagram or set INSTAGRAM_ACCESS_TOKEN.",
+              "Facebook token missing. Instagram posting requires Facebook connection.",
           });
         }
 
@@ -2273,7 +2781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           content,
           photoUrl,
           resolvedToken,
-          instagramUserId
+          instagramBusinessAccountId
         );
 
         const scheduledPost = await storage.createScheduledPost({
@@ -2300,7 +2808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           success: true,
           message: "Content posted successfully to Instagram",
           postId: postResult.postId,
-          instagramUserId,
+          instagramBusinessAccountId,
           usedSampleImage,
           scheduledPostId: scheduledPost.id,
           permalinkHint: "https://www.instagram.com",
@@ -3843,6 +4351,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             scheduledFor: scheduleDate,
             status: "pending",
             isEdited: false,
+            isAiGenerated: true,
             originalContent: aiContent.content,
             neighborhood,
             seoScore: aiContent.seoScore || 80,
@@ -3869,6 +4378,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             scheduledFor: scheduleDate,
             status: "pending",
             isEdited: false,
+            isAiGenerated: false,
             seoScore: 85,
             originalContent: fallbackContent,
             neighborhood,

@@ -1,43 +1,43 @@
-import { 
-  type User, 
-  type InsertUser,
-  type ContentPiece,
-  type InsertContentPiece,
-  type SocialMediaAccount,
-  type InsertSocialMediaAccount,
-  type SeoKeyword,
-  type InsertSeoKeyword,
-  type MarketData,
-  type InsertMarketData,
+import {
   type Analytics,
-  type InsertAnalytics,
-  type ScheduledPost,
-  type InsertScheduledPost,
   type Avatar,
-  type InsertAvatar,
-  type VideoContent,
-  type InsertVideoContent,
-  type CustomVoice,
-  type InsertCustomVoice,
-  type PhotoAvatarGroup,
-  type InsertPhotoAvatarGroup,
-  type PhotoAvatarGroupVoice,
-  type InsertPhotoAvatarGroupVoice,
-  type PhotoAvatar,
-  type InsertPhotoAvatar,
   type CompanyProfile,
+  companyProfiles,
+  type ContentPiece,
+  type CustomVoice,
+  customVoices,
+  type InsertAnalytics,
+  type InsertAvatar,
   type InsertCompanyProfile,
+  type InsertContentPiece,
+  type InsertCustomVoice,
+  type InsertMarketData,
+  type InsertPhotoAvatar,
+  type InsertPhotoAvatarGroup,
+  type InsertPhotoAvatarGroupVoice,
+  type InsertScheduledPost,
+  type InsertSeoKeyword,
+  type InsertSocialMediaAccount,
+  type InsertUser,
+  type InsertVideoContent,
+  type MarketData,
+  type PhotoAvatar,
+  type PhotoAvatarGroup,
   photoAvatarGroups,
+  type PhotoAvatarGroupVoice,
   photoAvatarGroupVoices,
   photoAvatars,
-  customVoices,
-  companyProfiles,
+  type ScheduledPost,
+  scheduledPosts as scheduledPostsTable,
+  type SeoKeyword,
+  type SocialMediaAccount,
+  type User,
+  type VideoContent,
   videoContent as videoContentTable,
-  scheduledPosts as scheduledPostsTable
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -49,26 +49,52 @@ export interface IStorage {
   getContentPieces(userId: string): Promise<ContentPiece[]>;
   getContentPieceById(id: string): Promise<ContentPiece | undefined>;
   createContentPiece(content: InsertContentPiece): Promise<ContentPiece>;
-  updateContentPiece(id: string, updates: Partial<ContentPiece>): Promise<ContentPiece | undefined>;
+  updateContentPiece(
+    id: string,
+    updates: Partial<ContentPiece>
+  ): Promise<ContentPiece | undefined>;
   deleteContentPiece(id: string): Promise<boolean>;
 
   // Social Media
   getSocialMediaAccounts(userId: string): Promise<SocialMediaAccount[]>;
-  getSocialMediaAccountById(id: string): Promise<SocialMediaAccount | undefined>;
-  createSocialMediaAccount(account: InsertSocialMediaAccount): Promise<SocialMediaAccount>;
-  updateSocialMediaAccount(id: string, updates: Partial<SocialMediaAccount>): Promise<SocialMediaAccount | undefined>;
+  getSocialMediaAccountById(
+    id: string
+  ): Promise<SocialMediaAccount | undefined>;
+  createSocialMediaAccount(
+    account: InsertSocialMediaAccount
+  ): Promise<SocialMediaAccount>;
+  updateSocialMediaAccount(
+    id: string,
+    updates: Partial<SocialMediaAccount>
+  ): Promise<SocialMediaAccount | undefined>;
+  disconnectSocialMediaAccount(
+    userId: string,
+    platform: string
+  ): Promise<SocialMediaAccount | undefined>;
 
   // SEO
   getSeoKeywords(userId: string): Promise<SeoKeyword[]>;
   createSeoKeyword(keyword: InsertSeoKeyword): Promise<SeoKeyword>;
-  updateSeoKeyword(id: string, updates: Partial<SeoKeyword>): Promise<SeoKeyword | undefined>;
+  updateSeoKeyword(
+    id: string,
+    updates: Partial<SeoKeyword>
+  ): Promise<SeoKeyword | undefined>;
 
   // Market Data
   getMarketData(userId: string): Promise<MarketData[]>;
-  getMarketDataByNeighborhood(userId: string, neighborhood: string): Promise<MarketData | undefined>;
+  getMarketDataByNeighborhood(
+    userId: string,
+    neighborhood: string
+  ): Promise<MarketData | undefined>;
   createMarketData(data: InsertMarketData): Promise<MarketData>;
-  updateMarketData(id: string, updates: Partial<MarketData>): Promise<MarketData | undefined>;
-  refreshMarketData(userId: string, neighborhoods: InsertMarketData[]): Promise<MarketData[]>;
+  updateMarketData(
+    id: string,
+    updates: Partial<MarketData>
+  ): Promise<MarketData | undefined>;
+  refreshMarketData(
+    userId: string,
+    neighborhoods: InsertMarketData[]
+  ): Promise<MarketData[]>;
 
   // Analytics
   getAnalytics(userId: string, metric?: string): Promise<Analytics[]>;
@@ -78,23 +104,43 @@ export interface IStorage {
   getScheduledPosts(userId: string, status?: string): Promise<ScheduledPost[]>;
   getScheduledPostById(id: string): Promise<ScheduledPost | undefined>;
   createScheduledPost(post: InsertScheduledPost): Promise<ScheduledPost>;
-  updateScheduledPost(id: string, updates: Partial<ScheduledPost>): Promise<ScheduledPost | undefined>;
+  updateScheduledPost(
+    id: string,
+    updates: Partial<ScheduledPost>
+  ): Promise<ScheduledPost | undefined>;
   deleteScheduledPost(id: string): Promise<boolean>;
 
   // Avatars
   getAvatars(userId: string): Promise<Avatar[]>;
   getAvatarById(id: string): Promise<Avatar | undefined>;
   createAvatar(avatar: InsertAvatar): Promise<Avatar>;
-  updateAvatar(id: string, updates: Partial<Avatar>): Promise<Avatar | undefined>;
+  updateAvatar(
+    id: string,
+    updates: Partial<Avatar>
+  ): Promise<Avatar | undefined>;
   deleteAvatar(id: string): Promise<boolean>;
 
   // Video Content
   getVideoContent(userId: string, status?: string): Promise<VideoContent[]>;
   getVideoById(id: string): Promise<VideoContent | undefined>;
-  getVideoByIdAndUser(id: string, userId: string): Promise<VideoContent | undefined>;
+  getVideoByHeygenVideoId(
+    userId: string,
+    heygenVideoId: string
+  ): Promise<VideoContent | undefined>;
+  getVideoByIdAndUser(
+    id: string,
+    userId: string
+  ): Promise<VideoContent | undefined>;
   createVideoContent(video: InsertVideoContent): Promise<VideoContent>;
-  updateVideoContent(id: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined>;
-  updateVideoContentWithUserGuard(id: string, userId: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined>;
+  updateVideoContent(
+    id: string,
+    updates: Partial<VideoContent>
+  ): Promise<VideoContent | undefined>;
+  updateVideoContentWithUserGuard(
+    id: string,
+    userId: string,
+    updates: Partial<VideoContent>
+  ): Promise<VideoContent | undefined>;
   deleteVideoContent(id: string): Promise<boolean>;
   deleteVideoContentWithUserGuard(id: string, userId: string): Promise<boolean>;
 
@@ -105,24 +151,49 @@ export interface IStorage {
   deleteCustomVoice(id: string, userId: string): Promise<boolean>;
 
   // Photo Avatar Groups
-  createPhotoAvatarGroup(group: InsertPhotoAvatarGroup): Promise<PhotoAvatarGroup>;
+  createPhotoAvatarGroup(
+    group: InsertPhotoAvatarGroup
+  ): Promise<PhotoAvatarGroup>;
   getPhotoAvatarGroup(groupId: string): Promise<PhotoAvatarGroup | undefined>;
-  getPhotoAvatarGroupByHeygenId(heygenGroupId: string): Promise<PhotoAvatarGroup | undefined>;
-  getPhotoAvatarGroupByHeygenIdAndUser(heygenGroupId: string, userId: string): Promise<PhotoAvatarGroup | undefined>;
-  getPhotoAvatarGroupByImageHash(imageHash: string, userId: string): Promise<PhotoAvatarGroup | undefined>;
+  getPhotoAvatarGroupByHeygenId(
+    heygenGroupId: string
+  ): Promise<PhotoAvatarGroup | undefined>;
+  getPhotoAvatarGroupByHeygenIdAndUser(
+    heygenGroupId: string,
+    userId: string
+  ): Promise<PhotoAvatarGroup | undefined>;
+  getPhotoAvatarGroupByImageHash(
+    imageHash: string,
+    userId: string
+  ): Promise<PhotoAvatarGroup | undefined>;
   listPhotoAvatarGroups(userId: string): Promise<PhotoAvatarGroup[]>;
-  updatePhotoAvatarGroup(id: string, updates: Partial<PhotoAvatarGroup>): Promise<PhotoAvatarGroup | undefined>;
+  updatePhotoAvatarGroup(
+    id: string,
+    updates: Partial<PhotoAvatarGroup>
+  ): Promise<PhotoAvatarGroup | undefined>;
   deletePhotoAvatarGroup(groupId: string, userId: string): Promise<boolean>;
 
   // Photo Avatar Group Voices
-  savePhotoAvatarGroupVoice(voice: InsertPhotoAvatarGroupVoice): Promise<PhotoAvatarGroupVoice>;
-  getPhotoAvatarGroupVoice(groupId: string, userId: number): Promise<PhotoAvatarGroupVoice | undefined>;
+  savePhotoAvatarGroupVoice(
+    voice: InsertPhotoAvatarGroupVoice
+  ): Promise<PhotoAvatarGroupVoice>;
+  getPhotoAvatarGroupVoice(
+    groupId: string,
+    userId: number
+  ): Promise<PhotoAvatarGroupVoice | undefined>;
   listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]>;
 
   // Individual Photo Avatars
   createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar>;
-  getPhotoAvatarByHeygenIdAndUser(heygenAvatarId: string, userId: string): Promise<PhotoAvatar | undefined>;
-  updatePhotoAvatar(heygenAvatarId: string, userId: string, updates: Partial<PhotoAvatar>): Promise<PhotoAvatar | undefined>;
+  getPhotoAvatarByHeygenIdAndUser(
+    heygenAvatarId: string,
+    userId: string
+  ): Promise<PhotoAvatar | undefined>;
+  updatePhotoAvatar(
+    heygenAvatarId: string,
+    userId: string,
+    updates: Partial<PhotoAvatar>
+  ): Promise<PhotoAvatar | undefined>;
   deletePhotoAvatar(heygenAvatarId: string, userId: string): Promise<boolean>;
 
   // Company Profile
@@ -141,7 +212,8 @@ export class MemStorage implements IStorage {
   private avatars: Map<string, Avatar> = new Map();
   private videoContent: Map<string, VideoContent> = new Map();
   private customVoices: Map<string, CustomVoice> = new Map();
-  private photoAvatarGroupVoices: Map<string, PhotoAvatarGroupVoice> = new Map();
+  private photoAvatarGroupVoices: Map<string, PhotoAvatarGroupVoice> =
+    new Map();
 
   constructor() {
     this.seedData();
@@ -163,14 +235,49 @@ export class MemStorage implements IStorage {
 
     // Seed market data for Omaha neighborhoods
     const neighborhoods = [
-      { name: "Aksarben", avgPrice: 425000, daysOnMarket: 18, inventory: "0.8 months", priceGrowth: "+15.2%", trend: "hot" },
-      { name: "Dundee", avgPrice: 385000, daysOnMarket: 12, inventory: "0.6 months", priceGrowth: "+12.8%", trend: "rising" },
-      { name: "Blackstone", avgPrice: 225000, daysOnMarket: 28, inventory: "1.4 months", priceGrowth: "+6.4%", trend: "steady" },
-      { name: "Old Market", avgPrice: 350000, daysOnMarket: 22, inventory: "1.1 months", priceGrowth: "+9.1%", trend: "rising" },
-      { name: "Benson", avgPrice: 195000, daysOnMarket: 35, inventory: "1.8 months", priceGrowth: "+4.2%", trend: "steady" },
+      {
+        name: "Aksarben",
+        avgPrice: 425000,
+        daysOnMarket: 18,
+        inventory: "0.8 months",
+        priceGrowth: "+15.2%",
+        trend: "hot",
+      },
+      {
+        name: "Dundee",
+        avgPrice: 385000,
+        daysOnMarket: 12,
+        inventory: "0.6 months",
+        priceGrowth: "+12.8%",
+        trend: "rising",
+      },
+      {
+        name: "Blackstone",
+        avgPrice: 225000,
+        daysOnMarket: 28,
+        inventory: "1.4 months",
+        priceGrowth: "+6.4%",
+        trend: "steady",
+      },
+      {
+        name: "Old Market",
+        avgPrice: 350000,
+        daysOnMarket: 22,
+        inventory: "1.1 months",
+        priceGrowth: "+9.1%",
+        trend: "rising",
+      },
+      {
+        name: "Benson",
+        avgPrice: 195000,
+        daysOnMarket: 35,
+        inventory: "1.8 months",
+        priceGrowth: "+4.2%",
+        trend: "steady",
+      },
     ];
 
-    neighborhoods.forEach(n => {
+    neighborhoods.forEach((n) => {
       const marketId = randomUUID();
       const market: MarketData = {
         id: marketId,
@@ -199,7 +306,7 @@ export class MemStorage implements IStorage {
       { metric: "monthly_visitors", value: 12000 },
     ];
 
-    metrics.forEach(m => {
+    metrics.forEach((m) => {
       const analyticsId = randomUUID();
       const analytic: Analytics = {
         id: analyticsId,
@@ -227,48 +334,57 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(user => user.username === username);
+    return Array.from(this.users.values()).find(
+      (user) => user.username === username
+    );
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { 
-      ...insertUser, 
-      id, 
+    const user: User = {
+      ...insertUser,
+      id,
       createdAt: new Date(),
-      role: insertUser.role || "agent"
+      role: insertUser.role || "agent",
     };
     this.users.set(id, user);
     return user;
   }
 
   async getContentPieces(userId: string): Promise<ContentPiece[]> {
-    return Array.from(this.contentPieces.values()).filter(content => content.userId === userId);
+    return Array.from(this.contentPieces.values()).filter(
+      (content) => content.userId === userId
+    );
   }
 
   async getContentPieceById(id: string): Promise<ContentPiece | undefined> {
     return this.contentPieces.get(id);
   }
 
-  async createContentPiece(insertContent: InsertContentPiece): Promise<ContentPiece> {
+  async createContentPiece(
+    insertContent: InsertContentPiece
+  ): Promise<ContentPiece> {
     const id = randomUUID();
-    const content: ContentPiece = { 
-      ...insertContent, 
-      id, 
+    const content: ContentPiece = {
+      ...insertContent,
+      id,
       createdAt: new Date(),
       metadata: insertContent.metadata || null,
       neighborhood: insertContent.neighborhood || null,
       keywords: insertContent.keywords || null,
-      seoOptimized: insertContent.seoOptimized || false
+      seoOptimized: insertContent.seoOptimized || false,
     };
     this.contentPieces.set(id, content);
     return content;
   }
 
-  async updateContentPiece(id: string, updates: Partial<ContentPiece>): Promise<ContentPiece | undefined> {
+  async updateContentPiece(
+    id: string,
+    updates: Partial<ContentPiece>
+  ): Promise<ContentPiece | undefined> {
     const content = this.contentPieces.get(id);
     if (!content) return undefined;
-    
+
     const updated = { ...content, ...updates };
     this.contentPieces.set(id, updated);
     return updated;
@@ -279,119 +395,175 @@ export class MemStorage implements IStorage {
   }
 
   async getSocialMediaAccounts(userId: string): Promise<SocialMediaAccount[]> {
-    return Array.from(this.socialMediaAccounts.values()).filter(account => account.userId === userId);
+    return Array.from(this.socialMediaAccounts.values()).filter(
+      (account) => account.userId === userId
+    );
   }
 
-  async getSocialMediaAccountById(id: string): Promise<SocialMediaAccount | undefined> {
+  async getSocialMediaAccountById(
+    id: string
+  ): Promise<SocialMediaAccount | undefined> {
     return this.socialMediaAccounts.get(id);
   }
 
-  async createSocialMediaAccount(insertAccount: InsertSocialMediaAccount): Promise<SocialMediaAccount> {
+  async createSocialMediaAccount(
+    insertAccount: InsertSocialMediaAccount
+  ): Promise<SocialMediaAccount> {
     const id = randomUUID();
-    const account: SocialMediaAccount = { 
-      ...insertAccount, 
-      id, 
+    const account: SocialMediaAccount = {
+      ...insertAccount,
+      id,
       createdAt: new Date(),
       metadata: insertAccount.metadata || null,
       accessToken: insertAccount.accessToken || null,
       refreshToken: insertAccount.refreshToken || null,
       isConnected: insertAccount.isConnected || false,
-      lastSync: insertAccount.lastSync || null
+      lastSync: insertAccount.lastSync || null,
     };
     this.socialMediaAccounts.set(id, account);
     return account;
   }
 
-  async updateSocialMediaAccount(id: string, updates: Partial<SocialMediaAccount>): Promise<SocialMediaAccount | undefined> {
+  async updateSocialMediaAccount(
+    id: string,
+    updates: Partial<SocialMediaAccount>
+  ): Promise<SocialMediaAccount | undefined> {
     const account = this.socialMediaAccounts.get(id);
     if (!account) return undefined;
-    
+
     const updated = { ...account, ...updates };
     this.socialMediaAccounts.set(id, updated);
     return updated;
   }
 
+  async disconnectSocialMediaAccount(
+    userId: string,
+    platform: string
+  ): Promise<SocialMediaAccount | undefined> {
+    // Find account by userId and platform
+    const account = Array.from(this.socialMediaAccounts.values()).find(
+      (acc) =>
+        acc.userId === userId &&
+        acc.platform.toLowerCase() === platform.toLowerCase()
+    );
+
+    if (!account) return undefined;
+    if (!account.isConnected) return account; // Already disconnected
+
+    // Mark as disconnected and clear OAuth credentials
+    const updated = {
+      ...account,
+      isConnected: false,
+      accessToken: null,
+      refreshToken: null,
+      lastSync: null,
+    };
+
+    this.socialMediaAccounts.set(account.id, updated);
+    return updated;
+  }
+
   async getSeoKeywords(userId: string): Promise<SeoKeyword[]> {
-    return Array.from(this.seoKeywords.values()).filter(keyword => keyword.userId === userId);
+    return Array.from(this.seoKeywords.values()).filter(
+      (keyword) => keyword.userId === userId
+    );
   }
 
   async createSeoKeyword(insertKeyword: InsertSeoKeyword): Promise<SeoKeyword> {
     const id = randomUUID();
-    const keyword: SeoKeyword = { 
-      ...insertKeyword, 
-      id, 
+    const keyword: SeoKeyword = {
+      ...insertKeyword,
+      id,
       createdAt: new Date(),
       neighborhood: insertKeyword.neighborhood || null,
       currentRank: insertKeyword.currentRank || null,
       previousRank: insertKeyword.previousRank || null,
       searchVolume: insertKeyword.searchVolume || null,
       difficulty: insertKeyword.difficulty || null,
-      lastChecked: insertKeyword.lastChecked || null
+      lastChecked: insertKeyword.lastChecked || null,
     };
     this.seoKeywords.set(id, keyword);
     return keyword;
   }
 
-  async updateSeoKeyword(id: string, updates: Partial<SeoKeyword>): Promise<SeoKeyword | undefined> {
+  async updateSeoKeyword(
+    id: string,
+    updates: Partial<SeoKeyword>
+  ): Promise<SeoKeyword | undefined> {
     const keyword = this.seoKeywords.get(id);
     if (!keyword) return undefined;
-    
+
     const updated = { ...keyword, ...updates };
     this.seoKeywords.set(id, updated);
     return updated;
   }
 
   async getMarketData(userId: string): Promise<MarketData[]> {
-    return Array.from(this.marketData.values()).filter(data => data.userId === userId);
+    return Array.from(this.marketData.values()).filter(
+      (data) => data.userId === userId
+    );
   }
 
-  async getMarketDataByNeighborhood(userId: string, neighborhood: string): Promise<MarketData | undefined> {
-    return Array.from(this.marketData.values()).find(data => data.userId === userId && data.neighborhood === neighborhood);
+  async getMarketDataByNeighborhood(
+    userId: string,
+    neighborhood: string
+  ): Promise<MarketData | undefined> {
+    return Array.from(this.marketData.values()).find(
+      (data) => data.userId === userId && data.neighborhood === neighborhood
+    );
   }
 
   async createMarketData(insertData: InsertMarketData): Promise<MarketData> {
     const id = randomUUID();
-    const data: MarketData = { 
-      ...insertData, 
+    const data: MarketData = {
+      ...insertData,
       id,
       avgPrice: insertData.avgPrice || null,
       daysOnMarket: insertData.daysOnMarket || null,
       inventory: insertData.inventory || null,
       priceGrowth: insertData.priceGrowth || null,
       trend: insertData.trend || null,
-      lastUpdated: insertData.lastUpdated || new Date()
+      lastUpdated: insertData.lastUpdated || new Date(),
     };
     this.marketData.set(id, data);
     return data;
   }
 
-  async updateMarketData(id: string, updates: Partial<MarketData>): Promise<MarketData | undefined> {
+  async updateMarketData(
+    id: string,
+    updates: Partial<MarketData>
+  ): Promise<MarketData | undefined> {
     const data = this.marketData.get(id);
     if (!data) return undefined;
-    
+
     const updated = { ...data, ...updates };
     this.marketData.set(id, updated);
     return updated;
   }
 
-  async refreshMarketData(userId: string, neighborhoods: InsertMarketData[]): Promise<MarketData[]> {
+  async refreshMarketData(
+    userId: string,
+    neighborhoods: InsertMarketData[]
+  ): Promise<MarketData[]> {
     // Clear existing market data for this user only
     const userMarketDataIds = Array.from(this.marketData.entries())
       .filter(([_, data]) => data.userId === userId)
       .map(([id, _]) => id);
-    
-    userMarketDataIds.forEach(id => this.marketData.delete(id));
-    
+
+    userMarketDataIds.forEach((id) => this.marketData.delete(id));
+
     // Create new market data from AI-generated neighborhoods for this user
     const newMarketData: MarketData[] = [];
-    
+
     for (const neighborhood of neighborhoods) {
       // Verify userId matches (security check)
       if (neighborhood.userId !== userId) {
-        console.warn(`⚠️  Skipping neighborhood with mismatched userId: ${neighborhood.userId} !== ${userId}`);
+        console.warn(
+          `⚠️  Skipping neighborhood with mismatched userId: ${neighborhood.userId} !== ${userId}`
+        );
         continue;
       }
-      
+
       const id = randomUUID();
       const data: MarketData = {
         ...neighborhood,
@@ -406,43 +578,52 @@ export class MemStorage implements IStorage {
       this.marketData.set(id, data);
       newMarketData.push(data);
     }
-    
-    console.log(`📊 Refreshed market data for user ${userId}: ${newMarketData.length} neighborhoods`);
+
+    console.log(
+      `📊 Refreshed market data for user ${userId}: ${newMarketData.length} neighborhoods`
+    );
     return newMarketData;
   }
 
   async getAnalytics(userId: string, metric?: string): Promise<Analytics[]> {
-    const userAnalytics = Array.from(this.analytics.values()).filter(a => a.userId === userId);
+    const userAnalytics = Array.from(this.analytics.values()).filter(
+      (a) => a.userId === userId
+    );
     if (metric) {
-      return userAnalytics.filter(a => a.metric === metric);
+      return userAnalytics.filter((a) => a.metric === metric);
     }
     return userAnalytics;
   }
 
   async createAnalytics(insertAnalytics: InsertAnalytics): Promise<Analytics> {
     const id = randomUUID();
-    const analytics: Analytics = { 
-      ...insertAnalytics, 
+    const analytics: Analytics = {
+      ...insertAnalytics,
       id,
       metadata: insertAnalytics.metadata || null,
-      date: insertAnalytics.date || new Date()
+      date: insertAnalytics.date || new Date(),
     };
     this.analytics.set(id, analytics);
     return analytics;
   }
 
-  async getScheduledPosts(userId: string, status?: string): Promise<ScheduledPost[]> {
+  async getScheduledPosts(
+    userId: string,
+    status?: string
+  ): Promise<ScheduledPost[]> {
     if (status) {
       return await db
         .select()
         .from(scheduledPostsTable)
-        .where(and(
-          eq(scheduledPostsTable.userId, userId),
-          eq(scheduledPostsTable.status, status)
-        ))
+        .where(
+          and(
+            eq(scheduledPostsTable.userId, userId),
+            eq(scheduledPostsTable.status, status)
+          )
+        )
         .orderBy(scheduledPostsTable.scheduledFor);
     }
-    
+
     return await db
       .select()
       .from(scheduledPostsTable)
@@ -459,7 +640,9 @@ export class MemStorage implements IStorage {
     return post;
   }
 
-  async createScheduledPost(insertPost: InsertScheduledPost): Promise<ScheduledPost> {
+  async createScheduledPost(
+    insertPost: InsertScheduledPost
+  ): Promise<ScheduledPost> {
     const [post] = await db
       .insert(scheduledPostsTable)
       .values({
@@ -471,22 +654,28 @@ export class MemStorage implements IStorage {
         hashtags: insertPost.hashtags || null,
         postType: insertPost.postType || null,
         status: insertPost.status || "pending",
-        seoScore: insertPost.seoScore ?? 0
+        seoScore: insertPost.seoScore ?? 0,
       })
       .returning();
     return post;
   }
 
-  async updateScheduledPost(id: string, updates: Partial<ScheduledPost>): Promise<ScheduledPost | undefined> {
+  async updateScheduledPost(
+    id: string,
+    updates: Partial<ScheduledPost>
+  ): Promise<ScheduledPost | undefined> {
     const existing = await this.getScheduledPostById(id);
     if (!existing) return undefined;
-    
+
     const [post] = await db
       .update(scheduledPostsTable)
       .set({
         ...updates,
         updatedAt: new Date(),
-        isEdited: updates.content && updates.content !== existing.originalContent ? true : existing.isEdited
+        isEdited:
+          updates.content && updates.content !== existing.originalContent
+            ? true
+            : existing.isEdited,
       })
       .where(eq(scheduledPostsTable.id, id))
       .returning();
@@ -502,23 +691,29 @@ export class MemStorage implements IStorage {
   }
 
   private generateWeeklyScheduledPosts(userId: string) {
-    const neighborhoods = ["Dundee", "Aksarben", "Old Market", "Blackstone", "Benson"];
+    const neighborhoods = [
+      "Dundee",
+      "Aksarben",
+      "Old Market",
+      "Blackstone",
+      "Benson",
+    ];
     const platforms = ["facebook", "instagram", "linkedin", "x"];
-    
+
     const localMarketTopics = [
       "Dundee neighborhood walkability and charm",
       "Aksarben Village amenities and luxury living",
       "Old Market historic character and dining scene",
       "Blackstone emerging arts district",
-      "Benson affordable family-friendly community"
+      "Benson affordable family-friendly community",
     ];
-    
+
     const movingToOmahaTopics = [
       "Best Omaha neighborhoods for families",
       "Omaha job market and major employers",
       "Winter in Omaha: what to expect",
       "Omaha school districts comparison",
-      "Cost of living in Omaha vs other cities"
+      "Cost of living in Omaha vs other cities",
     ];
 
     const today = new Date();
@@ -532,9 +727,9 @@ export class MemStorage implements IStorage {
 
       const platformIndex = day % platforms.length;
       const platform = platforms[platformIndex];
-      
+
       let content, postType, neighborhood;
-      
+
       if (day % 3 === 0) {
         // Local market focus
         const topicIndex = day % localMarketTopics.length;
@@ -555,7 +750,10 @@ export class MemStorage implements IStorage {
         platform,
         postType,
         content,
-        hashtags: platform === "instagram" ? ["OmahaRealEstate", "MovingToOmaha", "NebraskaHomes"] : [],
+        hashtags:
+          platform === "instagram"
+            ? ["OmahaRealEstate", "MovingToOmaha", "NebraskaHomes"]
+            : [],
         scheduledFor: scheduleDate,
         status: "pending",
         isEdited: false,
@@ -566,7 +764,7 @@ export class MemStorage implements IStorage {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      
+
       this.scheduledPosts.set(scheduledPost.id, scheduledPost);
     }
   }
@@ -577,7 +775,8 @@ export class MemStorage implements IStorage {
       id: randomUUID(),
       userId,
       name: `${displayName} - Professional`,
-      description: "Professional real estate agent avatar for client-facing content",
+      description:
+        "Professional real estate agent avatar for client-facing content",
       avatarImageUrl: null, // Would be set when user uploads their photo
       voiceId: "119caed25533477ba63822d5d1552d25", // HeyGen default professional voice
       style: "professional",
@@ -595,27 +794,29 @@ export class MemStorage implements IStorage {
         title: "Why Dundee is Perfect for Families",
         topic: "Dundee neighborhood family benefits",
         videoType: "neighborhood_tour",
-        neighborhood: "Dundee"
+        neighborhood: "Dundee",
       },
       {
         title: "Moving to Omaha: Your Complete Guide",
-        topic: "Complete relocation guide for Omaha", 
+        topic: "Complete relocation guide for Omaha",
         videoType: "moving_guide",
-        neighborhood: null
+        neighborhood: null,
       },
       {
         title: "Omaha Market Update - January 2025",
         topic: "Current market trends and opportunities",
-        videoType: "market_update", 
-        neighborhood: null
-      }
+        videoType: "market_update",
+        neighborhood: null,
+      },
     ];
 
     sampleTopics.forEach((sample, index) => {
       const video: VideoContent = {
         id: randomUUID(),
         userId,
-        avatarId: Array.from(this.avatars.values()).find(a => a.userId === userId)?.id || null,
+        avatarId:
+          Array.from(this.avatars.values()).find((a) => a.userId === userId)
+            ?.id || null,
         title: sample.title,
         script: `Welcome! Today I want to talk about ${sample.topic}. As your local Omaha real estate expert, I'm here to provide you with valuable insights that can help with your real estate decisions.`,
         topic: sample.topic,
@@ -627,7 +828,12 @@ export class MemStorage implements IStorage {
         youtubeUrl: null,
         youtubeVideoId: null,
         status: "draft",
-        tags: ["OmahaRealEstate", "RealEstateExpert", "HomesBuying", "Nebraska"],
+        tags: [
+          "OmahaRealEstate",
+          "RealEstateExpert",
+          "HomesBuying",
+          "Nebraska",
+        ],
         seoOptimized: false,
         metadata: { sampleContent: true },
         createdAt: new Date(),
@@ -639,7 +845,9 @@ export class MemStorage implements IStorage {
 
   // Avatar methods
   async getAvatars(userId: string): Promise<Avatar[]> {
-    return Array.from(this.avatars.values()).filter(avatar => avatar.userId === userId);
+    return Array.from(this.avatars.values()).filter(
+      (avatar) => avatar.userId === userId
+    );
   }
 
   async getAvatarById(id: string): Promise<Avatar | undefined> {
@@ -658,16 +866,19 @@ export class MemStorage implements IStorage {
       gender: insertAvatar.gender || null,
       metadata: insertAvatar.metadata || null,
       style: insertAvatar.style || "professional",
-      isActive: insertAvatar.isActive !== false
+      isActive: insertAvatar.isActive !== false,
     };
     this.avatars.set(id, avatar);
     return avatar;
   }
 
-  async updateAvatar(id: string, updates: Partial<Avatar>): Promise<Avatar | undefined> {
+  async updateAvatar(
+    id: string,
+    updates: Partial<Avatar>
+  ): Promise<Avatar | undefined> {
     const avatar = this.avatars.get(id);
     if (!avatar) return undefined;
-    
+
     const updated = { ...avatar, ...updates };
     this.avatars.set(id, updated);
     return updated;
@@ -678,12 +889,15 @@ export class MemStorage implements IStorage {
   }
 
   // Video Content methods
-  async getVideoContent(userId: string, status?: string): Promise<VideoContent[]> {
+  async getVideoContent(
+    userId: string,
+    status?: string
+  ): Promise<VideoContent[]> {
     const conditions = [eq(videoContentTable.userId, userId)];
     if (status) {
       conditions.push(eq(videoContentTable.status, status));
     }
-    
+
     return await db
       .select()
       .from(videoContentTable)
@@ -700,7 +914,26 @@ export class MemStorage implements IStorage {
     return video;
   }
 
-  async createVideoContent(insertVideo: InsertVideoContent): Promise<VideoContent> {
+  async getVideoByHeygenVideoId(
+    userId: string,
+    heygenVideoId: string
+  ): Promise<VideoContent | undefined> {
+    const [video] = await db
+      .select()
+      .from(videoContentTable)
+      .where(
+        and(
+          eq(videoContentTable.userId, userId),
+          eq(videoContentTable.heygenVideoId, heygenVideoId)
+        )
+      )
+      .limit(1);
+    return video;
+  }
+
+  async createVideoContent(
+    insertVideo: InsertVideoContent
+  ): Promise<VideoContent> {
     const [video] = await db
       .insert(videoContentTable)
       .values({
@@ -728,7 +961,10 @@ export class MemStorage implements IStorage {
     return video;
   }
 
-  async updateVideoContent(id: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined> {
+  async updateVideoContent(
+    id: string,
+    updates: Partial<VideoContent>
+  ): Promise<VideoContent | undefined> {
     const [updated] = await db
       .update(videoContentTable)
       .set({ ...updates, updatedAt: new Date() })
@@ -744,42 +980,43 @@ export class MemStorage implements IStorage {
     return result.rowCount ? result.rowCount > 0 : false;
   }
 
-  async getVideoByIdAndUser(id: string, userId: string): Promise<VideoContent | undefined> {
+  async getVideoByIdAndUser(
+    id: string,
+    userId: string
+  ): Promise<VideoContent | undefined> {
     const [video] = await db
       .select()
       .from(videoContentTable)
       .where(
-        and(
-          eq(videoContentTable.id, id),
-          eq(videoContentTable.userId, userId)
-        )
+        and(eq(videoContentTable.id, id), eq(videoContentTable.userId, userId))
       )
       .limit(1);
     return video;
   }
 
-  async updateVideoContentWithUserGuard(id: string, userId: string, updates: Partial<VideoContent>): Promise<VideoContent | undefined> {
+  async updateVideoContentWithUserGuard(
+    id: string,
+    userId: string,
+    updates: Partial<VideoContent>
+  ): Promise<VideoContent | undefined> {
     const [updated] = await db
       .update(videoContentTable)
       .set({ ...updates, updatedAt: new Date() })
       .where(
-        and(
-          eq(videoContentTable.id, id),
-          eq(videoContentTable.userId, userId)
-        )
+        and(eq(videoContentTable.id, id), eq(videoContentTable.userId, userId))
       )
       .returning();
     return updated;
   }
 
-  async deleteVideoContentWithUserGuard(id: string, userId: string): Promise<boolean> {
+  async deleteVideoContentWithUserGuard(
+    id: string,
+    userId: string
+  ): Promise<boolean> {
     const result = await db
       .delete(videoContentTable)
       .where(
-        and(
-          eq(videoContentTable.id, id),
-          eq(videoContentTable.userId, userId)
-        )
+        and(eq(videoContentTable.id, id), eq(videoContentTable.userId, userId))
       );
     return result.rowCount ? result.rowCount > 0 : false;
   }
@@ -801,7 +1038,9 @@ export class MemStorage implements IStorage {
     return voice;
   }
 
-  async createCustomVoice(insertVoice: InsertCustomVoice): Promise<CustomVoice> {
+  async createCustomVoice(
+    insertVoice: InsertCustomVoice
+  ): Promise<CustomVoice> {
     const [voice] = await db
       .insert(customVoices)
       .values({
@@ -809,7 +1048,7 @@ export class MemStorage implements IStorage {
         duration: insertVoice.duration || null,
         fileSize: insertVoice.fileSize || null,
         heygenAudioAssetId: insertVoice.heygenAudioAssetId || null,
-        status: insertVoice.status || 'pending',
+        status: insertVoice.status || "pending",
       })
       .returning();
     return voice;
@@ -818,16 +1057,13 @@ export class MemStorage implements IStorage {
   async deleteCustomVoice(id: string, userId: string): Promise<boolean> {
     const result = await db
       .delete(customVoices)
-      .where(
-        and(
-          eq(customVoices.id, id),
-          eq(customVoices.userId, userId)
-        )
-      );
+      .where(and(eq(customVoices.id, id), eq(customVoices.userId, userId)));
     return true;
   }
 
-  async savePhotoAvatarGroupVoice(insertVoice: InsertPhotoAvatarGroupVoice): Promise<PhotoAvatarGroupVoice> {
+  async savePhotoAvatarGroupVoice(
+    insertVoice: InsertPhotoAvatarGroupVoice
+  ): Promise<PhotoAvatarGroupVoice> {
     const [voice] = await db
       .insert(photoAvatarGroupVoices)
       .values({
@@ -838,7 +1074,10 @@ export class MemStorage implements IStorage {
     return voice;
   }
 
-  async getPhotoAvatarGroupVoice(groupId: string, userId: number): Promise<PhotoAvatarGroupVoice | undefined> {
+  async getPhotoAvatarGroupVoice(
+    groupId: string,
+    userId: number
+  ): Promise<PhotoAvatarGroupVoice | undefined> {
     const [voice] = await db
       .select()
       .from(photoAvatarGroupVoices)
@@ -852,7 +1091,9 @@ export class MemStorage implements IStorage {
     return voice;
   }
 
-  async listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]> {
+  async listPhotoAvatarGroupVoices(
+    userId: number
+  ): Promise<PhotoAvatarGroupVoice[]> {
     return await db
       .select()
       .from(photoAvatarGroupVoices)
@@ -860,7 +1101,9 @@ export class MemStorage implements IStorage {
   }
 
   // Photo Avatar Groups
-  async createPhotoAvatarGroup(insertGroup: InsertPhotoAvatarGroup): Promise<PhotoAvatarGroup> {
+  async createPhotoAvatarGroup(
+    insertGroup: InsertPhotoAvatarGroup
+  ): Promise<PhotoAvatarGroup> {
     const [group] = await db
       .insert(photoAvatarGroups)
       .values(insertGroup)
@@ -877,7 +1120,9 @@ export class MemStorage implements IStorage {
     return group;
   }
 
-  async getPhotoAvatarGroupByHeygenId(heygenGroupId: string): Promise<PhotoAvatarGroup | undefined> {
+  async getPhotoAvatarGroupByHeygenId(
+    heygenGroupId: string
+  ): Promise<PhotoAvatarGroup | undefined> {
     const [group] = await db
       .select()
       .from(photoAvatarGroups)
@@ -886,7 +1131,10 @@ export class MemStorage implements IStorage {
     return group;
   }
 
-  async getPhotoAvatarGroupByImageHash(imageHash: string, userId: string): Promise<PhotoAvatarGroup | undefined> {
+  async getPhotoAvatarGroupByImageHash(
+    imageHash: string,
+    userId: string
+  ): Promise<PhotoAvatarGroup | undefined> {
     const [group] = await db
       .select()
       .from(photoAvatarGroups)
@@ -907,7 +1155,10 @@ export class MemStorage implements IStorage {
       .where(eq(photoAvatarGroups.userId, userId));
   }
 
-  async updatePhotoAvatarGroup(id: string, updates: Partial<PhotoAvatarGroup>): Promise<PhotoAvatarGroup | undefined> {
+  async updatePhotoAvatarGroup(
+    id: string,
+    updates: Partial<PhotoAvatarGroup>
+  ): Promise<PhotoAvatarGroup | undefined> {
     const [updated] = await db
       .update(photoAvatarGroups)
       .set(updates)
@@ -916,7 +1167,10 @@ export class MemStorage implements IStorage {
     return updated;
   }
 
-  async getPhotoAvatarGroupByHeygenIdAndUser(heygenGroupId: string, userId: string): Promise<PhotoAvatarGroup | undefined> {
+  async getPhotoAvatarGroupByHeygenIdAndUser(
+    heygenGroupId: string,
+    userId: string
+  ): Promise<PhotoAvatarGroup | undefined> {
     const [group] = await db
       .select()
       .from(photoAvatarGroups)
@@ -930,7 +1184,10 @@ export class MemStorage implements IStorage {
     return group;
   }
 
-  async deletePhotoAvatarGroup(groupId: string, userId: string): Promise<boolean> {
+  async deletePhotoAvatarGroup(
+    groupId: string,
+    userId: string
+  ): Promise<boolean> {
     const result = await db
       .delete(photoAvatarGroups)
       .where(
@@ -944,14 +1201,14 @@ export class MemStorage implements IStorage {
 
   // Individual Photo Avatars
   async createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar> {
-    const [result] = await db
-      .insert(photoAvatars)
-      .values(avatar)
-      .returning();
+    const [result] = await db.insert(photoAvatars).values(avatar).returning();
     return result;
   }
 
-  async getPhotoAvatarByHeygenIdAndUser(heygenAvatarId: string, userId: string): Promise<PhotoAvatar | undefined> {
+  async getPhotoAvatarByHeygenIdAndUser(
+    heygenAvatarId: string,
+    userId: string
+  ): Promise<PhotoAvatar | undefined> {
     const [avatar] = await db
       .select()
       .from(photoAvatars)
@@ -965,7 +1222,11 @@ export class MemStorage implements IStorage {
     return avatar;
   }
 
-  async updatePhotoAvatar(heygenAvatarId: string, userId: string, updates: Partial<PhotoAvatar>): Promise<PhotoAvatar | undefined> {
+  async updatePhotoAvatar(
+    heygenAvatarId: string,
+    userId: string,
+    updates: Partial<PhotoAvatar>
+  ): Promise<PhotoAvatar | undefined> {
     const [result] = await db
       .update(photoAvatars)
       .set(updates)
@@ -979,7 +1240,10 @@ export class MemStorage implements IStorage {
     return result;
   }
 
-  async deletePhotoAvatar(heygenAvatarId: string, userId: string): Promise<boolean> {
+  async deletePhotoAvatar(
+    heygenAvatarId: string,
+    userId: string
+  ): Promise<boolean> {
     const result = await db
       .delete(photoAvatars)
       .where(
@@ -1000,7 +1264,9 @@ export class MemStorage implements IStorage {
     return profile || null;
   }
 
-  async upsertCompanyProfile(profile: InsertCompanyProfile): Promise<CompanyProfile> {
+  async upsertCompanyProfile(
+    profile: InsertCompanyProfile
+  ): Promise<CompanyProfile> {
     const [result] = await db
       .insert(companyProfiles)
       .values(profile)

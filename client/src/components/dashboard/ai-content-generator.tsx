@@ -16,6 +16,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useFacebookPages } from "@/hooks/use-facebook-pages";
+import { FacebookPageSelector } from "@/components/facebook/facebook-page-selector";
+import { useInstagramAccounts } from "@/hooks/use-instagram-accounts";
+import { InstagramAccountSelector } from "@/components/instagram/instagram-account-selector";
 import {
   Sparkles,
   FileText,
@@ -67,6 +71,8 @@ import {
 } from "@/components/ui/tooltip";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useOptimizationPrereqs } from "@/hooks/use-optimization-prereqs";
+import { AiGeneratedBadge } from "@/components/shared/ai-generated-badge";
+import { PostingDialog } from "@/components/shared/posting-dialog";
 import {
   classifyContent,
   calculateMarketSignals,
@@ -247,8 +253,37 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
 
+  // Posting dialog states
+  const [showPostingDialog, setShowPostingDialog] = useState(false);
+  const [platformToPost, setPlatformToPost] = useState<string | null>(null);
+  
+  // Store selected IDs for posting (independent of hook auto-select)
+  const [selectedPageForPosting, setSelectedPageForPosting] = useState<string | null>(null);
+  const [selectedInstagramForPosting, setSelectedInstagramForPosting] = useState<string | null>(null);
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Facebook Pages hook for page selection
+  const {
+    pages: facebookPages,
+    isLoading: isLoadingPages,
+    isError: isPagesError,
+    selectedPageId,
+    setSelectedPageId,
+    isReady: isFacebookPagesReady,
+  } = useFacebookPages({ autoSelect: true });
+
+  // Instagram Accounts hook for account selection
+  const {
+    accounts: instagramAccounts,
+    isLoading: isLoadingInstagram,
+    isError: isInstagramError,
+    error: instagramError,
+    selectedAccountId: selectedInstagramAccountId,
+    setSelectedAccountId: setSelectedInstagramAccountId,
+    isReady: isInstagramReady,
+  } = useInstagramAccounts({ autoSelect: true });
 
   const { data: marketData } = useQuery({
     queryKey: ['/api/market/data'],
@@ -627,22 +662,32 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       platform,
       content,
       photo,
+      selectedPageId: explicitPageId,
+      selectedInstagramId: explicitInstagramId,
     }: {
       platform: string;
       content: string;
       photo?: File;
+      selectedPageId?: string | null;
+      selectedInstagramId?: string | null;
     }) => {
       // Handle Facebook posting separately using Facebook Pages API
       if (platform.toLowerCase() === "facebook") {
+        // Use explicit page ID from mutation params if provided
+        const pageId = explicitPageId !== undefined ? explicitPageId : selectedPageId;
+        
+        const payload: Record<string, any> = { content };
+        // Only include pageId if explicitly selected, otherwise backend uses saved default
+        if (pageId) {
+          payload.pageId = pageId;
+        }
+        
         const response = await fetch("/api/facebook/post", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            content: content,
-            pageId: "61581294927027", // Golden Brick page ID
-          }),
+          body: JSON.stringify(payload),
         });
 
         if (!response.ok) {
@@ -653,8 +698,16 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         return response.json();
       } else if (platform.toLowerCase() === "instagram") {
         // Handle Instagram posting using Instagram Graph API
+        // Use explicit Instagram ID from mutation params if provided
+        const instagramAccountId = explicitInstagramId !== undefined ? explicitInstagramId : selectedInstagramAccountId;
+        
+        if (!instagramAccountId) {
+          throw new Error("Please select an Instagram account to post to");
+        }
+
         const formData = new FormData();
         formData.append("content", content);
+        formData.append("instagramBusinessAccountId", instagramAccountId);
         if (photo) {
           formData.append("photo", photo);
         }
@@ -720,6 +773,9 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       });
       setPostingTo(null);
       queryClient.invalidateQueries({ queryKey: ["/api/social/posts"] });
+      // Reset dialog-specific state after successful posting
+      setSelectedPageForPosting(null);
+      setSelectedInstagramForPosting(null);
     },
     onError: (error: any, variables) => {
       toast({
@@ -728,17 +784,79 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         variant: "destructive",
       });
       setPostingTo(null);
+      // Reset dialog-specific state after failed posting
+      setSelectedPageForPosting(null);
+      setSelectedInstagramForPosting(null);
     },
   });
 
   const handlePostToPlatform = (platform: string) => {
     if (!lastGenerated) return;
 
-    setPostingTo(platform);
+    // For Facebook and Instagram, show dialog to select page/account
+    if (platform.toLowerCase() === "facebook" || platform.toLowerCase() === "instagram") {
+      // Pre-fill dialog with current defaults from hooks for better UX
+      setSelectedPageForPosting(selectedPageId);
+      setSelectedInstagramForPosting(selectedInstagramAccountId);
+      setPlatformToPost(platform);
+      setShowPostingDialog(true);
+    } else {
+      // For other platforms, post directly
+      setPostingTo(platform);
+      postToPlatformMutation.mutate({
+        platform: platform.toLowerCase(),
+        content: lastGenerated.content,
+        photo: selectedPhoto || undefined,
+      });
+    }
+  };
+
+  const handleConfirmPost = () => {
+    if (!lastGenerated || !platformToPost) return;
+
+    const platform = platformToPost.toLowerCase();
+    
+    // Capture selected IDs BEFORE any state changes
+    const selectedPage = selectedPageForPosting;
+    const selectedInstagram = selectedInstagramForPosting;
+    
+    // Validate selection for Facebook/Instagram
+    if (platform === "facebook" && !selectedPage) {
+      toast({
+        title: "No Page Selected",
+        description: "Please select a Facebook page to post to",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (platform === "instagram" && !selectedInstagram) {
+      toast({
+        title: "No Account Selected",
+        description: "Please select an Instagram account to post to",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Sync dialog selections back to hooks for UI consistency
+    if (platform === "facebook" && selectedPage) {
+      setSelectedPageId(selectedPage);
+    }
+    if (platform === "instagram" && selectedInstagram) {
+      setSelectedInstagramAccountId(selectedInstagram);
+    }
+
+    setPostingTo(platformToPost);
+    setShowPostingDialog(false);
+
+    // Pass captured IDs explicitly to mutation
     postToPlatformMutation.mutate({
-      platform: platform.toLowerCase(),
+      platform,
       content: lastGenerated.content,
       photo: selectedPhoto || undefined,
+      selectedPageId: selectedPage,
+      selectedInstagramId: selectedInstagram,
     });
   };
 
@@ -1398,9 +1516,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
             data-testid="content-preview"
           >
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-medium text-foreground">
-                Latest Generated Content
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-medium text-foreground">
+                  Latest Generated Content
+                </h3>
+                <AiGeneratedBadge size="sm" showTooltip={true} />
+              </div>
               <div className="flex items-center space-x-2">
                 <Button
                   variant="ghost"
@@ -1621,6 +1742,34 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </div>
               </div>
             )}
+
+            {/* Social Media Account Selectors */}
+            <div className="mt-3 pt-3 border-t space-y-3">
+              {/* Facebook Page Selector */}
+              <FacebookPageSelector
+                pages={facebookPages}
+                isLoading={isLoadingPages}
+                isError={isPagesError}
+                value={selectedPageId}
+                onChange={setSelectedPageId}
+                label="Facebook Page"
+                placeholder="Select a page to post to Facebook..."
+                showLabel={true}
+              />
+
+              {/* Instagram Account Selector */}
+              <InstagramAccountSelector
+                accounts={instagramAccounts}
+                isLoading={isLoadingInstagram}
+                isError={isInstagramError}
+                error={instagramError}
+                value={selectedInstagramAccountId}
+                onChange={setSelectedInstagramAccountId}
+                label="Instagram Account"
+                placeholder="Select an Instagram account..."
+                showLabel={true}
+              />
+            </div>
 
             {/* Platform Suggestions */}
             <div className="mt-3 pt-3 border-t">
@@ -2266,6 +2415,33 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Posting Dialog for Facebook/Instagram Page Selection */}
+      <PostingDialog
+        open={showPostingDialog}
+        onClose={() => {
+          setShowPostingDialog(false);
+          setPlatformToPost(null);
+          // Reset dialog-specific state on cancel/escape
+          setSelectedPageForPosting(null);
+          setSelectedInstagramForPosting(null);
+        }}
+        onConfirm={handleConfirmPost}
+        platform={platformToPost}
+        isPosting={postingTo === platformToPost}
+        facebookPages={facebookPages}
+        isLoadingPages={isLoadingPages}
+        isPagesError={isPagesError}
+        pagesError={null}
+        selectedPageId={selectedPageForPosting}
+        onPageChange={setSelectedPageForPosting}
+        instagramAccounts={instagramAccounts}
+        isLoadingInstagram={isLoadingInstagram}
+        isInstagramError={isInstagramError}
+        instagramError={instagramError}
+        selectedInstagramAccountId={selectedInstagramForPosting}
+        onInstagramAccountChange={setSelectedInstagramForPosting}
+      />
 
       {/* Photo Upload Dialog */}
       <Dialog open={showPhotoUpload} onOpenChange={setShowPhotoUpload}>

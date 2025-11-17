@@ -35,12 +35,12 @@ export class SocialMediaService {
   async postToFacebook(
     content: string,
     accessToken?: string,
-    imageUrl?: string
+    imageUrl?: string,
   ): Promise<{ postId: string }> {
     // Note: Direct posting to personal Facebook profiles is not supported by Graph API
     // This method is deprecated in favor of page posting
     throw new Error(
-      "Direct posting to personal Facebook profiles is not supported. Please use page posting instead."
+      "Direct posting to personal Facebook profiles is not supported. Please use page posting instead.",
     );
   }
 
@@ -48,7 +48,8 @@ export class SocialMediaService {
     title: string,
     description: string,
     videoUrl?: string,
-    accessToken?: string
+    accessToken?: string,
+    options?: { photoUrls?: string[]; videoUrls?: string[] },
   ): Promise<{ postId: string; watchUrl?: string; studioUrl?: string }> {
     try {
       if (!accessToken) {
@@ -57,12 +58,13 @@ export class SocialMediaService {
 
       console.log(
         "YouTube postToYoutube called with accessToken:",
-        accessToken
+        accessToken,
       );
 
       // For YouTube, we can create a Community post (text-only) or upload a video
       // Community posts require specific channel permissions
-      let resolvedVideoSource = videoUrl;
+      // Priority: options.videoUrls > videoUrl param
+      let resolvedVideoSource = options?.videoUrls?.[0] || videoUrl;
 
       if (!resolvedVideoSource) {
         const defaultSamplePath =
@@ -73,11 +75,11 @@ export class SocialMediaService {
           resolvedVideoSource = defaultSamplePath;
           console.log(
             "🎬 Using bundled sample video for YouTube upload:",
-            defaultSamplePath
+            defaultSamplePath,
           );
         } else {
           console.warn(
-            "⚠️ No uploaded video and sample video missing. Falling back to text-only YouTube post."
+            "⚠️ No uploaded video and sample video missing. Falling back to text-only YouTube post.",
           );
         }
       }
@@ -88,7 +90,7 @@ export class SocialMediaService {
           title,
           description,
           resolvedVideoSource,
-          accessToken
+          accessToken,
         );
       }
 
@@ -96,7 +98,7 @@ export class SocialMediaService {
       return await this.createYoutubeCommunityPost(
         title,
         description,
-        accessToken
+        accessToken,
       );
     } catch (error) {
       console.error("YouTube posting error:", error);
@@ -108,7 +110,7 @@ export class SocialMediaService {
     title: string,
     description: string,
     videoSource: string,
-    accessToken: string
+    accessToken: string,
   ): Promise<{ postId: string; watchUrl?: string; studioUrl?: string }> {
     try {
       console.log("Starting YouTube video upload:", {
@@ -145,7 +147,7 @@ export class SocialMediaService {
 
         if (!videoResponse.ok) {
           throw new Error(
-            `Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`
+            `Failed to download video: ${videoResponse.status} ${videoResponse.statusText}`,
           );
         }
 
@@ -227,10 +229,10 @@ export class SocialMediaService {
         console.error(
           "YouTube upload HTTP error:",
           uploadResponse.status,
-          errorPayload
+          errorPayload,
         );
         throw new Error(
-          `YouTube API error ${uploadResponse.status}: ${errorPayload}`
+          `YouTube API error ${uploadResponse.status}: ${errorPayload}`,
         );
       }
 
@@ -262,12 +264,12 @@ export class SocialMediaService {
         errorMessage.includes("401")
       ) {
         throw new Error(
-          "YouTube authentication failed. Please reconnect your account."
+          "YouTube authentication failed. Please reconnect your account.",
         );
       }
       if (errorMessage.includes("forbidden") || errorMessage.includes("403")) {
         throw new Error(
-          "YouTube upload permission denied. Check your channel permissions."
+          "YouTube upload permission denied. Check your channel permissions.",
         );
       }
 
@@ -278,7 +280,7 @@ export class SocialMediaService {
   private async createYoutubeCommunityPost(
     title: string,
     description: string,
-    accessToken: string
+    accessToken: string,
   ): Promise<{ postId: string; watchUrl?: string; studioUrl?: string }> {
     try {
       // Check if this is a mock token
@@ -311,7 +313,7 @@ export class SocialMediaService {
             Authorization: `Bearer ${accessToken}`,
             Accept: "application/json",
           },
-        }
+        },
       );
 
       if (!response.ok) {
@@ -321,7 +323,7 @@ export class SocialMediaService {
         } catch (parseError) {
           console.error("Error parsing YouTube API response:", parseError);
           throw new Error(
-            `YouTube API authentication test failed: ${response.status}`
+            `YouTube API authentication test failed: ${response.status}`,
           );
         }
 
@@ -329,19 +331,19 @@ export class SocialMediaService {
 
         if (response.status === 401) {
           throw new Error(
-            "YouTube authentication failed. Please reconnect your account."
+            "YouTube authentication failed. Please reconnect your account.",
           );
         }
 
         throw new Error(
-          `YouTube API error: ${errorData.error?.message || "Unknown error"}`
+          `YouTube API error: ${errorData.error?.message || "Unknown error"}`,
         );
       }
 
       const channelData = await response.json();
       console.log(
         "YouTube authentication successful! Channel:",
-        channelData.items?.[0]?.snippet?.title
+        channelData.items?.[0]?.snippet?.title,
       );
 
       // Since Community Posts aren't supported by API, create a simulated success response
@@ -358,7 +360,8 @@ export class SocialMediaService {
     content: string,
     imageUrl?: string,
     accessToken?: string,
-    igUserId?: string
+    igUserId?: string,
+    options?: { photoUrls?: string[]; videoUrls?: string[] },
   ): Promise<{ postId: string }> {
     try {
       const token = accessToken || process.env.INSTAGRAM_ACCESS_TOKEN;
@@ -378,15 +381,27 @@ export class SocialMediaService {
         caption: content,
       };
 
-      // Add image URL if provided
-      if (imageUrl) {
+      // Priority: options.photoUrls/videoUrls > imageUrl param
+      const mediaUrl =
+        options?.photoUrls?.[0] || options?.videoUrls?.[0] || imageUrl;
+
+      // Add media URL if provided
+      if (mediaUrl) {
         const baseUrl =
           process.env.REPLIT_DEPLOYMENT_URL ||
           process.env.CLIENT_URL ||
           "http://localhost:5000";
-        containerData.image_url = imageUrl.startsWith("http")
-          ? imageUrl
-          : `${baseUrl}${imageUrl}`;
+        const resolvedUrl = mediaUrl.startsWith("http")
+          ? mediaUrl
+          : `${baseUrl}${mediaUrl}`;
+
+        // Instagram supports both image_url and video_url
+        if (options?.videoUrls?.[0]) {
+          containerData.video_url = resolvedUrl;
+          containerData.media_type = "VIDEO";
+        } else {
+          containerData.image_url = resolvedUrl;
+        }
       }
 
       const containerResponse = await fetch(
@@ -395,7 +410,7 @@ export class SocialMediaService {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams(containerData).toString(),
-        }
+        },
       );
 
       if (!containerResponse.ok) {
@@ -404,19 +419,19 @@ export class SocialMediaService {
 
         if (errorData.error?.code === 190) {
           throw new Error(
-            "Instagram setup incomplete. Token must be from Facebook page admin with connected Instagram business account."
+            "Instagram setup incomplete. Token must be from Facebook page admin with connected Instagram business account.",
           );
         }
         if (errorData.error?.code === 100) {
           throw new Error(
-            "Invalid Instagram parameters. Please check your content and image."
+            "Invalid Instagram parameters. Please check your content and image.",
           );
         }
 
         throw new Error(
           `Instagram container creation failed: ${
             errorData.error?.message || "Unknown error"
-          }`
+          }`,
         );
       }
 
@@ -433,7 +448,7 @@ export class SocialMediaService {
             access_token: token,
             creation_id: containerId,
           }).toString(),
-        }
+        },
       );
 
       if (!publishResponse.ok) {
@@ -445,14 +460,14 @@ export class SocialMediaService {
         }
         if (errorData.error?.code === 100) {
           throw new Error(
-            "Failed to publish Instagram content. Please try again."
+            "Failed to publish Instagram content. Please try again.",
           );
         }
 
         throw new Error(
           `Instagram publishing failed: ${
             errorData.error?.message || "Unknown error"
-          }`
+          }`,
         );
       }
 
@@ -468,7 +483,8 @@ export class SocialMediaService {
 
   async postToLinkedIn(
     content: string,
-    accessToken: string
+    accessToken: string,
+    options?: { photoUrls?: string[]; videoUrls?: string[] },
   ): Promise<{ postId: string }> {
     try {
       console.log("Posting to LinkedIn:", content);
@@ -480,7 +496,7 @@ export class SocialMediaService {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
-        }
+        },
       );
 
       if (!profileResponse.ok) {
@@ -493,8 +509,16 @@ export class SocialMediaService {
       const authorUrn = `urn:li:person:${profileData.sub}`;
       console.log("LinkedIn author URN:", authorUrn);
 
+      // Determine media category based on provided URLs
+      let shareMediaCategory = "NONE";
+      if (options?.photoUrls?.length) {
+        shareMediaCategory = "IMAGE";
+      } else if (options?.videoUrls?.length) {
+        shareMediaCategory = "VIDEO";
+      }
+
       // Step 2: Create post on LinkedIn
-      const postData = {
+      const postData: any = {
         author: authorUrn,
         lifecycleState: "PUBLISHED",
         specificContent: {
@@ -502,13 +526,25 @@ export class SocialMediaService {
             shareCommentary: {
               text: content,
             },
-            shareMediaCategory: "NONE",
+            shareMediaCategory,
           },
         },
         visibility: {
           "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
         },
       };
+
+      // Note: LinkedIn media upload requires a separate multi-step process
+      // For now, we only support text-only posts
+      // TODO: Implement LinkedIn media upload flow (register upload -> upload media -> create post with media)
+      if (shareMediaCategory !== "NONE") {
+        console.warn(
+          "LinkedIn media upload not yet implemented, posting text-only",
+        );
+        postData.specificContent[
+          "com.linkedin.ugc.ShareContent"
+        ].shareMediaCategory = "NONE";
+      }
 
       const postResponse = await fetch("https://api.linkedin.com/v2/ugcPosts", {
         method: "POST",
@@ -535,7 +571,7 @@ export class SocialMediaService {
       throw new Error(
         `Failed to post to LinkedIn: ${
           error instanceof Error ? error.message : "Unknown error"
-        }`
+        }`,
       );
     }
   }
@@ -548,18 +584,18 @@ export class SocialMediaService {
     const { storage } = await import("../storage.js");
     const accounts = await storage.getSocialMediaAccounts(userId);
     const twitterAccount = accounts.find(
-      (acc) => acc.platform === "x" || acc.platform === "twitter"
+      (acc) => acc.platform === "x" || acc.platform === "twitter",
     );
 
     if (!twitterAccount || !twitterAccount.accessToken) {
       throw new Error(
-        "Twitter account not connected. Please connect your Twitter/X account first."
+        "Twitter account not connected. Please connect your Twitter/X account first.",
       );
     }
 
     if (!twitterAccount.isConnected) {
       throw new Error(
-        "Twitter account is disconnected. Please reconnect your account."
+        "Twitter account is disconnected. Please reconnect your account.",
       );
     }
 
@@ -575,7 +611,8 @@ export class SocialMediaService {
   async postToTwitter(
     userId: string,
     content: string,
-    imageUrl?: string
+    imageUrl?: string,
+    options?: { photoUrls?: string[]; videoUrls?: string[] },
   ): Promise<{ postId: string }> {
     try {
       // Get user's OAuth 2.0 Bearer token from database
@@ -589,6 +626,21 @@ export class SocialMediaService {
       const tweetData: any = {
         text: content,
       };
+
+      // TODO: Implement media upload for Twitter
+      // Twitter media upload requires a separate multi-step process:
+      // 1. Upload media to https://upload.twitter.com/1.1/media/upload.json
+      // 2. Get media_id from response
+      // 3. Attach media_ids array to tweet creation
+      if (
+        options?.photoUrls?.length ||
+        options?.videoUrls?.length ||
+        imageUrl
+      ) {
+        console.warn(
+          "Twitter media upload not yet implemented, posting text-only",
+        );
+      }
 
       // Make the API call with OAuth 2.0 Bearer token
       const response = await fetch(endpointURL, {
@@ -607,12 +659,12 @@ export class SocialMediaService {
 
         if (errorData.status === 403 || errorData.errors?.[0]?.code === 403) {
           throw new Error(
-            "Twitter posting permission denied. Your account may not have tweet.write permission. Please reconnect your Twitter account."
+            "Twitter posting permission denied. Your account may not have tweet.write permission. Please reconnect your Twitter account.",
           );
         }
         if (errorData.status === 401 || errorData.errors?.[0]?.code === 401) {
           throw new Error(
-            "Twitter authentication failed. Your token may have expired. Please reconnect your Twitter account."
+            "Twitter authentication failed. Your token may have expired. Please reconnect your Twitter account.",
           );
         }
 
@@ -622,7 +674,7 @@ export class SocialMediaService {
             errorData.errors?.[0]?.message ||
             errorData.title ||
             "Unknown error"
-          }`
+          }`,
         );
       }
 
@@ -637,6 +689,16 @@ export class SocialMediaService {
     }
   }
 
+  /**
+   * Post to X (Twitter) platform
+   * Note: Use postToTwitter() which handles OAuth 2.0 token lookup from database
+   * This ensures proper token refresh, multi-account support, and storage guarantees
+   *
+   * @param userId - User ID for token lookup
+   * @param content - Tweet content/text
+   * @param imageUrl - Legacy single image URL (optional)
+   * @param options - Media arrays for photos/videos (optional)
+   */
   async deleteTwitterPost(tweetId: string): Promise<{ success: boolean }> {
     try {
       const consumerKey = process.env.TWITTER_CONSUMER_KEY;
@@ -678,8 +740,8 @@ export class SocialMediaService {
             url: endpointURL,
             method: "DELETE",
           },
-          token
-        )
+          token,
+        ),
       );
 
       // Make the DELETE API call
@@ -697,12 +759,12 @@ export class SocialMediaService {
 
         if (errorData.errors?.[0]?.code === 403) {
           throw new Error(
-            "Twitter delete access denied. Check your credentials and permissions."
+            "Twitter delete access denied. Check your credentials and permissions.",
           );
         }
         if (errorData.errors?.[0]?.code === 401) {
           throw new Error(
-            "Twitter authentication failed for delete operation."
+            "Twitter authentication failed for delete operation.",
           );
         }
         if (errorData.errors?.[0]?.code === 404) {
@@ -714,7 +776,7 @@ export class SocialMediaService {
             errorData.detail ||
             errorData.errors?.[0]?.message ||
             "Unknown error"
-          }`
+          }`,
         );
       }
 
@@ -732,7 +794,7 @@ export class SocialMediaService {
 
   async schedulePost(
     post: SocialMediaPost,
-    platforms: string[]
+    platforms: string[],
   ): Promise<{ scheduledId: string }> {
     try {
       // Implementation would integrate with a job scheduler (like node-cron or a queue system)
@@ -740,7 +802,7 @@ export class SocialMediaService {
         "Scheduling post for platforms:",
         platforms,
         "at:",
-        post.scheduledFor
+        post.scheduledFor,
       );
 
       return { scheduledId: `sched_${Date.now()}` };
@@ -752,7 +814,7 @@ export class SocialMediaService {
 
   async getMetrics(
     platform: string,
-    accessToken: string
+    accessToken: string,
   ): Promise<SocialMediaMetrics> {
     try {
       // Platform-specific metrics API calls would go here
@@ -774,7 +836,7 @@ export class SocialMediaService {
 
   async validateConnection(
     platform: string,
-    accessToken?: string
+    accessToken?: string,
   ): Promise<boolean> {
     try {
       if (platform === "facebook") {
@@ -783,7 +845,7 @@ export class SocialMediaService {
 
         // Validate Facebook token by making a simple API call
         const response = await fetch(
-          `https://graph.facebook.com/v18.0/me?access_token=${token}`
+          `https://graph.facebook.com/v18.0/me?access_token=${token}`,
         );
         return response.ok;
       }
@@ -796,7 +858,7 @@ export class SocialMediaService {
 
         // Validate Instagram token by making a simple API call to Facebook Graph API
         const response = await fetch(
-          `https://graph.facebook.com/v21.0/${userId}?fields=id,username&access_token=${token}`
+          `https://graph.facebook.com/v21.0/${userId}?fields=id,username&access_token=${token}`,
         );
         return response.ok;
       }
@@ -837,7 +899,7 @@ export class SocialMediaService {
                 Authorization: `Bearer ${token}`,
                 Accept: "application/json",
               },
-            }
+            },
           );
 
           return response.ok;
@@ -857,14 +919,14 @@ export class SocialMediaService {
   }
 
   async getFacebookPageInfo(
-    accessToken?: string
+    accessToken?: string,
   ): Promise<{ id: string; name: string; category: string }[]> {
     try {
       const token = accessToken || process.env.FACEBOOK_USER_TOKEN;
       console.log("🔍 Facebook Debug - Token available:", !!token);
       console.log(
         "🔍 Facebook Debug - Token first 20 chars:",
-        token?.substring(0, 20)
+        token?.substring(0, 20),
       );
 
       if (!token) {
@@ -873,7 +935,7 @@ export class SocialMediaService {
 
       console.log("🔍 Facebook Debug - Making API call to me/accounts");
       const response = await fetch(
-        `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`
+        `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`,
       );
 
       console.log("🔍 Facebook Debug - Response status:", response.status);
@@ -882,7 +944,7 @@ export class SocialMediaService {
         const errorData = await response.json();
         console.log("🔍 Facebook Debug - Error response:", errorData);
         throw new Error(
-          `Facebook API Error: ${errorData.error?.message || "Unknown error"}`
+          `Facebook API Error: ${errorData.error?.message || "Unknown error"}`,
         );
       }
 
@@ -906,7 +968,8 @@ export class SocialMediaService {
     content: string,
     imageUrl?: string,
     accessToken?: string,
-    baseUrl?: string
+    baseUrl?: string,
+    options?: { photoUrls?: string[]; videoUrls?: string[] },
   ): Promise<{ postId: string }> {
     try {
       const token = accessToken || process.env.FACEBOOK_USER_TOKEN;
@@ -922,24 +985,38 @@ export class SocialMediaService {
       // If a page access token is provided via env, use it directly
       if (presetPageAccessToken) {
         console.log(
-          "🔍 Facebook Post Debug - Using preset page access token from env"
+          "🔍 Facebook Post Debug - Using preset page access token from env",
         );
         const formData = new URLSearchParams();
         formData.append("message", content);
         formData.append("access_token", presetPageAccessToken);
 
-        if (imageUrl) {
+        // Handle media from library (options) or direct upload (imageUrl)
+        // Note: Facebook Graph API supports multi-photo, but current implementation uses first asset only
+        if (options?.photoUrls && options.photoUrls.length > 1) {
+          console.warn(
+            `Facebook posting: ${options.photoUrls.length} photos selected, using first only. Multi-asset support coming soon.`,
+          );
+        }
+        if (options?.videoUrls && options.videoUrls.length > 0) {
+          console.warn(
+            `Facebook posting: Videos not yet supported via media library. Use direct upload for now.`,
+          );
+        }
+
+        const photoUrl = imageUrl || options?.photoUrls?.[0];
+        if (photoUrl) {
           const deploymentUrl =
             process.env.REPLIT_DEPLOYMENT_URL ||
             process.env.CLIENT_URL ||
             "http://localhost:5000";
-          const fullImageUrl = imageUrl.startsWith("http")
-            ? imageUrl
-            : `${baseUrl || deploymentUrl}${imageUrl}`;
+          const fullImageUrl = photoUrl.startsWith("http")
+            ? photoUrl
+            : `${baseUrl || deploymentUrl}${photoUrl}`;
           formData.append("url", fullImageUrl);
         }
 
-        const endpoint = imageUrl
+        const endpoint = photoUrl
           ? `https://graph.facebook.com/v18.0/${pageId}/photos`
           : `https://graph.facebook.com/v18.0/${pageId}/feed`;
 
@@ -952,13 +1029,13 @@ export class SocialMediaService {
         const result = await response.json();
         console.log(
           "🔍 Facebook Post Debug - Preset token post response:",
-          result
+          result,
         );
         if (!response.ok) {
           throw new SocialMediaError(
             result.error?.message || "Failed to post to Facebook page",
             response.status,
-            result
+            result,
           );
         }
 
@@ -968,12 +1045,12 @@ export class SocialMediaService {
       // First get the page access token
       console.log("🔍 Facebook Post Debug - Fetching page access token");
       const pagesResponse = await fetch(
-        `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`
+        `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`,
       );
 
       console.log(
         "🔍 Facebook Post Debug - Pages response status:",
-        pagesResponse.status
+        pagesResponse.status,
       );
 
       if (!pagesResponse.ok) {
@@ -983,14 +1060,14 @@ export class SocialMediaService {
           throw new SocialMediaError(
             "Invalid Facebook access token. Please reconnect your Facebook account.",
             401,
-            errorData
+            errorData,
           );
         }
         if (errorData.error?.code === 200) {
           throw new SocialMediaError(
             "Insufficient permissions. Please grant pages access to your Facebook account.",
             403,
-            errorData
+            errorData,
           );
         }
         throw new SocialMediaError(
@@ -998,14 +1075,14 @@ export class SocialMediaService {
             errorData.error?.message || "Unknown error"
           }`,
           400,
-          errorData
+          errorData,
         );
       }
 
       const pagesData = await pagesResponse.json();
       console.log(
         "🔍 Facebook Post Debug - Available pages:",
-        pagesData.data?.map((p: any) => ({ id: p.id, name: p.name }))
+        pagesData.data?.map((p: any) => ({ id: p.id, name: p.name })),
       );
 
       let pageAccessToken: string | undefined;
@@ -1017,14 +1094,14 @@ export class SocialMediaService {
       } else {
         // Fallback: try fetching page access token directly via page endpoint
         console.log(
-          "🔍 Facebook Post Debug - Page not in me/accounts. Trying /{pageId}?fields=name,access_token"
+          "🔍 Facebook Post Debug - Page not in me/accounts. Trying /{pageId}?fields=name,access_token",
         );
         const pageInfoResp = await fetch(
-          `https://graph.facebook.com/v18.0/${pageId}?fields=name,access_token&access_token=${token}`
+          `https://graph.facebook.com/v18.0/${pageId}?fields=name,access_token&access_token=${token}`,
         );
         console.log(
           "🔍 Facebook Post Debug - Direct page info status:",
-          pageInfoResp.status
+          pageInfoResp.status,
         );
         if (pageInfoResp.ok) {
           const pageInfo = await pageInfoResp.json();
@@ -1043,7 +1120,7 @@ export class SocialMediaService {
       if (!pageAccessToken) {
         console.log(
           "🔍 Facebook Post Debug - Available page IDs:",
-          pagesData.data?.map((p: any) => p.id)
+          pagesData.data?.map((p: any) => p.id),
         );
         throw new SocialMediaError(
           "Page not found or no access. Ensure your user is an admin of the Page and the token has pages_show_list, pages_manage_posts, pages_read_engagement, and pages_manage_metadata.",
@@ -1053,7 +1130,7 @@ export class SocialMediaService {
               id: p.id,
               name: p.name,
             })),
-          }
+          },
         );
       }
 
@@ -1062,20 +1139,33 @@ export class SocialMediaService {
       formData.append("message", content);
       formData.append("access_token", pageAccessToken);
 
-      // Convert relative image URL to absolute if provided
-      if (imageUrl) {
+      // Handle media from library (options) or direct upload (imageUrl)
+      // Note: Facebook Graph API supports multi-photo, but current implementation uses first asset only
+      if (options?.photoUrls && options.photoUrls.length > 1) {
+        console.warn(
+          `Facebook posting: ${options.photoUrls.length} photos selected, using first only. Multi-asset support coming soon.`,
+        );
+      }
+      if (options?.videoUrls && options.videoUrls.length > 0) {
+        console.warn(
+          `Facebook posting: Videos not yet supported via media library. Use direct upload for now.`,
+        );
+      }
+
+      const photoUrl = imageUrl || options?.photoUrls?.[0];
+      if (photoUrl) {
         const deploymentUrl =
           process.env.REPLIT_DEPLOYMENT_URL ||
           process.env.CLIENT_URL ||
           "http://localhost:5000";
-        const fullImageUrl = imageUrl.startsWith("http")
-          ? imageUrl
-          : `${baseUrl || deploymentUrl}${imageUrl}`;
+        const fullImageUrl = photoUrl.startsWith("http")
+          ? photoUrl
+          : `${baseUrl || deploymentUrl}${photoUrl}`;
         formData.append("url", fullImageUrl);
       }
 
       // Make the API call to post to the page
-      const endpoint = imageUrl
+      const endpoint = photoUrl
         ? `https://graph.facebook.com/v18.0/${pageId}/photos`
         : `https://graph.facebook.com/v18.0/${pageId}/feed`;
 
@@ -1094,21 +1184,21 @@ export class SocialMediaService {
           throw new SocialMediaError(
             "Facebook session expired. Please reconnect your account.",
             401,
-            errorData
+            errorData,
           );
         }
         if (errorData.error?.code === 200) {
           throw new SocialMediaError(
             "Insufficient permissions for this page. Please check page roles.",
             403,
-            errorData
+            errorData,
           );
         }
         if (errorData.error?.code === 100) {
           throw new SocialMediaError(
             "Invalid parameters. Please check your content and try again.",
             400,
-            errorData
+            errorData,
           );
         }
 
@@ -1117,7 +1207,7 @@ export class SocialMediaService {
             errorData.error?.message || "Unknown error"
           }`,
           response.status,
-          errorData
+          errorData,
         );
       }
 

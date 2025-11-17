@@ -35,7 +35,92 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
     }
   };
 
-  // Check for auto-login parameters from NebraskaHomeHub
+  // Detect if we're in an iframe
+  const isInIframe = () => {
+    try {
+      return window.self !== window.top;
+    } catch (e) {
+      return true; // If we can't access window.top due to same-origin policy, we're likely in an iframe
+    }
+  };
+
+  // Listen for postMessage from iMakePage parent window
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      // Validate origin for security (adjust allowed origins as needed)
+      const allowedOrigins = [
+        "https://www.imakepage.com",
+        "https://imakepage.com",
+      ];
+
+      if (!allowedOrigins.includes(event.origin)) {
+        return; // Ignore messages from untrusted origins
+      }
+
+      // Check if message contains iMakePage user data
+      if (
+        event.data &&
+        event.data.source === "imakepage" &&
+        event.data.userData
+      ) {
+        console.log("Received iMakePage user data via postMessage");
+        setIsAutoLogging(true);
+
+        try {
+          const { userData } = event.data;
+
+          // Extract identifier from iMakePage user data
+          const identifier =
+            userData.email ||
+            userData.userEmail ||
+            userData.profile?.email ||
+            userData.user?.email;
+
+          if (identifier) {
+            setUserIdentifier(identifier);
+            const loginResult = await universalLogin(identifier);
+
+            if (loginResult.success) {
+              setSuccess("Welcome from iMakePage!");
+              setTimeout(() => handleLoginSuccess(), 1000);
+            } else {
+              setLocalError(
+                "Auto-login failed. Please enter your identifier manually.",
+              );
+            }
+          } else {
+            setLocalError("Unable to extract user information from iMakePage.");
+          }
+        } catch (error) {
+          console.error("iMakePage postMessage login error:", error);
+          setLocalError(
+            "Auto-login failed. Please enter your identifier manually.",
+          );
+        } finally {
+          setIsAutoLogging(false);
+        }
+      }
+    };
+
+    // Add event listener for postMessage
+    window.addEventListener("message", handleMessage);
+
+    // Request user data from parent if in iframe
+    if (isInIframe()) {
+      console.log("In iframe - requesting user data from parent window");
+      window.parent.postMessage(
+        { source: "realtyflow", action: "requestUserData" },
+        "*", // Will be validated by the parent
+      );
+    }
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [universalLogin, onSuccess]);
+
+  // Check for auto-login from URL parameters (iMakePage or NebraskaHomeHub)
   useEffect(() => {
     const checkAutoLogin = async () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -43,6 +128,39 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
       const autoLogin = urlParams.get("autoLogin");
       const source = urlParams.get("source");
 
+      // Priority 1: iMakePage URL parameters
+      if (autoLogin === "true" && userEmail && source === "imakepage") {
+        console.log(
+          "Auto-login detected from iMakePage URL params for:",
+          userEmail,
+        );
+        setIsAutoLogging(true);
+        setUserIdentifier(userEmail);
+
+        try {
+          const loginResult = await universalLogin(userEmail);
+
+          if (loginResult.success) {
+            setSuccess("Welcome from iMakePage!");
+            setTimeout(() => handleLoginSuccess(), 1000);
+          } else {
+            setLocalError(
+              loginResult.message ||
+                "Auto-login failed. Please enter your identifier manually.",
+            );
+          }
+        } catch (error) {
+          console.error("Auto-login error:", error);
+          setLocalError(
+            "Auto-login failed. Please enter your identifier manually.",
+          );
+        } finally {
+          setIsAutoLogging(false);
+        }
+        return;
+      }
+
+      // Priority 2: NebraskaHomeHub URL parameters
       if (autoLogin === "true" && userEmail && source === "nebraska-home-hub") {
         console.log("Auto-login detected from NebraskaHomeHub for:", userEmail);
         setIsAutoLogging(true);
@@ -57,13 +175,13 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
           } else {
             setLocalError(
               loginResult.message ||
-                "Auto-login failed. Please enter your identifier manually."
+                "Auto-login failed. Please enter your identifier manually.",
             );
           }
         } catch (error) {
           console.error("Auto-login error:", error);
           setLocalError(
-            "Auto-login failed. Please enter your identifier manually."
+            "Auto-login failed. Please enter your identifier manually.",
           );
         } finally {
           setIsAutoLogging(false);
@@ -96,7 +214,7 @@ export default function LoginPage({ onSuccess }: LoginPageProps) {
     } else {
       setLocalError(
         loginResult.message ||
-          "Authentication failed. Please check your identifier."
+          "Authentication failed. Please check your identifier.",
       );
     }
   };

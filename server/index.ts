@@ -2,16 +2,22 @@ import dotenv from "dotenv";
 // Load environment variables first
 dotenv.config();
 
-import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
-import { realtimeService } from "./websocket";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import path from "path";
+import express, { NextFunction, type Request, Response } from "express";
 import fs from "fs";
+import path from "path";
+import { registerRoutes } from "./routes";
+import { log, serveStatic, setupVite } from "./vite";
+import { realtimeService } from "./websocket";
 
 const app = express();
+
+// Trust proxy in production (for Replit, Elastic Beanstalk, etc.)
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
+
 // Increase payload limit to handle audio file uploads (avatar voice recordings)
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
@@ -32,7 +38,7 @@ app.use(
       // Add other NebraskaHomeHub domains as needed
     ],
     credentials: true,
-  })
+  }),
 );
 
 // Allow iframe embedding
@@ -88,8 +94,12 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    // Log the error for debugging
+    console.error(`❌ [ERROR] ${status}: ${message}`);
+    console.error(err.stack);
+
     res.status(status).json({ message });
-    throw err;
+    // Don't throw - just log and send response
   });
 
   // importantly only setup vite in development and after
@@ -113,7 +123,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(
-        `🚀 RealtyFlow Multi-User Server running on http://localhost:${port}`
+        `🚀 RealtyFlow Multi-User Server running on http://localhost:${port}`,
       );
       log(`📊 Database: Connected to Neon PostgreSQL`);
       log(`🔐 Authentication: JWT Multi-User System Active`);
@@ -125,6 +135,6 @@ app.use((req, res, next) => {
       log(`   • Check Auth: GET /api/auth/check`);
       log(`   • Dashboard: GET /api/dashboard/overview`);
       log(`   • WebSocket: ws://localhost:${port}/ws`);
-    }
+    },
   );
 })();

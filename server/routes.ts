@@ -2,6 +2,7 @@ import {
   contentOpportunities,
   insertAvatarSchema,
   insertCompanyProfileSchema,
+  insertMediaAssetSchema,
   insertVideoContentSchema,
   tutorialVideos,
   updateScheduledPostSchema,
@@ -15,6 +16,7 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import { nanoid } from "nanoid";
 import path from "path";
+import { z } from "zod";
 import { db } from "./db";
 import { requireAuth } from "./middleware/auth";
 import { ObjectNotFoundError, ObjectStorageService } from "./objectStorage";
@@ -61,6 +63,105 @@ setInterval(() => {
     }
   }
 }, 10 * 60 * 1000);
+
+// Platform media capability matrix - reflects actual MVP implementation support
+// NOTE: Some platforms support more via their APIs but service layer implementation is limited
+const PLATFORM_MEDIA_CAPABILITIES = {
+  instagram: { photos: 1, videos: 1, requiresMedia: true }, // Service supports 1 photo OR 1 video
+  x: { photos: 4, videos: 1, requiresMedia: false }, // Twitter API supports up to 4 photos or 1 video
+  twitter: { photos: 4, videos: 1, requiresMedia: false }, // Twitter API supports up to 4 photos or 1 video
+  youtube: { photos: 0, videos: 1, requiresMedia: true },
+  linkedin: { photos: 1, videos: 0, requiresMedia: false }, // Service supports 1 photo only
+  facebook: { photos: 1, videos: 0, requiresMedia: false }, // Service supports 1 photo only (multi-photo/video = future)
+  tiktok: { photos: 0, videos: 1, requiresMedia: true },
+} as const;
+
+type PlatformName = keyof typeof PLATFORM_MEDIA_CAPABILITIES;
+
+interface MediaResolutionResult {
+  photos: string[];
+  videos: string[];
+  mediaIds: string[];
+  assets: any[];
+}
+
+// Media resolution utility
+async function resolveMediaAssets(
+  mediaIds: string[],
+  userId: string,
+  platform: string
+): Promise<MediaResolutionResult> {
+  const result: MediaResolutionResult = {
+    photos: [],
+    videos: [],
+    mediaIds: [],
+    assets: [],
+  };
+
+  const platformKey = platform.toLowerCase() as PlatformName;
+  const capabilities = PLATFORM_MEDIA_CAPABILITIES[platformKey];
+
+  if (!capabilities) {
+    throw new Error(`Unknown platform: ${platform}`);
+  }
+
+  // Fetch and validate assets - collect ALL first
+  for (const mediaId of mediaIds) {
+    const asset = await storage.getMediaAssetById(mediaId);
+
+    if (!asset) {
+      throw new Error(`Media asset not found: ${mediaId}`);
+    }
+
+    // Validate ownership
+    if (asset.userId !== userId) {
+      throw new Error(`Unauthorized access to media asset: ${mediaId}`);
+    }
+
+    result.assets.push(asset);
+    result.mediaIds.push(mediaId);
+
+    // Categorize by type - collect ALL (validation happens after)
+    if (asset.type === "photo") {
+      result.photos.push(asset.url);
+    } else if (asset.type === "video") {
+      result.videos.push(asset.url);
+    }
+  }
+
+  // Validate platform requirements and limits
+  const totalMedia = result.photos.length + result.videos.length;
+
+  if (capabilities.requiresMedia && totalMedia === 0) {
+    throw new Error(`${platform} requires at least one media attachment`);
+  }
+
+  // Enforce platform limits - reject over-limit submissions
+  if (result.photos.length > capabilities.photos) {
+    throw new Error(
+      `${platform} supports maximum ${capabilities.photos} photo(s), but ${result.photos.length} were provided`
+    );
+  }
+
+  if (result.videos.length > capabilities.videos) {
+    throw new Error(
+      `${platform} supports maximum ${capabilities.videos} video(s), but ${result.videos.length} were provided`
+    );
+  }
+
+  // Instagram requires exactly ONE asset (1 photo OR 1 video, not both)
+  if (
+    platformKey === "instagram" &&
+    result.photos.length > 0 &&
+    result.videos.length > 0
+  ) {
+    throw new Error(
+      "Instagram supports either 1 photo OR 1 video per post, not both. Please select only one asset."
+    );
+  }
+
+  return result;
+}
 
 // Configure multer for file uploads
 const upload = multer({
@@ -287,6 +388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.user.email || `${sessionId}@placeholder.realtyflow`;
 
       user = await storage.createUser({
+        id: sessionId, // 🔥 FIX: Use session ID (database ID) instead of generating new UUID!
         username:
           req.user.username ||
           req.user.email?.split("@")[0] ||
@@ -864,10 +966,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       // If not found by ID, try by email (critical for DB-authenticated users)
-      if (!user && req.user.email) {
+      if (!user && req.user?.email) {
         console.log(`   → Trying to find by email: "${req.user.email}"`);
-        const allUsers = Array.from(storage.users?.values() || []);
-        user = allUsers.find((u) => u.email === req.user.email);
+        user = await storage.getUserByEmail(req.user.email);
         console.log(
           `   → Email search:`,
           user ? `✅ Found ${user.id}` : "❌ Not found"
@@ -884,12 +985,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
+      // 🔥 CRITICAL: Detect ID mismatch and fix it!
+      if (user && user.id !== userId) {
+        console.log(
+          `⚠️  ID MISMATCH DETECTED! MemStorage: ${user.id} vs Database: ${userId}`
+        );
+        console.log(
+          `🔧 Deleting old MemStorage user and recreating with correct ID...`
+        );
+        // Delete the old incorrectly-ID'd user from MemStorage
+        const memUsers: Map<string, any> | undefined = (storage as any).users;
+        if (memUsers) {
+          memUsers.delete(user.id);
+          console.log(`   ✅ Deleted old user with ID: ${user.id}`);
+        }
+        // Force recreation with correct ID
+        user = null;
+      }
+
       // If user still not found, create them ONCE in MemStorage
+      // CRITICAL FIX: Use the database user ID to prevent UUID mismatch!
       if (!user) {
         console.log(
-          `   → User not in MemStorage, creating with auto-generated UUID...`
+          `   → User not in MemStorage, creating with database ID: ${userId}...`
         );
         user = await storage.createUser({
+          id: userId, // 🔥 FIX: Use database ID instead of generating new UUID!
           username:
             req.user.username ||
             req.user.email?.split("@")[0] ||
@@ -903,7 +1024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             | "team_lead",
         });
         console.log(
-          `   ✅ Created user in MemStorage: ${user.id} (DB ID was: ${userId})`
+          `   ✅ Created user in MemStorage with matching DB ID: ${user.id}`
         );
       } else {
         console.log(`   ✅ Reusing existing MemStorage user: ${user.id}`);
@@ -1034,9 +1155,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let user = await storage.getUser(userId);
 
         // If not found by ID, try by email (critical for DB-authenticated users)
-        if (!user && req.user.email) {
-          const allUsers = Array.from(storage.users?.values() || []);
-          user = allUsers.find((u) => u.email === req.user.email);
+        if (!user && req.user?.email) {
+          user = await storage.getUserByEmail(req.user.email);
         }
 
         // If not found by email, try by username as fallback
@@ -1212,13 +1332,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (linkedinAccount) {
             // Update existing account
+            console.log(
+              `[LINKEDIN] Updating existing account for user ${user.id}`
+            );
             await storage.updateSocialMediaAccount(linkedinAccount.id, {
               accessToken,
               isConnected: true,
               lastSync: new Date(),
             });
+            console.log(`[LINKEDIN] ✅ Updated account ${linkedinAccount.id}`);
           } else {
             // Create new account
+            console.log(`[LINKEDIN] Creating new account for user ${user.id}`);
             await storage.createSocialMediaAccount({
               userId: user.id,
               platform: "linkedin",
@@ -1226,6 +1351,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               accessToken,
               isConnected: true,
             });
+            console.log(
+              `[LINKEDIN] ✅ Created new account for user ${user.id}`
+            );
           }
 
           // Success! Show confirmation and close window
@@ -1701,29 +1829,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Social media endpoints
   app.get("/api/social/accounts", requireAuth, async (req, res) => {
     try {
+      console.log("[Social Accounts] Request received", {
+        userId: req.user?.id,
+        userEmail: req.user?.email,
+        authenticated: !!req.user,
+      });
+
       if (!req.user?.id) {
+        console.log("[Social Accounts] Unauthorized - no user ID");
         return res.status(401).json({ error: "Unauthorized" });
       }
 
       // Resolve DB user ID to MemStorage UUID (same logic as connect endpoint)
+      console.log(`🔍 [SOCIAL] Looking up user by session ID: "${req.user.id}"`);
       let userId = String(req.user.id);
       let user = await storage.getUser(userId);
+      console.log(`🔍 [SOCIAL] User lookup by ID result:`, user ? `Found ${user.id}` : 'Not found');
 
       // If not found by ID, try by email
-      if (!user && req.user.email) {
-        const allUsers = Array.from(storage.users?.values() || []);
-        user = allUsers.find((u) => u.email === req.user.email);
+      if (!user && req.user?.email) {
+        console.log(`🔍 [SOCIAL] Trying lookup by email: "${req.user.email}"`);
+        user = await storage.getUserByEmail(req.user.email);
+        console.log(`🔍 [SOCIAL] User lookup by email result:`, user ? `Found ${user.id}` : 'Not found - user will be created');
       }
 
       // If not found by email, try by username
       if (!user && req.user.username) {
+        console.log(`🔍 [SOCIAL] Trying lookup by username: "${req.user.username}"`);
         user = await storage.getUserByUsername(req.user.username);
+        console.log(`🔍 [SOCIAL] User lookup by username result:`, user ? `Found ${user.id}` : 'Not found');
+      }
+
+      // 🔥 CRITICAL: Detect ID mismatch and fix it!
+      if (user && user.id !== userId) {
+        console.log(
+          `⚠️  [SOCIAL ACCOUNTS] ID MISMATCH! MemStorage: ${user.id} vs Database: ${userId}`
+        );
+        console.log(
+          `🔧 Deleting old MemStorage user and recreating with correct ID...`
+        );
+        // Delete the old incorrectly-ID'd user from MemStorage
+        const memUsers: Map<string, any> | undefined = (storage as any).users;
+        if (memUsers) {
+          memUsers.delete(user.id);
+          console.log(`   ✅ Deleted old user with ID: ${user.id}`);
+        }
+        // Force recreation with correct ID
+        user = null;
+      }
+
+      // If STILL not found, create user with correct database ID
+      if (!user) {
+        console.log(`⚠️  [SOCIAL] User not found in MemStorage, creating with DB ID: ${userId}`);
+        user = await storage.createUser({
+          id: userId, // 🔥 Use database ID!
+          username: req.user.username || req.user.email?.split("@")[0] || `user_${userId}`,
+          email: req.user.email || undefined,
+          password: "",
+          name: req.user.email || `User ${userId}`,
+          role: (req.user.type === "agent" ? "agent" : "public") as "agent" | "public" | "team_lead",
+        });
+        console.log(`   ✅ Created user in MemStorage with matching DB ID: ${user.id}`);
       }
 
       // Get social media accounts (empty if user not found)
       const socialAccounts = user
         ? await storage.getSocialMediaAccounts(user.id)
         : [];
+
+      console.log("[Social Accounts] Fetched accounts", {
+        userId: user?.id,
+        accountCount: socialAccounts.length,
+        platforms: socialAccounts.map((a) => a.platform),
+      });
 
       // Map accounts to include connection status
       const connectedPlatforms = new Set(
@@ -1797,8 +1975,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req, res) => {
       try {
-        const { platform, content, platforms, scheduledFor } = req.body;
+        const { platform, content, platforms, scheduledFor, mediaIds } =
+          req.body;
         const photo = req.file;
+
+        // Parse mediaIds if provided as JSON string (multipart forms send strings)
+        let parsedMediaIds: string[] = [];
+        if (mediaIds) {
+          try {
+            parsedMediaIds =
+              typeof mediaIds === "string" ? JSON.parse(mediaIds) : mediaIds;
+            if (!Array.isArray(parsedMediaIds)) {
+              return res
+                .status(400)
+                .json({ error: "mediaIds must be an array" });
+            }
+          } catch (e) {
+            return res.status(400).json({ error: "Invalid mediaIds format" });
+          }
+        }
 
         if (platform) {
           // Single platform posting (new functionality)
@@ -1818,8 +2013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // If not found by ID, try by email (CRITICAL for DB-authenticated users)
           if (!user && req.user?.email) {
-            const allUsers = Array.from(storage.users?.values() || []);
-            user = allUsers.find((u) => u.email === req.user.email);
+            user = await storage.getUserByEmail(req.user.email);
           }
 
           // If not found by email, try by username
@@ -1881,10 +2075,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // Get photo URL if uploaded
-          let photoUrl = null;
-          if (photo) {
-            photoUrl = `/uploads/${path.basename(photo.path)}`;
+          // Resolve media attachments
+          let mediaResult: MediaResolutionResult | null = null;
+          let photoUrl: string | null = null;
+          let videoUrl: string | null = null;
+
+          try {
+            // Priority 1: Media library assets (mediaIds)
+            if (parsedMediaIds.length > 0) {
+              mediaResult = await resolveMediaAssets(
+                parsedMediaIds,
+                user.id,
+                platform
+              );
+              photoUrl = mediaResult.photos[0] || null;
+              videoUrl = mediaResult.videos[0] || null;
+            }
+            // Priority 2: Uploaded file (legacy backward compatibility)
+            else if (photo) {
+              photoUrl = `/uploads/${path.basename(photo.path)}`;
+            }
+          } catch (mediaError) {
+            return res.status(400).json({
+              error:
+                mediaError instanceof Error
+                  ? mediaError.message
+                  : "Media validation failed",
+            });
           }
 
           // Actually post to the platform
@@ -1899,17 +2116,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
               postResult = await socialMediaService.postToInstagram(
                 content,
                 photoUrl || "",
-                connectedAccount?.accessToken || ""
+                connectedAccount?.accessToken || "",
+                undefined,
+                {
+                  photoUrls: mediaResult?.photos || [],
+                  videoUrls: mediaResult?.videos || [],
+                }
               );
             } else if (platform.toLowerCase() === "linkedin") {
               postResult = await socialMediaService.postToLinkedIn(
                 content,
-                connectedAccount?.accessToken || ""
+                connectedAccount?.accessToken || "",
+                {
+                  photoUrls: mediaResult?.photos || [],
+                  videoUrls: mediaResult?.videos || [],
+                }
               );
             } else if (platform.toLowerCase() === "x") {
-              postResult = await socialMediaService.postToX(
+              // Use postToTwitter which properly handles userId-based auth
+              postResult = await socialMediaService.postToTwitter(
+                user.id,
                 content,
-                connectedAccount?.accessToken || ""
+                photoUrl || undefined,
+                {
+                  photoUrls: mediaResult?.photos || [],
+                  videoUrls: mediaResult?.videos || [],
+                }
               );
             } else if (platform.toLowerCase() === "youtube") {
               // For YouTube, we need title and description
@@ -1922,7 +2154,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 title,
                 description,
                 photoUrl || undefined,
-                youtubeToken
+                youtubeToken,
+                {
+                  photoUrls: mediaResult?.photos || [],
+                  videoUrls: mediaResult?.videos || [],
+                }
               );
             } else {
               throw new Error(`Unsupported platform: ${platform}`);
@@ -1949,6 +2185,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             originalContent: content,
             neighborhood: null,
           });
+
+          // Persist media attachments if any
+          if (mediaResult && mediaResult.mediaIds.length > 0) {
+            await storage.createPostMedia(
+              mediaResult.mediaIds.map((mediaId, index) => ({
+                postId: scheduledPost.id,
+                mediaId,
+                orderIndex: index,
+              }))
+            );
+          }
 
           // Send real-time notification
           realtimeService.notifySocialPostScheduled(
@@ -1983,282 +2230,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
-
-  const PLATFORM_BASE_WEIGHTS: Record<string, number> = {
-    instagram: 66,
-    tiktok: 70,
-    facebook: 58,
-    youtube: 62,
-    linkedin: 52,
-    x: 48,
-  };
-
-  const PLATFORM_DURATION_GUIDELINES: Record<
-    string,
-    { min: number; max: number; penalty: number }
-  > = {
-    instagram: { min: 15, max: 90, penalty: 0.35 },
-    tiktok: { min: 15, max: 60, penalty: 0.45 },
-    facebook: { min: 30, max: 120, penalty: 0.25 },
-    youtube: { min: 60, max: 480, penalty: 0.12 },
-    linkedin: { min: 30, max: 90, penalty: 0.3 },
-    x: { min: 15, max: 75, penalty: 0.4 },
-  };
-
-  const PLATFORM_NOTES: Record<string, string> = {
-    instagram: "Reels favor tight 30-60s clips with quick hooks.",
-    tiktok: "Trendy audio + punchy captions drive the best lift here.",
-    facebook: "Great for neighborhood updates and listing walk-throughs.",
-    youtube: "Leverage longer watch time and playlist placement.",
-    linkedin: "Focus on professional takeaways or market education.",
-    x: "Lead with the headline and pin follow-up threads for depth.",
-  };
-
-  const DEFAULT_SCORE_PLATFORMS = [
-    "instagram",
-    "tiktok",
-    "facebook",
-    "youtube",
-    "linkedin",
-    "x",
-  ];
-
-  const normalizeNumber = (value: unknown): number | undefined => {
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    }
-    return undefined;
-  };
-
-  const inferDurationFromMetadata = (video: any): number | undefined => {
-    if (!video) return undefined;
-    const direct = normalizeNumber(video?.duration);
-    if (direct) return direct;
-
-    const metadata =
-      video?.metadata && typeof video.metadata === "object"
-        ? video.metadata
-        : undefined;
-    if (metadata) {
-      const mdDuration = normalizeNumber(
-        (metadata as any).duration || (metadata as any).videoDuration
-      );
-      if (mdDuration) return mdDuration;
-
-      const scriptWordCount = normalizeNumber(
-        (metadata as any).scriptWordCount
-      );
-      if (scriptWordCount) {
-        return Math.round(scriptWordCount / 2.5);
-      }
-    }
-
-    if (typeof video?.script === "string" && video.script.trim().length) {
-      const estimatedWords = video.script.trim().split(/\s+/).length;
-      return Math.round(estimatedWords / 2.5);
-    }
-
-    return undefined;
-  };
-
-  const clampScore = (value: number, min = 30, max = 100) =>
-    Math.max(min, Math.min(max, value));
-
-  const getDurationFitScore = (platform: string, duration: number) => {
-    if (!duration) return 12;
-    const guide = PLATFORM_DURATION_GUIDELINES[platform];
-    if (!guide) return 12;
-    if (duration >= guide.min && duration <= guide.max) {
-      return 25;
-    }
-    const delta =
-      duration < guide.min ? guide.min - duration : duration - guide.max;
-    return Math.max(6, 25 - delta * guide.penalty);
-  };
-
-  const getPastPerformanceScore = (
-    platform: string,
-    stats: Record<string, { posted: number; avgSeo: number }>
-  ) => {
-    const entry = stats[platform];
-    if (!entry) return 8;
-    const volumeScore = Math.min(15, entry.posted * 3);
-    const seoScore = entry.avgSeo ? Math.min(10, entry.avgSeo / 10) : 0;
-    return volumeScore + seoScore;
-  };
-
-  const buildReasons = (
-    platform: string,
-    durationFit: number,
-    pastPerformance: number,
-    isConnected: boolean
-  ): string[] => {
-    const reasons: string[] = [];
-
-    if (durationFit >= 20) {
-      reasons.push("Clip length sits in this platform's sweet spot.");
-    } else if (durationFit <= 8) {
-      reasons.push("Consider trimming the clip before posting here.");
-    }
-
-    if (pastPerformance >= 15) {
-      reasons.push("Recent posts have performed well on this channel.");
-    } else if (pastPerformance <= 6) {
-      reasons.push("Limited history — great place to experiment.");
-    }
-
-    if (!isConnected) {
-      reasons.push("Connect this account to publish directly from RealtyFlow.");
-    }
-
-    if (PLATFORM_NOTES[platform]) {
-      reasons.push(PLATFORM_NOTES[platform]);
-    }
-
-    return reasons;
-  };
-
-  app.get("/api/social/platform-scores", requireAuth, async (req: any, res) => {
-    try {
-      const userId = req.user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const rawVideoId = Array.isArray(req.query.videoId)
-        ? req.query.videoId[0]
-        : (req.query.videoId as string | undefined);
-      const rawHeygenId = Array.isArray(req.query.heygenVideoId)
-        ? req.query.heygenVideoId[0]
-        : (req.query.heygenVideoId as string | undefined);
-
-      let videoRecord = null;
-      if (rawVideoId) {
-        videoRecord = await storage.getVideoByIdAndUser(
-          rawVideoId,
-          String(userId)
-        );
-      }
-      if (!videoRecord && rawHeygenId) {
-        videoRecord = await storage.getVideoByHeygenVideoId(
-          String(userId),
-          rawHeygenId
-        );
-      }
-
-      const [socialAccounts, scheduledPosts] = await Promise.all([
-        storage.getSocialMediaAccounts(String(userId)),
-        storage.getScheduledPosts(String(userId)),
-      ]);
-
-      const connectedAccounts = socialAccounts.filter(
-        (account) => account.isConnected
-      );
-      const connectionMap = new Map<string, boolean>();
-      connectedAccounts.forEach((account) => {
-        connectionMap.set(account.platform.toLowerCase(), true);
-      });
-
-      const targetPlatforms = connectedAccounts.length
-        ? connectedAccounts.map((account) => account.platform.toLowerCase())
-        : DEFAULT_SCORE_PLATFORMS;
-      const uniqueTargets = Array.from(new Set(targetPlatforms));
-
-      const rawDuration =
-        videoRecord?.duration ?? inferDurationFromMetadata(videoRecord);
-      const resolvedDuration = rawDuration ?? 60;
-      const durationSource = rawDuration == null ? "estimated" : "exact";
-
-      const performanceAggregate = scheduledPosts.reduce<
-        Record<string, { posted: number; totalSeo: number; seoSamples: number }>
-      >((acc, post) => {
-        const key = (post.platform || "").toLowerCase();
-        if (!key) return acc;
-        if (!acc[key]) {
-          acc[key] = { posted: 0, totalSeo: 0, seoSamples: 0 };
-        }
-        if (post.status === "posted") {
-          acc[key].posted += 1;
-          if (
-            typeof post.seoScore === "number" &&
-            Number.isFinite(post.seoScore)
-          ) {
-            acc[key].totalSeo += post.seoScore;
-            acc[key].seoSamples += 1;
-          }
-        }
-        return acc;
-      }, {});
-
-      const performanceStats = Object.fromEntries(
-        Object.entries(performanceAggregate).map(([platform, stats]) => [
-          platform,
-          {
-            posted: stats.posted,
-            avgSeo:
-              stats.seoSamples > 0 ? stats.totalSeo / stats.seoSamples : 0,
-          },
-        ])
-      );
-
-      const platformScores = uniqueTargets
-        .map((platform) => {
-          const normalizedPlatform = platform.toLowerCase();
-          const base = PLATFORM_BASE_WEIGHTS[normalizedPlatform] ?? 52;
-          const durationFit = getDurationFitScore(
-            normalizedPlatform,
-            resolvedDuration
-          );
-          const pastPerformance = getPastPerformanceScore(
-            normalizedPlatform,
-            performanceStats
-          );
-          const isConnected = connectionMap.has(normalizedPlatform);
-          const score = clampScore(base + durationFit + pastPerformance);
-
-          const reasons = buildReasons(
-            normalizedPlatform,
-            durationFit,
-            pastPerformance,
-            isConnected
-          );
-
-          return {
-            platform: normalizedPlatform,
-            score,
-            tier: score >= 80 ? "strong" : score >= 60 ? "good" : "emerging",
-            recommendation:
-              PLATFORM_NOTES[normalizedPlatform] ||
-              (durationFit >= 20
-                ? "Length sweet spot for this network."
-                : "Repurpose the clip slightly for better results."),
-            reasons,
-            connected: isConnected,
-            factors: {
-              engagementWeight: base,
-              durationFit,
-              pastPerformance,
-            },
-          };
-        })
-        .sort((a, b) => b.score - a.score);
-
-      res.json({
-        videoId: videoRecord?.id ?? rawVideoId ?? null,
-        heygenVideoId: videoRecord?.heygenVideoId ?? rawHeygenId ?? null,
-        durationSeconds: resolvedDuration,
-        durationSource,
-        platformScores,
-      });
-    } catch (error) {
-      console.error("Platform score error:", error);
-      res.status(500).json({ error: "Failed to score platforms" });
-    }
-  });
 
   // Facebook-specific endpoints
   app.get("/api/facebook/pages", requireAuth, async (req: any, res) => {
@@ -2441,7 +2412,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req: any, res) => {
       try {
-        const { content, pageId } = req.body;
+        const { content, pageId, mediaIds } = req.body;
         if (!content) {
           return res.status(400).json({ error: "Content is required" });
         }
@@ -2495,13 +2466,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           usedSampleImage = true;
         }
 
+        // Resolve media from library if mediaIds provided
+        let mediaOptions:
+          | { photoUrls?: string[]; videoUrls?: string[] }
+          | undefined;
+        if (mediaIds && Array.isArray(mediaIds) && mediaIds.length > 0) {
+          const allMedia = await storage.getMediaAssets(user.id);
+          const selectedMedia = allMedia.filter((m) => mediaIds.includes(m.id));
+          const photoUrls = selectedMedia
+            .filter((m) => m.type === "photo")
+            .map((m) => m.url)
+            .filter((url): url is string => !!url);
+          const videoUrls = selectedMedia
+            .filter((m) => m.type === "video")
+            .map((m) => m.url)
+            .filter((url): url is string => !!url);
+          if (photoUrls.length > 0 || videoUrls.length > 0) {
+            mediaOptions = {};
+            if (photoUrls.length > 0) mediaOptions.photoUrls = photoUrls;
+            if (videoUrls.length > 0) mediaOptions.videoUrls = videoUrls;
+          }
+        }
+
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const postResult = await socialMediaService.postToFacebookPage(
           resolvedPageId,
           content,
           photoUrl || undefined,
           resolvedToken,
-          baseUrl
+          baseUrl,
+          mediaOptions
         );
 
         const scheduledPost = await storage.createScheduledPost({
@@ -2719,7 +2713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req: any, res) => {
       try {
-        const { content, instagramBusinessAccountId } = req.body;
+        const { content, instagramBusinessAccountId, mediaIds } = req.body;
         const photo = req.file;
 
         if (!content) {
@@ -2762,26 +2756,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
           req.body.useSampleImage ?? (!photo ? "true" : "false")
         );
 
-        let photoUrl: string | null = null;
-        let usedSampleImage = false;
-
-        if (photo) {
-          photoUrl = `${baseUrl}/uploads/${path.basename(photo.path)}`;
-        } else if (useSampleImage) {
-          photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
-          usedSampleImage = true;
-        } else {
+        // Reject mixed media sources (upload + library)
+        if (
+          photo &&
+          mediaIds &&
+          Array.isArray(mediaIds) &&
+          mediaIds.length > 0
+        ) {
           return res.status(400).json({
             error:
-              "Instagram requires an image. Upload a photo or enable the sample image option.",
+              "Cannot use both direct photo upload and media library. Please choose one method.",
           });
+        }
+
+        // Normalize all media through validation
+        let photoUrl: string | null = null;
+        let mediaOptions:
+          | { photoUrls?: string[]; videoUrls?: string[] }
+          | undefined;
+
+        // If media library IDs provided, use resolveMediaAssets for validation
+        if (mediaIds && Array.isArray(mediaIds) && mediaIds.length > 0) {
+          try {
+            const resolved = await resolveMediaAssets(
+              mediaIds,
+              user.id,
+              "instagram"
+            );
+            mediaOptions = {};
+            if (resolved.photos.length > 0)
+              mediaOptions.photoUrls = resolved.photos;
+            if (resolved.videos.length > 0)
+              mediaOptions.videoUrls = resolved.videos;
+          } catch (error: any) {
+            return res.status(400).json({ error: error.message });
+          }
+        } else {
+          // Legacy direct upload or sample image path
+          if (photo) {
+            photoUrl = `${baseUrl}/uploads/${path.basename(photo.path)}`;
+          } else if (useSampleImage) {
+            photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
+          } else {
+            return res.status(400).json({
+              error:
+                "Instagram requires an image. Upload a photo or enable the sample image option.",
+            });
+          }
         }
 
         const postResult = await socialMediaService.postToInstagram(
           content,
           photoUrl,
           resolvedToken,
-          instagramBusinessAccountId
+          instagramBusinessAccountId,
+          mediaOptions
         );
 
         const scheduledPost = await storage.createScheduledPost({
@@ -2861,8 +2890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // If not found by ID, try by email (CRITICAL for DB-authenticated users)
         if (!user && req.user?.email) {
-          const allUsers = Array.from(storage.users?.values() || []);
-          user = allUsers.find((u) => u.email === req.user.email);
+          user = await storage.getUserByEmail(req.user.email);
         }
 
         // If not found by email, try by username
@@ -2881,6 +2909,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let content = req.body.content;
         const photo = req.file;
 
+        // Parse mediaIds if present (sent as JSON string from FormData)
+        let mediaIds: string[] = [];
+        if (req.body.mediaIds) {
+          try {
+            mediaIds =
+              typeof req.body.mediaIds === "string"
+                ? JSON.parse(req.body.mediaIds)
+                : req.body.mediaIds;
+          } catch (e) {
+            console.error("Failed to parse mediaIds:", e);
+          }
+        }
+
         // Debug logging
         console.log("📝 Twitter post request:", {
           userId: user.id,
@@ -2888,6 +2929,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bodyKeys: Object.keys(req.body),
           content: content ? content.substring(0, 50) + "..." : "MISSING",
           hasPhoto: !!photo,
+          mediaIds: mediaIds.length,
         });
 
         if (!content) {
@@ -2903,11 +2945,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
 
+        // Resolve media assets from library if mediaIds provided
+        let mediaOptions:
+          | { photoUrls?: string[]; videoUrls?: string[] }
+          | undefined;
+        if (mediaIds.length > 0) {
+          // Fetch all media assets for user
+          const allMedia = await storage.getMediaAssets(user.id);
+
+          // Filter by requested IDs
+          const selectedMedia = allMedia.filter((m) => mediaIds.includes(m.id));
+
+          // Extract URLs by type
+          const photoUrls = selectedMedia
+            .filter((m) => m.type === "photo")
+            .map((m) => m.url)
+            .filter((url): url is string => !!url);
+
+          const videoUrls = selectedMedia
+            .filter((m) => m.type === "video")
+            .map((m) => m.url)
+            .filter((url): url is string => !!url);
+
+          if (photoUrls.length > 0 || videoUrls.length > 0) {
+            mediaOptions = {};
+            if (photoUrls.length > 0) mediaOptions.photoUrls = photoUrls;
+            if (videoUrls.length > 0) mediaOptions.videoUrls = videoUrls;
+          }
+        }
+
         // Pass userId to use OAuth 2.0 token from database
         const postResult = await socialMediaService.postToTwitter(
           user.id,
           content,
-          fullPhotoUrl
+          fullPhotoUrl,
+          mediaOptions
         );
 
         res.json({
@@ -3008,8 +3080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let user = await storage.getUser(userId);
 
         if (!user && req.user?.email) {
-          const allUsers = Array.from(storage.users?.values() || []);
-          user = allUsers.find((u) => u.email === req.user.email);
+          user = await storage.getUserByEmail(req.user.email);
         }
 
         if (!user && req.user?.username) {
@@ -4400,6 +4471,180 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       res.status(500).json({ error: "Failed to generate weekly content" });
     }
   });
+
+  // Media Library endpoints
+  app.get("/api/media", requireAuth, async (req: any, res) => {
+    try {
+      const user = await resolveMemStorageUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { type, source } = req.query;
+
+      // Validate query parameters
+      const allowedTypes = ["video", "photo", "avatar"];
+      const allowedSources = ["upload", "heygen", "library"];
+
+      if (type && !allowedTypes.includes(type as string)) {
+        return res.status(400).json({
+          error: "Invalid type. Must be one of: video, photo, avatar",
+        });
+      }
+
+      if (source && !allowedSources.includes(source as string)) {
+        return res.status(400).json({
+          error: "Invalid source. Must be one of: upload, heygen, library",
+        });
+      }
+
+      const media = await storage.getMediaAssets(
+        user.id,
+        type as string | undefined,
+        source as string | undefined
+      );
+      res.json(media);
+    } catch (error) {
+      console.error("Get media error:", error);
+      res.status(500).json({ error: "Failed to fetch media" });
+    }
+  });
+
+  app.post(
+    "/api/media/upload",
+    requireAuth,
+    upload.single("file"),
+    async (req: any, res) => {
+      try {
+        const user = await resolveMemStorageUser(req);
+        if (!user) {
+          return res.status(401).json({ error: "Authentication required" });
+        }
+
+        if (!req.file) {
+          return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        let {
+          title,
+          description,
+          type,
+          source,
+          metadata,
+          width,
+          height,
+          durationSeconds,
+          thumbnailUrl,
+          avatarId,
+        } = req.body;
+
+        // Normalize empty/whitespace strings to undefined (multipart forms send "" or "  " for empty fields)
+        const normalize = (val: any) => {
+          if (val === null || val === undefined) return undefined;
+          if (typeof val === "string") {
+            const trimmed = val.trim();
+            return trimmed === "" ? undefined : trimmed;
+          }
+          return val;
+        };
+        title = normalize(title);
+        description = normalize(description);
+        type = normalize(type);
+        source = normalize(source);
+        metadata = normalize(metadata);
+        width = normalize(width);
+        height = normalize(height);
+        durationSeconds = normalize(durationSeconds);
+        thumbnailUrl = normalize(thumbnailUrl);
+        avatarId = normalize(avatarId);
+
+        // Build media asset data (omit undefined fields for drizzle-zod validation)
+        const mediaData: any = {
+          userId: user.id,
+          type:
+            type ||
+            (req.file.mimetype.startsWith("video/") ? "video" : "photo"),
+          source: source || "upload",
+          url: `/uploads/${req.file.filename}`,
+          title: title || req.file.originalname || "Untitled",
+          mimeType: req.file.mimetype,
+          fileSize: req.file.size,
+        };
+
+        // Validate required string fields are non-empty
+        if (!mediaData.title.trim()) {
+          return res.status(400).json({ error: "Title cannot be empty" });
+        }
+        if (!mediaData.type.trim()) {
+          return res.status(400).json({ error: "Type cannot be empty" });
+        }
+        if (!mediaData.source.trim()) {
+          return res.status(400).json({ error: "Source cannot be empty" });
+        }
+
+        // Only include optional fields if they have values
+        if (description) mediaData.description = description;
+        if (thumbnailUrl) mediaData.thumbnailUrl = thumbnailUrl;
+        if (avatarId) mediaData.avatarId = avatarId;
+
+        // Parse and validate numbers (reject NaN)
+        if (width !== undefined) {
+          const parsedWidth = parseInt(width);
+          if (Number.isNaN(parsedWidth)) {
+            return res.status(400).json({ error: "Invalid width value" });
+          }
+          mediaData.width = parsedWidth;
+        }
+        if (height !== undefined) {
+          const parsedHeight = parseInt(height);
+          if (Number.isNaN(parsedHeight)) {
+            return res.status(400).json({ error: "Invalid height value" });
+          }
+          mediaData.height = parsedHeight;
+        }
+        if (durationSeconds !== undefined) {
+          const parsedDuration = parseFloat(durationSeconds);
+          if (Number.isNaN(parsedDuration)) {
+            return res.status(400).json({ error: "Invalid duration value" });
+          }
+          mediaData.durationSeconds = parsedDuration;
+        }
+
+        // Parse metadata JSON (handle both string and object inputs)
+        if (metadata) {
+          if (typeof metadata === "object") {
+            // Already parsed (e.g., from XHR JSON request)
+            mediaData.metadata = metadata;
+          } else if (typeof metadata === "string") {
+            // Needs parsing (e.g., from multipart form)
+            try {
+              mediaData.metadata = JSON.parse(metadata);
+            } catch (e) {
+              return res.status(400).json({ error: "Invalid metadata JSON" });
+            }
+          } else {
+            return res
+              .status(400)
+              .json({ error: "Metadata must be object or JSON string" });
+          }
+        }
+
+        // Validate against insert schema
+        const validated = insertMediaAssetSchema.parse(mediaData);
+        const mediaAsset = await storage.createMediaAsset(validated);
+
+        res.json(mediaAsset);
+      } catch (error) {
+        console.error("Upload media error:", error);
+        if (error instanceof z.ZodError) {
+          return res
+            .status(400)
+            .json({ error: "Validation failed", details: error.errors });
+        }
+        res.status(500).json({ error: "Failed to upload media" });
+      }
+    }
+  );
 
   // Avatar Management endpoints
   app.get("/api/avatars", async (req, res) => {
@@ -8613,6 +8858,14 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       res.status(500).json({ error: "Failed to fetch sessions" });
     }
   });
+
+  // =====================================================
+  // IMAKEPAGE INTEGRATION
+  // =====================================================
+
+  // NOTE: iMakePage integration uses postMessage API for secure cross-origin communication
+  // The parent iMakePage window sends user data to the iframe via window.postMessage
+  // No backend proxy needed - all communication happens client-side securely
 
   const httpServer = createServer(app);
   return httpServer;

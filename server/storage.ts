@@ -12,21 +12,25 @@ import {
   type InsertContentPiece,
   type InsertCustomVoice,
   type InsertMarketData,
+  type InsertMediaAsset,
   type InsertPhotoAvatar,
   type InsertPhotoAvatarGroup,
   type InsertPhotoAvatarGroupVoice,
+  type InsertPostMedia,
   type InsertScheduledPost,
   type InsertSeoKeyword,
   type InsertSocialMediaAccount,
   type InsertUser,
   type InsertVideoContent,
   type MarketData,
+  type MediaAsset,
   type PhotoAvatar,
   type PhotoAvatarGroup,
   photoAvatarGroups,
   type PhotoAvatarGroupVoice,
   photoAvatarGroupVoices,
   photoAvatars,
+  type PostMedia,
   type ScheduledPost,
   scheduledPosts as scheduledPostsTable,
   type SeoKeyword,
@@ -43,6 +47,7 @@ export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
   // Content
@@ -123,10 +128,6 @@ export interface IStorage {
   // Video Content
   getVideoContent(userId: string, status?: string): Promise<VideoContent[]>;
   getVideoById(id: string): Promise<VideoContent | undefined>;
-  getVideoByHeygenVideoId(
-    userId: string,
-    heygenVideoId: string
-  ): Promise<VideoContent | undefined>;
   getVideoByIdAndUser(
     id: string,
     userId: string
@@ -199,6 +200,24 @@ export interface IStorage {
   // Company Profile
   getCompanyProfile(userId: string): Promise<CompanyProfile | null>;
   upsertCompanyProfile(profile: InsertCompanyProfile): Promise<CompanyProfile>;
+
+  // Media Assets
+  getMediaAssets(
+    userId: string,
+    type?: string,
+    source?: string
+  ): Promise<MediaAsset[]>;
+  getMediaAssetById(id: string): Promise<MediaAsset | undefined>;
+  createMediaAsset(asset: InsertMediaAsset): Promise<MediaAsset>;
+  updateMediaAsset(
+    id: string,
+    updates: Partial<MediaAsset>
+  ): Promise<MediaAsset | undefined>;
+  deleteMediaAsset(id: string): Promise<boolean>;
+
+  // Post Media (junction table for post attachments)
+  createPostMedia(postMedias: InsertPostMedia[]): Promise<PostMedia[]>;
+  getPostMedia(postId: string): Promise<PostMedia[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -214,6 +233,8 @@ export class MemStorage implements IStorage {
   private customVoices: Map<string, CustomVoice> = new Map();
   private photoAvatarGroupVoices: Map<string, PhotoAvatarGroupVoice> =
     new Map();
+  private mediaAssets: Map<string, MediaAsset> = new Map();
+  private postMedia: Map<string, PostMedia> = new Map();
 
   constructor() {
     this.seedData();
@@ -330,17 +351,104 @@ export class MemStorage implements IStorage {
   }
 
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    // Check memory first (for seeded users)
+    const memUser = this.users.get(id);
+    if (memUser) {
+      console.log(`[STORAGE] getUser(${id}) - Found in memory`);
+      return memUser;
+    }
+
+    // Check database for DB-authenticated users
+    try {
+      const { db } = await import("./db");
+      const dbUser = await db.query.users.findFirst({
+        where: (table, { eq }) => eq(table.id, id),
+      });
+      if (dbUser) {
+        console.log(`[STORAGE] getUser(${id}) - Found in database`);
+        return dbUser as User;
+      }
+    } catch (error) {
+      console.error(`[STORAGE] getUser(${id}) - Database error:`, error);
+    }
+
+    console.log(`[STORAGE] getUser(${id}) - Not found`);
+    return undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
+    // Check memory first (for seeded users)
+    const memUser = Array.from(this.users.values()).find(
       (user) => user.username === username
     );
+    if (memUser) {
+      console.log(
+        `[STORAGE] getUserByUsername(${username}) - Found in memory: ${memUser.id}`
+      );
+      return memUser;
+    }
+
+    // Check database for DB-authenticated users
+    try {
+      const { db } = await import("./db");
+      const dbUser = await db.query.users.findFirst({
+        where: (table, { eq }) => eq(table.username, username),
+      });
+      if (dbUser) {
+        console.log(
+          `[STORAGE] getUserByUsername(${username}) - Found in database: ${dbUser.id}`
+        );
+        return dbUser as User;
+      }
+    } catch (error) {
+      console.error(
+        `[STORAGE] getUserByUsername(${username}) - Database error:`,
+        error
+      );
+    }
+
+    console.log(`[STORAGE] getUserByUsername(${username}) - Not found`);
+    return undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    // Check memory first (for seeded users)
+    const memUser = Array.from(this.users.values()).find(
+      (user) => user.email === email
+    );
+    if (memUser) {
+      console.log(
+        `[STORAGE] getUserByEmail(${email}) - Found in memory: ${memUser.id}`
+      );
+      return memUser;
+    }
+
+    // Check database for DB-authenticated users
+    try {
+      const { db } = await import("./db");
+      const dbUser = await db.query.users.findFirst({
+        where: (table, { eq }) => eq(table.email, email),
+      });
+      if (dbUser) {
+        console.log(
+          `[STORAGE] getUserByEmail(${email}) - Found in database: ${dbUser.id}`
+        );
+        return dbUser as User;
+      }
+    } catch (error) {
+      console.error(
+        `[STORAGE] getUserByEmail(${email}) - Database error:`,
+        error
+      );
+    }
+
+    console.log(`[STORAGE] getUserByEmail(${email}) - Not found`);
+    return undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
+    // 🔥 FIX: Use passed ID if provided, otherwise generate new UUID
+    const id = insertUser.id || randomUUID();
     const user: User = {
       ...insertUser,
       id,
@@ -348,6 +456,7 @@ export class MemStorage implements IStorage {
       role: insertUser.role || "agent",
     };
     this.users.set(id, user);
+    console.log(`[STORAGE] createUser - Created user with ID: ${id} (email: ${insertUser.email})`);
     return user;
   }
 
@@ -395,32 +504,51 @@ export class MemStorage implements IStorage {
   }
 
   async getSocialMediaAccounts(userId: string): Promise<SocialMediaAccount[]> {
-    return Array.from(this.socialMediaAccounts.values()).filter(
-      (account) => account.userId === userId
+    // Use database instead of memory
+    const { db } = await import("./db");
+    const { socialMediaAccounts: socialMediaAccountsTable } = await import(
+      "../shared/schema"
     );
+    const accounts = await db.query.socialMediaAccounts.findMany({
+      where: (table, { eq }) => eq(table.userId, userId),
+    });
+    console.log(
+      `[STORAGE] Found ${accounts.length} social media accounts for user ${userId}`
+    );
+    return accounts;
   }
 
   async getSocialMediaAccountById(
     id: string
   ): Promise<SocialMediaAccount | undefined> {
-    return this.socialMediaAccounts.get(id);
+    // Use database instead of memory
+    const { db } = await import("./db");
+    const account = await db.query.socialMediaAccounts.findFirst({
+      where: (table, { eq }) => eq(table.id, id),
+    });
+    return account;
   }
 
   async createSocialMediaAccount(
     insertAccount: InsertSocialMediaAccount
   ): Promise<SocialMediaAccount> {
-    const id = randomUUID();
-    const account: SocialMediaAccount = {
-      ...insertAccount,
-      id,
-      createdAt: new Date(),
-      metadata: insertAccount.metadata || null,
-      accessToken: insertAccount.accessToken || null,
-      refreshToken: insertAccount.refreshToken || null,
-      isConnected: insertAccount.isConnected || false,
-      lastSync: insertAccount.lastSync || null,
-    };
-    this.socialMediaAccounts.set(id, account);
+    // Use database instead of memory
+    const { db } = await import("./db");
+    const { socialMediaAccounts: socialMediaAccountsTable } = await import(
+      "../shared/schema"
+    );
+
+    const [account] = await db
+      .insert(socialMediaAccountsTable)
+      .values({
+        ...insertAccount,
+        isConnected: insertAccount.isConnected ?? true,
+      })
+      .returning();
+
+    console.log(
+      `[STORAGE] Created social media account for user ${insertAccount.userId}, platform ${insertAccount.platform}`
+    );
     return account;
   }
 
@@ -428,11 +556,19 @@ export class MemStorage implements IStorage {
     id: string,
     updates: Partial<SocialMediaAccount>
   ): Promise<SocialMediaAccount | undefined> {
-    const account = this.socialMediaAccounts.get(id);
-    if (!account) return undefined;
+    // Use database instead of memory
+    const { db } = await import("./db");
+    const { socialMediaAccounts: socialMediaAccountsTable } = await import(
+      "../shared/schema"
+    );
 
-    const updated = { ...account, ...updates };
-    this.socialMediaAccounts.set(id, updated);
+    const [updated] = await db
+      .update(socialMediaAccountsTable)
+      .set(updates)
+      .where(eq(socialMediaAccountsTable.id, id))
+      .returning();
+
+    console.log(`[STORAGE] Updated social media account ${id}`);
     return updated;
   }
 
@@ -440,26 +576,47 @@ export class MemStorage implements IStorage {
     userId: string,
     platform: string
   ): Promise<SocialMediaAccount | undefined> {
-    // Find account by userId and platform
-    const account = Array.from(this.socialMediaAccounts.values()).find(
-      (acc) =>
-        acc.userId === userId &&
-        acc.platform.toLowerCase() === platform.toLowerCase()
+    // Use database instead of memory
+    const { db } = await import("./db");
+    const { socialMediaAccounts: socialMediaAccountsTable } = await import(
+      "../shared/schema"
     );
 
-    if (!account) return undefined;
-    if (!account.isConnected) return account; // Already disconnected
+    // Find account by userId and platform
+    const account = await db.query.socialMediaAccounts.findFirst({
+      where: (table, { eq, and }) =>
+        and(eq(table.userId, userId), eq(table.platform, platform)),
+    });
+
+    if (!account) {
+      console.log(
+        `[STORAGE] No account found for user ${userId}, platform ${platform}`
+      );
+      return undefined;
+    }
+
+    if (!account.isConnected) {
+      console.log(
+        `[STORAGE] Account already disconnected for user ${userId}, platform ${platform}`
+      );
+      return account; // Already disconnected
+    }
 
     // Mark as disconnected and clear OAuth credentials
-    const updated = {
-      ...account,
-      isConnected: false,
-      accessToken: null,
-      refreshToken: null,
-      lastSync: null,
-    };
+    const [updated] = await db
+      .update(socialMediaAccountsTable)
+      .set({
+        isConnected: false,
+        accessToken: null,
+        refreshToken: null,
+        lastSync: null,
+      })
+      .where(eq(socialMediaAccountsTable.id, account.id))
+      .returning();
 
-    this.socialMediaAccounts.set(account.id, updated);
+    console.log(
+      `[STORAGE] Disconnected social media account for user ${userId}, platform ${platform}`
+    );
     return updated;
   }
 
@@ -914,23 +1071,6 @@ export class MemStorage implements IStorage {
     return video;
   }
 
-  async getVideoByHeygenVideoId(
-    userId: string,
-    heygenVideoId: string
-  ): Promise<VideoContent | undefined> {
-    const [video] = await db
-      .select()
-      .from(videoContentTable)
-      .where(
-        and(
-          eq(videoContentTable.userId, userId),
-          eq(videoContentTable.heygenVideoId, heygenVideoId)
-        )
-      )
-      .limit(1);
-    return video;
-  }
-
   async createVideoContent(
     insertVideo: InsertVideoContent
   ): Promise<VideoContent> {
@@ -1279,6 +1419,83 @@ export class MemStorage implements IStorage {
       })
       .returning();
     return result;
+  }
+
+  async getMediaAssets(
+    userId: string,
+    type?: string,
+    source?: string
+  ): Promise<MediaAsset[]> {
+    let assets = Array.from(this.mediaAssets.values()).filter(
+      (asset) => asset.userId === userId
+    );
+
+    if (type) {
+      assets = assets.filter((asset) => asset.type === type);
+    }
+
+    if (source) {
+      assets = assets.filter((asset) => asset.source === source);
+    }
+
+    return assets.sort((a, b) => {
+      const aTime = a.createdAt?.getTime() || 0;
+      const bTime = b.createdAt?.getTime() || 0;
+      return bTime - aTime;
+    });
+  }
+
+  async getMediaAssetById(id: string): Promise<MediaAsset | undefined> {
+    return this.mediaAssets.get(id);
+  }
+
+  async createMediaAsset(asset: InsertMediaAsset): Promise<MediaAsset> {
+    const newAsset: MediaAsset = {
+      id: randomUUID(),
+      ...asset,
+      title: asset.title ?? null,
+      metadata: asset.metadata ?? null,
+      createdAt: new Date(),
+    };
+    this.mediaAssets.set(newAsset.id, newAsset);
+    return newAsset;
+  }
+
+  async updateMediaAsset(
+    id: string,
+    updates: Partial<MediaAsset>
+  ): Promise<MediaAsset | undefined> {
+    const asset = this.mediaAssets.get(id);
+    if (!asset) return undefined;
+
+    const updated = { ...asset, ...updates };
+    this.mediaAssets.set(id, updated);
+    return updated;
+  }
+
+  async deleteMediaAsset(id: string): Promise<boolean> {
+    return this.mediaAssets.delete(id);
+  }
+
+  async createPostMedia(postMedias: InsertPostMedia[]): Promise<PostMedia[]> {
+    const results: PostMedia[] = [];
+    for (const pm of postMedias) {
+      const newPostMedia: PostMedia = {
+        id: randomUUID(),
+        ...pm,
+        orderIndex: pm.orderIndex ?? null,
+        createdAt: new Date(),
+      };
+      this.postMedia.set(newPostMedia.id, newPostMedia);
+      results.push(newPostMedia);
+    }
+    return results;
+  }
+
+  async getPostMedia(postId: string): Promise<PostMedia[]> {
+    return Array.from(this.postMedia.values())
+      .filter((pm) => pm.postId === postId)
+      .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
   }
 }
 

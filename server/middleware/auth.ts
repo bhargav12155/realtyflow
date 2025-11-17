@@ -45,10 +45,17 @@ export const extractUserId = (
       req.cookies?.authToken;
 
     if (!token) {
+      console.log("🔐 [AUTH] No token provided");
       return res.status(401).json({ error: "No token provided" });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload;
+    console.log("🔐 [AUTH] Token decoded:", {
+      id: decoded.id,
+      email: decoded.email,
+      type: decoded.type,
+      username: decoded.username,
+    });
 
     // Determine user type and extract information
     if (decoded.type === "public") {
@@ -61,6 +68,7 @@ export const extractUserId = (
         email: decoded.email,
         agentSlug: decoded.agentSlug,
       };
+      console.log("🔐 [AUTH] Public user authenticated:", req.user.id);
     } else {
       req.userId = decoded.id;
       req.userType = "agent";
@@ -71,10 +79,12 @@ export const extractUserId = (
         username: decoded.username,
         email: decoded.email,
       };
+      console.log("🔐 [AUTH] Agent user authenticated:", req.user.id, `(${req.user.email})`);
     }
 
     next();
   } catch (error) {
+    console.error("🔐 [AUTH] Token verification failed:", error);
     return res.status(401).json({ error: "Invalid token" });
   }
 };

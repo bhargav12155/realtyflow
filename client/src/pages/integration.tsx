@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
-import { SocialMediaSetup } from "@/components/setup/social-media-setup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,7 +15,6 @@ import {
 export default function IntegrationPage() {
   const { user, isLoading, universalLogin } = useAuth();
   const [, setLocation] = useLocation();
-  const [showSetup, setShowSetup] = useState(false);
   const [isAutoLogging, setIsAutoLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,43 +35,31 @@ export default function IntegrationPage() {
           const loginResult = await universalLogin(userEmail);
 
           if (loginResult.success) {
-            // Successful auto-login, show setup
-            setShowSetup(true);
+            // Successful auto-login, redirect to dashboard social tab
+            setLocation("/#social");
           } else {
-            // Auto-login failed, but still show public access
+            // Auto-login failed
             setError(
-              "Auto-login failed, but you can still access the tools below."
+              "Auto-login failed, but you can still access the dashboard below."
             );
-            setShowSetup(true); // Allow public access to setup
           }
         } catch (error) {
           console.error("Auto-login error:", error);
-          setError("Connection issue. You can still access the tools below.");
-          setShowSetup(true); // Allow public access
+          setError("Connection issue. You can still access the dashboard below.");
         } finally {
           setIsAutoLogging(false);
         }
       } else if (source === "nebraska-home-hub") {
-        // Coming from NebraskaHomeHub without auto-login
-        setShowSetup(true);
+        // Coming from NebraskaHomeHub without auto-login, redirect to social tab
+        setLocation("/#social");
       }
     };
 
     checkAutoLogin();
-  }, [universalLogin]);
+  }, [universalLogin, setLocation]);
 
   const handleGoToDashboard = () => {
-    setLocation("/");
-  };
-
-  const handleSetupComplete = () => {
-    setShowSetup(false);
-    setLocation("/");
-  };
-
-  const handleSkipSetup = () => {
-    setShowSetup(false);
-    setLocation("/");
+    setLocation("/#social");
   };
 
   // Loading state
@@ -161,17 +147,19 @@ export default function IntegrationPage() {
               </div>
               <div className="space-y-3">
                 <Button
-                  onClick={() => setShowSetup(true)}
+                  onClick={handleGoToDashboard}
                   className="w-full"
                   variant={user ? "default" : "outline"}
+                  data-testid="button-setup-social-media"
                 >
-                  Set Up Social Media Now
+                  Connect Social Media (OAuth)
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
                 <Button
-                  onClick={handleSkipSetup}
+                  onClick={handleGoToDashboard}
                   variant="ghost"
                   className="w-full text-gray-600 hover:text-gray-800"
+                  data-testid="button-skip-setup"
                 >
                   Skip for now, go to Dashboard
                 </Button>
@@ -231,15 +219,6 @@ export default function IntegrationPage() {
           </div>
         </div>
       </div>
-
-      {/* Social Media Setup Modal */}
-      {showSetup && (
-        <SocialMediaSetup
-          isOpen={showSetup}
-          onClose={() => setShowSetup(false)}
-          onComplete={handleSetupComplete}
-        />
-      )}
     </div>
   );
 }

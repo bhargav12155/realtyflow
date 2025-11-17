@@ -1,18 +1,10 @@
-import { ObjectUploader } from "@/components/ObjectUploader";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -20,32 +12,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Camera,
-  Clock,
-  Edit2,
-  Eye,
-  FileVideo,
-  Play,
-  Share2,
-  Sparkles,
-  Upload,
-  User,
-  Video,
-  Wand2,
-  X,
-  Youtube,
-} from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { FaSquareXTwitter } from "react-icons/fa6";
-import { SiFacebook, SiLinkedin, SiYoutube } from "react-icons/si";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { AvatarCreator } from "./avatar-creator";
 import { OmahaVideoTemplates } from "./omaha-video-templates";
+import { ObjectUploader } from "@/components/ObjectUploader";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Play,
+  Video,
+  Edit2,
+  Upload,
+  User,
+  Clock,
+  Youtube,
+  Wand2,
+  Camera,
+  FileVideo,
+  Sparkles,
+  X,
+  Eye,
+  Share2,
+} from "lucide-react";
+import { SiFacebook, SiYoutube, SiLinkedin } from "react-icons/si";
+import { FaSquareXTwitter } from "react-icons/fa6";
 
 interface Avatar {
   id: string;
@@ -70,15 +70,6 @@ interface VideoContent {
   videoUrl: string | null;
   youtubeUrl: string | null;
   createdAt: string;
-}
-
-interface ShareDialogData {
-  type: "generated" | "manual";
-  title: string;
-  topic: string;
-  videoUrl: string | null;
-  videoId?: string;
-  neighborhood?: string | null;
 }
 
 const videoTypes = [
@@ -132,45 +123,19 @@ export function VideoGenerator() {
   const [uploadedVideo, setUploadedVideo] = useState<string | null>(null);
   const [uploadVideoTitle, setUploadVideoTitle] = useState("");
   const [uploadVideoDescription, setUploadVideoDescription] = useState("");
-  const [shareDialogData, setShareDialogData] =
-    useState<ShareDialogData | null>(null);
+  const [completedVideo, setCompletedVideo] = useState<VideoContent | null>(
+    null,
+  );
   const [showPostDialog, setShowPostDialog] = useState(false);
   const [postMessage, setPostMessage] = useState("");
   const [selectedPostPlatforms, setSelectedPostPlatforms] = useState<string[]>(
-    []
+    [],
   );
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const previousStatusesRef = useRef<Record<string, string>>({});
   const shownDialogForVideoRef = useRef<Set<string>>(new Set());
-
-  const openPostDialogWithData = useCallback((data: ShareDialogData) => {
-    const fallbackTopic = data.topic || data.title;
-    const defaultMessage =
-      data.type === "generated"
-        ? `Check out my new video about ${fallbackTopic}!`
-        : `New upload: ${fallbackTopic}`;
-
-    setShareDialogData(data);
-    setPostMessage(defaultMessage);
-    setSelectedPostPlatforms([]);
-    setShowPostDialog(true);
-  }, []);
-
-  const openPostDialogForGeneratedVideo = useCallback(
-    (video: VideoContent) => {
-      openPostDialogWithData({
-        type: "generated",
-        title: video.title,
-        topic: video.topic,
-        videoUrl: video.videoUrl,
-        videoId: video.id,
-        neighborhood: video.neighborhood,
-      });
-    },
-    [openPostDialogWithData]
-  );
 
   const { data: avatars } = useQuery<Avatar[]>({
     queryKey: ["/api/avatars"],
@@ -205,12 +170,14 @@ export function VideoGenerator() {
       const isReady = currentStatus === "ready";
       const justTransitioned = previousStatus && previousStatus !== "ready";
       const shouldShowDialog =
-        isReady && !alreadyShownDialog && Boolean(justTransitioned);
+        isReady && !alreadyShownDialog && (!previousStatus || justTransitioned);
 
       if (shouldShowDialog) {
         // Video is ready - show the post dialog!
-        openPostDialogForGeneratedVideo(video);
-        // Reset platform selection so user confirms destinations each time
+        setCompletedVideo(video);
+        setPostMessage(`Check out my new video about ${video.topic}!`);
+        setShowPostDialog(true);
+        // DON'T reset platform selection - preserve for retry capability
 
         // Mark that we've shown the dialog for this video
         shownDialogForVideoRef.current.add(video.id);
@@ -224,31 +191,21 @@ export function VideoGenerator() {
       // Update the status tracker
       previousStatusesRef.current[video.id] = currentStatus;
     });
-  }, [videos, toast, openPostDialogForGeneratedVideo]);
+  }, [videos, toast]);
 
-  // Keep share dialog in sync with the latest generated video data so the video URL appears once ready
+  // Sync completedVideo with latest data from polling (to pick up videoUrl when it becomes available)
   useEffect(() => {
-    if (
-      !shareDialogData ||
-      shareDialogData.type !== "generated" ||
-      !shareDialogData.videoId ||
-      !videos
-    ) {
-      return;
-    }
+    if (!completedVideo || !videos) return;
 
-    const latestVideoData = videos.find(
-      (v) => v.id === shareDialogData.videoId
-    );
+    const latestVideoData = videos.find((v) => v.id === completedVideo.id);
     if (
       latestVideoData &&
-      latestVideoData.videoUrl !== shareDialogData.videoUrl
+      latestVideoData.videoUrl !== completedVideo.videoUrl
     ) {
-      setShareDialogData((prev) =>
-        prev ? { ...prev, videoUrl: latestVideoData.videoUrl || null } : prev
-      );
+      // videoUrl has been updated - refresh completedVideo
+      setCompletedVideo(latestVideoData);
     }
-  }, [videos, shareDialogData]);
+  }, [videos, completedVideo]);
 
   const createVideoMutation = useMutation({
     mutationFn: async (videoData: any) => {
@@ -294,7 +251,7 @@ export function VideoGenerator() {
           neighborhood,
           videoType,
           duration: parseInt(duration),
-        }
+        },
       );
       return response.json();
     },
@@ -328,7 +285,7 @@ export function VideoGenerator() {
         `/api/videos/${videoId}/generate-video`,
         {
           avatarId,
-        }
+        },
       );
       return response.json();
     },
@@ -358,7 +315,7 @@ export function VideoGenerator() {
           description,
           tags,
           privacy: "public",
-        }
+        },
       );
       return response.json();
     },
@@ -412,7 +369,7 @@ export function VideoGenerator() {
               message,
             }).then((res) => res.json());
           }
-        })
+        }),
       );
       return { results, platforms };
     },
@@ -426,22 +383,20 @@ export function VideoGenerator() {
       // Only close dialog if at least one platform succeeded
       if (successful > 0) {
         setShowPostDialog(false);
-        resetShareDialogState();
+        setCompletedVideo(null);
+        setSelectedPostPlatforms([]);
+        setPostMessage("");
       }
 
       if (failed === 0) {
         toast({
           title: "Posted Successfully!",
-          description: `Your video has been shared to ${successful} platform${
-            successful > 1 ? "s" : ""
-          }`,
+          description: `Your video has been shared to ${successful} platform${successful > 1 ? "s" : ""}`,
         });
       } else if (successful > 0) {
         toast({
           title: "Partially Posted",
-          description: `Posted to ${successful} platform${
-            successful > 1 ? "s" : ""
-          }, ${failed} failed. Dialog kept open to retry.`,
+          description: `Posted to ${successful} platform${successful > 1 ? "s" : ""}, ${failed} failed. Dialog kept open to retry.`,
           variant: "default",
         });
       } else {
@@ -538,47 +493,6 @@ export function VideoGenerator() {
     }
   };
 
-  const handleManualShare = () => {
-    if (!uploadedVideo || !uploadVideoTitle) {
-      toast({
-        title: "Add video details",
-        description:
-          "Please upload a video and provide a title before sharing.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    openPostDialogWithData({
-      type: "manual",
-      title: uploadVideoTitle,
-      topic: uploadVideoDescription || uploadVideoTitle,
-      videoUrl: uploadedVideo,
-      neighborhood: null,
-    });
-  };
-
-  const handleShareFromPreview = (video: VideoContent) => {
-    if (!video.videoUrl) {
-      toast({
-        title: "Video still processing",
-        description:
-          "Once the video URL is ready you can share it across platforms.",
-        variant: "default",
-      });
-      return;
-    }
-
-    setWatchingVideo(null);
-    openPostDialogForGeneratedVideo(video);
-  };
-
-  const resetShareDialogState = () => {
-    setShareDialogData(null);
-    setSelectedPostPlatforms([]);
-    setPostMessage("");
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -664,11 +578,11 @@ export function VideoGenerator() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-4 border-t flex-wrap gap-4">
+                  <div className="flex items-center justify-between pt-4 border-t">
                     <p className="text-sm text-green-600 font-medium">
                       Video uploaded successfully!
                     </p>
-                    <div className="flex gap-2 flex-wrap justify-end">
+                    <div className="flex gap-2">
                       <Button
                         variant="outline"
                         onClick={() => {
@@ -679,14 +593,6 @@ export function VideoGenerator() {
                         data-testid="button-remove-video"
                       >
                         Remove Video
-                      </Button>
-                      <Button
-                        onClick={handleManualShare}
-                        disabled={!uploadVideoTitle || !uploadedVideo}
-                        data-testid="button-share-uploaded-video"
-                      >
-                        <Share2 className="mr-2 h-4 w-4" />
-                        Share Without Generating
                       </Button>
                       <Button
                         onClick={() => {
@@ -716,7 +622,7 @@ export function VideoGenerator() {
                       const response = await apiRequest(
                         "POST",
                         "/api/objects/upload",
-                        {}
+                        {},
                       );
                       const data = await response.json();
                       return {
@@ -1075,18 +981,6 @@ export function VideoGenerator() {
                         </Button>
                       )}
 
-                      {video.videoUrl && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => openPostDialogForGeneratedVideo(video)}
-                          data-testid={`share-video-${video.id}`}
-                        >
-                          <Share2 className="mr-1 h-3 w-3" />
-                          Share Video
-                        </Button>
-                      )}
-
                       {video.videoUrl && video.status !== "uploaded" && (
                         <Button
                           size="sm"
@@ -1202,16 +1096,6 @@ export function VideoGenerator() {
                     </Button>
                   )}
 
-                {watchingVideo.videoUrl && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => handleShareFromPreview(watchingVideo)}
-                  >
-                    <Share2 className="mr-2 h-4 w-4" />
-                    Share to Social
-                  </Button>
-                )}
-
                 {watchingVideo.youtubeUrl && (
                   <Button
                     variant="outline"
@@ -1237,15 +1121,7 @@ export function VideoGenerator() {
       </Dialog>
 
       {/* Post to Social Media Dialog */}
-      <Dialog
-        open={showPostDialog}
-        onOpenChange={(open) => {
-          setShowPostDialog(open);
-          if (!open) {
-            resetShareDialogState();
-          }
-        }}
-      >
+      <Dialog open={showPostDialog} onOpenChange={setShowPostDialog}>
         <DialogContent className="sm:max-w-lg" data-testid="dialog-post-video">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1258,7 +1134,7 @@ export function VideoGenerator() {
             </DialogDescription>
           </DialogHeader>
 
-          {shareDialogData ? (
+          {completedVideo && (
             <div className="space-y-4 py-4">
               {/* Video Preview */}
               <div className="bg-muted rounded-lg p-4 space-y-2">
@@ -1266,32 +1142,17 @@ export function VideoGenerator() {
                   <Video className="h-5 w-5 text-primary mt-0.5" />
                   <div className="flex-1">
                     <p className="font-medium text-sm">
-                      {shareDialogData.title}
+                      {completedVideo.title}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {shareDialogData.topic}
+                      {completedVideo.topic}
                     </p>
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <Badge variant="outline" className="text-xs">
-                        {shareDialogData.type === "manual"
-                          ? "Uploaded clip"
-                          : "Generated clip"}
-                      </Badge>
-                      {shareDialogData.neighborhood && (
-                        <Badge variant="outline" className="text-xs">
-                          📍 {shareDialogData.neighborhood}
-                        </Badge>
-                      )}
-                    </div>
-                    {shareDialogData.type === "generated" &&
-                      !shareDialogData.videoUrl && (
-                        <div className="mt-2 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
-                          <Clock className="h-3 w-3 animate-pulse" />
-                          <span>
-                            Video URL loading... Please wait a moment.
-                          </span>
-                        </div>
-                      )}
+                    {!completedVideo.videoUrl && (
+                      <div className="mt-2 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400">
+                        <Clock className="h-3 w-3 animate-pulse" />
+                        <span>Video URL loading... Please wait a moment.</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1343,8 +1204,8 @@ export function VideoGenerator() {
                           } else {
                             setSelectedPostPlatforms(
                               selectedPostPlatforms.filter(
-                                (p) => p !== platform.id
-                              )
+                                (p) => p !== platform.id,
+                              ),
                             );
                           }
                         }}
@@ -1385,11 +1246,6 @@ export function VideoGenerator() {
                 </p>
               </div>
             </div>
-          ) : (
-            <div className="py-6 text-sm text-muted-foreground">
-              Upload or generate a video first, then choose "Share" to open this
-              dialog.
-            </div>
           )}
 
           <DialogFooter className="gap-2">
@@ -1397,7 +1253,8 @@ export function VideoGenerator() {
               variant="outline"
               onClick={() => {
                 setShowPostDialog(false);
-                resetShareDialogState();
+                setCompletedVideo(null);
+                setSelectedPostPlatforms([]);
               }}
               data-testid="button-cancel-post-video"
             >
@@ -1405,17 +1262,11 @@ export function VideoGenerator() {
             </Button>
             <Button
               onClick={() => {
-                if (!shareDialogData) {
-                  return;
-                }
-
-                const latestVideo =
-                  shareDialogData.type === "generated" &&
-                  shareDialogData.videoId
-                    ? videos?.find((v) => v.id === shareDialogData.videoId)
-                    : null;
-                const videoUrl =
-                  latestVideo?.videoUrl || shareDialogData.videoUrl;
+                // CRITICAL: Get latest video data from videos array to avoid stale closure
+                const latestVideo = videos?.find(
+                  (v) => v.id === completedVideo?.id,
+                );
+                const videoUrl = latestVideo?.videoUrl;
 
                 if (!videoUrl) {
                   toast({
@@ -1437,18 +1288,19 @@ export function VideoGenerator() {
                   return;
                 }
 
+                // Post the video to selected platforms with LATEST videoUrl
                 postVideoToSocialMutation.mutate({
-                  videoUrl,
+                  videoUrl, // Use fresh videoUrl from videos array
                   message: postMessage,
                   platforms: selectedPostPlatforms,
                 });
+
+                // Don't close dialog here - let onSuccess handle it based on results
               }}
               disabled={
                 postVideoToSocialMutation.isPending ||
                 selectedPostPlatforms.length === 0 ||
-                !shareDialogData ||
-                (shareDialogData.type === "generated" &&
-                  !shareDialogData.videoUrl)
+                !completedVideo?.videoUrl
               }
               className="bg-primary"
               data-testid="button-confirm-post-video"
@@ -1458,8 +1310,7 @@ export function VideoGenerator() {
                   <Upload className="mr-2 h-4 w-4 animate-spin" />
                   Posting...
                 </>
-              ) : shareDialogData?.type === "generated" &&
-                !shareDialogData?.videoUrl ? (
+              ) : !completedVideo?.videoUrl ? (
                 <>
                   <Clock className="mr-2 h-4 w-4" />
                   Waiting for Video URL...

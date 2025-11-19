@@ -161,7 +161,7 @@ router.post("/public/login", async (req: Request, res: Response) => {
     const { user, token, isNewUser } = await createOrLoginPublicUser(
       email,
       agentSlug,
-      name
+      name,
     );
 
     // Set HTTP-only cookie for token (SameSite=None for iframe/mobile, conditional secure for dev)
@@ -277,7 +277,7 @@ router.post("/login", async (req: Request, res: Response) => {
       loginResult = await createOrLoginPublicUser(
         cleanIdentifier,
         "default", // Default agent slug for email-based access
-        cleanIdentifier.split("@")[0] // Use part before @ as name
+        cleanIdentifier.split("@")[0], // Use part before @ as name
       );
 
       if (loginResult.user) {
@@ -312,7 +312,7 @@ router.post("/login", async (req: Request, res: Response) => {
     loginResult = await createOrLoginPublicUser(
       `${cleanIdentifier}@client.temp`,
       cleanIdentifier,
-      cleanIdentifier
+      cleanIdentifier,
     );
 
     if (loginResult.user) {

@@ -1,8 +1,8 @@
-import { Router } from "express";
-import { requireAuth } from "../../middleware/auth";
-import { db } from "../../db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { Router } from "express";
+import { db } from "../../db";
+import { requireAuth } from "../../middleware/auth";
 
 console.log("🔥 [SOCIAL-LINKS MODULE] Routes file loaded!");
 
@@ -11,7 +11,7 @@ const router = Router();
 // No default social links - users must provide their own
 
 // Get user's social links (GET /api/user/social-links)
-router.get("/social-links", requireAuth, async (req, res) => {
+router.get("/", requireAuth, async (req, res) => {
   try {
     const userId = req.user?.id;
     console.log("🔍 [GET SOCIAL LINKS] User ID:", userId);
@@ -59,7 +59,7 @@ router.get("/social-links", requireAuth, async (req, res) => {
 });
 
 // Save/update user's social links (POST /api/user/social-links)
-router.post("/social-links", requireAuth, async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   try {
     const userId = req.user?.id;
     console.log("🔗 [SAVE SOCIAL LINKS] User ID:", userId);

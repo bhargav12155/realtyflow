@@ -1,14 +1,16 @@
 import {
   contentOpportunities,
   insertAvatarSchema,
+  insertBrandSettingsSchema,
   insertCompanyProfileSchema,
-  insertMediaAssetSchema,
+  insertScheduledPostSchema,
   insertVideoContentSchema,
+  pkceStore,
   tutorialVideos,
   updateScheduledPostSchema,
 } from "@shared/schema";
 import crypto from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { Express, NextFunction, Request, Response } from "express";
 import express from "express";
 import fs from "fs";
@@ -16,7 +18,6 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import { nanoid } from "nanoid";
 import path from "path";
-import { z } from "zod";
 import { db } from "./db";
 import { requireAuth } from "./middleware/auth";
 import { ObjectNotFoundError, ObjectStorageService } from "./objectStorage";
@@ -26,6 +27,7 @@ import { HeyGenService } from "./services/heygen";
 import { HeyGenPhotoAvatarService } from "./services/heygen-photo-avatar";
 import { HeyGenStreamingService } from "./services/heygen-streaming";
 import { HeyGenTemplateService } from "./services/heygen-template";
+import { HeyGenVideoAvatarService } from "./services/heygen-video-avatar";
 import { IDXService } from "./services/idx";
 import { MLSService } from "./services/mls";
 import { getAPIKeyStatus, openaiService } from "./services/openai";
@@ -35,11 +37,18 @@ import { SocialMediaError, socialMediaService } from "./services/socialMedia";
 import { storage } from "./storage";
 import { realtimeService } from "./websocket";
 
-// In-memory store for PKCE code verifiers (in production, use Redis or session storage)
-const pkceStore = new Map<
-  string,
-  { codeVerifier: string; expiresAt: number }
->();
+// Shared streaming service instance (singleton) to maintain session state across requests
+let streamingServiceInstance: HeyGenStreamingService | null = null;
+function getStreamingService(): HeyGenStreamingService {
+  if (!streamingServiceInstance) {
+    streamingServiceInstance = new HeyGenStreamingService();
+    // Set up automatic session cleanup every 10 minutes
+    setInterval(() => {
+      streamingServiceInstance?.cleanupOldSessions();
+    }, 10 * 60 * 1000); // 10 minutes
+  }
+  return streamingServiceInstance;
+}
 
 const DEFAULT_SOCIAL_SAMPLE_IMAGE =
   process.env.SOCIAL_TEST_IMAGE_URL ||
@@ -54,114 +63,55 @@ function generateCodeChallenge(verifier: string): string {
   return crypto.createHash("sha256").update(verifier).digest("base64url");
 }
 
+// Database-backed PKCE storage functions
+async function storePKCE(
+  state: string,
+  codeVerifier: string,
+  expiresInMs: number = 600000
+) {
+  const expiresAt = new Date(Date.now() + expiresInMs);
+  await db
+    .insert(pkceStore)
+    .values({
+      state,
+      codeVerifier,
+      expiresAt,
+    })
+    .onConflictDoUpdate({
+      target: pkceStore.state,
+      set: { codeVerifier, expiresAt },
+    });
+}
+
+async function retrievePKCE(
+  state: string
+): Promise<{ codeVerifier: string; expiresAt: Date } | null> {
+  const result = await db
+    .select()
+    .from(pkceStore)
+    .where(eq(pkceStore.state, state))
+    .limit(1);
+
+  if (result.length === 0) return null;
+
+  // Delete after retrieval (one-time use)
+  await db.delete(pkceStore).where(eq(pkceStore.state, state));
+
+  return {
+    codeVerifier: result[0].codeVerifier,
+    expiresAt: result[0].expiresAt,
+  };
+}
+
 // Clean up expired PKCE entries every 10 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, value] of pkceStore.entries()) {
-    if (value.expiresAt < now) {
-      pkceStore.delete(key);
-    }
+setInterval(async () => {
+  const now = new Date();
+  try {
+    await db.delete(pkceStore).where(sql`${pkceStore.expiresAt} < ${now}`);
+  } catch (error) {
+    console.error("Error cleaning up expired PKCE entries:", error);
   }
 }, 10 * 60 * 1000);
-
-// Platform media capability matrix - reflects actual MVP implementation support
-// NOTE: Some platforms support more via their APIs but service layer implementation is limited
-const PLATFORM_MEDIA_CAPABILITIES = {
-  instagram: { photos: 1, videos: 1, requiresMedia: true }, // Service supports 1 photo OR 1 video
-  x: { photos: 4, videos: 1, requiresMedia: false }, // Twitter API supports up to 4 photos or 1 video
-  twitter: { photos: 4, videos: 1, requiresMedia: false }, // Twitter API supports up to 4 photos or 1 video
-  youtube: { photos: 0, videos: 1, requiresMedia: true },
-  linkedin: { photos: 1, videos: 0, requiresMedia: false }, // Service supports 1 photo only
-  facebook: { photos: 1, videos: 0, requiresMedia: false }, // Service supports 1 photo only (multi-photo/video = future)
-  tiktok: { photos: 0, videos: 1, requiresMedia: true },
-} as const;
-
-type PlatformName = keyof typeof PLATFORM_MEDIA_CAPABILITIES;
-
-interface MediaResolutionResult {
-  photos: string[];
-  videos: string[];
-  mediaIds: string[];
-  assets: any[];
-}
-
-// Media resolution utility
-async function resolveMediaAssets(
-  mediaIds: string[],
-  userId: string,
-  platform: string
-): Promise<MediaResolutionResult> {
-  const result: MediaResolutionResult = {
-    photos: [],
-    videos: [],
-    mediaIds: [],
-    assets: [],
-  };
-
-  const platformKey = platform.toLowerCase() as PlatformName;
-  const capabilities = PLATFORM_MEDIA_CAPABILITIES[platformKey];
-
-  if (!capabilities) {
-    throw new Error(`Unknown platform: ${platform}`);
-  }
-
-  // Fetch and validate assets - collect ALL first
-  for (const mediaId of mediaIds) {
-    const asset = await storage.getMediaAssetById(mediaId);
-
-    if (!asset) {
-      throw new Error(`Media asset not found: ${mediaId}`);
-    }
-
-    // Validate ownership
-    if (asset.userId !== userId) {
-      throw new Error(`Unauthorized access to media asset: ${mediaId}`);
-    }
-
-    result.assets.push(asset);
-    result.mediaIds.push(mediaId);
-
-    // Categorize by type - collect ALL (validation happens after)
-    if (asset.type === "photo") {
-      result.photos.push(asset.url);
-    } else if (asset.type === "video") {
-      result.videos.push(asset.url);
-    }
-  }
-
-  // Validate platform requirements and limits
-  const totalMedia = result.photos.length + result.videos.length;
-
-  if (capabilities.requiresMedia && totalMedia === 0) {
-    throw new Error(`${platform} requires at least one media attachment`);
-  }
-
-  // Enforce platform limits - reject over-limit submissions
-  if (result.photos.length > capabilities.photos) {
-    throw new Error(
-      `${platform} supports maximum ${capabilities.photos} photo(s), but ${result.photos.length} were provided`
-    );
-  }
-
-  if (result.videos.length > capabilities.videos) {
-    throw new Error(
-      `${platform} supports maximum ${capabilities.videos} video(s), but ${result.videos.length} were provided`
-    );
-  }
-
-  // Instagram requires exactly ONE asset (1 photo OR 1 video, not both)
-  if (
-    platformKey === "instagram" &&
-    result.photos.length > 0 &&
-    result.videos.length > 0
-  ) {
-    throw new Error(
-      "Instagram supports either 1 photo OR 1 video per post, not both. Please select only one asset."
-    );
-  }
-
-  return result;
-}
 
 // Configure multer for file uploads
 const upload = multer({
@@ -188,7 +138,7 @@ const upload = multer({
 const videoUpload = multer({
   dest: "uploads/videos/",
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit for video uploads
+    fileSize: 500 * 1024 * 1024, // 500MB limit for video uploads (training footage needs 2+ min)
   },
   fileFilter: (req, file, cb) => {
     // Only allow video files
@@ -388,7 +338,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.user.email || `${sessionId}@placeholder.realtyflow`;
 
       user = await storage.createUser({
-        id: sessionId, // 🔥 FIX: Use session ID (database ID) instead of generating new UUID!
         username:
           req.user.username ||
           req.user.email?.split("@")[0] ||
@@ -408,6 +357,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return ["true", "1", "on", "yes"].includes(value.toLowerCase());
     }
     return Boolean(value);
+  };
+
+  // Helper function to ensure S3 URLs are properly formatted
+  const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {
+    if (!urlOrKey) return null;
+    // If already a URL, return as-is
+    if (urlOrKey.startsWith("http://") || urlOrKey.startsWith("https://")) {
+      return urlOrKey;
+    }
+    // Otherwise, convert S3 key to full URL
+    const s3Service = new S3UploadService();
+    return s3Service.getS3Url(urlOrKey);
   };
   // =====================================================
   // NEBRASKA HOME HUB INTEGRATION ENDPOINT
@@ -966,7 +927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       // If not found by ID, try by email (critical for DB-authenticated users)
-      if (!user && req.user?.email) {
+      if (!user && req.user.email) {
         console.log(`   → Trying to find by email: "${req.user.email}"`);
         user = await storage.getUserByEmail(req.user.email);
         console.log(
@@ -985,32 +946,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
-      // 🔥 CRITICAL: Detect ID mismatch and fix it!
-      if (user && user.id !== userId) {
-        console.log(
-          `⚠️  ID MISMATCH DETECTED! MemStorage: ${user.id} vs Database: ${userId}`
-        );
-        console.log(
-          `🔧 Deleting old MemStorage user and recreating with correct ID...`
-        );
-        // Delete the old incorrectly-ID'd user from MemStorage
-        const memUsers: Map<string, any> | undefined = (storage as any).users;
-        if (memUsers) {
-          memUsers.delete(user.id);
-          console.log(`   ✅ Deleted old user with ID: ${user.id}`);
-        }
-        // Force recreation with correct ID
-        user = null;
-      }
-
       // If user still not found, create them ONCE in MemStorage
-      // CRITICAL FIX: Use the database user ID to prevent UUID mismatch!
       if (!user) {
         console.log(
-          `   → User not in MemStorage, creating with database ID: ${userId}...`
+          `   → User not in MemStorage, creating with auto-generated UUID...`
         );
         user = await storage.createUser({
-          id: userId, // 🔥 FIX: Use database ID instead of generating new UUID!
           username:
             req.user.username ||
             req.user.email?.split("@")[0] ||
@@ -1024,7 +965,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             | "team_lead",
         });
         console.log(
-          `   ✅ Created user in MemStorage with matching DB ID: ${user.id}`
+          `   ✅ Created user in MemStorage: ${user.id} (DB ID was: ${userId})`
         );
       } else {
         console.log(`   ✅ Reusing existing MemStorage user: ${user.id}`);
@@ -1057,11 +998,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const codeVerifier = generateCodeVerifier();
         const codeChallenge = generateCodeChallenge(codeVerifier);
 
-        // Store code verifier with state as key (expires in 10 minutes)
-        pkceStore.set(state, {
-          codeVerifier,
-          expiresAt: Date.now() + 10 * 60 * 1000,
-        });
+        // Store code verifier in database with state as key (expires in 10 minutes)
+        await storePKCE(state, codeVerifier, 10 * 60 * 1000);
 
         twitterUrl = `https://twitter.com/i/oauth2/authorize?response_type=code&client_id=${
           process.env.TWITTER_CLIENT_ID
@@ -1155,7 +1093,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let user = await storage.getUser(userId);
 
         // If not found by ID, try by email (critical for DB-authenticated users)
-        if (!user && req.user?.email) {
+        if (!user && req.user.email) {
           user = await storage.getUserByEmail(req.user.email);
         }
 
@@ -1332,18 +1270,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (linkedinAccount) {
             // Update existing account
-            console.log(
-              `[LINKEDIN] Updating existing account for user ${user.id}`
-            );
             await storage.updateSocialMediaAccount(linkedinAccount.id, {
               accessToken,
               isConnected: true,
               lastSync: new Date(),
             });
-            console.log(`[LINKEDIN] ✅ Updated account ${linkedinAccount.id}`);
           } else {
             // Create new account
-            console.log(`[LINKEDIN] Creating new account for user ${user.id}`);
             await storage.createSocialMediaAccount({
               userId: user.id,
               platform: "linkedin",
@@ -1351,9 +1284,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               accessToken,
               isConnected: true,
             });
-            console.log(
-              `[LINKEDIN] ✅ Created new account for user ${user.id}`
-            );
           }
 
           // Success! Show confirmation and close window
@@ -1670,10 +1600,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.redirect(`${baseUrl}/?oauth_error=missing_credentials`);
         }
 
-        // Retrieve code verifier from PKCE store using state parameter
+        // Retrieve code verifier from database using state parameter
         const pkceData = decodedStateString
-          ? pkceStore.get(decodedStateString)
-          : undefined;
+          ? await retrievePKCE(decodedStateString)
+          : null;
         if (!pkceData) {
           console.error(
             "Twitter OAuth: PKCE code verifier not found for state:",
@@ -1685,19 +1615,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Check if PKCE data has expired
-        if (pkceData.expiresAt < Date.now()) {
-          if (decodedStateString) {
-            pkceStore.delete(decodedStateString);
-          }
+        if (pkceData.expiresAt.getTime() < Date.now()) {
           console.error("Twitter OAuth: PKCE code verifier expired");
           return res.redirect(`${baseUrl}/?oauth_error=pkce_verifier_expired`);
         }
 
-        // Clean up PKCE data after use
+        // Code verifier retrieved and automatically cleaned up
         const codeVerifier = pkceData.codeVerifier;
-        if (decodedStateString) {
-          pkceStore.delete(decodedStateString);
-        }
 
         try {
           // Exchange code for access token using Twitter OAuth 2.0
@@ -1829,67 +1753,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Social media endpoints
   app.get("/api/social/accounts", requireAuth, async (req, res) => {
     try {
-      console.log("[Social Accounts] Request received", {
-        userId: req.user?.id,
-        userEmail: req.user?.email,
-        authenticated: !!req.user,
-      });
-
       if (!req.user?.id) {
-        console.log("[Social Accounts] Unauthorized - no user ID");
         return res.status(401).json({ error: "Unauthorized" });
       }
 
       // Resolve DB user ID to MemStorage UUID (same logic as connect endpoint)
-      console.log(`🔍 [SOCIAL] Looking up user by session ID: "${req.user.id}"`);
       let userId = String(req.user.id);
       let user = await storage.getUser(userId);
-      console.log(`🔍 [SOCIAL] User lookup by ID result:`, user ? `Found ${user.id}` : 'Not found');
 
       // If not found by ID, try by email
-      if (!user && req.user?.email) {
-        console.log(`🔍 [SOCIAL] Trying lookup by email: "${req.user.email}"`);
+      if (!user && req.user.email) {
         user = await storage.getUserByEmail(req.user.email);
-        console.log(`🔍 [SOCIAL] User lookup by email result:`, user ? `Found ${user.id}` : 'Not found - user will be created');
       }
 
       // If not found by email, try by username
       if (!user && req.user.username) {
-        console.log(`🔍 [SOCIAL] Trying lookup by username: "${req.user.username}"`);
         user = await storage.getUserByUsername(req.user.username);
-        console.log(`🔍 [SOCIAL] User lookup by username result:`, user ? `Found ${user.id}` : 'Not found');
-      }
-
-      // 🔥 CRITICAL: Detect ID mismatch and fix it!
-      if (user && user.id !== userId) {
-        console.log(
-          `⚠️  [SOCIAL ACCOUNTS] ID MISMATCH! MemStorage: ${user.id} vs Database: ${userId}`
-        );
-        console.log(
-          `🔧 Deleting old MemStorage user and recreating with correct ID...`
-        );
-        // Delete the old incorrectly-ID'd user from MemStorage
-        const memUsers: Map<string, any> | undefined = (storage as any).users;
-        if (memUsers) {
-          memUsers.delete(user.id);
-          console.log(`   ✅ Deleted old user with ID: ${user.id}`);
-        }
-        // Force recreation with correct ID
-        user = null;
-      }
-
-      // If STILL not found, create user with correct database ID
-      if (!user) {
-        console.log(`⚠️  [SOCIAL] User not found in MemStorage, creating with DB ID: ${userId}`);
-        user = await storage.createUser({
-          id: userId, // 🔥 Use database ID!
-          username: req.user.username || req.user.email?.split("@")[0] || `user_${userId}`,
-          email: req.user.email || undefined,
-          password: "",
-          name: req.user.email || `User ${userId}`,
-          role: (req.user.type === "agent" ? "agent" : "public") as "agent" | "public" | "team_lead",
-        });
-        console.log(`   ✅ Created user in MemStorage with matching DB ID: ${user.id}`);
       }
 
       // Get social media accounts (empty if user not found)
@@ -1897,68 +1776,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ? await storage.getSocialMediaAccounts(user.id)
         : [];
 
-      console.log("[Social Accounts] Fetched accounts", {
-        userId: user?.id,
-        accountCount: socialAccounts.length,
-        platforms: socialAccounts.map((a) => a.platform),
-      });
-
-      // Map accounts to include connection status
-      const connectedPlatforms = new Set(
-        socialAccounts.map((acc) => acc.platform.toLowerCase())
+      // Create a map of platforms to their account data
+      const accountMap = new Map(
+        socialAccounts.map((acc) => [acc.platform.toLowerCase(), acc])
       );
 
-      // Return all platforms with their connection status
+      // Also handle twitter/x alias
+      if (accountMap.has("twitter")) {
+        accountMap.set("x", accountMap.get("twitter")!);
+      }
+      if (accountMap.has("x") && !accountMap.has("twitter")) {
+        accountMap.set("twitter", accountMap.get("x")!);
+      }
+
+      // Return all platforms with their actual connection status and data
+      // Order: Working platforms first (Facebook, X, YouTube, LinkedIn), then non-working (Instagram, TikTok)
       const platforms = [
         {
-          id: nanoid(),
+          id: accountMap.get("facebook")?.id || nanoid(),
           platform: "facebook",
-          isConnected: connectedPlatforms.has("facebook"),
-          lastSync: connectedPlatforms.has("facebook")
-            ? new Date().toISOString()
-            : null,
+          isConnected: accountMap.get("facebook")?.isConnected || false,
+          lastSync: accountMap.get("facebook")?.lastSync || null,
         },
         {
-          id: nanoid(),
-          platform: "instagram",
-          isConnected: connectedPlatforms.has("instagram"),
-          lastSync: connectedPlatforms.has("instagram")
-            ? new Date().toISOString()
-            : null,
-        },
-        {
-          id: nanoid(),
-          platform: "linkedin",
-          isConnected: connectedPlatforms.has("linkedin"),
-          lastSync: connectedPlatforms.has("linkedin")
-            ? new Date().toISOString()
-            : null,
-        },
-        {
-          id: nanoid(),
+          id: accountMap.get("x")?.id || nanoid(),
           platform: "x",
-          isConnected:
-            connectedPlatforms.has("x") || connectedPlatforms.has("twitter"),
-          lastSync:
-            connectedPlatforms.has("x") || connectedPlatforms.has("twitter")
-              ? new Date().toISOString()
-              : null,
+          isConnected: accountMap.get("x")?.isConnected || false,
+          lastSync: accountMap.get("x")?.lastSync || null,
         },
         {
-          id: nanoid(),
-          platform: "tiktok",
-          isConnected: connectedPlatforms.has("tiktok"),
-          lastSync: connectedPlatforms.has("tiktok")
-            ? new Date().toISOString()
-            : null,
-        },
-        {
-          id: nanoid(),
+          id: accountMap.get("youtube")?.id || nanoid(),
           platform: "youtube",
-          isConnected: connectedPlatforms.has("youtube"),
-          lastSync: connectedPlatforms.has("youtube")
-            ? new Date().toISOString()
-            : null,
+          isConnected: accountMap.get("youtube")?.isConnected || false,
+          lastSync: accountMap.get("youtube")?.lastSync || null,
+        },
+        {
+          id: accountMap.get("linkedin")?.id || nanoid(),
+          platform: "linkedin",
+          isConnected: accountMap.get("linkedin")?.isConnected || false,
+          lastSync: accountMap.get("linkedin")?.lastSync || null,
+        },
+        {
+          id: accountMap.get("instagram")?.id || nanoid(),
+          platform: "instagram",
+          isConnected: accountMap.get("instagram")?.isConnected || false,
+          lastSync: accountMap.get("instagram")?.lastSync || null,
+        },
+        {
+          id: accountMap.get("tiktok")?.id || nanoid(),
+          platform: "tiktok",
+          isConnected: accountMap.get("tiktok")?.isConnected || false,
+          lastSync: accountMap.get("tiktok")?.lastSync || null,
         },
       ];
 
@@ -1969,63 +1837,206 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create or update a social media account
+  app.post("/api/social/accounts", requireAuth, async (req, res) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const {
+        platform,
+        isConnected,
+        accessToken,
+        refreshToken,
+        providerId,
+        accountId,
+      } = req.body;
+
+      if (!platform) {
+        return res.status(400).json({ error: "Platform is required" });
+      }
+
+      // accountId is required for database - use providerId or generate a test ID
+      const finalAccountId =
+        accountId || providerId || `test_${platform}_${Date.now()}`;
+
+      // Resolve DB user ID to MemStorage UUID
+      let userId = String(req.user.id);
+      let user = await storage.getUser(userId);
+
+      if (!user && req.user.email) {
+        user = await storage.getUserByEmail(req.user.email);
+      }
+
+      if (!user && req.user.username) {
+        user = await storage.getUserByUsername(req.user.username);
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          error: "User not found",
+          message: "Could not find user in storage",
+        });
+      }
+
+      // Check if account already exists
+      const existingAccounts = await storage.getSocialMediaAccounts(user.id);
+      const existingAccount = existingAccounts.find(
+        (acc) => acc.platform.toLowerCase() === platform.toLowerCase()
+      );
+
+      let account;
+      if (existingAccount) {
+        // Update existing account
+        account = await storage.updateSocialMediaAccount(existingAccount.id, {
+          isConnected: isConnected ?? true,
+          accessToken: accessToken || null,
+          refreshToken: refreshToken || null,
+          lastSync: isConnected ? new Date() : null,
+        });
+      } else {
+        // Create new account
+        account = await storage.createSocialMediaAccount({
+          userId: user.id,
+          platform: platform.toLowerCase(),
+          accountId: finalAccountId, // Required field in database
+          isConnected: isConnected ?? true,
+          accessToken: accessToken || null,
+          refreshToken: refreshToken || null,
+        });
+      }
+
+      console.log(
+        `✅ Social account ${
+          existingAccount ? "updated" : "created"
+        } for ${platform}`
+      );
+
+      res.json({
+        success: true,
+        account,
+        message: `${platform} account ${
+          existingAccount ? "updated" : "created"
+        } successfully`,
+      });
+    } catch (error) {
+      console.error("Create/update social account error:", error);
+      res.status(500).json({ error: "Failed to create/update social account" });
+    }
+  });
+
+  // Platform character limits
+  const PLATFORM_CHARACTER_LIMITS: Record<string, number> = {
+    x: 280,
+    twitter: 280,
+    facebook: 63206,
+    linkedin: 3000,
+    instagram: 2200,
+    youtube: 5000,
+    tiktok: 2200,
+  };
+
+  // Validate character limits for a given platform
+  const validateCharacterLimit = (
+    content: string,
+    platform: string
+  ): { valid: boolean; message?: string } => {
+    const limit = PLATFORM_CHARACTER_LIMITS[platform.toLowerCase()] || 5000;
+    if (content.length > limit) {
+      return {
+        valid: false,
+        message: `Post exceeds ${platform} character limit (${limit} chars). Current length: ${content.length}`,
+      };
+    }
+    return { valid: true };
+  };
+
   app.post(
     "/api/social/post",
     requireAuth,
     upload.single("photo"),
     async (req, res) => {
       try {
-        const { platform, content, platforms, scheduledFor, mediaIds } =
-          req.body;
+        const {
+          platform,
+          content,
+          platforms,
+          scheduledFor,
+          text,
+          mediaType,
+          mediaId,
+        } = req.body;
         const photo = req.file;
 
-        // Parse mediaIds if provided as JSON string (multipart forms send strings)
-        let parsedMediaIds: string[] = [];
-        if (mediaIds) {
-          try {
-            parsedMediaIds =
-              typeof mediaIds === "string" ? JSON.parse(mediaIds) : mediaIds;
-            if (!Array.isArray(parsedMediaIds)) {
-              return res
-                .status(400)
-                .json({ error: "mediaIds must be an array" });
+        // Support both 'content' and 'text' for post content
+        const postContent = text || content;
+
+        // Fetch media URLs if mediaType and mediaId are provided
+        let mediaUrls = {
+          photoUrls: [] as string[],
+          videoUrls: [] as string[],
+        };
+
+        // Get logged-in user from session (needed for media fetch and posting)
+        const sessionId = req.user?.id;
+        if (!sessionId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        // Resolve DB user ID to MemStorage UUID
+        let userId = String(sessionId);
+        let user = await storage.getUser(userId);
+
+        // If not found by ID, try by email (CRITICAL for DB-authenticated users)
+        if (!user && req.user?.email) {
+          user = await storage.getUserByEmail(req.user.email);
+        }
+
+        // If not found by email, try by username
+        if (!user && req.user?.username) {
+          user = await storage.getUserByUsername(req.user.username);
+        }
+
+        if (!user) {
+          return res.status(404).json({
+            error:
+              "User not found in storage. Please reconnect your social accounts.",
+          });
+        }
+
+        // Fetch media URLs from database if media attachment is specified
+        if (mediaType && mediaId) {
+          if (mediaType === "avatar") {
+            const avatar = await storage.getAvatarById(mediaId);
+            if (avatar && avatar.videoUrl) {
+              mediaUrls.videoUrls.push(avatar.videoUrl);
+            } else if (avatar && avatar.photoUrl) {
+              mediaUrls.photoUrls.push(avatar.photoUrl);
             }
-          } catch (e) {
-            return res.status(400).json({ error: "Invalid mediaIds format" });
+          } else if (mediaType === "video") {
+            const video = await storage.getVideoById(mediaId);
+            if (video && video.videoUrl) {
+              mediaUrls.videoUrls.push(video.videoUrl);
+            } else if (video && video.thumbnailUrl) {
+              mediaUrls.photoUrls.push(video.thumbnailUrl);
+            }
           }
         }
 
         if (platform) {
-          // Single platform posting (new functionality)
-          if (!content) {
+          // Single platform posting (existing functionality)
+          if (!postContent) {
             return res.status(400).json({ error: "Content is required" });
           }
 
-          // Get logged-in user from session
-          const sessionId = req.user?.id;
-          if (!sessionId) {
-            return res.status(401).json({ error: "User not authenticated" });
-          }
-
-          // Resolve DB user ID to MemStorage UUID (same logic as connect/accounts endpoints)
-          let userId = String(sessionId);
-          let user = await storage.getUser(userId);
-
-          // If not found by ID, try by email (CRITICAL for DB-authenticated users)
-          if (!user && req.user?.email) {
-            user = await storage.getUserByEmail(req.user.email);
-          }
-
-          // If not found by email, try by username
-          if (!user && req.user?.username) {
-            user = await storage.getUserByUsername(req.user.username);
-          }
-
-          if (!user) {
-            return res.status(404).json({
-              error:
-                "User not found in storage. Please reconnect your social accounts.",
-            });
+          // Validate character limit
+          const validationResult = validateCharacterLimit(
+            postContent,
+            platform
+          );
+          if (!validationResult.valid) {
+            return res.status(400).json({ error: validationResult.message });
           }
 
           // Get user's social accounts to check if platform is connected
@@ -2075,38 +2086,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // Resolve media attachments
-          let mediaResult: MediaResolutionResult | null = null;
-          let photoUrl: string | null = null;
-          let videoUrl: string | null = null;
-
-          try {
-            // Priority 1: Media library assets (mediaIds)
-            if (parsedMediaIds.length > 0) {
-              mediaResult = await resolveMediaAssets(
-                parsedMediaIds,
-                user.id,
-                platform
-              );
-              photoUrl = mediaResult.photos[0] || null;
-              videoUrl = mediaResult.videos[0] || null;
-            }
-            // Priority 2: Uploaded file (legacy backward compatibility)
-            else if (photo) {
-              photoUrl = `/uploads/${path.basename(photo.path)}`;
-            }
-          } catch (mediaError) {
-            return res.status(400).json({
-              error:
-                mediaError instanceof Error
-                  ? mediaError.message
-                  : "Media validation failed",
-            });
+          // Get photo URL if uploaded
+          let photoUrl = null;
+          if (photo) {
+            photoUrl = `/uploads/${path.basename(photo.path)}`;
           }
 
           // Actually post to the platform
           let postResult;
           try {
+            // Prepare media options from uploaded photo or fetched media
+            const mediaOptions = {
+              photoUrls: photoUrl
+                ? [photoUrl, ...mediaUrls.photoUrls]
+                : mediaUrls.photoUrls,
+              videoUrls: mediaUrls.videoUrls,
+            };
+
             if (platform.toLowerCase() === "facebook") {
               return res.status(400).json({
                 error:
@@ -2114,51 +2110,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             } else if (platform.toLowerCase() === "instagram") {
               postResult = await socialMediaService.postToInstagram(
-                content,
-                photoUrl || "",
+                postContent,
+                photoUrl || mediaUrls.photoUrls[0] || "",
                 connectedAccount?.accessToken || "",
                 undefined,
-                {
-                  photoUrls: mediaResult?.photos || [],
-                  videoUrls: mediaResult?.videos || [],
-                }
+                mediaOptions
               );
             } else if (platform.toLowerCase() === "linkedin") {
               postResult = await socialMediaService.postToLinkedIn(
-                content,
+                postContent,
                 connectedAccount?.accessToken || "",
-                {
-                  photoUrls: mediaResult?.photos || [],
-                  videoUrls: mediaResult?.videos || [],
-                }
+                mediaOptions
               );
             } else if (platform.toLowerCase() === "x") {
-              // Use postToTwitter which properly handles userId-based auth
               postResult = await socialMediaService.postToTwitter(
                 user.id,
-                content,
-                photoUrl || undefined,
-                {
-                  photoUrls: mediaResult?.photos || [],
-                  videoUrls: mediaResult?.videos || [],
-                }
+                postContent,
+                mediaUrls.photoUrls[0],
+                mediaOptions
               );
             } else if (platform.toLowerCase() === "youtube") {
               // For YouTube, we need title and description
-              const title = req.body.title || content.substring(0, 100) + "...";
-              const description = req.body.description || content;
+              const title =
+                req.body.title || postContent.substring(0, 100) + "...";
+              const description = req.body.description || postContent;
               // Use mock token if no connected account
               const youtubeToken =
                 connectedAccount?.accessToken || "mock_youtube_token";
               postResult = await socialMediaService.postToYoutube(
                 title,
                 description,
-                photoUrl || undefined,
-                youtubeToken,
-                {
-                  photoUrls: mediaResult?.photos || [],
-                  videoUrls: mediaResult?.videos || [],
-                }
+                photoUrl || mediaUrls.videoUrls[0] || undefined,
+                youtubeToken
               );
             } else {
               throw new Error(`Unsupported platform: ${platform}`);
@@ -2176,26 +2159,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const scheduledPost = await storage.createScheduledPost({
             userId: user.id,
             platform: platform.toLowerCase(),
-            content,
+            content: postContent,
             scheduledFor: new Date(), // Posted immediately
             status: "posted",
             postType: "manual_post",
-            hashtags: content.match(/#\w+/g) || [],
+            hashtags: postContent.match(/#\w+/g) || [],
             isEdited: false,
-            originalContent: content,
+            originalContent: postContent,
             neighborhood: null,
           });
-
-          // Persist media attachments if any
-          if (mediaResult && mediaResult.mediaIds.length > 0) {
-            await storage.createPostMedia(
-              mediaResult.mediaIds.map((mediaId, index) => ({
-                postId: scheduledPost.id,
-                mediaId,
-                orderIndex: index,
-              }))
-            );
-          }
 
           // Send real-time notification
           realtimeService.notifySocialPostScheduled(
@@ -2213,15 +2185,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
             timestamp: new Date().toISOString(),
             scheduledPostId: scheduledPost.id,
           });
-        } else {
-          // Multi-platform posting (existing functionality)
-          console.log("Posting to platforms:", platforms, "Content:", content);
+        } else if (
+          platforms &&
+          Array.isArray(platforms) &&
+          platforms.length > 0
+        ) {
+          // Multi-platform posting
+          if (!postContent) {
+            return res.status(400).json({ error: "Content is required" });
+          }
+
+          // Validate character limits for all selected platforms
+          const invalidPlatforms = platforms.filter(
+            (p) => !validateCharacterLimit(postContent, p).valid
+          );
+          if (invalidPlatforms.length > 0) {
+            const validationMessages = invalidPlatforms.map((p) => {
+              const result = validateCharacterLimit(postContent, p);
+              return `${p}: ${result.message}`;
+            });
+            return res.status(400).json({
+              error: "Post exceeds character limit for some platforms",
+              details: validationMessages,
+            });
+          }
+
+          const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+          const results: any[] = [];
+          const errors: any[] = [];
+
+          // Post to each platform
+          for (const targetPlatform of platforms) {
+            try {
+              const connectedAccount = socialAccounts.find(
+                (account) =>
+                  account.platform.toLowerCase() ===
+                  targetPlatform.toLowerCase()
+              );
+
+              // Check if account is connected (except YouTube which uses mock)
+              if (targetPlatform.toLowerCase() !== "youtube") {
+                if (!connectedAccount || !connectedAccount.accessToken) {
+                  errors.push({
+                    platform: targetPlatform,
+                    error: `${targetPlatform} account not connected`,
+                  });
+                  continue;
+                }
+              }
+
+              // Prepare media options
+              const mediaOptions = {
+                photoUrls: mediaUrls.photoUrls,
+                videoUrls: mediaUrls.videoUrls,
+              };
+
+              let postResult;
+
+              if (targetPlatform.toLowerCase() === "facebook") {
+                errors.push({
+                  platform: targetPlatform,
+                  error: "Direct Facebook profile posting not supported",
+                });
+                continue;
+              } else if (targetPlatform.toLowerCase() === "instagram") {
+                postResult = await socialMediaService.postToInstagram(
+                  postContent,
+                  mediaUrls.photoUrls[0] || "",
+                  connectedAccount?.accessToken || "",
+                  undefined,
+                  mediaOptions
+                );
+              } else if (targetPlatform.toLowerCase() === "linkedin") {
+                postResult = await socialMediaService.postToLinkedIn(
+                  postContent,
+                  connectedAccount?.accessToken || "",
+                  mediaOptions
+                );
+              } else if (targetPlatform.toLowerCase() === "x") {
+                postResult = await socialMediaService.postToTwitter(
+                  user.id,
+                  postContent,
+                  mediaUrls.photoUrls[0],
+                  mediaOptions
+                );
+              } else if (targetPlatform.toLowerCase() === "youtube") {
+                const title = req.body.title || postContent.substring(0, 100);
+                const description = req.body.description || postContent;
+                const youtubeToken =
+                  connectedAccount?.accessToken || "mock_youtube_token";
+                postResult = await socialMediaService.postToYoutube(
+                  title,
+                  description,
+                  mediaUrls.videoUrls[0],
+                  youtubeToken
+                );
+              } else {
+                errors.push({
+                  platform: targetPlatform,
+                  error: `Unsupported platform: ${targetPlatform}`,
+                });
+                continue;
+              }
+
+              // Create record of successful post
+              await storage.createScheduledPost({
+                userId: user.id,
+                platform: targetPlatform.toLowerCase(),
+                content: postContent,
+                scheduledFor: new Date(),
+                status: "posted",
+                postType: "manual_post",
+                hashtags: postContent.match(/#\w+/g) || [],
+                isEdited: false,
+                originalContent: postContent,
+                neighborhood: null,
+              });
+
+              results.push({
+                platform: targetPlatform,
+                success: true,
+                postId: postResult.postId,
+              });
+            } catch (platformError) {
+              console.error(
+                `Error posting to ${targetPlatform}:`,
+                platformError
+              );
+              errors.push({
+                platform: targetPlatform,
+                error:
+                  platformError instanceof Error
+                    ? platformError.message
+                    : "Unknown error",
+              });
+            }
+          }
 
           res.json({
-            success: true,
-            postId: `post_${Date.now()}`,
-            platforms,
-            scheduledFor,
+            success: results.length > 0,
+            message: `Posted to ${results.length} of ${platforms.length} platforms`,
+            results,
+            errors: errors.length > 0 ? errors : undefined,
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          return res.status(400).json({
+            error: "Either platform or platforms array is required",
           });
         }
       } catch (error) {
@@ -2230,6 +2340,282 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  const PLATFORM_BASE_WEIGHTS: Record<string, number> = {
+    instagram: 66,
+    tiktok: 70,
+    facebook: 58,
+    youtube: 62,
+    linkedin: 52,
+    x: 48,
+  };
+
+  const PLATFORM_DURATION_GUIDELINES: Record<
+    string,
+    { min: number; max: number; penalty: number }
+  > = {
+    instagram: { min: 15, max: 90, penalty: 0.35 },
+    tiktok: { min: 15, max: 60, penalty: 0.45 },
+    facebook: { min: 30, max: 120, penalty: 0.25 },
+    youtube: { min: 60, max: 480, penalty: 0.12 },
+    linkedin: { min: 30, max: 90, penalty: 0.3 },
+    x: { min: 15, max: 75, penalty: 0.4 },
+  };
+
+  const PLATFORM_NOTES: Record<string, string> = {
+    instagram: "Reels favor tight 30-60s clips with quick hooks.",
+    tiktok: "Trendy audio + punchy captions drive the best lift here.",
+    facebook: "Great for neighborhood updates and listing walk-throughs.",
+    youtube: "Leverage longer watch time and playlist placement.",
+    linkedin: "Focus on professional takeaways or market education.",
+    x: "Lead with the headline and pin follow-up threads for depth.",
+  };
+
+  const DEFAULT_SCORE_PLATFORMS = [
+    "instagram",
+    "tiktok",
+    "facebook",
+    "youtube",
+    "linkedin",
+    "x",
+  ];
+
+  const normalizeNumber = (value: unknown): number | undefined => {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
+  };
+
+  const inferDurationFromMetadata = (video: any): number | undefined => {
+    if (!video) return undefined;
+    const direct = normalizeNumber(video?.duration);
+    if (direct) return direct;
+
+    const metadata =
+      video?.metadata && typeof video.metadata === "object"
+        ? video.metadata
+        : undefined;
+    if (metadata) {
+      const mdDuration = normalizeNumber(
+        (metadata as any).duration || (metadata as any).videoDuration
+      );
+      if (mdDuration) return mdDuration;
+
+      const scriptWordCount = normalizeNumber(
+        (metadata as any).scriptWordCount
+      );
+      if (scriptWordCount) {
+        return Math.round(scriptWordCount / 2.5);
+      }
+    }
+
+    if (typeof video?.script === "string" && video.script.trim().length) {
+      const estimatedWords = video.script.trim().split(/\s+/).length;
+      return Math.round(estimatedWords / 2.5);
+    }
+
+    return undefined;
+  };
+
+  const clampScore = (value: number, min = 30, max = 100) =>
+    Math.max(min, Math.min(max, value));
+
+  const getDurationFitScore = (platform: string, duration: number) => {
+    if (!duration) return 12;
+    const guide = PLATFORM_DURATION_GUIDELINES[platform];
+    if (!guide) return 12;
+    if (duration >= guide.min && duration <= guide.max) {
+      return 25;
+    }
+    const delta =
+      duration < guide.min ? guide.min - duration : duration - guide.max;
+    return Math.max(6, 25 - delta * guide.penalty);
+  };
+
+  const getPastPerformanceScore = (
+    platform: string,
+    stats: Record<string, { posted: number; avgSeo: number }>
+  ) => {
+    const entry = stats[platform];
+    if (!entry) return 8;
+    const volumeScore = Math.min(15, entry.posted * 3);
+    const seoScore = entry.avgSeo ? Math.min(10, entry.avgSeo / 10) : 0;
+    return volumeScore + seoScore;
+  };
+
+  const buildReasons = (
+    platform: string,
+    durationFit: number,
+    pastPerformance: number,
+    isConnected: boolean
+  ): string[] => {
+    const reasons: string[] = [];
+
+    if (durationFit >= 20) {
+      reasons.push("Clip length sits in this platform's sweet spot.");
+    } else if (durationFit <= 8) {
+      reasons.push("Consider trimming the clip before posting here.");
+    }
+
+    if (pastPerformance >= 15) {
+      reasons.push("Recent posts have performed well on this channel.");
+    } else if (pastPerformance <= 6) {
+      reasons.push("Limited history — great place to experiment.");
+    }
+
+    if (!isConnected) {
+      reasons.push("Connect this account to publish directly from RealtyFlow.");
+    }
+
+    if (PLATFORM_NOTES[platform]) {
+      reasons.push(PLATFORM_NOTES[platform]);
+    }
+
+    return reasons;
+  };
+
+  app.get("/api/social/platform-scores", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const rawVideoId = Array.isArray(req.query.videoId)
+        ? req.query.videoId[0]
+        : (req.query.videoId as string | undefined);
+      const rawHeygenId = Array.isArray(req.query.heygenVideoId)
+        ? req.query.heygenVideoId[0]
+        : (req.query.heygenVideoId as string | undefined);
+
+      let videoRecord = null;
+      if (rawVideoId) {
+        videoRecord = await storage.getVideoByIdAndUser(
+          rawVideoId,
+          String(userId)
+        );
+      }
+      if (!videoRecord && rawHeygenId) {
+        videoRecord = await storage.getVideoByHeygenVideoId(
+          String(userId),
+          rawHeygenId
+        );
+      }
+
+      const [socialAccounts, scheduledPosts] = await Promise.all([
+        storage.getSocialMediaAccounts(String(userId)),
+        storage.getScheduledPosts(String(userId)),
+      ]);
+
+      const connectedAccounts = socialAccounts.filter(
+        (account) => account.isConnected
+      );
+      const connectionMap = new Map<string, boolean>();
+      connectedAccounts.forEach((account) => {
+        connectionMap.set(account.platform.toLowerCase(), true);
+      });
+
+      const targetPlatforms = connectedAccounts.length
+        ? connectedAccounts.map((account) => account.platform.toLowerCase())
+        : DEFAULT_SCORE_PLATFORMS;
+      const uniqueTargets = Array.from(new Set(targetPlatforms));
+
+      const rawDuration =
+        videoRecord?.duration ?? inferDurationFromMetadata(videoRecord);
+      const resolvedDuration = rawDuration ?? 60;
+      const durationSource = rawDuration == null ? "estimated" : "exact";
+
+      const performanceAggregate = scheduledPosts.reduce<
+        Record<string, { posted: number; totalSeo: number; seoSamples: number }>
+      >((acc, post) => {
+        const key = (post.platform || "").toLowerCase();
+        if (!key) return acc;
+        if (!acc[key]) {
+          acc[key] = { posted: 0, totalSeo: 0, seoSamples: 0 };
+        }
+        if (post.status === "posted") {
+          acc[key].posted += 1;
+          if (
+            typeof post.seoScore === "number" &&
+            Number.isFinite(post.seoScore)
+          ) {
+            acc[key].totalSeo += post.seoScore;
+            acc[key].seoSamples += 1;
+          }
+        }
+        return acc;
+      }, {});
+
+      const performanceStats = Object.fromEntries(
+        Object.entries(performanceAggregate).map(([platform, stats]) => [
+          platform,
+          {
+            posted: stats.posted,
+            avgSeo:
+              stats.seoSamples > 0 ? stats.totalSeo / stats.seoSamples : 0,
+          },
+        ])
+      );
+
+      const platformScores = uniqueTargets
+        .map((platform) => {
+          const normalizedPlatform = platform.toLowerCase();
+          const base = PLATFORM_BASE_WEIGHTS[normalizedPlatform] ?? 52;
+          const durationFit = getDurationFitScore(
+            normalizedPlatform,
+            resolvedDuration
+          );
+          const pastPerformance = getPastPerformanceScore(
+            normalizedPlatform,
+            performanceStats
+          );
+          const isConnected = connectionMap.has(normalizedPlatform);
+          const score = clampScore(base + durationFit + pastPerformance);
+
+          const reasons = buildReasons(
+            normalizedPlatform,
+            durationFit,
+            pastPerformance,
+            isConnected
+          );
+
+          return {
+            platform: normalizedPlatform,
+            score,
+            tier: score >= 80 ? "strong" : score >= 60 ? "good" : "emerging",
+            recommendation:
+              PLATFORM_NOTES[normalizedPlatform] ||
+              (durationFit >= 20
+                ? "Length sweet spot for this network."
+                : "Repurpose the clip slightly for better results."),
+            reasons,
+            connected: isConnected,
+            factors: {
+              engagementWeight: base,
+              durationFit,
+              pastPerformance,
+            },
+          };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      res.json({
+        videoId: videoRecord?.id ?? rawVideoId ?? null,
+        heygenVideoId: videoRecord?.heygenVideoId ?? rawHeygenId ?? null,
+        durationSeconds: resolvedDuration,
+        durationSource,
+        platformScores,
+      });
+    } catch (error) {
+      console.error("Platform score error:", error);
+      res.status(500).json({ error: "Failed to score platforms" });
+    }
+  });
 
   // Facebook-specific endpoints
   app.get("/api/facebook/pages", requireAuth, async (req: any, res) => {
@@ -2412,7 +2798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req: any, res) => {
       try {
-        const { content, pageId, mediaIds } = req.body;
+        const { content, pageId } = req.body;
         if (!content) {
           return res.status(400).json({ error: "Content is required" });
         }
@@ -2466,36 +2852,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           usedSampleImage = true;
         }
 
-        // Resolve media from library if mediaIds provided
-        let mediaOptions:
-          | { photoUrls?: string[]; videoUrls?: string[] }
-          | undefined;
-        if (mediaIds && Array.isArray(mediaIds) && mediaIds.length > 0) {
-          const allMedia = await storage.getMediaAssets(user.id);
-          const selectedMedia = allMedia.filter((m) => mediaIds.includes(m.id));
-          const photoUrls = selectedMedia
-            .filter((m) => m.type === "photo")
-            .map((m) => m.url)
-            .filter((url): url is string => !!url);
-          const videoUrls = selectedMedia
-            .filter((m) => m.type === "video")
-            .map((m) => m.url)
-            .filter((url): url is string => !!url);
-          if (photoUrls.length > 0 || videoUrls.length > 0) {
-            mediaOptions = {};
-            if (photoUrls.length > 0) mediaOptions.photoUrls = photoUrls;
-            if (videoUrls.length > 0) mediaOptions.videoUrls = videoUrls;
-          }
-        }
-
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const postResult = await socialMediaService.postToFacebookPage(
           resolvedPageId,
           content,
           photoUrl || undefined,
           resolvedToken,
-          baseUrl,
-          mediaOptions
+          baseUrl
         );
 
         const scheduledPost = await storage.createScheduledPost({
@@ -2713,7 +3076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     upload.single("photo"),
     async (req: any, res) => {
       try {
-        const { content, instagramBusinessAccountId, mediaIds } = req.body;
+        const { content, instagramBusinessAccountId } = req.body;
         const photo = req.file;
 
         if (!content) {
@@ -2756,61 +3119,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           req.body.useSampleImage ?? (!photo ? "true" : "false")
         );
 
-        // Reject mixed media sources (upload + library)
-        if (
-          photo &&
-          mediaIds &&
-          Array.isArray(mediaIds) &&
-          mediaIds.length > 0
-        ) {
+        let photoUrl: string | null = null;
+        let usedSampleImage = false;
+
+        if (photo) {
+          photoUrl = `${baseUrl}/uploads/${path.basename(photo.path)}`;
+        } else if (useSampleImage) {
+          photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
+          usedSampleImage = true;
+        } else {
           return res.status(400).json({
             error:
-              "Cannot use both direct photo upload and media library. Please choose one method.",
+              "Instagram requires an image. Upload a photo or enable the sample image option.",
           });
-        }
-
-        // Normalize all media through validation
-        let photoUrl: string | null = null;
-        let mediaOptions:
-          | { photoUrls?: string[]; videoUrls?: string[] }
-          | undefined;
-
-        // If media library IDs provided, use resolveMediaAssets for validation
-        if (mediaIds && Array.isArray(mediaIds) && mediaIds.length > 0) {
-          try {
-            const resolved = await resolveMediaAssets(
-              mediaIds,
-              user.id,
-              "instagram"
-            );
-            mediaOptions = {};
-            if (resolved.photos.length > 0)
-              mediaOptions.photoUrls = resolved.photos;
-            if (resolved.videos.length > 0)
-              mediaOptions.videoUrls = resolved.videos;
-          } catch (error: any) {
-            return res.status(400).json({ error: error.message });
-          }
-        } else {
-          // Legacy direct upload or sample image path
-          if (photo) {
-            photoUrl = `${baseUrl}/uploads/${path.basename(photo.path)}`;
-          } else if (useSampleImage) {
-            photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
-          } else {
-            return res.status(400).json({
-              error:
-                "Instagram requires an image. Upload a photo or enable the sample image option.",
-            });
-          }
         }
 
         const postResult = await socialMediaService.postToInstagram(
           content,
           photoUrl,
           resolvedToken,
-          instagramBusinessAccountId,
-          mediaOptions
+          instagramBusinessAccountId
         );
 
         const scheduledPost = await storage.createScheduledPost({
@@ -2909,19 +3237,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let content = req.body.content;
         const photo = req.file;
 
-        // Parse mediaIds if present (sent as JSON string from FormData)
-        let mediaIds: string[] = [];
-        if (req.body.mediaIds) {
-          try {
-            mediaIds =
-              typeof req.body.mediaIds === "string"
-                ? JSON.parse(req.body.mediaIds)
-                : req.body.mediaIds;
-          } catch (e) {
-            console.error("Failed to parse mediaIds:", e);
-          }
-        }
-
         // Debug logging
         console.log("📝 Twitter post request:", {
           userId: user.id,
@@ -2929,7 +3244,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           bodyKeys: Object.keys(req.body),
           content: content ? content.substring(0, 50) + "..." : "MISSING",
           hasPhoto: !!photo,
-          mediaIds: mediaIds.length,
         });
 
         if (!content) {
@@ -2945,41 +3259,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const fullPhotoUrl = photoUrl ? baseUrl + photoUrl : undefined;
 
-        // Resolve media assets from library if mediaIds provided
-        let mediaOptions:
-          | { photoUrls?: string[]; videoUrls?: string[] }
-          | undefined;
-        if (mediaIds.length > 0) {
-          // Fetch all media assets for user
-          const allMedia = await storage.getMediaAssets(user.id);
-
-          // Filter by requested IDs
-          const selectedMedia = allMedia.filter((m) => mediaIds.includes(m.id));
-
-          // Extract URLs by type
-          const photoUrls = selectedMedia
-            .filter((m) => m.type === "photo")
-            .map((m) => m.url)
-            .filter((url): url is string => !!url);
-
-          const videoUrls = selectedMedia
-            .filter((m) => m.type === "video")
-            .map((m) => m.url)
-            .filter((url): url is string => !!url);
-
-          if (photoUrls.length > 0 || videoUrls.length > 0) {
-            mediaOptions = {};
-            if (photoUrls.length > 0) mediaOptions.photoUrls = photoUrls;
-            if (videoUrls.length > 0) mediaOptions.videoUrls = videoUrls;
-          }
-        }
-
         // Pass userId to use OAuth 2.0 token from database
         const postResult = await socialMediaService.postToTwitter(
           user.id,
           content,
-          fullPhotoUrl,
-          mediaOptions
+          fullPhotoUrl
         );
 
         res.json({
@@ -3872,8 +4156,8 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         .from(contentOpportunities)
         .where(eq(contentOpportunities.userId, userId))
         .orderBy(
-          desc(contentOpportunities.searchSignal),
-          desc(contentOpportunities.generatedAt)
+          desc(contentOpportunities.priority),
+          desc(contentOpportunities.createdAt)
         );
 
       // If no opportunities exist, generate initial set
@@ -4118,7 +4402,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   // Scheduled Posts endpoints
   app.get("/api/scheduled-posts", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = String(req.user.id);
       const status = req.query.status as string;
       const posts = await storage.getScheduledPosts(userId, status);
       res.json(posts);
@@ -4128,10 +4412,33 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  app.post("/api/scheduled-posts", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user.id);
+
+      // Validate the request body
+      const postData = insertScheduledPostSchema.parse({
+        userId,
+        ...req.body,
+      });
+
+      const createdPost = await storage.createScheduledPost(postData);
+      res.status(201).json(createdPost);
+    } catch (error) {
+      console.error("Create scheduled post error:", error);
+      if (error instanceof Error && error.name === "ZodError") {
+        return res
+          .status(400)
+          .json({ error: "Invalid post data", details: error });
+      }
+      res.status(500).json({ error: "Failed to create scheduled post" });
+    }
+  });
+
   // Generate 30-day content calendar
   app.post("/api/content/generate-plan", requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const userId = String(req.user.id);
       console.log(`🗓️  Generating 30-day content plan for user ${userId}...`);
 
       // Get user's market data for service areas
@@ -4471,180 +4778,6 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       res.status(500).json({ error: "Failed to generate weekly content" });
     }
   });
-
-  // Media Library endpoints
-  app.get("/api/media", requireAuth, async (req: any, res) => {
-    try {
-      const user = await resolveMemStorageUser(req);
-      if (!user) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
-
-      const { type, source } = req.query;
-
-      // Validate query parameters
-      const allowedTypes = ["video", "photo", "avatar"];
-      const allowedSources = ["upload", "heygen", "library"];
-
-      if (type && !allowedTypes.includes(type as string)) {
-        return res.status(400).json({
-          error: "Invalid type. Must be one of: video, photo, avatar",
-        });
-      }
-
-      if (source && !allowedSources.includes(source as string)) {
-        return res.status(400).json({
-          error: "Invalid source. Must be one of: upload, heygen, library",
-        });
-      }
-
-      const media = await storage.getMediaAssets(
-        user.id,
-        type as string | undefined,
-        source as string | undefined
-      );
-      res.json(media);
-    } catch (error) {
-      console.error("Get media error:", error);
-      res.status(500).json({ error: "Failed to fetch media" });
-    }
-  });
-
-  app.post(
-    "/api/media/upload",
-    requireAuth,
-    upload.single("file"),
-    async (req: any, res) => {
-      try {
-        const user = await resolveMemStorageUser(req);
-        if (!user) {
-          return res.status(401).json({ error: "Authentication required" });
-        }
-
-        if (!req.file) {
-          return res.status(400).json({ error: "No file uploaded" });
-        }
-
-        let {
-          title,
-          description,
-          type,
-          source,
-          metadata,
-          width,
-          height,
-          durationSeconds,
-          thumbnailUrl,
-          avatarId,
-        } = req.body;
-
-        // Normalize empty/whitespace strings to undefined (multipart forms send "" or "  " for empty fields)
-        const normalize = (val: any) => {
-          if (val === null || val === undefined) return undefined;
-          if (typeof val === "string") {
-            const trimmed = val.trim();
-            return trimmed === "" ? undefined : trimmed;
-          }
-          return val;
-        };
-        title = normalize(title);
-        description = normalize(description);
-        type = normalize(type);
-        source = normalize(source);
-        metadata = normalize(metadata);
-        width = normalize(width);
-        height = normalize(height);
-        durationSeconds = normalize(durationSeconds);
-        thumbnailUrl = normalize(thumbnailUrl);
-        avatarId = normalize(avatarId);
-
-        // Build media asset data (omit undefined fields for drizzle-zod validation)
-        const mediaData: any = {
-          userId: user.id,
-          type:
-            type ||
-            (req.file.mimetype.startsWith("video/") ? "video" : "photo"),
-          source: source || "upload",
-          url: `/uploads/${req.file.filename}`,
-          title: title || req.file.originalname || "Untitled",
-          mimeType: req.file.mimetype,
-          fileSize: req.file.size,
-        };
-
-        // Validate required string fields are non-empty
-        if (!mediaData.title.trim()) {
-          return res.status(400).json({ error: "Title cannot be empty" });
-        }
-        if (!mediaData.type.trim()) {
-          return res.status(400).json({ error: "Type cannot be empty" });
-        }
-        if (!mediaData.source.trim()) {
-          return res.status(400).json({ error: "Source cannot be empty" });
-        }
-
-        // Only include optional fields if they have values
-        if (description) mediaData.description = description;
-        if (thumbnailUrl) mediaData.thumbnailUrl = thumbnailUrl;
-        if (avatarId) mediaData.avatarId = avatarId;
-
-        // Parse and validate numbers (reject NaN)
-        if (width !== undefined) {
-          const parsedWidth = parseInt(width);
-          if (Number.isNaN(parsedWidth)) {
-            return res.status(400).json({ error: "Invalid width value" });
-          }
-          mediaData.width = parsedWidth;
-        }
-        if (height !== undefined) {
-          const parsedHeight = parseInt(height);
-          if (Number.isNaN(parsedHeight)) {
-            return res.status(400).json({ error: "Invalid height value" });
-          }
-          mediaData.height = parsedHeight;
-        }
-        if (durationSeconds !== undefined) {
-          const parsedDuration = parseFloat(durationSeconds);
-          if (Number.isNaN(parsedDuration)) {
-            return res.status(400).json({ error: "Invalid duration value" });
-          }
-          mediaData.durationSeconds = parsedDuration;
-        }
-
-        // Parse metadata JSON (handle both string and object inputs)
-        if (metadata) {
-          if (typeof metadata === "object") {
-            // Already parsed (e.g., from XHR JSON request)
-            mediaData.metadata = metadata;
-          } else if (typeof metadata === "string") {
-            // Needs parsing (e.g., from multipart form)
-            try {
-              mediaData.metadata = JSON.parse(metadata);
-            } catch (e) {
-              return res.status(400).json({ error: "Invalid metadata JSON" });
-            }
-          } else {
-            return res
-              .status(400)
-              .json({ error: "Metadata must be object or JSON string" });
-          }
-        }
-
-        // Validate against insert schema
-        const validated = insertMediaAssetSchema.parse(mediaData);
-        const mediaAsset = await storage.createMediaAsset(validated);
-
-        res.json(mediaAsset);
-      } catch (error) {
-        console.error("Upload media error:", error);
-        if (error instanceof z.ZodError) {
-          return res
-            .status(400)
-            .json({ error: "Validation failed", details: error.errors });
-        }
-        res.status(500).json({ error: "Failed to upload media" });
-      }
-    }
-  );
 
   // Avatar Management endpoints
   app.get("/api/avatars", async (req, res) => {
@@ -5252,6 +5385,59 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  // Generate script without video ID (standalone)
+  app.post("/api/generate-script", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user?.id);
+
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const {
+        topic,
+        neighborhood,
+        videoType,
+        platform = "youtube",
+        duration = 60,
+      } = req.body;
+
+      let script;
+      try {
+        // Try to generate AI script
+        script = await openaiService.generateVideoScript({
+          topic,
+          neighborhood,
+          videoType,
+          platform,
+          duration,
+        });
+      } catch (error: any) {
+        console.error("OpenAI API error:", error);
+
+        // If API quota exceeded or other OpenAI issues, provide a fallback script
+        if (error.status === 429 || error.code === "insufficient_quota") {
+          script = generateFallbackScript(
+            topic,
+            neighborhood || "Omaha",
+            videoType,
+            duration,
+            platform
+          );
+        } else {
+          throw error; // Re-throw if it's not a quota issue
+        }
+      }
+
+      res.json({ script });
+    } catch (error) {
+      console.error("Generate script error:", error);
+      res.status(500).json({
+        error: "Failed to generate script. Please try again later.",
+      });
+    }
+  });
+
   app.post("/api/videos/:id/generate-script", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
@@ -5330,7 +5516,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(401).json({ error: "User not authenticated" });
       }
 
-      const { avatarId } = req.body;
+      const { avatarId, avatarType, uploadedAvatarPhoto, gestureIntensity } =
+        req.body;
 
       // Ownership check - only allow users to generate videos for their own video content
       const video = await storage.getVideoByIdAndUser(id, userId);
@@ -5338,17 +5525,40 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(404).json({ error: "Video not found" });
       }
 
-      const avatar = avatarId ? await storage.getAvatarById(avatarId) : null;
+      // Handle both regular avatars and photo avatar groups
+      let avatar = null;
+      let isPhotoAvatarGroup = false;
 
-      // Check if we have an avatar
-      if (avatar) {
+      if (avatarId) {
+        // First try to get as regular avatar
+        avatar = await storage.getAvatarById(avatarId);
+
+        // If not found, it might be a photo avatar group_id
+        if (!avatar && avatarType === "talking_photo") {
+          console.log(
+            "🎭 Avatar ID is a photo avatar group, treating as photo avatar"
+          );
+          isPhotoAvatarGroup = true;
+          // Create a temporary avatar object for photo avatar groups
+          avatar = {
+            id: avatarId,
+            metadata: {
+              heygenAvatarId: avatarId, // Use the group_id directly
+            },
+          };
+        }
+      }
+
+      // Check if we have an avatar or photo avatar group
+      if (avatar || isPhotoAvatarGroup) {
         // For testing purposes, generate a demo video first
         // This ensures the avatar test flow works while we fix HeyGen integration
 
         if (
-          !avatar.metadata ||
-          typeof avatar.metadata !== "object" ||
-          !("heygenAvatarId" in avatar.metadata)
+          !isPhotoAvatarGroup &&
+          (!avatar.metadata ||
+            typeof avatar.metadata !== "object" ||
+            !("heygenAvatarId" in avatar.metadata))
         ) {
           // No HeyGen integration yet - create a demo video for testing
           console.log("No HeyGen avatar ID found, creating demo test video");
@@ -5390,11 +5600,18 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           );
 
           // Check if this is a talking photo avatar (created from uploaded photo)
+          // Support both: 1) explicit avatarType from frontend, 2) legacy avatar.avatarImageUrl detection
           const isTalkingPhoto =
-            !!avatar.avatarImageUrl &&
-            avatar.avatarImageUrl.includes("/uploads/");
+            avatarType === "talking_photo" ||
+            (!!avatar.avatarImageUrl &&
+              avatar.avatarImageUrl.includes("/uploads/"));
           console.log(
             `Avatar type: ${isTalkingPhoto ? "talking_photo" : "avatar"}`
+          );
+          console.log(
+            `Frontend avatarType: ${avatarType}, uploadedAvatarPhoto: ${
+              uploadedAvatarPhoto ? "provided" : "none"
+            }`
           );
 
           // Handle voice selection - use a valid HeyGen voice ID
@@ -5419,6 +5636,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             quality: "720p", // 720p for free tier as per documentation
             speed: 1.1, // Slightly faster speech as shown in docs
             isTalkingPhoto, // Pass this flag to the service
+            gestureIntensity:
+              gestureIntensity !== undefined ? gestureIntensity : 0, // Gesture support
           });
 
           if (heygenResponse.data?.video_id) {
@@ -5527,7 +5746,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   // List available streaming avatars
   app.get("/api/streaming/avatars", async (req, res) => {
     try {
-      const streamingService = new HeyGenStreamingService();
+      const streamingService = getStreamingService();
       const avatars = await streamingService.listStreamingAvatars();
       res.json({ avatars });
     } catch (error) {
@@ -5544,14 +5763,42 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(404).json({ error: "User not found" });
       }
 
-      const { avatarId } = req.body;
-      const streamingService = new HeyGenStreamingService();
+      const { avatarId, gestureIntensity } = req.body;
+      const streamingService = getStreamingService();
 
-      const session = await streamingService.createSession(user.id, avatarId);
+      const session = await streamingService.createSession(
+        user.id,
+        avatarId,
+        gestureIntensity
+      );
+      console.log(
+        "🔍 Session response:",
+        JSON.stringify({
+          sessionId: session.sessionId,
+          hasIceServers: !!session.iceServers,
+          hasOffer: !!session.offer,
+          iceServersLength: session.iceServers?.length,
+        })
+      );
       res.json(session);
     } catch (error) {
       console.error("Failed to create streaming session:", error);
       res.status(500).json({ error: "Failed to create streaming session" });
+    }
+  });
+
+  // Start streaming session
+  app.post("/api/streaming/start", async (req, res) => {
+    try {
+      const { sessionId } = req.body;
+
+      const streamingService = getStreamingService();
+      await streamingService.startSession(sessionId);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to start streaming session:", error);
+      res.status(500).json({ error: "Failed to start streaming session" });
     }
   });
 
@@ -5561,7 +5808,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       const { sessionId } = req.params;
       const { text, taskType = "TALK" } = req.body;
 
-      const streamingService = new HeyGenStreamingService();
+      const streamingService = getStreamingService();
       await streamingService.speak(sessionId, text, taskType);
 
       res.json({ success: true });
@@ -5578,7 +5825,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       try {
         const { sessionId } = req.params;
 
-        const streamingService = new HeyGenStreamingService();
+        const streamingService = getStreamingService();
         await streamingService.startVoiceChat(sessionId);
 
         res.json({ success: true });
@@ -5596,7 +5843,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       try {
         const { sessionId } = req.params;
 
-        const streamingService = new HeyGenStreamingService();
+        const streamingService = getStreamingService();
         await streamingService.stopVoiceChat(sessionId);
 
         res.json({ success: true });
@@ -5612,7 +5859,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     try {
       const { sessionId } = req.params;
 
-      const streamingService = new HeyGenStreamingService();
+      const streamingService = getStreamingService();
       await streamingService.interrupt(sessionId);
 
       res.json({ success: true });
@@ -5622,12 +5869,28 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  // Submit ICE candidate or SDP answer
+  app.post("/api/streaming/sessions/:sessionId/ice", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { candidate, sdp } = req.body;
+
+      const streamingService = getStreamingService();
+      await streamingService.submitICE(sessionId, candidate, sdp);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to submit ICE:", error);
+      res.status(500).json({ error: "Failed to submit ICE" });
+    }
+  });
+
   // End streaming session
   app.delete("/api/streaming/sessions/:sessionId", async (req, res) => {
     try {
       const { sessionId } = req.params;
 
-      const streamingService = new HeyGenStreamingService();
+      const streamingService = getStreamingService();
       await streamingService.endSession(sessionId);
 
       res.json({ success: true });
@@ -5645,7 +5908,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(404).json({ error: "User not found" });
       }
 
-      const streamingService = new HeyGenStreamingService();
+      const streamingService = getStreamingService();
       const sessions = streamingService.getActiveSessions(user.id);
 
       res.json({ sessions });
@@ -5744,8 +6007,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       const dbGroup = await storage.createPhotoAvatarGroup({
         userId,
         heygenGroupId: heygenGroup.group_id,
-        name,
-        status: "created",
+        groupName: name,
+        trainingStatus: "created",
       });
 
       console.log(
@@ -5882,8 +6145,9 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         dbGroups.map(async (dbGroup) => {
           const groupId = dbGroup.heygenGroupId;
           let looksCount = 0;
-          let heygenStatus = dbGroup.status;
+          let heygenStatus = dbGroup.trainingStatus;
           let previewImage = dbGroup.s3ImageUrl;
+          let trainStatus = "empty"; // Default: not trained yet
 
           try {
             const looks = await photoAvatarService.getAvatarGroupLooks(groupId);
@@ -5891,19 +6155,75 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
               ? looks.avatar_list.length
               : 0;
 
-            // If s3ImageUrl is not available, use the first avatar's image from HeyGen
-            if (
-              !previewImage &&
-              looks?.avatar_list &&
-              looks.avatar_list.length > 0
-            ) {
-              previewImage = looks.avatar_list[0].image_url;
+            // Sync HeyGen status to database
+            if (looks?.avatar_list && looks.avatar_list.length > 0) {
+              const heygenFirstLook = looks.avatar_list[0];
+              const heygenLookStatus = heygenFirstLook.status; // "pending" or "completed"
+
+              // Update database status if it doesn't match HeyGen
+              if (
+                dbGroup.trainingStatus !== heygenLookStatus &&
+                heygenLookStatus === "completed"
+              ) {
+                try {
+                  await storage.updatePhotoAvatarGroup(dbGroup.id, {
+                    trainingStatus: "completed",
+                  });
+                  heygenStatus = "completed";
+                  console.log(
+                    `✅ Synced status for group ${groupId}: ${dbGroup.trainingStatus} → completed`
+                  );
+                } catch (updateError) {
+                  console.warn(
+                    `⚠️ Failed to update status for group ${groupId}:`,
+                    updateError
+                  );
+                }
+              } else if (heygenLookStatus === "pending") {
+                heygenStatus = "pending";
+              } else {
+                heygenStatus = heygenLookStatus;
+              }
+
+              // Use first avatar's image if no preview available
+              if (!previewImage) {
+                previewImage = heygenFirstLook.image_url;
+              }
             }
           } catch (e) {
             console.warn(
               `⚠️ Failed to fetch looks for group ${groupId}:`,
               (e as Error)?.message || e
             );
+          }
+
+          // Check training status from HeyGen
+          try {
+            const trainingStatusResponse =
+              await photoAvatarService.checkTrainingStatus(groupId);
+            console.log(
+              `🔍 Training status for group ${groupId}:`,
+              JSON.stringify(trainingStatusResponse, null, 2)
+            );
+
+            // HeyGen returns { status: "empty" | "processing" | "ready", ... }
+            if (trainingStatusResponse?.status) {
+              trainStatus = trainingStatusResponse.status;
+            } else if (looksCount > 0) {
+              // Fallback: if has looks, must be trained
+              trainStatus = "ready";
+            }
+          } catch (e) {
+            // If training status check fails, infer from other data
+            if (looksCount > 0) {
+              trainStatus = "ready"; // Has looks = trained
+            } else {
+              // Keep as "empty" by default
+              console.warn(
+                `⚠️ Failed to check training status for group ${groupId}:`,
+                (e as Error)?.message || e
+              );
+            }
           }
 
           // Get custom voice for this group if any
@@ -5923,25 +6243,37 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             );
           }
 
-          // Use database status as source of truth
-          const rawStatus = dbGroup.status || "pending";
-          const isCompleted =
-            rawStatus === "completed" || rawStatus === "ready";
-          const status = isCompleted
-            ? "ready"
-            : looksCount > 0
-            ? "pending"
-            : rawStatus;
+          // Map HeyGen status to our status system
+          // pending = HeyGen processing images
+          // completed = Ready to train
+          // ready = Trained and ready to generate looks
+          const rawStatus = heygenStatus || dbGroup.trainingStatus || "pending";
+
+          let status = rawStatus;
+          if (
+            rawStatus === "ready" ||
+            (rawStatus === "completed" && looksCount > 0)
+          ) {
+            // Already trained or has looks - ready to generate
+            status = "ready";
+          } else if (rawStatus === "completed") {
+            // HeyGen finished processing, ready to train
+            status = "completed";
+          } else {
+            // Still processing images
+            status = "pending";
+          }
 
           return {
             group_id: groupId,
             name: dbGroup.name,
             status,
+            train_status: trainStatus,
             default_voice_id: defaultVoiceId,
             created_at: dbGroup.createdAt || new Date().toISOString(),
             avatar_count: looksCount,
             training_progress:
-              status === "processing" || rawStatus === "processing"
+              trainStatus === "processing"
                 ? dbGroup.trainingProgress || 50
                 : undefined,
             preview_image: previewImage,
@@ -6003,7 +6335,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           status: isCompleted
             ? "ready"
             : looksCount > 0
-            ? "pending"
+            ? "ready" // If it has looks, it's ready to use!
             : rawStatus,
           created_at: dbGroup.createdAt || new Date().toISOString(),
           avatar_count: looksCount,
@@ -6130,9 +6462,26 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         );
 
         res.json(result);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to train avatar group:", error);
-        res.status(500).json({ error: "Failed to train avatar group" });
+
+        // Check if training is already in progress
+        if (
+          error?.message?.includes("Training already in progress") ||
+          error?.message?.includes("training_in_progress")
+        ) {
+          return res.status(400).json({
+            error: "Training already in progress",
+            message:
+              "This avatar group is already being trained. Please wait for it to complete.",
+            code: "TRAINING_IN_PROGRESS",
+          });
+        }
+
+        res.status(500).json({
+          error: "Failed to train avatar group",
+          details: error?.message || String(error),
+        });
       }
     }
   );
@@ -6161,14 +6510,48 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         const { numLooks = 3 } = req.body;
 
         const photoAvatarService = new HeyGenPhotoAvatarService();
+
+        // Check training status first
+        try {
+          const statusCheck = await photoAvatarService.checkTrainingStatus(
+            groupId
+          );
+          console.log("📋 Avatar group training status:", statusCheck);
+
+          if (statusCheck.status !== "ready") {
+            return res.status(400).json({
+              error: "Avatar group must be trained before generating looks",
+              status: statusCheck.status,
+              message: `Current status: ${statusCheck.status}. Please train the avatar group first using the 'Train Avatar' button, then wait for training to complete.`,
+              code: "TRAINING_REQUIRED",
+            });
+          }
+        } catch (statusError) {
+          console.error("Failed to check training status:", statusError);
+          // Continue anyway - the generate call will fail with a better error if not trained
+        }
+
         const looks = await photoAvatarService.generateNewLooks(
           groupId,
           numLooks
         );
 
         res.json(looks);
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to generate new looks:", error);
+
+        // Check if it's a HeyGen API error about model not found
+        if (
+          error?.message?.includes("Model not found") ||
+          error?.message?.includes("invalid_parameter")
+        ) {
+          return res.status(400).json({
+            error:
+              "Avatar group training is not complete yet. Please wait for training to finish before generating new looks.",
+            code: "TRAINING_REQUIRED",
+          });
+        }
+
         res.status(500).json({ error: "Failed to generate new looks" });
       }
     }
@@ -6203,6 +6586,64 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       } catch (error) {
         console.error("Failed to check training status:", error);
         res.status(500).json({ error: "Failed to check training status" });
+      }
+    }
+  );
+
+  // Add motion to avatar/look
+  app.post(
+    "/api/photo-avatars/:avatarId/add-motion",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { avatarId } = req.params;
+        const userId = String(req.user?.id);
+        const { prompt, motionType } = req.body;
+
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+
+        console.log(`🎬 Adding motion to avatar ${avatarId}`);
+
+        // Verify ownership by checking if avatar belongs to user's group
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+
+        try {
+          const avatarDetails = await photoAvatarService.getAvatarDetails(
+            avatarId
+          );
+          const groupId = avatarDetails?.data?.group_id;
+
+          if (groupId) {
+            const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+              groupId,
+              userId
+            );
+            if (!dbGroup) {
+              return res
+                .status(404)
+                .json({ error: "Avatar not found or access denied" });
+            }
+          }
+        } catch (error) {
+          console.warn("Could not verify avatar ownership:", error);
+          // Continue anyway - HeyGen API will reject if user doesn't own it
+        }
+
+        const result = await photoAvatarService.addMotion({
+          avatarId,
+          prompt,
+          motionType,
+        });
+
+        res.json(result);
+      } catch (error: any) {
+        console.error("Failed to add motion:", error);
+        res.status(500).json({
+          error: "Failed to add motion",
+          details: error?.message || String(error),
+        });
       }
     }
   );
@@ -6322,7 +6763,26 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       console.log("✏️ Pose:", pose || "half_body");
       console.log("✏️ Style:", style || "Realistic");
 
+      // Check training status first
       const photoAvatarService = new HeyGenPhotoAvatarService();
+      try {
+        const statusCheck = await photoAvatarService.checkTrainingStatus(
+          groupId
+        );
+        console.log("📋 Avatar group training status:", statusCheck);
+
+        if (statusCheck.status !== "ready") {
+          return res.status(400).json({
+            error: "Avatar group must be trained before generating looks",
+            status: statusCheck.status,
+            message: `Current status: ${statusCheck.status}. Please train the avatar group first using the 'Train Avatar' button.`,
+          });
+        }
+      } catch (statusError) {
+        console.error("Failed to check training status:", statusError);
+        // Continue anyway - the generate call will fail with a better error if not trained
+      }
+
       const result = await photoAvatarService.editLook({
         groupId,
         prompt,
@@ -6335,7 +6795,19 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       res.json(result);
     } catch (error) {
       console.error("Failed to edit look:", error);
-      res.status(500).json({ error: "Failed to edit look" });
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to edit look";
+
+      // Check if it's a "model not found" error
+      if (errorMessage.toLowerCase().includes("model not found")) {
+        return res.status(400).json({
+          error: "Avatar group not trained",
+          message:
+            "This avatar group must be TRAINED before you can generate new looks. Click the 'Train Avatar' button, wait for training to complete, then try again.",
+        });
+      }
+
+      res.status(500).json({ error: errorMessage });
     }
   });
 
@@ -6382,85 +6854,6 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       } catch (error) {
         console.error("Failed to add looks:", error);
         res.status(500).json({ error: "Failed to add looks" });
-      }
-    }
-  );
-
-  // Add motion to photo avatar
-  app.post(
-    "/api/photo-avatars/:avatarId/add-motion",
-    requireAuth,
-    async (req, res) => {
-      try {
-        const userId = String(req.user?.id);
-        if (!userId) {
-          return res.status(401).json({ error: "User not authenticated" });
-        }
-
-        const { avatarId } = req.params;
-
-        // Ownership validation: verify user owns a group containing this avatar
-        const photoAvatarService = new HeyGenPhotoAvatarService();
-        const allUserGroups = await storage.listPhotoAvatarGroups(userId);
-
-        let ownsAvatar = false;
-        let avatarGroupId: string | null = null;
-
-        for (const group of allUserGroups) {
-          try {
-            const looks = await photoAvatarService.getAvatarGroupLooks(
-              group.heygenGroupId
-            );
-            if (
-              looks.avatar_list &&
-              looks.avatar_list.some((a: any) => a.id === avatarId)
-            ) {
-              ownsAvatar = true;
-              avatarGroupId = group.heygenGroupId;
-              break;
-            }
-          } catch (e) {
-            continue;
-          }
-        }
-
-        if (!ownsAvatar) {
-          return res.status(404).json({ error: "Avatar not found" });
-        }
-
-        console.log("🎬 Adding motion to avatar:", avatarId);
-
-        const result = await photoAvatarService.addMotion(avatarId);
-
-        // Get avatar name for notification
-        let avatarName = "Avatar";
-        try {
-          const dbAvatar = await storage.getPhotoAvatarByHeygenIdAndUser(
-            avatarId,
-            userId
-          );
-          if (dbAvatar) {
-            avatarName = dbAvatar.name || avatarName;
-            await storage.updatePhotoAvatar(avatarId, userId, {
-              status: "processing",
-              metadata: { ...dbAvatar.metadata, is_motion: true },
-            });
-          }
-        } catch (e) {
-          console.warn("Could not update avatar in database:", e);
-        }
-
-        // Send notification
-        realtimeService.notifyMotionAdded(
-          parseInt(userId),
-          avatarId,
-          avatarName
-        );
-
-        res.json(result);
-      } catch (error) {
-        console.error("Failed to add motion:", error);
-        res.status(500).json({ error: "Failed to add motion" });
       }
     }
   );
@@ -6676,6 +7069,61 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   );
 
+  // Upload video avatar footage (training/consent)
+  app.post(
+    "/api/upload/video-avatar-footage",
+    requireAuth,
+    videoUpload.single("video"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No video file provided" });
+        }
+
+        const { type } = req.body; // 'training' or 'consent'
+        const userId = req.user?.id;
+
+        console.log("🎥 Backend: Upload video avatar footage");
+        console.log("🎥 Backend: Type:", type);
+        console.log("🎥 Backend: File size:", req.file.size);
+
+        // Validate file type
+        if (!req.file.mimetype.startsWith("video/")) {
+          return res.status(400).json({ error: "File must be a video" });
+        }
+
+        // Read file buffer
+        const fileBuffer = fs.readFileSync(req.file.path);
+
+        // Upload to S3
+        const s3Service = new S3UploadService();
+        const s3VideoUrl = await s3Service.uploadFile(
+          userId,
+          fileBuffer,
+          `video-avatar-footage/${type}/${nanoid()}_${req.file.originalname}`,
+          req.file.mimetype
+        );
+
+        console.log("✅ Video uploaded to S3:", s3VideoUrl);
+
+        // Clean up temporary file
+        fs.unlinkSync(req.file.path);
+
+        res.json({
+          url: s3VideoUrl,
+          type,
+          size: req.file.size,
+        });
+      } catch (error: any) {
+        console.error("❌ Failed to upload video avatar footage:", error);
+        res.status(500).json({
+          error: "Failed to upload video",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
   // Upload custom photo for photo avatar
   app.post(
     "/api/photo-avatars/upload",
@@ -6834,12 +7282,11 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             await storage.createPhotoAvatarGroup({
               userId,
               heygenGroupId: groupId,
-              name,
+              groupName: name,
               imageHash: imageHash || null,
               s3ImageUrl: s3ImageUrl || null,
               heygenImageKey: imageKeys[0], // Primary image key
-              status: "pending",
-              trainingProgress: 0,
+              trainingStatus: "pending",
             });
             console.log("💾 Avatar group metadata saved to database");
           } catch (dbError) {
@@ -6848,28 +7295,17 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           }
         }
 
-        if (groupId) {
-          try {
-            console.log("🚀 Backend: Starting training for group:", groupId);
-            await photoAvatarService.trainAvatarGroup(groupId);
-            console.log("✅ Backend: Training started successfully");
-          } catch (trainingError: any) {
-            console.log(
-              "⚠️ Backend: Training failed, but group was created successfully:",
-              trainingError?.message
-            );
-            console.log(
-              "⚠️ Backend: Group creation was successful, training may happen automatically"
-            );
-          }
-        } else {
-          console.log("⚠️ Backend: No groupId found, skipping training");
-        }
+        // Don't auto-train - HeyGen needs time to process images first
+        // Training will happen when user clicks "Train" button after images are ready
+        console.log(
+          "✅ Backend: Avatar group created, waiting for HeyGen to process images"
+        );
 
         const responseData = {
           success: true,
           groupId: groupId,
-          message: "Avatar group created and training started",
+          message:
+            "Avatar group created. Waiting for HeyGen to process images before training.",
         };
 
         console.log(
@@ -6889,6 +7325,201 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       }
     }
   );
+
+  // ==================== VIDEO AVATAR API ENDPOINTS (ENTERPRISE) ====================
+
+  // Create video avatar from training footage
+  app.post("/api/video-avatars", requireAuth, async (req, res) => {
+    try {
+      const { name, trainingVideoUrl, consentVideoUrl, voiceId } = req.body;
+      const userId = req.user?.id;
+
+      console.log("🎥 Backend: Create video avatar request received");
+      console.log("🎥 Backend: Name:", name);
+      console.log("🎥 Backend: Training video URL:", trainingVideoUrl);
+      console.log("🎥 Backend: Consent video URL:", consentVideoUrl);
+      console.log("🎥 Backend: Voice ID:", voiceId);
+
+      if (!name || !trainingVideoUrl || !consentVideoUrl) {
+        return res.status(400).json({
+          error: "Name, training video URL, and consent video URL are required",
+        });
+      }
+
+      const videoAvatarService = new HeyGenVideoAvatarService();
+
+      // Validate training footage requirements
+      try {
+        await videoAvatarService.validateTrainingFootage(trainingVideoUrl);
+        console.log("✅ Training footage validation passed");
+      } catch (validationError: any) {
+        console.error(
+          "❌ Training footage validation failed:",
+          validationError.message
+        );
+        return res.status(400).json({
+          error: "Training footage validation failed",
+          details: validationError.message,
+        });
+      }
+
+      // Create video avatar
+      const createRequest: any = {
+        avatar_name: name,
+        training_footage_url: trainingVideoUrl,
+        video_consent_url: consentVideoUrl,
+      };
+
+      // Add optional callback URL if configured
+      if (process.env.HEYGEN_WEBHOOK_URL) {
+        createRequest.callback_url = process.env.HEYGEN_WEBHOOK_URL;
+      }
+
+      const result = await videoAvatarService.createVideoAvatar(createRequest);
+      console.log("✅ Video avatar creation initiated:", result);
+
+      // Save to database
+      if (userId && result.data?.avatar_id) {
+        try {
+          await storage.createVideoAvatar({
+            userId,
+            heygenAvatarId: result.data.avatar_id,
+            avatarName: name,
+            trainingVideoUrl,
+            consentVideoUrl,
+            voiceId: voiceId || null,
+            status: "in_progress",
+          });
+          console.log("💾 Video avatar metadata saved to database");
+        } catch (dbError) {
+          console.error("⚠️ Failed to save video avatar metadata:", dbError);
+        }
+      }
+
+      res.json({
+        success: true,
+        avatarId: result.data?.avatar_id,
+        status: result.data?.status || "in_progress",
+        message:
+          "Video avatar creation initiated. This may take several hours.",
+      });
+    } catch (error: any) {
+      console.error("❌ Failed to create video avatar:", error);
+      res.status(500).json({
+        error: "Failed to create video avatar",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Check video avatar creation status
+  app.get(
+    "/api/video-avatars/:avatarId/status",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { avatarId } = req.params;
+        console.log("🎥 Backend: Check video avatar status:", avatarId);
+
+        const videoAvatarService = new HeyGenVideoAvatarService();
+        const status = await videoAvatarService.checkVideoAvatarStatus(
+          avatarId
+        );
+
+        console.log("✅ Video avatar status:", status);
+
+        // Update database if status changed
+        const userId = req.user?.id;
+        if (
+          userId &&
+          (status.status === "complete" || status.status === "failed")
+        ) {
+          try {
+            await storage.updateVideoAvatarStatus(
+              userId,
+              avatarId,
+              status.status,
+              status.error_message
+            );
+            console.log("💾 Video avatar status updated in database");
+          } catch (dbError) {
+            console.error("⚠️ Failed to update video avatar status:", dbError);
+          }
+        }
+
+        res.json(status);
+      } catch (error: any) {
+        console.error("❌ Failed to check video avatar status:", error);
+        res.status(500).json({
+          error: "Failed to check video avatar status",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
+  // List all video avatars
+  app.get("/api/video-avatars", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      console.log("🎥 Backend: List video avatars for user:", userId);
+
+      // Get from database instead of HeyGen API
+      const avatars = await storage.listVideoAvatars(userId);
+
+      console.log("✅ Video avatars retrieved:", avatars.length);
+      res.json(avatars);
+    } catch (error: any) {
+      console.error("❌ Failed to list video avatars:", error);
+      res.status(500).json({
+        error: "Failed to list video avatars",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Delete video avatar
+  app.delete("/api/video-avatars/:avatarId", requireAuth, async (req, res) => {
+    try {
+      const { avatarId } = req.params;
+      const userId = req.user?.id;
+
+      console.log("🎥 Backend: Delete video avatar:", avatarId);
+
+      const videoAvatarService = new HeyGenVideoAvatarService();
+      await videoAvatarService.deleteVideoAvatar(avatarId);
+
+      console.log("✅ Video avatar deleted from HeyGen");
+
+      // Delete from database
+      if (userId) {
+        try {
+          await storage.deleteVideoAvatar(userId, avatarId);
+          console.log("💾 Video avatar deleted from database");
+        } catch (dbError) {
+          console.error(
+            "⚠️ Failed to delete video avatar from database:",
+            dbError
+          );
+        }
+      }
+
+      res.json({
+        success: true,
+        message: "Video avatar deleted successfully",
+      });
+    } catch (error: any) {
+      console.error("❌ Failed to delete video avatar:", error);
+      res.status(500).json({
+        error: "Failed to delete video avatar",
+        details: error?.message || String(error),
+      });
+    }
+  });
 
   // ==================== VIDEO GENERATION ENDPOINTS ====================
 
@@ -7212,8 +7843,15 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
       const videos = await storage.getVideoContent(String(userId), status);
 
+      // Ensure all video URLs are properly formatted
+      const videosWithUrls = videos.map((video) => ({
+        ...video,
+        videoUrl: ensureS3Url(video.videoUrl),
+        thumbnailUrl: ensureS3Url(video.thumbnailUrl),
+      }));
+
       console.log("✅ Backend: Found", videos.length, "videos");
-      res.json(videos);
+      res.json(videosWithUrls);
     } catch (error: any) {
       console.error("❌ Backend: Failed to get videos");
       console.error("❌ Backend: Error message:", error?.message);
@@ -7996,23 +8634,57 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   });
 
   // Brand settings endpoints
-  app.put("/api/brand-settings", async (req, res) => {
+  app.put("/api/brand-settings", requireAuth, async (req, res) => {
     try {
-      const { assets, colors, fonts, description } = req.body;
+      const user = await resolveMemStorageUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
 
-      // In a real implementation, you would save this to the database
-      // For now, we'll just simulate success
-
-      console.log("Brand settings updated:", {
+      const {
         assets,
         colors,
         fonts,
         description,
+        socialConnections,
+        logoInfo,
+      } = req.body;
+
+      // Validate the payload using Zod schema (partial to allow updates)
+      const validationResult = insertBrandSettingsSchema.partial().safeParse({
+        userId: user.id,
+        assets,
+        colors,
+        fonts,
+        description,
+        socialConnections,
+        logoInfo,
       });
+
+      if (!validationResult.success) {
+        return res.status(400).json({
+          error: "Invalid brand settings data",
+          details: validationResult.error.errors,
+        });
+      }
+
+      // Save to database using storage interface
+      const brandSettings = await storage.upsertBrandSettings({
+        userId: user.id,
+        assets: assets || null,
+        colors: colors || null,
+        fonts: fonts || null,
+        description: description || null,
+        socialConnections: socialConnections || null,
+        logoInfo: logoInfo || null,
+      });
+
+      console.log(`✅ Brand settings saved for user ${user.id}`);
 
       res.json({
         success: true,
         message: "Brand settings saved successfully",
+        data: brandSettings,
       });
     } catch (error) {
       console.error("Error saving brand settings:", error);
@@ -8021,33 +8693,56 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   });
 
   // Get brand settings
-  app.get("/api/brand-settings", async (req, res) => {
+  app.get("/api/brand-settings", requireAuth, async (req, res) => {
     try {
-      // In a real implementation, fetch from database
-      const defaultBrandSettings = {
-        assets: [
-          { id: "primary-logo", name: "Primary Logo", type: "logo" },
-          { id: "icon", name: "Icon/Favicon", type: "icon" },
-          { id: "banner", name: "Banner/Header Image", type: "banner" },
-          { id: "background", name: "Background Pattern", type: "background" },
-        ],
-        colors: {
-          primary: "#daa520",
-          secondary: "#b8860b",
-          accent: "#ffd700",
-          background: "#ffffff",
-          text: "#333333",
-        },
-        fonts: {
-          heading: "Playfair Display",
-          body: "Inter",
-          accent: "Cormorant Garamond",
-        },
-        description:
-          "Golden Brick Real Estate - Premium luxury properties in Omaha, Nebraska. Specializing in high-end residential and commercial real estate with personalized service and expert market knowledge.",
-      };
+      const user = await resolveMemStorageUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
 
-      res.json(defaultBrandSettings);
+      // Fetch from database
+      const brandSettings = await storage.getBrandSettings(user.id);
+
+      // If no settings exist, return defaults
+      if (!brandSettings) {
+        const defaultBrandSettings = {
+          assets: [
+            { id: "primary-logo", name: "Primary Logo", type: "logo" },
+            { id: "icon", name: "Icon/Favicon", type: "icon" },
+            { id: "banner", name: "Banner/Header Image", type: "banner" },
+            {
+              id: "background",
+              name: "Background Pattern",
+              type: "background",
+            },
+          ],
+          colors: {
+            primary: "#daa520",
+            secondary: "#b8860b",
+            accent: "#ffd700",
+            background: "#ffffff",
+            text: "#333333",
+          },
+          fonts: {
+            heading: "Playfair Display",
+            body: "Inter",
+            accent: "Cormorant Garamond",
+          },
+          description:
+            "Golden Brick Real Estate - Premium luxury properties in Omaha, Nebraska. Specializing in high-end residential and commercial real estate with personalized service and expert market knowledge.",
+        };
+        return res.json(defaultBrandSettings);
+      }
+
+      // Return the saved settings
+      res.json({
+        assets: brandSettings.assets || [],
+        colors: brandSettings.colors || {},
+        fonts: brandSettings.fonts || {},
+        description: brandSettings.description || "",
+        socialConnections: brandSettings.socialConnections || {},
+        logoInfo: brandSettings.logoInfo || null,
+      });
     } catch (error) {
       console.error("Error fetching brand settings:", error);
       res.status(500).json({ error: "Failed to fetch brand settings" });
@@ -8080,13 +8775,17 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         tutorialVideos.createdAt
       );
 
-      // Convert S3 paths to full URLs
+      // Convert S3 paths to full URLs (handle both keys and existing URLs)
       const s3Service = new S3UploadService();
       const videosWithUrls = videos.map((video) => ({
         ...video,
-        videoUrl: s3Service.getS3Url(video.videoUrl),
+        videoUrl: video.videoUrl.startsWith("http")
+          ? video.videoUrl
+          : s3Service.getS3Url(video.videoUrl),
         thumbnailUrl: video.thumbnailUrl
-          ? s3Service.getS3Url(video.thumbnailUrl)
+          ? video.thumbnailUrl.startsWith("http")
+            ? video.thumbnailUrl
+            : s3Service.getS3Url(video.thumbnailUrl)
           : null,
       }));
 
@@ -8338,6 +9037,50 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     } catch (error) {
       console.error("Error saving company profile:", error);
       res.status(500).json({ error: "Failed to save company profile" });
+    }
+  });
+
+  // Import company profile from template or external app (for iframe embedding)
+  app.post("/api/company/profile/import", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      console.log("📥 Importing company profile template for user:", userId);
+
+      // Accept template data from external app or manual import
+      const templateData = req.body;
+
+      // Validate and merge with userId
+      const validation = insertCompanyProfileSchema.safeParse({
+        ...templateData,
+        userId,
+      });
+
+      if (!validation.success) {
+        console.error(
+          "❌ Template validation failed:",
+          validation.error.errors
+        );
+        return res.status(400).json({
+          error: "Invalid template data",
+          details: validation.error.errors,
+        });
+      }
+
+      const profile = await storage.upsertCompanyProfile(validation.data);
+      console.log("✅ Company profile imported successfully");
+
+      res.json({
+        success: true,
+        profile,
+        message: "Company profile imported successfully",
+      });
+    } catch (error) {
+      console.error("Error importing company profile:", error);
+      res.status(500).json({ error: "Failed to import company profile" });
     }
   });
 
@@ -8859,13 +9602,203 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
-  // =====================================================
-  // IMAKEPAGE INTEGRATION
-  // =====================================================
+  // ==================== UNIFIED MEDIA LIBRARY ENDPOINTS ====================
 
-  // NOTE: iMakePage integration uses postMessage API for secure cross-origin communication
-  // The parent iMakePage window sends user data to the iframe via window.postMessage
-  // No backend proxy needed - all communication happens client-side securely
+  // Get all media (unified: media_assets + video_content)
+  app.get("/api/media", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      const typeFilter = req.query.type as string | undefined;
+
+      console.log(
+        "📚 Backend: Getting unified media library for user:",
+        userId
+      );
+
+      // Get media assets from media_assets table
+      const mediaAssets = await storage.getMediaAssets(
+        String(userId),
+        typeFilter
+      );
+
+      // Get generated videos from video_content table and transform to media format
+      const videos = await storage.getVideoContent(String(userId), "ready");
+
+      // Transform videos to media asset format with proper S3 URLs
+      const videoAssets = videos.map((video) => ({
+        id: video.id,
+        userId: video.userId,
+        type: "video" as const,
+        source: "heygen" as const,
+        url: ensureS3Url(video.videoUrl) || "",
+        thumbnailUrl: ensureS3Url(video.thumbnailUrl),
+        title: video.title,
+        description: video.script?.substring(0, 200) || null,
+        avatarId: video.avatarId || null,
+        fileSize: null,
+        mimeType: "video/mp4",
+        width: null,
+        height: null,
+        duration: video.duration || null,
+        metadata: video.metadata || null,
+        createdAt: video.createdAt || new Date().toISOString(),
+      }));
+
+      // Combine and sort by creation date (newest first)
+      const allMedia = [...mediaAssets, ...videoAssets].sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // Apply type filter if specified
+      const filteredMedia =
+        typeFilter && typeFilter !== "all"
+          ? allMedia.filter((item) => item.type === typeFilter)
+          : allMedia;
+
+      console.log(
+        `✅ Backend: Found ${filteredMedia.length} media items (${mediaAssets.length} assets + ${videoAssets.length} videos)`
+      );
+      res.json(filteredMedia);
+    } catch (error: any) {
+      console.error("❌ Backend: Failed to get media library");
+      console.error("❌ Backend: Error message:", error?.message);
+      res.status(500).json({
+        error: "Failed to get media library",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
+  // Upload media to library
+  app.post(
+    "/api/media/upload",
+    requireAuth,
+    upload.single("file"),
+    async (req, res) => {
+      try {
+        const userId = req.user?.id;
+        const file = req.file;
+
+        if (!file) {
+          return res.status(400).json({ error: "No file provided" });
+        }
+
+        console.log(
+          "📤 Backend: Uploading media to library:",
+          file.originalname
+        );
+
+        const type =
+          req.body.type ||
+          (file.mimetype.startsWith("video/") ? "video" : "photo");
+        const source = req.body.source || "upload";
+
+        // Upload to S3 if configured
+        let fileUrl = "";
+        let thumbnailUrl = null;
+
+        if (
+          process.env.AWS_ACCESS_KEY_ID &&
+          process.env.AWS_SECRET_ACCESS_KEY
+        ) {
+          const s3Service = new S3UploadService();
+          const fileBuffer = await fs.promises.readFile(file.path);
+          fileUrl = await s3Service.uploadFile(
+            parseInt(userId!),
+            fileBuffer,
+            `${Date.now()}-${file.originalname}`,
+            file.mimetype
+          );
+        } else {
+          // Use local file path if S3 not configured
+          fileUrl = `/uploads/${file.filename}`;
+        }
+
+        // Create media asset record
+        const mediaAsset = await storage.createMediaAsset({
+          userId: String(userId),
+          type,
+          source,
+          url: fileUrl,
+          thumbnailUrl,
+          title: req.body.title || file.originalname,
+          description: req.body.description || null,
+          avatarId: req.body.avatarId || null,
+          mimeType: file.mimetype,
+          fileSize: file.size,
+          width: null,
+          height: null,
+          durationSeconds: null,
+          metadata: null,
+        });
+
+        console.log("✅ Backend: Media uploaded successfully:", mediaAsset.id);
+        res.json(mediaAsset);
+      } catch (error: any) {
+        console.error("❌ Backend: Failed to upload media");
+        console.error("❌ Backend: Error message:", error?.message);
+        res.status(500).json({
+          error: "Failed to upload media",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
+  // Get specific media item
+  app.get("/api/media/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      console.log("📚 Backend: Getting media item:", id);
+
+      // Try media_assets first
+      const mediaAsset = await storage.getMediaAssetById(id);
+
+      if (mediaAsset) {
+        console.log("✅ Backend: Found media asset");
+        return res.json(mediaAsset);
+      }
+
+      // Try video_content table
+      const video = await storage.getVideoById(id);
+
+      if (video && video.status === "ready") {
+        // Transform to media format
+        const videoAsset = {
+          id: video.id,
+          userId: video.userId,
+          type: "video" as const,
+          source: "heygen" as const,
+          url: video.videoUrl || "",
+          thumbnailUrl: video.thumbnailUrl || null,
+          title: video.title,
+          description: video.script?.substring(0, 200) || null,
+          avatarId: video.avatarId || null,
+          fileSize: null,
+          mimeType: "video/mp4",
+          width: null,
+          height: null,
+          duration: video.duration || null,
+          metadata: video.metadata || null,
+          createdAt: video.createdAt || new Date().toISOString(),
+        };
+
+        console.log("✅ Backend: Found video content");
+        return res.json(videoAsset);
+      }
+
+      res.status(404).json({ error: "Media not found" });
+    } catch (error: any) {
+      console.error("❌ Backend: Failed to get media");
+      console.error("❌ Backend: Error message:", error?.message);
+      res.status(500).json({
+        error: "Failed to get media",
+        details: error?.message || String(error),
+      });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

@@ -1,16 +1,17 @@
 import { sql } from "drizzle-orm";
 import {
-  index,
-  pgTable,
-  text,
-  varchar,
-  timestamp,
-  jsonb,
-  integer,
   boolean,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgTable,
   real,
-  unique,
   serial,
+  text,
+  timestamp,
+  unique,
+  varchar,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -23,7 +24,7 @@ export const sessions = pgTable(
     sess: jsonb("sess").notNull(),
     expire: timestamp("expire").notNull(),
   },
-  (table) => [index("IDX_session_expire").on(table.expire)],
+  (table) => [index("IDX_session_expire").on(table.expire)]
 );
 
 // =====================================================
@@ -58,7 +59,7 @@ export const publicUsers = pgTable(
   (table) => ({
     // Composite unique constraint: one email per agent
     uniqueAgentClient: unique().on(table.agentSlug, table.email),
-  }),
+  })
 );
 
 // =====================================================
@@ -116,13 +117,13 @@ export const avatars = pgTable("avatars", {
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   name: text("name").notNull(),
-  description: text("description"),
-  avatarImageUrl: text("avatar_image_url"), // URL to the avatar's appearance image
-  voiceId: text("voice_id"), // ID for AI voice synthesis
-  style: text("style").default("professional"), // 'professional', 'casual', 'friendly'
-  gender: text("gender"), // 'male', 'female', 'neutral'
-  isActive: boolean("is_active").default(true),
-  metadata: jsonb("metadata"),
+  heygenAvatarId: text("heygen_avatar_id").notNull().unique(),
+  avatarType: text("avatar_type").notNull(), // 'public', 'talking_photo', 'photo_avatar_group'
+  gender: text("gender"),
+  previewImageUrl: text("preview_image_url"),
+  previewVideoUrl: text("preview_video_url"),
+  isPublic: boolean("is_public").default(false),
+  supportsGestures: boolean("supports_gestures").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -134,12 +135,15 @@ export const customVoices = pgTable("custom_voices", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  name: text("name").notNull(), // User-given name like "My Professional Voice"
-  audioUrl: text("audio_url").notNull(), // S3 URL or local path to the audio file
-  duration: integer("duration"), // Duration in seconds (optional)
-  fileSize: integer("file_size"), // File size in bytes (optional)
-  heygenAudioAssetId: text("heygen_audio_asset_id"), // HeyGen audio asset ID for video generation
-  status: text("status").notNull().default("pending"), // 'pending', 'ready', 'failed'
+  name: text("name").notNull(),
+  audioUrl: text("audio_url").notNull(),
+  fileSize: integer("file_size"),
+  heygenAudioAssetId: text("heygen_audio_asset_id"),
+  status: text("status").notNull().default("pending"),
+  heygenVoiceId: text("heygen_voice_id"),
+  language: text("language"),
+  gender: text("gender"),
+  sampleAudioUrl: text("sample_audio_url"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -151,14 +155,12 @@ export const photoAvatarGroups = pgTable("photo_avatar_groups", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  heygenGroupId: text("heygen_group_id").notNull().unique(), // HeyGen avatar group ID
-  name: text("name").notNull(),
-  imageHash: text("image_hash"), // SHA-256 hash of original image for duplicate detection
-  s3ImageUrl: text("s3_image_url"), // S3 backup URL
-  heygenImageKey: text("heygen_image_key"), // HeyGen image key
-  status: text("status").notNull().default("pending"), // 'pending', 'training', 'ready', 'failed'
-  trainingProgress: integer("training_progress").default(0), // 0-100
-  metadata: jsonb("metadata"),
+  groupName: text("group_name").notNull(),
+  heygenGroupId: text("heygen_group_id").notNull().unique(),
+  trainingStatus: text("training_status").notNull().default("pending"),
+  imageHash: text("image_hash"),
+  heygenImageKey: text("heygen_image_key"),
+  s3ImageUrl: text("s3_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -179,30 +181,36 @@ export const photoAvatarGroupVoices = pgTable("photo_avatar_group_voices", {
 // =====================================================
 // PHOTO AVATARS TABLE (Individual Avatars)
 // =====================================================
-export const photoAvatars = pgTable(
-  "photo_avatars",
-  {
-    id: varchar("id")
-      .primaryKey()
-      .default(sql`gen_random_uuid()`),
-    userId: varchar("user_id").notNull(),
-    heygenAvatarId: text("heygen_avatar_id").notNull().unique(), // Individual avatar ID from HeyGen
-    groupDbId: varchar("group_db_id").notNull(), // Foreign key to photoAvatarGroups.id (our DB ID)
-    heygenGroupId: text("heygen_group_id").notNull(), // HeyGen's group ID for convenience
-    name: text("name"),
-    pose: text("pose"), // e.g., "half_body", "full_body"
-    status: text("status").default("pending"), // 'pending', 'processing', 'ready', 'failed'
-    metadata: jsonb("metadata"),
-    createdAt: timestamp("created_at").defaultNow(),
-  },
-  (table) => [
-    index("idx_photo_avatars_heygen_id").on(table.heygenAvatarId),
-    index("idx_photo_avatars_user_heygen").on(
-      table.userId,
-      table.heygenAvatarId,
-    ),
-  ],
-);
+export const photoAvatars = pgTable("photo_avatars", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").notNull(),
+  photoUrl: text("photo_url").notNull(),
+  heygenPhotoId: text("heygen_photo_id"),
+  poseType: text("pose_type").notNull(),
+  processingStatus: text("processing_status").default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// =====================================================
+// VIDEO AVATARS TABLE (Enterprise HeyGen Feature)
+// =====================================================
+export const videoAvatars = pgTable("video_avatars", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  avatarName: text("avatar_name").notNull(),
+  heygenAvatarId: text("heygen_avatar_id").notNull().unique(),
+  trainingVideoUrl: text("training_video_url").notNull(), // S3 URL to training footage
+  consentVideoUrl: text("consent_video_url").notNull(), // S3 URL to consent video
+  voiceId: text("voice_id"), // Optional voice ID for the avatar
+  status: text("status").notNull().default("in_progress"), // in_progress, complete, failed
+  errorMessage: text("error_message"), // Error details if status is failed
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
 
 // =====================================================
 // MEDIA ASSETS TABLE (Unified Media Library)
@@ -282,12 +290,12 @@ export const socialMediaAccounts = pgTable("social_media_accounts", {
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   platform: text("platform").notNull(), // 'facebook', 'instagram', 'linkedin', 'x'
-  accountId: text("account_id").notNull(),
   accessToken: text("access_token"),
   refreshToken: text("refresh_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
   isConnected: boolean("is_connected").default(false),
-  lastSync: timestamp("last_sync"),
-  metadata: jsonb("metadata"),
+  accountUsername: text("account_username"),
+  lastSynced: timestamp("last_synced"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -300,13 +308,13 @@ export const seoKeywords = pgTable("seo_keywords", {
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   keyword: text("keyword").notNull(),
-  currentRank: integer("current_rank"),
-  previousRank: integer("previous_rank"),
   searchVolume: integer("search_volume"),
   difficulty: integer("difficulty"),
-  neighborhood: text("neighborhood"),
   lastChecked: timestamp("last_checked"),
   createdAt: timestamp("created_at").defaultNow(),
+  currentRank: integer("current_rank"),
+  previousRank: integer("previous_rank"),
+  neighborhood: text("neighborhood"),
 });
 
 // =====================================================
@@ -334,9 +342,10 @@ export const analytics = pgTable("analytics", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  metric: text("metric").notNull(),
-  value: integer("value").notNull(),
-  date: timestamp("date").defaultNow(),
+  metricType: text("metric_type").notNull(),
+  metricValue: numeric("metric_value"),
+  dimension: text("dimension"),
+  timestamp: timestamp("timestamp").defaultNow(),
   metadata: jsonb("metadata"),
 });
 
@@ -472,7 +481,7 @@ export const insertContentPieceSchema = createInsertSchema(contentPieces).omit({
 });
 
 export const insertSocialMediaAccountSchema = createInsertSchema(
-  socialMediaAccounts,
+  socialMediaAccounts
 ).omit({
   id: true,
   createdAt: true,
@@ -490,15 +499,18 @@ export const insertMarketDataSchema = createInsertSchema(marketData).omit({
 
 export const insertAnalyticsSchema = createInsertSchema(analytics).omit({
   id: true,
+  timestamp: true,
 });
 
-export const insertScheduledPostSchema = createInsertSchema(
-  scheduledPosts,
-).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertScheduledPostSchema = createInsertSchema(scheduledPosts)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    scheduledFor: z.coerce.date(), // Coerce ISO strings to Date objects
+  });
 
 // Update schema for PATCH operations - only mutable fields
 export const updateScheduledPostSchema = z
@@ -572,7 +584,7 @@ export const insertSocialApiKeysSchema = createInsertSchema(socialApiKeys).omit(
     id: true,
     createdAt: true,
     updatedAt: true,
-  },
+  }
 );
 
 export const insertCustomVoiceSchema = createInsertSchema(customVoices).omit({
@@ -632,6 +644,9 @@ export type InsertPhotoAvatarGroupVoice =
 export type PhotoAvatar = typeof photoAvatars.$inferSelect;
 export type InsertPhotoAvatar = typeof photoAvatars.$inferInsert;
 
+export type VideoAvatar = typeof videoAvatars.$inferSelect;
+export type InsertVideoAvatar = typeof videoAvatars.$inferInsert;
+
 export const insertPhotoAvatarSchema = createInsertSchema(photoAvatars).omit({
   id: true,
   createdAt: true,
@@ -656,7 +671,7 @@ export const tutorialVideos = pgTable("tutorial_videos", {
 });
 
 export const insertTutorialVideoSchema = createInsertSchema(
-  tutorialVideos,
+  tutorialVideos
 ).omit({
   id: true,
   createdAt: true,
@@ -674,21 +689,23 @@ export const companyProfiles = pgTable("company_profiles", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().unique(),
-  businessName: text("business_name").notNull(),
-  agentName: text("agent_name").notNull(),
-  agentTitle: text("agent_title"),
+  companyName: text("company_name").notNull(),
+  logoUrl: text("logo_url"),
+  website: text("website"),
   phone: text("phone"),
   email: text("email"),
-  officeAddress: text("office_address"),
-  licenseNumber: text("license_number"),
-  brokerageName: text("brokerage_name"),
-  tagline: text("tagline"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  bio: text("bio"),
+  socialLinks: jsonb("social_links"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const insertCompanyProfileSchema = createInsertSchema(
-  companyProfiles,
+  companyProfiles
 ).omit({
   id: true,
   createdAt: true,
@@ -697,6 +714,35 @@ export const insertCompanyProfileSchema = createInsertSchema(
 
 export type CompanyProfile = typeof companyProfiles.$inferSelect;
 export type InsertCompanyProfile = z.infer<typeof insertCompanyProfileSchema>;
+
+// =====================================================
+// BRAND SETTINGS TABLE (Branding & Visual Identity)
+// =====================================================
+export const brandSettings = pgTable("brand_settings", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  assets: jsonb("assets"),
+  colors: jsonb("colors"),
+  fonts: jsonb("fonts"),
+  description: text("description"),
+  socialConnections: jsonb("social_connections"),
+  logoInfo: jsonb("logo_info"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBrandSettingsSchema = createInsertSchema(brandSettings).omit(
+  {
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  }
+);
+
+export type BrandSettings = typeof brandSettings.$inferSelect;
+export type InsertBrandSettings = z.infer<typeof insertBrandSettingsSchema>;
 
 // Legacy types (keeping for compatibility)
 export type UpsertUser = typeof users.$inferInsert;
@@ -820,32 +866,36 @@ export type PlatformScore = z.infer<typeof platformScoreSchema>;
 // =====================================================
 
 // User Sessions - Track anonymous user browsing sessions
-export const userSessions = pgTable("user_sessions", {
-  id: serial("id").primaryKey(),
-  sessionId: text("session_id").notNull(),
-  publicUserId: integer("public_user_id").references(() => publicUsers.id),
-  agentSlug: text("agent_slug").notNull(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  deviceType: text("device_type"),
-  browserName: text("browser_name"),
-  operatingSystem: text("operating_system"),
-  country: text("country"),
-  city: text("city"),
-  firstPageVisited: text("first_page_visited"),
-  lastPageVisited: text("last_page_visited"),
-  totalTimeSpentSeconds: integer("total_time_spent_seconds").default(0),
-  totalPageViews: integer("total_page_views").default(0),
-  totalPropertiesViewed: integer("total_properties_viewed").default(0),
-  totalPropertiesLiked: integer("total_properties_liked").default(0),
-  conversionType: text("conversion_type"),
-  conversionValue: text("conversion_value"),
-  isActive: boolean("is_active").default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => ({
-  sessionIdKey: unique("user_sessions_session_id_key").on(table.sessionId),
-}));
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    publicUserId: integer("public_user_id").references(() => publicUsers.id),
+    agentSlug: text("agent_slug").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    deviceType: text("device_type"),
+    browserName: text("browser_name"),
+    operatingSystem: text("operating_system"),
+    country: text("country"),
+    city: text("city"),
+    firstPageVisited: text("first_page_visited"),
+    lastPageVisited: text("last_page_visited"),
+    totalTimeSpentSeconds: integer("total_time_spent_seconds").default(0),
+    totalPageViews: integer("total_page_views").default(0),
+    totalPropertiesViewed: integer("total_properties_viewed").default(0),
+    totalPropertiesLiked: integer("total_properties_liked").default(0),
+    conversionType: text("conversion_type"),
+    conversionValue: text("conversion_value"),
+    isActive: boolean("is_active").default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    sessionIdKey: unique("user_sessions_session_id_key").on(table.sessionId),
+  })
+);
 
 // Property Interactions - Track individual user interactions
 export const propertyInteractions = pgTable("property_interactions", {
@@ -907,15 +957,13 @@ export const contentOpportunities = pgTable("content_opportunities", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
+  opportunityType: text("opportunity_type").notNull(),
   title: text("title").notNull(),
   description: text("description").notNull(),
-  priority: text("priority").notNull().default("medium"), // 'high', 'medium', 'low'
-  neighborhood: text("neighborhood"),
-  keywordId: text("keyword_id"),
-  trendSource: text("trend_source").notNull(), // 'market', 'keyword', 'trend'
-  searchSignal: integer("search_signal").default(50), // 0-100 score
+  priority: integer("priority").default(5),
+  status: text("status").default("pending"),
   metadata: jsonb("metadata"),
-  generatedAt: timestamp("generated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const insertUserSessionSchema = createInsertSchema(userSessions).omit({
@@ -925,7 +973,7 @@ export const insertUserSessionSchema = createInsertSchema(userSessions).omit({
 });
 
 export const insertPropertyInteractionSchema = createInsertSchema(
-  propertyInteractions,
+  propertyInteractions
 ).omit({
   id: true,
   createdAt: true,
@@ -937,17 +985,17 @@ export const insertPropertyLikeSchema = createInsertSchema(propertyLikes).omit({
 });
 
 export const insertEngagementLeadSchema = createInsertSchema(
-  engagementLeads,
+  engagementLeads
 ).omit({
   id: true,
   createdAt: true,
 });
 
 export const insertContentOpportunitySchema = createInsertSchema(
-  contentOpportunities,
+  contentOpportunities
 ).omit({
   id: true,
-  generatedAt: true,
+  createdAt: true,
 });
 
 export type UserSession = typeof userSessions.$inferSelect;
@@ -964,3 +1012,20 @@ export type ContentOpportunity = typeof contentOpportunities.$inferSelect;
 export type InsertContentOpportunity = z.infer<
   typeof insertContentOpportunitySchema
 >;
+
+// =====================================================
+// PKCE CODE STORAGE (for OAuth 2.0 flows)
+// =====================================================
+export const pkceStore = pgTable("pkce_store", {
+  state: varchar("state").primaryKey(),
+  codeVerifier: text("code_verifier").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPKCESchema = createInsertSchema(pkceStore).omit({
+  createdAt: true,
+});
+
+export type PKCEStore = typeof pkceStore.$inferSelect;
+export type InsertPKCE = z.infer<typeof insertPKCESchema>;

@@ -158,6 +158,7 @@ export class HeyGenService {
     quality = "720p",
     isTalkingPhoto = false,
     speed = 1.0,
+    gestureIntensity = 0,
   }: {
     avatarId: string;
     script: string;
@@ -168,6 +169,7 @@ export class HeyGenService {
     quality?: "1080p" | "720p" | "480p";
     isTalkingPhoto?: boolean;
     speed?: number;
+    gestureIntensity?: number;
   }): Promise<GenerateVideoResponse> {
     // Build character object based on avatar type
     const character = isTalkingPhoto
@@ -179,6 +181,12 @@ export class HeyGenService {
           type: "avatar" as const,
           avatar_id: avatarId,
           avatar_style: "normal",
+          // Add gesture intensity if greater than 0
+          ...(gestureIntensity > 0 && {
+            gesture: {
+              intensity: gestureIntensity, // 0 (off) to 3 (expressive)
+            },
+          }),
         };
 
     // Build voice object - use audio if audioAssetId is provided, otherwise use text

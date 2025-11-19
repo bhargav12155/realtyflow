@@ -27,6 +27,7 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: [
+      "http://localhost:5000", // RealtyFlow dev
       "http://localhost:5173", // NebraskaHomeHub dev
       "http://localhost:3001", // NebraskaHomeHub dev alternative
       "http://gb-home-template-env-dev.eba-pisu79mx.us-east-2.elasticbeanstalk.com",
@@ -38,7 +39,7 @@ app.use(
       // Add other NebraskaHomeHub domains as needed
     ],
     credentials: true,
-  }),
+  })
 );
 
 // Allow iframe embedding
@@ -123,7 +124,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(
-        `🚀 RealtyFlow Multi-User Server running on http://localhost:${port}`,
+        `🚀 RealtyFlow Multi-User Server running on http://localhost:${port}`
       );
       log(`📊 Database: Connected to Neon PostgreSQL`);
       log(`🔐 Authentication: JWT Multi-User System Active`);
@@ -135,6 +136,6 @@ app.use((req, res, next) => {
       log(`   • Check Auth: GET /api/auth/check`);
       log(`   • Dashboard: GET /api/dashboard/overview`);
       log(`   • WebSocket: ws://localhost:${port}/ws`);
-    },
+    }
   );
 })();

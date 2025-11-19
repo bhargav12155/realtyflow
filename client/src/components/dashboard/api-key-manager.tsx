@@ -189,9 +189,11 @@ export function APIKeyManager() {
                     </div>
                     
                     {/* Cost Tier */}
-                    <Badge className={`text-xs ${getTierColor(key.costTier)}`}>
-                      {key.costTier.charAt(0).toUpperCase() + key.costTier.slice(1)}
-                    </Badge>
+                    {key.costTier && (
+                      <Badge className={`text-xs ${getTierColor(key.costTier)}`}>
+                        {key.costTier.charAt(0).toUpperCase() + key.costTier.slice(1)}
+                      </Badge>
+                    )}
                     
                     {/* Reset Time */}
                     {key.quotaResetTime && (

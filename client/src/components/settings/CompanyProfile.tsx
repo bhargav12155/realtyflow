@@ -135,8 +135,8 @@ export function CompanyProfile() {
       <CardContent>
         <div className="space-y-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Customize your company information to personalize AI-generated content.
-            This information will be used in titles, descriptions, and other marketing materials.
+            Customize your company information to personalize AI-generated content and social media posts.
+            This information will be used in property templates, AI-generated content, and marketing materials throughout the platform.
           </p>
 
           <Form {...form}>
@@ -152,7 +152,7 @@ export function CompanyProfile() {
                         <Input
                           {...field}
                           data-testid="input-businessName"
-                          placeholder="e.g., Berkshire Hathaway HomeServices"
+                          placeholder="e.g., Your Brokerage Name"
                         />
                       </FormControl>
                       <FormMessage />
@@ -170,7 +170,7 @@ export function CompanyProfile() {
                         <Input
                           {...field}
                           data-testid="input-agentName"
-                          placeholder="e.g., Mike Bjork"
+                          placeholder="e.g., Your Full Name"
                         />
                       </FormControl>
                       <FormMessage />
@@ -261,7 +261,7 @@ export function CompanyProfile() {
                         <Input
                           {...field}
                           data-testid="input-brokerageName"
-                          placeholder="e.g., Berkshire Hathaway HomeServices"
+                          placeholder="e.g., Your Brokerage Name"
                         />
                       </FormControl>
                       <FormMessage />

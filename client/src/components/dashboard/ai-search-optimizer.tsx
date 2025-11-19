@@ -52,7 +52,7 @@ const aiSearchTips: AISearchTip[] = [
     description: "AI searches look for clear entity relationships. Make sure your name, business, and location are consistently mentioned together.",
     impact: "high",
     implemented: true,
-    action: "Include 'Mike Bjork, Berkshire Hathaway HomeServices, Omaha' in every piece of content"
+    action: "Include '[Your Name], [Your Brokerage], Omaha' in every piece of content"
   },
   {
     category: "Conversational Content",
@@ -149,8 +149,17 @@ export function AISearchOptimizer() {
   const [optimizationGoal, setOptimizationGoal] = useState("");
   const [customQuestion, setCustomQuestion] = useState("");
   
-  const { toast } = useToast();
+  const { toast} = useToast();
   const queryClient = useQueryClient();
+
+  // Fetch company profile for dynamic content
+  const { data: companyProfile } = useQuery({
+    queryKey: ["/api/company/profile"],
+  });
+
+  // Get agent name and brokerage with smart defaults
+  const agentName = companyProfile?.agentName || "[Your Name]";
+  const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
 
   // AI optimization score analysis - maximum optimization achieved
   const mockScore: AIOptimizationScore = {
@@ -413,7 +422,7 @@ export function AISearchOptimizer() {
                   AI Search Optimization Preview
                 </h3>
                 <div className="text-sm space-y-2">
-                  <p><strong>Entity Focus:</strong> Mike Bjork + {selectedNeighborhood || "Omaha"} + Real Estate</p>
+                  <p><strong>Entity Focus:</strong> {agentName} + {selectedNeighborhood || "Omaha"} + Real Estate</p>
                   <p><strong>Question Format:</strong> Direct answers to "{customQuestion || optimizationGoal}"</p>
                   <p><strong>Local Authority:</strong> Specific neighborhood insights and market data</p>
                   <p><strong>Conversational Tone:</strong> Natural language that matches how people ask AI</p>

@@ -134,14 +134,6 @@ export function SocialKeysOnboarding({
               <Facebook className="w-4 h-4 mr-1" />
               <span className="hidden sm:inline">Facebook</span>
             </TabsTrigger>
-            <TabsTrigger value="instagram" className="text-xs sm:text-sm">
-              <Instagram className="w-4 h-4 mr-1" />
-              <span className="hidden sm:inline">Instagram</span>
-            </TabsTrigger>
-            <TabsTrigger value="tiktok" className="text-xs sm:text-sm">
-              <Music className="w-4 h-4 mr-1" />
-              <span className="hidden sm:inline">TikTok</span>
-            </TabsTrigger>
             <TabsTrigger value="twitter" className="text-xs sm:text-sm">
               <Twitter className="w-4 h-4 mr-1" />
               <span className="hidden sm:inline">X</span>
@@ -153,6 +145,14 @@ export function SocialKeysOnboarding({
             <TabsTrigger value="linkedin" className="text-xs sm:text-sm">
               <Linkedin className="w-4 h-4 mr-1" />
               <span className="hidden sm:inline">LinkedIn</span>
+            </TabsTrigger>
+            <TabsTrigger value="instagram" className="text-xs sm:text-sm">
+              <Instagram className="w-4 h-4 mr-1" />
+              <span className="hidden sm:inline">Instagram</span>
+            </TabsTrigger>
+            <TabsTrigger value="tiktok" className="text-xs sm:text-sm">
+              <Music className="w-4 h-4 mr-1" />
+              <span className="hidden sm:inline">TikTok</span>
             </TabsTrigger>
           </TabsList>
 

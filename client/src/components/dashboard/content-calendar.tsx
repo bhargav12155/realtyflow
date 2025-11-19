@@ -502,6 +502,45 @@ export function ContentCalendar() {
     },
   });
 
+  const duplicatePostMutation = useMutation({
+    mutationFn: async (post: ScheduledPost) => {
+      // Create a new post with the same content but new schedule time (1 week later)
+      const originalDate = new Date(post.scheduledFor);
+      const newScheduleDate = new Date(originalDate);
+      newScheduleDate.setDate(originalDate.getDate() + 7); // Schedule 1 week later
+
+      const duplicateData = {
+        userId: post.userId,
+        platform: post.platform,
+        postType: post.postType,
+        content: post.content,
+        hashtags: post.hashtags || [],
+        scheduledFor: newScheduleDate.toISOString(),
+        status: 'pending', // New duplicate starts as pending
+        isAiGenerated: post.isAiGenerated || false,
+        metadata: post.metadata || {},
+      };
+
+      const response = await apiRequest('POST', '/api/scheduled-posts', duplicateData);
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      setShowPreview(false);
+      toast({
+        title: "Post Duplicated",
+        description: "A copy has been created and scheduled for 1 week later. You can edit the schedule in the calendar.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Duplication Failed",
+        description: "Could not duplicate the post. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const platformColors = {
     facebook: "bg-blue-500",
     instagram: "bg-pink-500",
@@ -649,18 +688,46 @@ export function ContentCalendar() {
     }
   };
   
-  const handleSaveEdit = () => {
-    if (previewContent) {
-      // Save the photo URL to the content
+  const handleSaveEdit = async () => {
+    if (!previewContent) return;
+    
+    // Get the API post ID (remove 'api-' prefix if present)
+    const apiPostId = String(previewContent.id).startsWith('api-') 
+      ? String(previewContent.id).replace('api-', '') 
+      : null;
+    
+    if (!apiPostId) {
+      // For local/mock posts, just update local state
+      setSavedPhotoUrl(photoPreview);
+      toast({
+        title: "Content Updated", 
+        description: "Your content changes have been saved locally",
+      });
+      setIsEditing(false);
+      return;
+    }
+    
+    // Update API post
+    const updates: Partial<ScheduledPost> = {
+      content: editedContent,
+    };
+    
+    // Add photo URL to metadata if changed
+    if (photoPreview !== savedPhotoUrl) {
+      updates.metadata = {
+        ...(previewContent as any).metadata,
+        imageUrl: photoPreview,
+      };
       setSavedPhotoUrl(photoPreview);
     }
     
-    // In a real app, this would save to backend
-    toast({
-      title: "Content Updated", 
-      description: "Your content changes have been saved",
-    });
-    setIsEditing(false);
+    try {
+      await updatePostMutation.mutateAsync({ id: apiPostId, updates });
+      setIsEditing(false);
+    } catch (error) {
+      // Error toast is handled by the mutation
+      console.error('Failed to save edit:', error);
+    }
   };
   
   const handleAIScheduling = async () => {
@@ -811,7 +878,7 @@ export function ContentCalendar() {
         <div className="space-y-4">
           {/* Month View */}
           <div>
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-4">
               <Select
                 value={`${format(selectedDate, "MMMM")} ${format(selectedDate, "yyyy")}`}
                 onValueChange={handleMonthYearChange}
@@ -827,6 +894,23 @@ export function ContentCalendar() {
                       </SelectItem>
                     ))
                   )}
+                </SelectContent>
+              </Select>
+              
+              {/* Status Filter */}
+              <Select
+                value={statusFilter}
+                onValueChange={setStatusFilter}
+              >
+                <SelectTrigger className="w-40" data-testid="select-status-filter">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Posts</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="posted">Posted</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1362,17 +1446,41 @@ export function ContentCalendar() {
           
           {/* Edit Controls */}
           {previewContent && (
-            <div className="p-4 border-t bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
+            <div className="p-4 border-t bg-gray-50 dark:bg-gray-800">
               {!isEditing ? (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-2"
-                >
-                  <Edit2 className="h-4 w-4" />
-                  Edit
-                </Button>
+                <div className="flex items-center justify-between gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-2"
+                    data-testid="button-edit-post"
+                  >
+                    <Edit2 className="h-4 w-4" />
+                    Edit
+                  </Button>
+                  
+                  {/* Show Duplicate button only for API posts (actual scheduled posts) */}
+                  {String(previewContent.id).startsWith('api-') && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => {
+                        const apiPostId = String(previewContent.id).replace('api-', '');
+                        const originalPost = apiScheduledPosts.find(p => p.id === apiPostId);
+                        if (originalPost) {
+                          duplicatePostMutation.mutate(originalPost);
+                        }
+                      }}
+                      disabled={duplicatePostMutation.isPending}
+                      className="flex items-center gap-2"
+                      data-testid="button-duplicate-post"
+                    >
+                      <Plus className="h-4 w-4" />
+                      {duplicatePostMutation.isPending ? 'Duplicating...' : 'Duplicate'}
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <div className="flex items-center gap-2 w-full">
                   <Button 
@@ -1383,6 +1491,7 @@ export function ContentCalendar() {
                       setEditedContent(previewContent.content);
                       setPhotoPreview(savedPhotoUrl); // Restore to last saved photo
                     }}
+                    data-testid="button-cancel-edit"
                   >
                     Cancel
                   </Button>
@@ -1390,6 +1499,7 @@ export function ContentCalendar() {
                     size="sm"
                     onClick={handleSaveEdit}
                     className="flex items-center gap-2"
+                    data-testid="button-save-changes"
                   >
                     <Save className="h-4 w-4" />
                     Save Changes

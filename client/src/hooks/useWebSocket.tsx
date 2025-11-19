@@ -1,8 +1,18 @@
-import { useEffect, useRef, useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready";
+  type:
+    | "content_published"
+    | "social_post_scheduled"
+    | "notification"
+    | "status_update"
+    | "photo_generated"
+    | "video_created"
+    | "avatar_group_created"
+    | "motion_added"
+    | "sound_effect_added"
+    | "avatar_ready";
   data: any;
   timestamp: string;
   userId?: number;
@@ -17,12 +27,7 @@ interface UseWebSocketOptions {
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
-  const {
-    userId,
-    onMessage,
-    autoConnect = false,
-    showToast = true,
-  } = options;
+  const { userId, onMessage, autoConnect = false, showToast = true } = options;
 
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
@@ -44,14 +49,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     try {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws?userId=${userId}`;
-      
+
       console.log("🔌 Connecting to WebSocket:", wsUrl);
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         console.log("✅ WebSocket connected");
         setIsConnected(true);
-        
+
         if (showToast) {
           toast({
             title: "Connected",
@@ -65,14 +70,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
           console.log("📨 WebSocket message:", message);
-          
+
           setLastMessage(message);
-          
+
           // Call custom handler if provided
           if (onMessage) {
             onMessage(message);
           }
-          
+
           // Show toast notifications for important events
           if (showToast && message.type !== "notification") {
             toast({
@@ -89,7 +94,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       ws.onclose = () => {
         console.log("🔌 WebSocket disconnected");
         setIsConnected(false);
-        
+
         // Attempt to reconnect after 3 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
           console.log("🔄 Attempting to reconnect...");
@@ -106,8 +111,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     } catch (error) {
       console.error("Failed to create WebSocket connection:", error);
     }
-  }, [userId, onMessage, showToast, toast]);
-
+  }, [userId, showToast, toast]);
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
@@ -128,14 +132,22 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   }, []);
 
   useEffect(() => {
-    if (autoConnect) {
+    if (autoConnect && userId) {
       connect();
     }
 
     return () => {
-      disconnect();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
-  }, [autoConnect, connect, disconnect]);
+    // Only reconnect when userId or autoConnect changes, not when connect function changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoConnect, userId]);
 
   return {
     isConnected,

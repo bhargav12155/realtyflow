@@ -43,6 +43,7 @@ import {
 import { useEffect, useState } from "react";
 import { MediaLibrary } from "./media-library";
 import { PropertySelector } from "./property-selector";
+import { PostComposer } from "./post-composer";
 
 interface SocialMediaAccount {
   id: string;
@@ -195,11 +196,6 @@ export function SocialMediaManager() {
   );
   const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
-  const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
-  const [photoUploadMode, setPhotoUploadMode] = useState<
-    "upload" | "stock" | "ai"
-  >("upload");
-  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [facebookPages, setFacebookPages] = useState<any[]>([]);
   const [selectedFacebookPage, setSelectedFacebookPage] = useState<string>("");
   const [uploadedVideo, setUploadedVideo] = useState<File | null>(null);
@@ -208,7 +204,22 @@ export function SocialMediaManager() {
   const [connectingPlatform, setConnectingPlatform] = useState<string | null>(
     null,
   );
+  const [showPostComposer, setShowPostComposer] = useState(false);
   const { toast } = useToast();
+
+  // Fetch company profile for dynamic content
+  const { data: companyProfile } = useQuery<{
+    agentName?: string;
+    brokerageName?: string;
+    businessName?: string;
+  }>({
+    queryKey: ["/api/company/profile"],
+  });
+
+  // Get agent name and brokerage with smart defaults
+  const agentName = companyProfile?.agentName || "[Your Name]";
+  const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
+  const businessName = companyProfile?.businessName || "[Your Business]";
 
   // OAuth-enabled platforms (only platforms with full OAuth backend support)
   const oauthPlatforms = [
@@ -410,28 +421,6 @@ export function SocialMediaManager() {
     };
     loadFacebookPages();
   }, []);
-
-  // Automatically pull MLS photos when a property is selected
-  useEffect(() => {
-    if (
-      selectedProperty &&
-      selectedProperty.photoUrls &&
-      selectedProperty.photoUrls.length > 0
-    ) {
-      // Use the first MLS photo from the property
-      const mlsPhoto = selectedProperty.photoUrls[0];
-      setUploadedPhoto(mlsPhoto);
-
-      const photoMsg = {
-        title: "Photo added!",
-        description: `Your property photo from ${selectedProperty.address} is ready to post`,
-      };
-      toast({
-        title: photoMsg.title,
-        description: photoMsg.description,
-      });
-    }
-  }, [selectedProperty]);
 
   // Handle YouTube posting with on-demand authentication
   const handleYouTubePost = async (content: string, videoFile?: File) => {
@@ -664,7 +653,6 @@ export function SocialMediaManager() {
           "Your content has been posted to Facebook successfully.",
       });
       setPostContent("");
-      setUploadedPhoto(null);
       setSelectedProperty(null);
       setSelectedPostType(null);
       setSelectedFacebookPage("");
@@ -752,9 +740,9 @@ ${
     : ""
 }
 
-Contact Mike Bjork at Berkshire Hathaway HomeServices for more information!
+Contact ${agentName} at ${brokerageName} for more information!
 
-#JustListed #OmahaRealEstate #MikeBjork #BHHS ${
+#JustListed #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")} ${
           neighborhoodTag ? `#${neighborhoodTag}` : ""
         }`,
 
@@ -773,7 +761,7 @@ ${property.description.substring(0, 150)}...
 
 DM for details! 📩
 
-#JustListed #OmahaHomes #RealEstate #MikeBjork ${
+#JustListed #OmahaHomes #RealEstate #${agentName.replace(/\s+/g, "")} ${
           neighborhoodTag ? `#${neighborhoodTag}` : ""
         }`,
 
@@ -784,7 +772,7 @@ DM for details! 📩
         }BA\n\n${property.description.substring(
           0,
           100,
-        )}...\n\nContact Mike Bjork for details!\n\n#JustListed #OmahaRealEstate`,
+        )}...\n\nContact ${agentName} for details!\n\n#JustListed #OmahaRealEstate`,
 
         youtube: `🏠 NEW LISTING: ${property.address} | ${formatPrice(
           property.listPrice,
@@ -822,13 +810,13 @@ ${
     : "• Beautifully maintained interior\n• Great neighborhood location\n• Move-in ready condition"
 }
 
-I'm Mike Bjork with Berkshire Hathaway HomeServices, and I'd love to show you this amazing property. Call or text me today to schedule your private showing!
+I'm ${agentName} with ${brokerageName}, and I'd love to show you this amazing property. Call or text me today to schedule your private showing!
 
 #JustListed #OmahaRealEstate #${
           property.neighborhood
             ? property.neighborhood.replace(/\s+/g, "")
             : "OmahaHomes"
-        } #MikeBjork #BerkshireHathaway #RealEstate #HomeTour`,
+        } #${agentName.replace(/\s+/g, "")} #${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")} #RealEstate #HomeTour`,
       },
 
       just_sold: {
@@ -847,9 +835,9 @@ ${
 
 Thinking of buying or selling? I'd love to help you achieve your real estate goals!
 
-Mike Bjork | Berkshire Hathaway HomeServices
+${agentName} | ${brokerageName}
 
-#JustSold #OmahaRealEstate #MikeBjork #BHHS #RealEstateSuccess`,
+#JustSold #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")} #RealEstateSuccess`,
 
         instagram: `✅ SOLD!
 
@@ -865,13 +853,13 @@ ${
 
 Ready to make your move? Let's chat! 📞
 
-#Sold #OmahaRealEstate #MikeBjork #RealEstateSuccess`,
+#Sold #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #RealEstateSuccess`,
 
         x: `✅ SOLD!\n\n${
           property.address
         }\n\nAnother successful closing! 🎉\n\n${
           property.neighborhood ? `${property.neighborhood} market strong!` : ""
-        }\n\nMike Bjork | BHHS\n\n#JustSold #OmahaRealEstate`,
+        }\n\n${agentName} | ${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")}\n\n#JustSold #OmahaRealEstate`,
 
         youtube: `🎉 SOLD! ${property.address} | Another Successful Closing!
 
@@ -905,13 +893,13 @@ ${
 
 Thinking about selling your home? I'd love to discuss your goals and show you how I can maximize your property's value in today's market.
 
-Mike Bjork | Berkshire Hathaway HomeServices
+${agentName} | ${brokerageName}
 
 #JustSold #OmahaRealEstate #${
           property.neighborhood
             ? property.neighborhood.replace(/\s+/g, "")
             : "OmahaHomes"
-        } #MikeBjork #BerkshireHathaway #RealEstateSuccess #SoldHomes`,
+        } #${agentName.replace(/\s+/g, "")} #${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")} #RealEstateSuccess #SoldHomes`,
       },
 
       price_improvement: {
@@ -932,9 +920,9 @@ ${
     : "Don't miss this opportunity!"
 }
 
-Contact Mike Bjork at Berkshire Hathaway HomeServices today!
+Contact ${agentName} at ${brokerageName} today!
 
-#PriceImprovement #OmahaRealEstate #MikeBjork #BHHS #Opportunity`,
+#PriceImprovement #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")} #Opportunity`,
 
         instagram: `💰 PRICE DROP ALERT!
 
@@ -961,7 +949,7 @@ DM me now! 📩
           property.neighborhood
             ? `${property.neighborhood} opportunity!`
             : "Great opportunity!"
-        }\n\nMike Bjork | BHHS\n\n#PriceImprovement`,
+        }\n\n${agentName} | ${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")}\n\n#PriceImprovement`,
 
         youtube: `💰 PRICE IMPROVEMENT! ${property.address} | Now ${formatPrice(
           property.listPrice,
@@ -978,9 +966,9 @@ What makes this price improvement significant:
 • Creates opportunity for serious buyers
 • Perfect timing for today's market
 
-Don't wait on this opportunity! Contact Mike Bjork at Berkshire Hathaway HomeServices today.
+Don't wait on this opportunity! Contact ${agentName} at ${brokerageName} today.
 
-#PriceImprovement #OmahaRealEstate #MikeBjork #RealEstateOpportunity`,
+#PriceImprovement #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #RealEstateOpportunity`,
       },
 
       open_houses: {
@@ -1004,9 +992,9 @@ ${
 
 No appointment necessary - just stop by!
 
-Mike Bjork | Berkshire Hathaway HomeServices
+${agentName} | ${brokerageName}
 
-#OpenHouse #OmahaRealEstate #MikeBjork #WeekendViewing`,
+#OpenHouse #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #WeekendViewing`,
 
         instagram: `🏠 OPEN HOUSE ALERT!
 
@@ -1034,7 +1022,7 @@ See you there! 👋
           property.bedrooms
         }BD ${property.bathrooms}BA\n\n${
           property.neighborhood ? `${property.neighborhood} gem!` : "Must see!"
-        }\n\nMike Bjork | BHHS\n\n#OpenHouse`,
+        }\n\n${agentName} | ${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")}\n\n#OpenHouse`,
 
         youtube: `🏠 OPEN HOUSE THIS WEEKEND! ${property.address}
 
@@ -1050,9 +1038,9 @@ No appointment necessary - just stop by! I'll be there to answer questions and s
 
 Can't make the open house? Call or text me to schedule a private showing at your convenience.
 
-Mike Bjork | Berkshire Hathaway HomeServices
+${agentName} | ${brokerageName}
 
-#OpenHouse #WeekendViewing #OmahaRealEstate #MikeBjork #HomeTour`,
+#OpenHouse #WeekendViewing #OmahaRealEstate #${agentName.replace(/\s+/g, "")} #HomeTour`,
       },
     };
 
@@ -1063,7 +1051,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
 
     return `Check out this amazing property at ${
       property.address
-    }! ${formatPrice(property.listPrice)} | Contact Mike Bjork for details.`;
+    }! ${formatPrice(property.listPrice)} | Contact ${agentName} for details.`;
   };
 
   const handlePost = () => {
@@ -1163,9 +1151,19 @@ Mike Bjork | Berkshire Hathaway HomeServices
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg font-semibold text-foreground">
-          Social Media Manager
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold text-foreground">
+            Social Media Manager
+          </CardTitle>
+          <Button
+            onClick={() => setShowPostComposer(true)}
+            className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+            data-testid="button-create-post"
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            Create Post
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Platform Selection */}
@@ -1372,11 +1370,6 @@ Mike Bjork | Berkshire Hathaway HomeServices
                       selectedPostType === type.id ? null : type.id;
                     setSelectedPostType(newType);
 
-                    // Show photo upload for "Create Your Own"
-                    if (type.id === "create_your_own" && newType) {
-                      setShowPhotoUpload(true);
-                    }
-
                     // Auto-generate content if property is selected
                     if (
                       selectedProperty &&
@@ -1443,15 +1436,31 @@ Mike Bjork | Berkshire Hathaway HomeServices
             )}
 
           {/* Media Library */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-medium text-muted-foreground">
-                Media Library{" "}
-                {selectedMediaIds.length > 0 &&
-                  `(${selectedMediaIds.length} selected)`}
+              <div className="flex items-center gap-2">
+                <Image className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">
+                  Media Library
+                </span>
+                {selectedMediaIds.length > 0 && (
+                  <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-medium rounded-full">
+                    {selectedMediaIds.length} selected
+                  </span>
+                )}
               </div>
+              {selectedMediaIds.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedMediaIds([])}
+                  className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear Selection
+                </Button>
+              )}
             </div>
-            <div className="border rounded-lg p-4 max-h-[400px] overflow-y-auto">
+            <div className="relative rounded-lg border border-border bg-gradient-to-br from-muted/20 to-muted/5 p-4 max-h-[400px] overflow-y-auto overflow-x-hidden w-full">
               <MediaLibrary
                 onSelectMedia={setSelectedMediaIds}
                 selectedMediaIds={selectedMediaIds}
@@ -1459,6 +1468,13 @@ Mike Bjork | Berkshire Hathaway HomeServices
                 typeFilter="all"
               />
             </div>
+            
+            {/* Helper text below the container */}
+            {selectedMediaIds.length === 0 && (
+              <p className="text-xs text-muted-foreground/70 text-center -mt-1">
+                Click media items to attach them to your post
+              </p>
+            )}
           </div>
 
           <Textarea
@@ -1535,28 +1551,19 @@ Mike Bjork | Berkshire Hathaway HomeServices
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 bg-golden-accent rounded-full flex items-center justify-center">
                           <span className="text-xs font-bold text-golden-foreground">
-                            MB
+                            {agentName.split(' ').map((n: string) => n.charAt(0)).join('').substring(0, 2)}
                           </span>
                         </div>
                         <div className="flex-1">
                           <div className="font-medium text-sm text-foreground">
-                            Mike Bjork
+                            {agentName}
                           </div>
                           <div className="text-xs text-muted-foreground mb-2">
-                            Bjork Group at BHHS
+                            {businessName} at {brokerageName}
                           </div>
                           <div className="text-sm text-foreground whitespace-pre-wrap">
                             {postContent}
                           </div>
-                          {uploadedPhoto && (
-                            <div className="mt-3 border rounded-lg overflow-hidden">
-                              <img
-                                src={uploadedPhoto}
-                                alt="Post attachment"
-                                className="w-full h-48 object-cover"
-                              />
-                            </div>
-                          )}
                           {selectedProperty && (
                             <div className="mt-3 p-3 bg-background rounded-md border">
                               <div className="font-medium text-sm">
@@ -1586,22 +1593,6 @@ Mike Bjork | Berkshire Hathaway HomeServices
                   </div>
                 </DialogContent>
               </Dialog>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`relative ${
-                  uploadedPhoto
-                    ? "text-green-600 hover:text-green-700"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setShowPhotoUpload(true)}
-                data-testid="button-add-photo"
-              >
-                <Image className="h-4 w-4" />
-                {uploadedPhoto && (
-                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
-                )}
-              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -1645,185 +1636,6 @@ Mike Bjork | Berkshire Hathaway HomeServices
           </div>
         </div>
       </CardContent>
-
-      {/* Photo Upload Dialog for Create Your Own */}
-      <Dialog open={showPhotoUpload} onOpenChange={setShowPhotoUpload}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add Photo to Your Post</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Upload a photo to make your social media post more engaging. This
-              photo will be included with your post content.
-            </p>
-
-            {uploadedPhoto ? (
-              <div className="space-y-3">
-                <div className="border rounded-lg overflow-hidden">
-                  <img
-                    src={uploadedPhoto}
-                    alt="Selected photo"
-                    className="w-full h-48 object-cover"
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-green-600 font-medium">
-                    Photo selected successfully!
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setUploadedPhoto(null)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Tabs
-                value={photoUploadMode}
-                onValueChange={(value) =>
-                  setPhotoUploadMode(value as "upload" | "stock" | "ai")
-                }
-                className="w-full"
-              >
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="upload">Upload Photo</TabsTrigger>
-                  <TabsTrigger value="stock">Stock Photos</TabsTrigger>
-                  <TabsTrigger value="ai">AI Image</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="upload" className="space-y-4">
-                  <ObjectUploader
-                    maxNumberOfFiles={1}
-                    maxFileSize={10485760}
-                    onGetUploadParameters={async () => {
-                      const response = await apiRequest(
-                        "POST",
-                        "/api/objects/upload",
-                        {},
-                      );
-                      const data = await response.json();
-                      return {
-                        method: "PUT" as const,
-                        url: data.uploadURL,
-                      };
-                    }}
-                    onComplete={(uploadedFileUrl: string) => {
-                      // Convert Google Cloud Storage URL to local /objects/ endpoint
-                      const fileName = uploadedFileUrl.split("/").pop();
-                      const localImageUrl = `/objects/${fileName}`;
-                      setUploadedPhoto(localImageUrl);
-                      toast({
-                        title: "Photo Uploaded",
-                        description:
-                          "Your photo is ready to be included in your post",
-                      });
-                    }}
-                    buttonClassName="w-full"
-                  >
-                    <div className="flex items-center justify-center gap-2 py-8">
-                      <Upload className="h-5 w-5" />
-                      <span>Choose Photo</span>
-                    </div>
-                  </ObjectUploader>
-                </TabsContent>
-
-                <TabsContent value="stock" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
-                    {stockPhotos.map((photo) => (
-                      <div
-                        key={photo.id}
-                        className="relative cursor-pointer border rounded-lg overflow-hidden hover:ring-2 hover:ring-primary transition-all"
-                        onClick={() => {
-                          setUploadedPhoto(photo.url);
-                          toast({
-                            title: "Stock Photo Selected",
-                            description: `"${photo.title}" is ready to be included in your post`,
-                          });
-                        }}
-                      >
-                        <img
-                          src={photo.url}
-                          alt={photo.title}
-                          className="w-full h-24 object-cover"
-                        />
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white p-1">
-                          <p className="text-xs truncate">{photo.title}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="ai" className="space-y-4">
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="ai-prompt"
-                        className="text-sm font-medium"
-                      >
-                        Describe the image you want to generate
-                      </Label>
-                      <Input
-                        id="ai-prompt"
-                        placeholder="e.g., Modern luxury home with golden accents at sunset"
-                        className="w-full"
-                      />
-                    </div>
-
-                    <Button
-                      className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
-                      onClick={() => {
-                        toast({
-                          title: "AI Image Generation",
-                          description:
-                            "This feature will generate custom images using AI. Coming soon!",
-                        });
-                      }}
-                    >
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      Generate AI Image
-                    </Button>
-
-                    <div className="text-xs text-muted-foreground text-center">
-                      AI will create a custom image based on your description,
-                      perfectly tailored for your social media post.
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            )}
-
-            <div className="flex items-center gap-2 pt-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setShowPhotoUpload(false);
-                  if (
-                    selectedPostType === "create_your_own" &&
-                    !uploadedPhoto
-                  ) {
-                    setSelectedPostType(null);
-                  }
-                }}
-              >
-                {uploadedPhoto ? "Continue" : "Skip Photo"}
-              </Button>
-              {uploadedPhoto && (
-                <Button
-                  className="flex-1"
-                  onClick={() => setShowPhotoUpload(false)}
-                >
-                  Use This Photo
-                </Button>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Video Upload Dialog for YouTube */}
       <Dialog open={showVideoUpload} onOpenChange={setShowVideoUpload}>
@@ -1873,12 +1685,12 @@ Mike Bjork | Berkshire Hathaway HomeServices
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      // Check file size (YouTube max is 256GB, but we'll limit to 100MB for demo)
-                      if (file.size > 100 * 1024 * 1024) {
+                      // Check file size (HeyGen max is 200MB)
+                      if (file.size > 200 * 1024 * 1024) {
                         toast({
                           title: "File Too Large",
                           description:
-                            "Please select a video smaller than 100MB",
+                            "Please select a video smaller than 200MB",
                           variant: "destructive",
                         });
                         return;
@@ -1893,7 +1705,7 @@ Mike Bjork | Berkshire Hathaway HomeServices
                   className="w-full"
                 />
                 <div className="text-xs text-muted-foreground">
-                  Supported formats: MP4, MOV, AVI, WMV, FLV, WebM (max 100MB)
+                  Supported formats: MP4, MOV, WEBM, MKV (max 200MB)
                 </div>
               </div>
             )}
@@ -1921,6 +1733,12 @@ Mike Bjork | Berkshire Hathaway HomeServices
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Post Composer */}
+      <PostComposer
+        open={showPostComposer}
+        onOpenChange={setShowPostComposer}
+      />
     </Card>
   );
 }

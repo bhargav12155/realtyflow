@@ -264,6 +264,16 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Fetch company profile for dynamic content
+  const { data: companyProfile } = useQuery({
+    queryKey: ["/api/company/profile"],
+  });
+
+  // Get agent name and brokerage with smart defaults
+  const agentName = companyProfile?.agentName || "[Your Name]";
+  const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
+  const businessName = companyProfile?.businessName || "[Your Business]";
+
   // Facebook Pages hook for page selection
   const {
     pages: facebookPages,
@@ -1241,7 +1251,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 </Label>
                 <Input
                   id="listing-agent"
-                  placeholder="e.g., Mike Bjork"
+                  placeholder={`e.g., ${agentName}`}
                   value={propertySearchParams.listingAgent}
                   onChange={(e) =>
                     setPropertySearchParams((prev) => ({
@@ -2007,11 +2017,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   <div className="flex items-center gap-3 p-3">
                     <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
                       <span className="text-sm font-bold text-golden-foreground">
-                        MB
+                        {agentName.split(' ').map(n => n.charAt(0)).join('').substring(0, 2)}
                       </span>
                     </div>
                     <div className="flex-1">
-                      <div className="font-semibold text-sm">Mike Bjork</div>
+                      <div className="font-semibold text-sm">{agentName}</div>
                       <div className="text-xs text-gray-500 flex items-center gap-1">
                         <span>{format(new Date(), "MMM d 'at' h:mm a")}</span>
                         <span>·</span>
@@ -2211,13 +2221,13 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
                       <span className="text-sm font-bold text-golden-foreground">
-                        MB
+                        {agentName.split(' ').map(n => n.charAt(0)).join('').substring(0, 2)}
                       </span>
                     </div>
                     <div className="flex-1">
-                      <div className="font-semibold text-sm">Mike Bjork</div>
+                      <div className="font-semibold text-sm">{agentName}</div>
                       <div className="text-xs text-gray-500">
-                        Real Estate Professional at BHHS
+                        Real Estate Professional at {brokerageName}
                       </div>
                       <div className="text-xs text-gray-400">
                         {format(new Date(), "MMM d, h:mm a")}
@@ -2281,12 +2291,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 bg-golden-accent rounded-full flex items-center justify-center">
                       <span className="text-sm font-bold text-golden-foreground">
-                        MB
+                        {agentName.split(' ').map(n => n.charAt(0)).join('').substring(0, 2)}
                       </span>
                     </div>
                     <div className="flex-1">
                       <div className="font-semibold text-sm">
-                        Mike Bjork Real Estate
+                        {businessName}
                       </div>
                       <div className="text-xs text-gray-500">
                         Omaha Real Estate Expert

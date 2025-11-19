@@ -3,8 +3,6 @@ import { AISearchOptimizer } from "@/components/dashboard/ai-search-optimizer";
 import { APIKeyManager } from "@/components/dashboard/api-key-manager";
 import { BrandSettings } from "@/components/dashboard/brand-settings";
 import { ContentCalendar } from "@/components/dashboard/content-calendar";
-import { FacebookTestPosts } from "@/components/dashboard/facebook-test-posts";
-import { InstagramTestPosts } from "@/components/dashboard/instagram-test-posts";
 import { LocalMarketTools } from "@/components/dashboard/local-market-tools";
 import { OverviewCards } from "@/components/dashboard/overview-cards";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
@@ -12,22 +10,21 @@ import { ScheduledPostsManager } from "@/components/dashboard/scheduled-posts-ma
 import { SEOOptimizer } from "@/components/dashboard/seo-optimizer";
 import { SocialLinksPrompt } from "@/components/dashboard/social-links-prompt";
 import { SocialMediaManager } from "@/components/dashboard/social-media-manager";
-import { StreamingAvatar } from "@/components/dashboard/streaming-avatar";
+import { StreamingAvatarComponent } from "@/components/dashboard/streaming-avatar";
 import { TemplateManager } from "@/components/dashboard/template-manager";
-import { TwitterTestPosts } from "@/components/dashboard/twitter-test-posts";
+import VideoAvatarManager from "@/components/dashboard/video-avatar-manager";
 import { VideoGenerationManager } from "@/components/dashboard/video-generation-manager";
 import { VideoGenerator } from "@/components/dashboard/video-generator";
 import { VideoTemplates } from "@/components/dashboard/video-templates";
-import { YouTubeTestPosts } from "@/components/dashboard/youtube-test-posts";
 import { Sidebar } from "@/components/layout/sidebar";
 import { NotificationPanel } from "@/components/notifications/notification-panel";
 import { Button } from "@/components/ui/button";
 import UserMenu from "@/components/UserMenu";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { VERSION_DISPLAY } from "@/lib/version";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import { VERSION_DISPLAY } from "@/lib/version";
 
 export default function Dashboard() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -90,9 +87,11 @@ export default function Dashboard() {
       case "ai-video":
         return <VideoGenerator />;
       case "streaming-avatar":
-        return <StreamingAvatar />;
+        return <StreamingAvatarComponent />;
       case "photo-avatars":
         return <PhotoAvatarManager />;
+      case "video-avatars":
+        return <VideoAvatarManager />;
       case "video-generation":
         return <VideoGenerationManager />;
       case "templates":
@@ -111,19 +110,17 @@ export default function Dashboard() {
         return <BrandSettings />;
       case "analytics":
         return (
-          <div className="p-6">
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-semibold mb-2">
-                  Analytics Dashboard
-                </h2>
-                <p className="text-muted-foreground">
-                  Monitor your API usage, system health, and performance metrics
-                </p>
-              </div>
-              <AISearchOptimizer />
-              <APIKeyManager />
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-semibold mb-2">
+                Analytics Dashboard
+              </h2>
+              <p className="text-sm sm:text-base text-muted-foreground">
+                Monitor your API usage, system health, and performance metrics
+              </p>
             </div>
+            <AISearchOptimizer />
+            <APIKeyManager />
           </div>
         );
       default: // "dashboard"
@@ -131,16 +128,12 @@ export default function Dashboard() {
           <>
             <OverviewCards />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+              <div className="lg:col-span-2 w-full min-w-0">
                 <AIContentGenerator isGenerating={isGenerating} />
               </div>
-              <div className="space-y-6">
+              <div className="w-full min-w-0 space-y-4 sm:space-y-6">
                 <SocialMediaManager />
-                <TwitterTestPosts />
-                <FacebookTestPosts />
-                <InstagramTestPosts />
-                <YouTubeTestPosts />
               </div>
             </div>
 
@@ -150,9 +143,13 @@ export default function Dashboard() {
 
             <ScheduledPostsManager />
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <SEOOptimizer />
-              <ContentCalendar />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+              <div className="w-full min-w-0">
+                <SEOOptimizer />
+              </div>
+              <div className="w-full min-w-0">
+                <ContentCalendar />
+              </div>
             </div>
 
             <LocalMarketTools />
@@ -167,28 +164,37 @@ export default function Dashboard() {
 
       <main className="flex-1 overflow-auto">
         {/* Header */}
-        <header className="bg-card border-b border-border px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-foreground">
-                AI SEO & Social Media Dashboard
+        <header className="bg-card border-b border-border px-3 sm:px-6 py-3 sm:py-4">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-2xl font-semibold text-foreground truncate">
+                <span className="hidden sm:inline">
+                  AI SEO & Social Media Dashboard
+                </span>
+                <span className="sm:hidden">Dashboard</span>
               </h1>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs sm:text-sm text-muted-foreground hidden md:block">
                 Automated content generation for Omaha real estate market
               </p>
             </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+              <div className="hidden lg:block text-xs text-muted-foreground font-mono bg-muted px-2 py-1 rounded">
                 {VERSION_DISPLAY}
               </div>
               <Button
                 onClick={handleGenerateContent}
                 disabled={isGenerating}
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
+                size="sm"
+                aria-label={
+                  isGenerating ? "Generating content..." : "Generate content"
+                }
                 data-testid="button-generate-content"
               >
-                <Sparkles className="mr-2 h-4 w-4" />
-                {isGenerating ? "Generating..." : "Generate Content"}
+                <Sparkles className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">
+                  {isGenerating ? "Generating..." : "Generate Content"}
+                </span>
               </Button>
               <NotificationPanel
                 userId={user?.id?.toString()}
@@ -200,7 +206,9 @@ export default function Dashboard() {
         </header>
 
         {/* Dashboard Content */}
-        <div className="p-6 space-y-6">{renderActiveView()}</div>
+        <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+          {renderActiveView()}
+        </div>
       </main>
 
       {/* Social Links Prompt Modal */}

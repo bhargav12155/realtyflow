@@ -270,8 +270,10 @@ class MultiOpenAIService {
         isAvailable: key.isAvailable,
         capabilities: key.capabilities,
         requestCount: key.requestCount,
+        priority: key.priority,
+        costTier: key.costTier,
         lastError: key.lastError,
-        cooldownUntil: key.quotaResetTime,
+        quotaResetTime: key.quotaResetTime,
       })),
     };
   }
@@ -374,6 +376,7 @@ export interface CompanyProfileData {
 export interface ContentGenerationRequest {
   type: "blog" | "social" | "property_feature";
   topic: string;
+  userId?: string;
   aiPrompt?: string;
   neighborhood?: string;
   keywords?: string[];
@@ -424,10 +427,15 @@ export class OpenAIService {
     try {
       const prompt = this.buildPrompt(request);
       
-      // Use company profile data or fallback to defaults
-      const agentName = request.companyProfile?.agentName || "Mike Bjork";
-      const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "Berkshire Hathaway HomeServices";
-      const agentTitle = request.companyProfile?.agentTitle || "real estate agent";
+      // Fetch company profile from storage with smart defaults
+      const { getCompanyProfileOrDefaults } = await import("../utils/profile-helper");
+      const storage = (await import("../storage")).storage;
+      const profile = await getCompanyProfileOrDefaults(storage, request.userId);
+      
+      // Use profile data (will show placeholders like "[Your Name]" if not set up)
+      const agentName = request.companyProfile?.agentName || profile.agentName || "[Your Name]";
+      const businessName = request.companyProfile?.businessName || profile.businessName || profile.brokerageName || "[Your Business]";
+      const agentTitle = request.companyProfile?.agentTitle || profile.agentTitle || "real estate professional";
 
       const response = await multiOpenAI.makeRequest(
         "content",

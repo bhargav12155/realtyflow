@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -8,20 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -29,45 +15,60 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  Upload,
-  Camera,
-  Users,
-  Sparkles,
-  Loader2,
-  Check,
-  X,
   AlertCircle,
+  Camera,
+  Check,
+  CheckCircle,
+  Clock,
+  Edit,
   Image,
-  UserPlus,
-  Wand2,
+  Loader2,
   Mic,
   MicOff,
   Play,
+  RefreshCw,
   RotateCcw,
-  Edit,
+  Sparkles,
+  Upload,
+  UserPlus,
+  Users,
+  Wand2,
+  X,
   ZoomIn,
-  CheckCircle,
-  Clock,
 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useEffect, useRef, useState } from "react";
 import { AvatarPhotoGallery } from "./avatar-photo-gallery";
 import { VoiceLibraryManager } from "./voice-library-manager";
 
 // Large Avatar Card Component for HeyGen-style display
-function LargeAvatarCard({ 
-  groupId, 
+function LargeAvatarCard({
+  groupId,
   groupName,
-  onOpenGallery 
-}: { 
-  groupId: string; 
+  onOpenGallery,
+}: {
+  groupId: string;
   groupName: string;
   onOpenGallery: () => void;
 }) {
@@ -94,7 +95,7 @@ function LargeAvatarCard({
           className="w-full h-full object-cover"
         />
       </div>
-      
+
       {/* Name Overlay at Bottom - Always Visible */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
         <p className="text-white text-sm font-medium truncate">
@@ -129,10 +130,19 @@ function LargeAvatarCard({
 
 // Professional HeyGen Voices
 const PROFESSIONAL_VOICES = [
-  { id: "92c93dc0dff2428ab0bea258ba68f173", name: "Professional Male - Confident" },
+  {
+    id: "92c93dc0dff2428ab0bea258ba68f173",
+    name: "Professional Male - Confident",
+  },
   { id: "f577da968446491289b53bceb77e5092", name: "Professional Male - Warm" },
-  { id: "73c0b6a2e29d4d38aca41454bf58c955", name: "Professional Female - Clear" },
-  { id: "1c7c897eeb2d4b5fb17d3c6c70250b24", name: "Professional Female - Friendly" },
+  {
+    id: "73c0b6a2e29d4d38aca41454bf58c955",
+    name: "Professional Female - Clear",
+  },
+  {
+    id: "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    name: "Professional Female - Friendly",
+  },
   { id: "119caed25533477ba63822d5d1552d25", name: "Neutral - Balanced" },
   { id: "9f2e8c4a7b5d4f6e8a1c3d5b7e9f2a4c", name: "Energetic - Enthusiastic" },
 ];
@@ -186,12 +196,26 @@ export function PhotoAvatarManager() {
   const [showTrainAllDialog, setShowTrainAllDialog] = useState(false);
   const [trainAllVoiceId, setTrainAllVoiceId] = useState<string>("");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [selectedGroupForEdit, setSelectedGroupForEdit] = useState<AvatarGroup | null>(null);
+  const [selectedGroupForEdit, setSelectedGroupForEdit] =
+    useState<AvatarGroup | null>(null);
   const [editPrompt, setEditPrompt] = useState("");
-  const [editOrientation, setEditOrientation] = useState<"square" | "landscape" | "portrait">("square");
-  const [editPose, setEditPose] = useState<"half_body" | "full_body">("half_body");
+  const [editOrientation, setEditOrientation] = useState<
+    "square" | "landscape" | "portrait"
+  >("square");
+  const [editPose, setEditPose] = useState<"half_body" | "full_body">(
+    "half_body"
+  );
   const [editStyle, setEditStyle] = useState("Realistic");
-  const [openGalleryGroupId, setOpenGalleryGroupId] = useState<string | null>(null);
+  const [openGalleryGroupId, setOpenGalleryGroupId] = useState<string | null>(
+    null
+  );
+  const [addMotionDialogOpen, setAddMotionDialogOpen] = useState(false);
+  const [selectedAvatarForMotion, setSelectedAvatarForMotion] = useState<{
+    avatarId: string;
+    groupName: string;
+  } | null>(null);
+  const [motionPrompt, setMotionPrompt] = useState("");
+  const [motionType, setMotionType] = useState<string>("consistent");
   const [generationForm, setGenerationForm] = useState<PhotoGenerationRequest>({
     name: "Mike Bjork Professional Avatar",
     age: "Early Middle Age",
@@ -208,12 +232,16 @@ export function PhotoAvatarManager() {
   const { data: avatarGroupsResponse, isLoading: isLoadingGroups } = useQuery({
     queryKey: ["/api/photo-avatars/groups"],
     refetchInterval: (data) => {
-      // Refetch every 5 seconds if any group is processing
+      // Refetch every 5 seconds if any group is processing OR has avatars but not trained yet
       if (!data || !data.avatar_group_list) return false;
-      const hasProcessing = data.avatar_group_list.some(
-        (g: any) => g.train_status === "processing"
+      const needsPolling = data.avatar_group_list.some(
+        (g: any) =>
+          g.train_status === "processing" ||
+          (g.status === "ready" &&
+            g.train_status === "empty" &&
+            g.num_looks >= 1)
       );
-      return hasProcessing ? 5000 : false;
+      return needsPolling ? 5000 : false;
     },
   });
 
@@ -229,20 +257,24 @@ export function PhotoAvatarManager() {
 
     avatarGroups.forEach((group: any) => {
       const groupId = group.group_id;
-      const currentStatus = group.status;
-      const previousStatus = prevStatusesRef.current[groupId];
+      const currentTrainStatus = group.train_status;
+      const previousTrainStatus = prevStatusesRef.current[groupId];
 
-      // Detect training completion: status changed from pending/processing to ready
-      if (previousStatus && previousStatus !== "ready" && currentStatus === "ready") {
+      // Detect training completion: train_status changed to "ready" from any other state
+      if (
+        previousTrainStatus &&
+        previousTrainStatus !== "ready" &&
+        currentTrainStatus === "ready"
+      ) {
         toast({
           title: "🎉 Training Complete!",
-          description: `Avatar "${group.name}" is now ready to edit with custom looks!`,
+          description: `Avatar "${group.name}" is now trained and ready to generate custom looks!`,
           duration: 8000,
         });
       }
 
-      // Update ref with current status
-      prevStatusesRef.current[groupId] = currentStatus;
+      // Update ref with current train_status
+      prevStatusesRef.current[groupId] = currentTrainStatus;
     });
   }, [avatarGroups, toast]);
 
@@ -274,7 +306,11 @@ export function PhotoAvatarManager() {
           );
           const statusData = await statusRes.json();
 
-          if (statusData.status === "success" && statusData.image_key_list && statusData.image_key_list.length > 0) {
+          if (
+            statusData.status === "success" &&
+            statusData.image_key_list &&
+            statusData.image_key_list.length > 0
+          ) {
             clearInterval(pollInterval);
 
             // Automatically create avatar group from generated photos
@@ -297,7 +333,8 @@ export function PhotoAvatarManager() {
               console.error("Failed to create avatar group:", error);
               toast({
                 title: "Group Creation Failed",
-                description: "Photos were generated but failed to create avatar group. Please try manually.",
+                description:
+                  "Photos were generated but failed to create avatar group. Please try manually.",
                 variant: "destructive",
               });
             }
@@ -376,7 +413,11 @@ export function PhotoAvatarManager() {
   // Train avatar group
   const trainGroupMutation = useMutation({
     mutationFn: ({ groupId, voiceId }: { groupId: string; voiceId?: string }) =>
-      apiRequest("POST", `/api/photo-avatars/groups/${groupId}/train`, voiceId ? { defaultVoiceId: voiceId } : undefined),
+      apiRequest(
+        "POST",
+        `/api/photo-avatars/groups/${groupId}/train`,
+        voiceId ? { defaultVoiceId: voiceId } : undefined
+      ),
     onSuccess: () => {
       toast({
         title: "Training Started",
@@ -386,6 +427,27 @@ export function PhotoAvatarManager() {
       queryClient.invalidateQueries({
         queryKey: ["/api/photo-avatars/groups"],
       });
+    },
+    onError: (error: any) => {
+      // Check if training is already in progress
+      if (
+        error?.code === "TRAINING_IN_PROGRESS" ||
+        error?.error?.includes("already in progress")
+      ) {
+        toast({
+          title: "Training Already in Progress",
+          description:
+            "This avatar is already being trained. Please wait for it to complete.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Training Failed",
+          description:
+            error?.message || error?.error || "Failed to start training",
+          variant: "destructive",
+        });
+      }
     },
   });
 
@@ -398,7 +460,11 @@ export function PhotoAvatarManager() {
 
       const results = await Promise.allSettled(
         pendingGroups.map((group: any) =>
-          apiRequest("POST", `/api/photo-avatars/groups/${group.group_id}/train`, { defaultVoiceId: voiceId })
+          apiRequest(
+            "POST",
+            `/api/photo-avatars/groups/${group.group_id}/train`,
+            { defaultVoiceId: voiceId }
+          )
         )
       );
 
@@ -411,9 +477,9 @@ export function PhotoAvatarManager() {
     onSuccess: (data) => {
       toast({
         title: "Bulk Training Started",
-        description: `Training started for ${data.successful} avatar group(s). ${
-          data.failed > 0 ? `${data.failed} failed.` : ""
-        }`,
+        description: `Training started for ${
+          data.successful
+        } avatar group(s). ${data.failed > 0 ? `${data.failed} failed.` : ""}`,
       });
       queryClient.invalidateQueries({
         queryKey: ["/api/photo-avatars/groups"],
@@ -430,6 +496,43 @@ export function PhotoAvatarManager() {
     },
   });
 
+  // Add motion to avatar
+  const addMotionMutation = useMutation({
+    mutationFn: ({
+      avatarId,
+      prompt,
+      motionType,
+    }: {
+      avatarId: string;
+      prompt?: string;
+      motionType?: string;
+    }) =>
+      apiRequest("POST", `/api/photo-avatars/${avatarId}/add-motion`, {
+        prompt,
+        motionType,
+      }),
+    onSuccess: (data) => {
+      toast({
+        title: "Motion Added!",
+        description:
+          "Animated version is being generated. This may take a few minutes.",
+      });
+      setAddMotionDialogOpen(false);
+      setMotionPrompt("");
+      setMotionType("consistent");
+      queryClient.invalidateQueries({
+        queryKey: ["/api/photo-avatars/groups"],
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Motion Generation Failed",
+        description: error?.message || "Failed to add motion to avatar",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Generate new looks
   const generateLooksMutation = useMutation({
     mutationFn: ({
@@ -439,14 +542,19 @@ export function PhotoAvatarManager() {
       groupId: string;
       numLooks: number;
     }) =>
-      apiRequest("POST", `/api/photo-avatars/groups/${groupId}/generate-looks`, { numLooks }),
+      apiRequest(
+        "POST",
+        `/api/photo-avatars/groups/${groupId}/generate-looks`,
+        { numLooks }
+      ),
     onSuccess: (data: any, variables) => {
       toast({
         title: "🎨 Generating New Looks",
-        description: "New avatar looks are being generated. They will appear automatically when ready (usually 30-60 seconds).",
+        description:
+          "New avatar looks are being generated. They will appear automatically when ready (usually 30-60 seconds).",
         duration: 6000,
       });
-      
+
       // Start polling for the new photos - refresh every 3 seconds for 2 minutes
       const pollInterval = setInterval(() => {
         queryClient.invalidateQueries({
@@ -464,11 +572,14 @@ export function PhotoAvatarManager() {
     },
     onError: (error: Error) => {
       const errorMessage = error.message.toLowerCase();
-      const isModelNotFound = errorMessage.includes('model not found') || errorMessage.includes('404') || errorMessage.includes('400');
-      
+      const isModelNotFound =
+        errorMessage.includes("model not found") ||
+        errorMessage.includes("404") ||
+        errorMessage.includes("400");
+
       toast({
         title: "Training Required",
-        description: isModelNotFound 
+        description: isModelNotFound
           ? "⚠️ This avatar group must be TRAINED before you can generate new looks. Click the 'Start Training' button first, wait for training to complete (status changes to 'ready'), then try again."
           : error.message,
         variant: "destructive",
@@ -507,7 +618,7 @@ export function PhotoAvatarManager() {
       pose?: string;
       style?: string;
     }) =>
-      apiRequest("POST", `/api/heygen/avatars/${groupId}/generate-look`, { 
+      apiRequest("POST", `/api/heygen/avatars/${groupId}/generate-look`, {
         prompt,
         orientation,
         pose,
@@ -516,7 +627,8 @@ export function PhotoAvatarManager() {
     onSuccess: (data: any, variables) => {
       toast({
         title: "🎨 Generating New Look",
-        description: "Your custom look is being generated. It will appear automatically when ready (usually 30-60 seconds).",
+        description:
+          "Your custom look is being generated. It will appear automatically when ready (usually 30-60 seconds).",
         duration: 6000,
       });
       setEditDialogOpen(false);
@@ -524,7 +636,7 @@ export function PhotoAvatarManager() {
       setEditOrientation("square");
       setEditPose("half_body");
       setEditStyle("Realistic");
-      
+
       // Start polling for the new photo - refresh every 3 seconds for 2 minutes
       const pollInterval = setInterval(() => {
         queryClient.invalidateQueries({
@@ -542,11 +654,13 @@ export function PhotoAvatarManager() {
     },
     onError: (error: Error) => {
       const errorMessage = error.message.toLowerCase();
-      const isModelNotFound = errorMessage.includes('model not found') || errorMessage.includes('400');
-      
+      const isModelNotFound =
+        errorMessage.includes("model not found") ||
+        errorMessage.includes("400");
+
       toast({
         title: "Training Required",
-        description: isModelNotFound 
+        description: isModelNotFound
           ? "⚠️ This avatar group must be TRAINED before you can generate new looks. Click the 'Start Training' button first, wait for training to complete (status changes to 'ready'), then try again."
           : error.message,
         variant: "destructive",
@@ -692,11 +806,14 @@ export function PhotoAvatarManager() {
       hasRecordedAudio: !!recordedAudio,
       selectedGroupForVoice,
       recordedAudioType: recordedAudio?.type,
-      recordedAudioSize: recordedAudio?.size
+      recordedAudioSize: recordedAudio?.size,
     });
 
     if (!recordedAudio || !selectedGroupForVoice) {
-      console.error("❌ Missing data:", { recordedAudio, selectedGroupForVoice });
+      console.error("❌ Missing data:", {
+        recordedAudio,
+        selectedGroupForVoice,
+      });
       toast({
         title: "Missing Data",
         description: "Please select an avatar group and record a voice sample.",
@@ -709,7 +826,10 @@ export function PhotoAvatarManager() {
     formData.append("voiceRecording", recordedAudio, "voice.webm");
     formData.append("groupId", selectedGroupForVoice);
 
-    console.log("📤 Sending voice save request to:", `/api/photo-avatars/groups/${selectedGroupForVoice}/voice`);
+    console.log(
+      "📤 Sending voice save request to:",
+      `/api/photo-avatars/groups/${selectedGroupForVoice}/voice`
+    );
 
     try {
       const response = await fetch(
@@ -723,7 +843,7 @@ export function PhotoAvatarManager() {
       console.log("📨 Response received:", {
         ok: response.ok,
         status: response.status,
-        statusText: response.statusText
+        statusText: response.statusText,
       });
 
       if (response.ok) {
@@ -737,7 +857,11 @@ export function PhotoAvatarManager() {
         setSelectedGroupForVoice(null);
       } else {
         const errorText = await response.text();
-        console.error("❌ Save failed with status:", response.status, errorText);
+        console.error(
+          "❌ Save failed with status:",
+          response.status,
+          errorText
+        );
         throw new Error("Failed to save voice");
       }
     } catch (error) {
@@ -1078,7 +1202,9 @@ export function PhotoAvatarManager() {
                       key={group.group_id}
                       groupId={group.group_id}
                       groupName={group.name}
-                      onOpenGallery={() => setOpenGalleryGroupId(group.group_id)}
+                      onOpenGallery={() =>
+                        setOpenGalleryGroupId(group.group_id)
+                      }
                     />
                   ))}
                 </div>
@@ -1184,7 +1310,8 @@ export function PhotoAvatarManager() {
                   Upload History
                 </h3>
                 <p className="text-xs text-gray-500 mb-3">
-                  {avatarGroups.length} avatar {avatarGroups.length === 1 ? "group" : "groups"} created
+                  {avatarGroups.length} avatar{" "}
+                  {avatarGroups.length === 1 ? "group" : "groups"} created
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                   {avatarGroups.map((group: any) => (
@@ -1192,14 +1319,20 @@ export function PhotoAvatarManager() {
                       key={group.group_id}
                       className="group relative border rounded-lg overflow-hidden hover:shadow-lg transition-all cursor-pointer"
                       onClick={() => {
-                        const element = document.getElementById(`avatar-group-${group.group_id}`);
+                        const element = document.getElementById(
+                          `avatar-group-${group.group_id}`
+                        );
                         if (element) {
-                          const generateTab = document.querySelector('[value="generate"]');
+                          const generateTab =
+                            document.querySelector('[value="generate"]');
                           if (generateTab) {
                             (generateTab as HTMLElement).click();
                           }
                           setTimeout(() => {
-                            element.scrollIntoView({ behavior: "smooth", block: "center" });
+                            element.scrollIntoView({
+                              behavior: "smooth",
+                              block: "center",
+                            });
                           }, 100);
                         }
                       }}
@@ -1223,14 +1356,20 @@ export function PhotoAvatarManager() {
                             className="opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const element = document.getElementById(`avatar-group-${group.group_id}`);
+                              const element = document.getElementById(
+                                `avatar-group-${group.group_id}`
+                              );
                               if (element) {
-                                const generateTab = document.querySelector('[value="generate"]');
+                                const generateTab =
+                                  document.querySelector('[value="generate"]');
                                 if (generateTab) {
                                   (generateTab as HTMLElement).click();
                                 }
                                 setTimeout(() => {
-                                  element.scrollIntoView({ behavior: "smooth", block: "center" });
+                                  element.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "center",
+                                  });
                                 }, 100);
                               }
                             }}
@@ -1245,7 +1384,10 @@ export function PhotoAvatarManager() {
                           {group.name}
                         </h4>
                         <p className="text-[10px] text-gray-500 mt-0.5">
-                          {new Date(group.created_at * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {new Date(group.created_at * 1000).toLocaleDateString(
+                            "en-US",
+                            { month: "short", day: "numeric" }
+                          )}
                         </p>
                       </div>
                     </div>
@@ -1279,14 +1421,35 @@ export function PhotoAvatarManager() {
                     {Array.isArray(avatarGroups) &&
                       avatarGroups
                         .filter((g: AvatarGroup) => g.status !== "failed")
-                        .map((group: AvatarGroup) => (
-                          <SelectItem
-                            key={group.group_id}
-                            value={group.group_id}
-                          >
-                            {group.name} {group.status !== "ready" && `(${group.status})`}
-                          </SelectItem>
-                        ))}
+                        .map((group: AvatarGroup) => {
+                          const statusLabel =
+                            group.status === "pending"
+                              ? "Processing"
+                              : group.status === "completed"
+                              ? "Ready"
+                              : group.status === "ready" &&
+                                (group as any).train_status === "ready"
+                              ? "Trained"
+                              : group.status === "ready"
+                              ? "Ready to Train"
+                              : group.status;
+
+                          return (
+                            <SelectItem
+                              key={group.group_id}
+                              value={group.group_id}
+                            >
+                              <span className="flex items-center justify-between w-full">
+                                <span className="font-medium">
+                                  {group.name}
+                                </span>
+                                <span className="text-xs text-gray-500 ml-2">
+                                  ({statusLabel})
+                                </span>
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
                   </SelectContent>
                 </Select>
               </div>
@@ -1394,6 +1557,41 @@ export function PhotoAvatarManager() {
           </TabsContent>
 
           <TabsContent value="manage" className="space-y-4">
+            {/* Info Alert for HeyGen Portal Training */}
+            {!isLoadingGroups &&
+              avatarGroups &&
+              avatarGroups.some(
+                (g: any) => g.train_status === "empty" && g.num_looks >= 1
+              ) && (
+                <Alert className="bg-blue-50 border-blue-200">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-sm text-blue-800">
+                    <strong>Tip:</strong> If you trained avatars in the HeyGen
+                    portal, click "Refresh Status" to sync the latest training
+                    status.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+            {/* Refresh Button */}
+            {!isLoadingGroups && avatarGroups && avatarGroups.length > 0 && (
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    queryClient.invalidateQueries({
+                      queryKey: ["/api/photo-avatars/groups"],
+                    })
+                  }
+                  className="text-xs"
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Refresh Status
+                </Button>
+              </div>
+            )}
+
             {isLoadingGroups ? (
               <div className="text-center py-8">
                 <Loader2 className="w-8 h-8 animate-spin mx-auto" />
@@ -1411,15 +1609,24 @@ export function PhotoAvatarManager() {
             ) : (
               <div className="space-y-6">
                 {/* Train All Pending Avatars Button */}
-                {avatarGroups.filter((g: any) => g.train_status === "empty" && g.num_looks >= 1).length > 0 && (
+                {avatarGroups.filter(
+                  (g: any) => g.train_status === "empty" && g.num_looks >= 1
+                ).length > 0 && (
                   <div className="sticky top-0 z-10 bg-white border-2 border-[#D4AF37] rounded-lg p-4 shadow-lg">
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-lg font-semibold text-[#D4AF37]">
-                          {avatarGroups.filter((g: any) => g.train_status === "empty" && g.num_looks >= 1).length} Avatar Groups Need Training
+                          {
+                            avatarGroups.filter(
+                              (g: any) =>
+                                g.train_status === "empty" && g.num_looks >= 1
+                            ).length
+                          }{" "}
+                          Avatar Groups Need Training
                         </h3>
                         <p className="text-sm text-gray-600">
-                          Train all pending avatars at once with the same professional voice
+                          Train all pending avatars at once with the same
+                          professional voice
                         </p>
                       </div>
                       <Button
@@ -1436,16 +1643,34 @@ export function PhotoAvatarManager() {
 
                 {/* Train All Dialog */}
                 {showTrainAllDialog && (
-                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTrainAllDialog(false)}>
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-                      <h3 className="text-xl font-semibold mb-4">Select Voice for All Avatars</h3>
+                  <div
+                    className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+                    onClick={() => setShowTrainAllDialog(false)}
+                  >
+                    <div
+                      className="bg-white rounded-lg p-6 max-w-md w-full mx-4"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <h3 className="text-xl font-semibold mb-4">
+                        Select Voice for All Avatars
+                      </h3>
                       <p className="text-sm text-gray-600 mb-4">
-                        Choose a professional voice that will be used for all {avatarGroups.filter((g: any) => g.train_status === "empty" && g.num_looks >= 1).length} pending avatar groups.
+                        Choose a professional voice that will be used for all{" "}
+                        {
+                          avatarGroups.filter(
+                            (g: any) =>
+                              g.train_status === "empty" && g.num_looks >= 1
+                          ).length
+                        }{" "}
+                        pending avatar groups.
                       </p>
                       <div className="space-y-4">
                         <div>
                           <Label>Professional Voice</Label>
-                          <Select value={trainAllVoiceId} onValueChange={setTrainAllVoiceId}>
+                          <Select
+                            value={trainAllVoiceId}
+                            onValueChange={setTrainAllVoiceId}
+                          >
                             <SelectTrigger data-testid="select-train-all-voice">
                               <SelectValue placeholder="Choose a voice" />
                             </SelectTrigger>
@@ -1460,8 +1685,12 @@ export function PhotoAvatarManager() {
                         </div>
                         <div className="flex gap-2">
                           <Button
-                            onClick={() => trainAllMutation.mutate(trainAllVoiceId)}
-                            disabled={!trainAllVoiceId || trainAllMutation.isPending}
+                            onClick={() =>
+                              trainAllMutation.mutate(trainAllVoiceId)
+                            }
+                            disabled={
+                              !trainAllVoiceId || trainAllMutation.isPending
+                            }
                             className="flex-1 bg-gradient-to-r from-[#D4AF37] to-[#B8860B]"
                             data-testid="button-confirm-train-all"
                           >
@@ -1510,37 +1739,85 @@ export function PhotoAvatarManager() {
                                 {group.name}
                               </h4>
                               {group.status === "ready" && (
-                                <div className="flex items-center gap-1 bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                                  <CheckCircle className="w-3 h-3" />
-                                  <span className="text-[9px] font-semibold">Ready to Edit</span>
+                                <div
+                                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${
+                                    (group as any).train_status === "ready"
+                                      ? "bg-green-100 text-green-700"
+                                      : (group as any).train_status ===
+                                        "processing"
+                                      ? "bg-blue-100 text-blue-700"
+                                      : "bg-amber-100 text-amber-700"
+                                  }`}
+                                >
+                                  {(group as any).train_status === "ready" ? (
+                                    <CheckCircle className="w-3 h-3" />
+                                  ) : (group as any).train_status ===
+                                    "processing" ? (
+                                    <Clock className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <UserPlus className="w-3 h-3" />
+                                  )}
+                                  <span className="text-[9px] font-semibold">
+                                    {(group as any).train_status === "ready"
+                                      ? "Trained & Ready"
+                                      : (group as any).train_status ===
+                                        "processing"
+                                      ? "Training..."
+                                      : "Ready to Train"}
+                                  </span>
                                 </div>
                               )}
                               {group.status === "pending" && (
-                                <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                                <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                                   <Clock className="w-3 h-3" />
-                                  <span className="text-[9px] font-semibold">Needs Training</span>
+                                  <span className="text-[9px] font-semibold">
+                                    Processing Images
+                                  </span>
+                                </div>
+                              )}
+                              {group.status === "completed" && (
+                                <div className="flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                                  <UserPlus className="w-3 h-3" />
+                                  <span className="text-[9px] font-semibold">
+                                    {!group.avatar_count ||
+                                    group.avatar_count < 2
+                                      ? "Need More Photos"
+                                      : "Ready to Train"}
+                                  </span>
                                 </div>
                               )}
                             </div>
                             <p className="text-[10px] text-gray-400">
-                              {new Date(group.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                              {group.avatar_count && ` • ${group.avatar_count} photos`}
+                              {new Date(group.created_at).toLocaleDateString(
+                                "en-US",
+                                { month: "short", day: "numeric" }
+                              )}
+                              {group.avatar_count &&
+                                ` • ${group.avatar_count} photos`}
                             </p>
                           </div>
                           <Badge
-                            className={`${getStatusColor(group.status)} text-white text-[9px] px-1.5 py-0.5`}
+                            className={`${getStatusColor(
+                              group.status
+                            )} text-white text-[9px] px-1.5 py-0.5`}
                           >
                             {group.status}
                           </Badge>
                         </div>
 
                         {/* Training Progress - Compact */}
-                        {group.status === "processing" && group.training_progress && (
-                          <div className="space-y-1">
-                            <Progress value={group.training_progress} className="h-1" />
-                            <p className="text-[9px] text-gray-400">Training: {group.training_progress}%</p>
-                          </div>
-                        )}
+                        {group.status === "processing" &&
+                          group.training_progress && (
+                            <div className="space-y-1">
+                              <Progress
+                                value={group.training_progress}
+                                className="h-1"
+                              />
+                              <p className="text-[9px] text-gray-400">
+                                Training: {group.training_progress}%
+                              </p>
+                            </div>
+                          )}
 
                         {/* Photo Gallery Component */}
                         <AvatarPhotoGallery groupId={group.group_id} />
@@ -1548,61 +1825,129 @@ export function PhotoAvatarManager() {
                         {/* Compact Action Buttons */}
                         <div className="flex gap-1.5 pt-1">
                           {group.status === "pending" && (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="sm"
-                                    onClick={() =>
-                                      trainGroupMutation.mutate({ groupId: group.group_id })
-                                    }
-                                    disabled={trainGroupMutation.isPending}
-                                    data-testid={`button-train-${group.group_id}`}
-                                    className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 h-7 text-[10px] px-2"
-                                  >
-                                    <UserPlus className="w-3 h-3 mr-1" />
-                                    Train
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>You need to train to make sure you can generate variations of the avatar</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <div className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-2 py-1 rounded text-[10px]">
+                              <Clock className="w-3 h-3 animate-spin" />
+                              <span>HeyGen is processing images...</span>
+                            </div>
                           )}
 
-                          {group.status === "ready" && (
+                          {(group.status === "completed" ||
+                            (group.status === "ready" &&
+                              (group as any).train_status !== "ready")) && (
                             <>
-                              <Button
-                                size="sm"
-                                onClick={() =>
-                                  generateLooksMutation.mutate({
-                                    groupId: group.group_id,
-                                    numLooks: 3,
-                                  })
-                                }
-                                disabled={generateLooksMutation.isPending}
-                                data-testid={`button-looks-${group.group_id}`}
-                                className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 h-7 text-[10px] px-2"
-                              >
-                                <Wand2 className="w-3 h-3 mr-1" />
-                                New Looks
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedGroupForEdit(group);
-                                  setEditDialogOpen(true);
-                                }}
-                                data-testid={`button-edit-look-${group.group_id}`}
-                                className="border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37]/10 h-7 text-[10px] px-2"
-                              >
-                                <Edit className="w-3 h-3 mr-1" />
-                                Edit
-                              </Button>
+                              {!group.avatar_count || group.avatar_count < 2 ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="flex items-center gap-1.5 text-amber-600 bg-amber-50 px-2 py-1 rounded text-[10px]">
+                                        <Upload className="w-3 h-3" />
+                                        <span>
+                                          Upload{" "}
+                                          {group.avatar_count === 1
+                                            ? "2-4 more photos"
+                                            : "at least 2 photos"}{" "}
+                                          to train
+                                        </span>
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>
+                                        Training requires multiple diverse
+                                        photos (different angles, expressions,
+                                        outfits)
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        size="sm"
+                                        onClick={() =>
+                                          trainGroupMutation.mutate({
+                                            groupId: group.group_id,
+                                          })
+                                        }
+                                        disabled={trainGroupMutation.isPending}
+                                        data-testid={`button-train-${group.group_id}`}
+                                        className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 h-7 text-[10px] px-2"
+                                      >
+                                        <UserPlus className="w-3 h-3 mr-1" />
+                                        {trainGroupMutation.isPending
+                                          ? "Training..."
+                                          : `Train Avatar (${group.avatar_count} photos)`}
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>
+                                        Train this avatar to generate custom
+                                        variations and looks
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
                             </>
                           )}
+
+                          {group.status === "ready" &&
+                            (group as any).train_status === "ready" && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() =>
+                                    generateLooksMutation.mutate({
+                                      groupId: group.group_id,
+                                      numLooks: 3,
+                                    })
+                                  }
+                                  disabled={generateLooksMutation.isPending}
+                                  data-testid={`button-looks-${group.group_id}`}
+                                  className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 h-7 text-[10px] px-2"
+                                >
+                                  <Wand2 className="w-3 h-3 mr-1" />
+                                  New Looks
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setSelectedGroupForEdit(group);
+                                    setEditDialogOpen(true);
+                                  }}
+                                  data-testid={`button-edit-look-${group.group_id}`}
+                                  className="border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37]/10 h-7 text-[10px] px-2"
+                                >
+                                  <Edit className="w-3 h-3 mr-1" />
+                                  Edit
+                                </Button>
+                              </>
+                            )}
+
+                          {/* Add Motion button - available for any group with avatars */}
+                          {group.avatar_count && group.avatar_count > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedAvatarForMotion({
+                                  avatarId: group.group_id,
+                                  groupName: group.name,
+                                });
+                                setAddMotionDialogOpen(true);
+                              }}
+                              data-testid={`button-motion-${group.group_id}`}
+                              className="border-purple-300 text-purple-600 hover:bg-purple-50 h-7 text-[10px] px-2"
+                            >
+                              <Play className="w-3 h-3 mr-1" />
+                              Add Motion
+                            </Button>
+                          )}
+
+                          {group.status === "ready" &&
+                            (group as any).train_status === "ready" && <></>}
 
                           <Button
                             size="sm"
@@ -1636,15 +1981,15 @@ export function PhotoAvatarManager() {
               Edit Avatar Look
             </DialogTitle>
             <DialogDescription>
-              Describe the edits you'd like to make to this avatar look. Be specific about changes to appearance, clothing, background, or style.
+              Describe the edits you'd like to make to this avatar look. Be
+              specific about changes to appearance, clothing, background, or
+              style.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>
-                Avatar Group: {selectedGroupForEdit?.name}
-              </Label>
+              <Label>Avatar Group: {selectedGroupForEdit?.name}</Label>
               <Badge variant="outline" className="ml-2">
                 {selectedGroupForEdit?.group_id}
               </Badge>
@@ -1668,7 +2013,10 @@ export function PhotoAvatarManager() {
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-orientation">Orientation</Label>
-                <Select value={editOrientation} onValueChange={(value: any) => setEditOrientation(value)}>
+                <Select
+                  value={editOrientation}
+                  onValueChange={(value: any) => setEditOrientation(value)}
+                >
                   <SelectTrigger data-testid="select-edit-orientation">
                     <SelectValue />
                   </SelectTrigger>
@@ -1682,7 +2030,10 @@ export function PhotoAvatarManager() {
 
               <div className="space-y-2">
                 <Label htmlFor="edit-pose">Pose</Label>
-                <Select value={editPose} onValueChange={(value: any) => setEditPose(value)}>
+                <Select
+                  value={editPose}
+                  onValueChange={(value: any) => setEditPose(value)}
+                >
                   <SelectTrigger data-testid="select-edit-pose">
                     <SelectValue />
                   </SelectTrigger>
@@ -1710,7 +2061,8 @@ export function PhotoAvatarManager() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Be specific about what you want to change. This will generate a new look variation based on your description.
+              Be specific about what you want to change. This will generate a
+              new look variation based on your description.
             </p>
           </div>
 
@@ -1757,8 +2109,116 @@ export function PhotoAvatarManager() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Motion Dialog */}
+      <Dialog open={addMotionDialogOpen} onOpenChange={setAddMotionDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Play className="h-5 w-5 text-purple-600" />
+              Add Motion to Avatar
+            </DialogTitle>
+            <DialogDescription>
+              Animate your avatar with natural motion to bring it to life. This
+              creates a short animated video from your still image.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Avatar: {selectedAvatarForMotion?.groupName}</Label>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="motion-prompt">
+                Motion Description (Optional)
+              </Label>
+              <Textarea
+                id="motion-prompt"
+                placeholder="Example: subtle head nod and smile, gentle breathing motion..."
+                value={motionPrompt}
+                onChange={(e) => setMotionPrompt(e.target.value)}
+                rows={3}
+                className="resize-none"
+                data-testid="textarea-motion-prompt"
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank for automatic natural motion
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="motion-type">Motion Engine</Label>
+              <Select value={motionType} onValueChange={setMotionType}>
+                <SelectTrigger data-testid="select-motion-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="consistent">
+                    Consistent (Recommended)
+                  </SelectItem>
+                  <SelectItem value="expressive">Expressive</SelectItem>
+                  <SelectItem value="consistent_gen_3">
+                    Consistent Gen 3
+                  </SelectItem>
+                  <SelectItem value="hailuo_2">Hailuo 2</SelectItem>
+                  <SelectItem value="veo2">Veo 2</SelectItem>
+                  <SelectItem value="seedance_lite">Seedance Lite</SelectItem>
+                  <SelectItem value="kling">Kling</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Different engines produce varying styles of motion
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAddMotionDialogOpen(false);
+                setMotionPrompt("");
+                setMotionType("consistent");
+              }}
+              data-testid="button-cancel-motion"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedAvatarForMotion) {
+                  addMotionMutation.mutate({
+                    avatarId: selectedAvatarForMotion.avatarId,
+                    prompt: motionPrompt.trim() || undefined,
+                    motionType,
+                  });
+                }
+              }}
+              disabled={addMotionMutation.isPending}
+              className="bg-gradient-to-r from-purple-600 to-purple-800 hover:brightness-110"
+              data-testid="button-add-motion"
+            >
+              {addMotionMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Adding Motion...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 mr-2" />
+                  Add Motion
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Photo Gallery Dialog */}
-      <Dialog open={!!openGalleryGroupId} onOpenChange={() => setOpenGalleryGroupId(null)}>
+      <Dialog
+        open={!!openGalleryGroupId}
+        onOpenChange={() => setOpenGalleryGroupId(null)}
+      >
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="font-playfair text-2xl">

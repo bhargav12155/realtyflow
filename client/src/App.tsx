@@ -9,6 +9,8 @@ import SocialMediaPage from "@/pages/social-media";
 import SettingsPage from "@/pages/settings";
 import LoginPage from "@/pages/login";
 import IntegrationPage from "@/pages/integration";
+import VoiceLibrary from "@/pages/VoiceLibrary";
+import ProfilePage from "@/pages/profile";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 
@@ -35,6 +37,16 @@ function Router() {
       <Route path="/settings">
         <ProtectedRoute>
           <SettingsPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/custom-voices">
+        <ProtectedRoute>
+          <VoiceLibrary />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/profile">
+        <ProtectedRoute>
+          <ProfilePage />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />

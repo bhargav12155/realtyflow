@@ -1,6 +1,8 @@
 import {
   type Analytics,
   type Avatar,
+  type BrandSettings,
+  brandSettings as brandSettingsTable,
   type CompanyProfile,
   companyProfiles,
   type ContentPiece,
@@ -8,6 +10,7 @@ import {
   customVoices,
   type InsertAnalytics,
   type InsertAvatar,
+  type InsertBrandSettings,
   type InsertCompanyProfile,
   type InsertContentPiece,
   type InsertCustomVoice,
@@ -21,6 +24,7 @@ import {
   type InsertSeoKeyword,
   type InsertSocialMediaAccount,
   type InsertUser,
+  type InsertVideoAvatar,
   type InsertVideoContent,
   type MarketData,
   type MediaAsset,
@@ -36,6 +40,8 @@ import {
   type SeoKeyword,
   type SocialMediaAccount,
   type User,
+  type VideoAvatar,
+  videoAvatars,
   type VideoContent,
   videoContent as videoContentTable,
 } from "@shared/schema";
@@ -180,9 +186,9 @@ export interface IStorage {
   ): Promise<PhotoAvatarGroupVoice>;
   getPhotoAvatarGroupVoice(
     groupId: string,
-    userId: number
+    userId: string
   ): Promise<PhotoAvatarGroupVoice | undefined>;
-  listPhotoAvatarGroupVoices(userId: number): Promise<PhotoAvatarGroupVoice[]>;
+  listPhotoAvatarGroupVoices(userId: string): Promise<PhotoAvatarGroupVoice[]>;
 
   // Individual Photo Avatars
   createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar>;
@@ -197,9 +203,28 @@ export interface IStorage {
   ): Promise<PhotoAvatar | undefined>;
   deletePhotoAvatar(heygenAvatarId: string, userId: string): Promise<boolean>;
 
+  // Video Avatars (Enterprise HeyGen Feature)
+  createVideoAvatar(avatar: InsertVideoAvatar): Promise<VideoAvatar>;
+  getVideoAvatar(
+    userId: string,
+    heygenAvatarId: string
+  ): Promise<VideoAvatar | undefined>;
+  listVideoAvatars(userId: string): Promise<VideoAvatar[]>;
+  updateVideoAvatarStatus(
+    userId: string,
+    heygenAvatarId: string,
+    status: string,
+    errorMessage?: string
+  ): Promise<VideoAvatar | undefined>;
+  deleteVideoAvatar(userId: string, heygenAvatarId: string): Promise<boolean>;
+
   // Company Profile
   getCompanyProfile(userId: string): Promise<CompanyProfile | null>;
   upsertCompanyProfile(profile: InsertCompanyProfile): Promise<CompanyProfile>;
+
+  // Brand Settings
+  getBrandSettings(userId: string): Promise<BrandSettings | null>;
+  upsertBrandSettings(settings: InsertBrandSettings): Promise<BrandSettings>;
 
   // Media Assets
   getMediaAssets(
@@ -448,7 +473,7 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     // 🔥 FIX: Use passed ID if provided, otherwise generate new UUID
-    const id = insertUser.id || randomUUID();
+    const id = (insertUser as any).id || randomUUID();
     const user: User = {
       ...insertUser,
       id,
@@ -456,7 +481,9 @@ export class MemStorage implements IStorage {
       role: insertUser.role || "agent",
     };
     this.users.set(id, user);
-    console.log(`[STORAGE] createUser - Created user with ID: ${id} (email: ${insertUser.email})`);
+    console.log(
+      `[STORAGE] createUser - Created user with ID: ${id} (email: ${insertUser.email})`
+    );
     return user;
   }
 
@@ -482,6 +509,9 @@ export class MemStorage implements IStorage {
       neighborhood: insertContent.neighborhood || null,
       keywords: insertContent.keywords || null,
       seoOptimized: insertContent.seoOptimized || false,
+      status: insertContent.status || "draft",
+      publishedAt: insertContent.publishedAt || null,
+      scheduledFor: insertContent.scheduledFor || null,
     };
     this.contentPieces.set(id, content);
     return content;
@@ -680,7 +710,7 @@ export class MemStorage implements IStorage {
       inventory: insertData.inventory || null,
       priceGrowth: insertData.priceGrowth || null,
       trend: insertData.trend || null,
-      lastUpdated: insertData.lastUpdated || new Date(),
+      lastUpdated: new Date(),
     };
     this.marketData.set(id, data);
     return data;
@@ -914,6 +944,7 @@ export class MemStorage implements IStorage {
         scheduledFor: scheduleDate,
         status: "pending",
         isEdited: false,
+        isAiGenerated: true,
         originalContent: content,
         neighborhood,
         seoScore: 80, // Default SEO score for generated content
@@ -985,6 +1016,11 @@ export class MemStorage implements IStorage {
         youtubeUrl: null,
         youtubeVideoId: null,
         status: "draft",
+        platform: null,
+        heygenVideoId: null,
+        heygenAvatarId: null,
+        heygenVoiceId: null,
+        heygenTemplateId: null,
         tags: [
           "OmahaRealEstate",
           "RealEstateExpert",
@@ -1183,13 +1219,7 @@ export class MemStorage implements IStorage {
   ): Promise<CustomVoice> {
     const [voice] = await db
       .insert(customVoices)
-      .values({
-        ...insertVoice,
-        duration: insertVoice.duration || null,
-        fileSize: insertVoice.fileSize || null,
-        heygenAudioAssetId: insertVoice.heygenAudioAssetId || null,
-        status: insertVoice.status || "pending",
-      })
+      .values(insertVoice)
       .returning();
     return voice;
   }
@@ -1216,7 +1246,7 @@ export class MemStorage implements IStorage {
 
   async getPhotoAvatarGroupVoice(
     groupId: string,
-    userId: number
+    userId: string
   ): Promise<PhotoAvatarGroupVoice | undefined> {
     const [voice] = await db
       .select()
@@ -1232,7 +1262,7 @@ export class MemStorage implements IStorage {
   }
 
   async listPhotoAvatarGroupVoices(
-    userId: number
+    userId: string
   ): Promise<PhotoAvatarGroupVoice[]> {
     return await db
       .select()
@@ -1395,6 +1425,80 @@ export class MemStorage implements IStorage {
     return result.rowCount ? result.rowCount > 0 : false;
   }
 
+  // Video Avatars (Enterprise HeyGen Feature)
+  async createVideoAvatar(avatar: InsertVideoAvatar): Promise<VideoAvatar> {
+    const [result] = await db.insert(videoAvatars).values(avatar).returning();
+    return result;
+  }
+
+  async getVideoAvatar(
+    userId: string,
+    heygenAvatarId: string
+  ): Promise<VideoAvatar | undefined> {
+    const [avatar] = await db
+      .select()
+      .from(videoAvatars)
+      .where(
+        and(
+          eq(videoAvatars.heygenAvatarId, heygenAvatarId),
+          eq(videoAvatars.userId, userId)
+        )
+      )
+      .limit(1);
+    return avatar;
+  }
+
+  async listVideoAvatars(userId: string): Promise<VideoAvatar[]> {
+    return await db
+      .select()
+      .from(videoAvatars)
+      .where(eq(videoAvatars.userId, userId))
+      .orderBy(desc(videoAvatars.createdAt));
+  }
+
+  async updateVideoAvatarStatus(
+    userId: string,
+    heygenAvatarId: string,
+    status: string,
+    errorMessage?: string
+  ): Promise<VideoAvatar | undefined> {
+    const updates: any = {
+      status,
+      errorMessage: errorMessage || null,
+    };
+
+    if (status === "complete") {
+      updates.completedAt = new Date();
+    }
+
+    const [result] = await db
+      .update(videoAvatars)
+      .set(updates)
+      .where(
+        and(
+          eq(videoAvatars.heygenAvatarId, heygenAvatarId),
+          eq(videoAvatars.userId, userId)
+        )
+      )
+      .returning();
+    return result;
+  }
+
+  async deleteVideoAvatar(
+    userId: string,
+    heygenAvatarId: string
+  ): Promise<boolean> {
+    const result = await db
+      .delete(videoAvatars)
+      .where(
+        and(
+          eq(videoAvatars.heygenAvatarId, heygenAvatarId),
+          eq(videoAvatars.userId, userId)
+        )
+      );
+    return result.rowCount ? result.rowCount > 0 : false;
+  }
+
   async getCompanyProfile(userId: string): Promise<CompanyProfile | null> {
     const [profile] = await db
       .select()
@@ -1414,6 +1518,32 @@ export class MemStorage implements IStorage {
         target: companyProfiles.userId,
         set: {
           ...profile,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return result;
+  }
+
+  async getBrandSettings(userId: string): Promise<BrandSettings | null> {
+    const [settings] = await db
+      .select()
+      .from(brandSettingsTable)
+      .where(eq(brandSettingsTable.userId, userId))
+      .limit(1);
+    return settings || null;
+  }
+
+  async upsertBrandSettings(
+    settings: InsertBrandSettings
+  ): Promise<BrandSettings> {
+    const [result] = await db
+      .insert(brandSettingsTable)
+      .values(settings)
+      .onConflictDoUpdate({
+        target: brandSettingsTable.userId,
+        set: {
+          ...settings,
           updatedAt: new Date(),
         },
       })
@@ -1454,6 +1584,7 @@ export class MemStorage implements IStorage {
       id: randomUUID(),
       ...asset,
       title: asset.title ?? null,
+      description: asset.description ?? null,
       metadata: asset.metadata ?? null,
       createdAt: new Date(),
     };

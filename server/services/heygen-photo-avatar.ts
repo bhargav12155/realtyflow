@@ -292,7 +292,7 @@ export class HeyGenPhotoAvatarService {
     const prompts = [
       "professional business attire in modern office setting with confident expression",
       "casual smart outfit in outdoor environment with natural lighting and friendly smile",
-      "formal executive look with polished appearance and neutral background"
+      "formal executive look with polished appearance and neutral background",
     ];
 
     const results = [];
@@ -324,7 +324,7 @@ export class HeyGenPhotoAvatarService {
   // Check training status
   async checkTrainingStatus(groupId: string) {
     const response = await this.makeRequest(
-      `/photo_avatar/avatar_group/${groupId}/status`
+      `/photo_avatar/train/status/${groupId}`
     );
     return response.data;
   }
@@ -340,10 +340,7 @@ export class HeyGenPhotoAvatarService {
 
   // Get individual avatar details
   async getAvatarDetails(avatarId: string) {
-    const response = await this.makeRequest(
-      `/photo_avatar/${avatarId}`,
-      "GET"
-    );
+    const response = await this.makeRequest(`/photo_avatar/${avatarId}`, "GET");
     return response;
   }
 
@@ -398,6 +395,42 @@ export class HeyGenPhotoAvatarService {
 
     const response = await this.makeRequest(
       "/photo_avatar/avatar_group/add",
+      "POST",
+      payload
+    );
+    return response.data;
+  }
+
+  // Add motion to avatar/look (animate still image)
+  async addMotion(params: {
+    avatarId: string;
+    prompt?: string;
+    motionType?:
+      | "expressive"
+      | "consistent"
+      | "consistent_gen_3"
+      | "hailuo_2"
+      | "veo2"
+      | "seedance_lite"
+      | "kling";
+  }) {
+    const payload: any = {
+      id: params.avatarId,
+      motion_type: params.motionType || "consistent",
+    };
+
+    // Only add prompt if it's not empty
+    if (params.prompt && params.prompt.trim()) {
+      payload.prompt = params.prompt.trim();
+    }
+
+    console.log(
+      `🎬 Adding motion to avatar ${params.avatarId}:`,
+      JSON.stringify(payload, null, 2)
+    );
+
+    const response = await this.makeRequest(
+      "/photo_avatar/add_motion",
       "POST",
       payload
     );
@@ -516,22 +549,6 @@ export class HeyGenPhotoAvatarService {
     return response.data;
   }
 
-  // Add motion to photo avatar
-  async addMotion(avatarId: string) {
-    console.log(`🎬 HeyGen: Adding motion to avatar ${avatarId}`);
-    const payload = {
-      id: avatarId,
-    };
-
-    const response = await this.makeRequest(
-      "/photo_avatar/add_motion",
-      "POST",
-      payload
-    );
-    console.log("🎬 HeyGen: Add motion response:", JSON.stringify(response, null, 2));
-    return response.data;
-  }
-
   // Add sound effect to photo avatar
   async addSoundEffect(avatarId: string) {
     console.log(`🔊 HeyGen: Adding sound effect to avatar ${avatarId}`);
@@ -544,7 +561,10 @@ export class HeyGenPhotoAvatarService {
       "POST",
       payload
     );
-    console.log("🔊 HeyGen: Add sound effect response:", JSON.stringify(response, null, 2));
+    console.log(
+      "🔊 HeyGen: Add sound effect response:",
+      JSON.stringify(response, null, 2)
+    );
     return response.data;
   }
 

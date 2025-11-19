@@ -40,6 +40,9 @@ export const createAgent = async (userData: {
   email: string;
   role?: string;
 }): Promise<{ user: User; token: string }> => {
+  // Normalize email to lowercase to prevent duplicates
+  const normalizedEmail = userData.email.toLowerCase().trim();
+  
   // Check if username or email already exists
   const existingUser = await db
     .select()
@@ -54,7 +57,7 @@ export const createAgent = async (userData: {
   const existingEmail = await db
     .select()
     .from(users)
-    .where(eq(users.email, userData.email))
+    .where(eq(users.email, normalizedEmail))
     .limit(1);
 
   if (existingEmail.length > 0) {
@@ -71,7 +74,7 @@ export const createAgent = async (userData: {
       username: userData.username,
       password: hashedPassword,
       name: userData.name,
-      email: userData.email,
+      email: normalizedEmail,
       role: userData.role || "agent",
     })
     .returning();
@@ -135,12 +138,15 @@ export const createOrLoginPublicUser = async (
   agentSlug: string,
   name?: string
 ): Promise<{ user: PublicUser; token: string; isNewUser: boolean }> => {
+  // Normalize email to lowercase to prevent duplicates
+  const normalizedEmail = email.toLowerCase().trim();
+  
   // Check if public user already exists for this agent
   let [existingUser] = await db
     .select()
     .from(publicUsers)
     .where(
-      and(eq(publicUsers.email, email), eq(publicUsers.agentSlug, agentSlug))
+      and(eq(publicUsers.email, normalizedEmail), eq(publicUsers.agentSlug, agentSlug))
     )
     .limit(1);
 
@@ -151,7 +157,7 @@ export const createOrLoginPublicUser = async (
     [existingUser] = await db
       .insert(publicUsers)
       .values({
-        email,
+        email: normalizedEmail,
         agentSlug,
         name: name || null,
       })

@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { queryClient } from '@/lib/queryClient';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +38,24 @@ interface BrandAsset {
   type: 'logo' | 'icon' | 'banner' | 'background';
   url?: string;
   uploadedAt?: Date;
+}
+
+interface BrandSettingsData {
+  assets?: BrandAsset[];
+  colors?: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    background: string;
+    text: string;
+  };
+  fonts?: {
+    heading: string;
+    body: string;
+    accent: string;
+  };
+  description?: string;
+  socialConnections?: any;
 }
 
 export function BrandSettings() {
@@ -81,6 +101,33 @@ export function BrandSettings() {
 
   // Connection Type State (Individual team members or Group)
   const [connectionType, setConnectionType] = useState('group');
+
+  // Fetch brand settings from API
+  const { data: brandSettingsData, isLoading } = useQuery<BrandSettingsData>({
+    queryKey: ['/api/brand-settings'],
+    refetchOnWindowFocus: false,
+  });
+
+  // Populate state when data is loaded
+  useEffect(() => {
+    if (brandSettingsData) {
+      if (brandSettingsData.assets) {
+        setBrandAssets(brandSettingsData.assets);
+      }
+      if (brandSettingsData.colors) {
+        setBrandColors(brandSettingsData.colors);
+      }
+      if (brandSettingsData.fonts) {
+        setBrandFonts(brandSettingsData.fonts);
+      }
+      if (brandSettingsData.description) {
+        setBrandDescription(brandSettingsData.description);
+      }
+      if (brandSettingsData.socialConnections) {
+        setSocialConnections(brandSettingsData.socialConnections);
+      }
+    }
+  }, [brandSettingsData]);
 
   const handleGetUploadParameters = async () => {
     try {
@@ -130,10 +177,20 @@ export function BrandSettings() {
         throw new Error('Failed to save brand settings');
       }
 
-      alert('Brand settings saved successfully!');
+      toast({
+        title: "Success",
+        description: "Brand settings saved successfully!",
+      });
+
+      // Invalidate query to refetch the updated data
+      queryClient.invalidateQueries({ queryKey: ['/api/brand-settings'] });
     } catch (error) {
       console.error('Error saving brand settings:', error);
-      alert('Failed to save brand settings. Please try again.');
+      toast({
+        title: "Error",
+        description: "Failed to save brand settings. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 

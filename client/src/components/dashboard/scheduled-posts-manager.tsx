@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { 
   Calendar, 
   Edit2, 
@@ -80,11 +81,19 @@ const postTypeLabels = {
 };
 
 export function ScheduledPostsManager() {
+  const { user, isLoading: authLoading } = useAuth();
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [editScheduledFor, setEditScheduledFor] = useState("");
   const [previewPost, setPreviewPost] = useState<ScheduledPost | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  
+  // Get user's display name with proper formatting (safe)
+  const emailName = user?.email ? user.email.split('@')[0] : "";
+  const rawName = (user?.name || emailName || "").trim();
+  const userName = rawName
+    ? rawName.charAt(0).toUpperCase() + rawName.slice(1)
+    : "Agent";
   const [isEditingWithAI, setIsEditingWithAI] = useState(false);
   const [aiEditContent, setAiEditContent] = useState("");
   const [showPromptEditor, setShowPromptEditor] = useState(false);
@@ -763,7 +772,7 @@ export function ScheduledPostsManager() {
                           <span className="text-sm font-bold text-golden-foreground">MB</span>
                         </div>
                         <div className="flex-1">
-                          <div className="font-semibold text-sm">Mike Bjork</div>
+                          <div className="font-semibold text-sm">{userName}</div>
                           <div className="text-xs text-gray-500 flex items-center gap-1">
                             <span>{format(new Date(previewPost.scheduledFor), "MMM d 'at' h:mm a")}</span>
                             <span>·</span>
@@ -838,7 +847,7 @@ export function ScheduledPostsManager() {
                           <span className="text-sm font-bold text-golden-foreground">MB</span>
                         </div>
                         <div>
-                          <div className="font-semibold text-sm">Mike Bjork</div>
+                          <div className="font-semibold text-sm">{userName}</div>
                           <div className="text-xs text-gray-500">Real Estate Professional at BHHS</div>
                           <div className="text-xs text-gray-400">
                             {format(new Date(previewPost.scheduledFor), "MMM d, h:mm a")}

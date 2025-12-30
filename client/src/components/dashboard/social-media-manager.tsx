@@ -463,10 +463,6 @@ export function SocialMediaManager() {
         formData.append("video", videoFile);
         formData.append("title", content.substring(0, 100));
         formData.append("description", content);
-        formData.append(
-          "accessToken",
-          (youtubeAccount as any).accessToken || "",
-        );
 
         const response = await fetch("/api/youtube/upload-video", {
           method: "POST",
@@ -1308,10 +1304,30 @@ ${agentName} | ${brokerageName}
                 {uploadedVideo ? "Change Video" : "Upload Video"}
               </Button>
               {uploadedVideo && (
-                <div className="flex items-center gap-2 text-xs text-green-600">
-                  <CheckCircle className="h-3 w-3" />
-                  Video ready: {uploadedVideo.name}
-                </div>
+                <>
+                  <div className="flex items-center gap-2 text-xs text-green-600">
+                    <CheckCircle className="h-3 w-3" />
+                    Video ready: {uploadedVideo.name}
+                  </div>
+                  <Button
+                    onClick={() => {
+                      const videoTitle = postContent.trim() || "Real Estate Video Update";
+                      const videoDescription = postContent.trim() || "Check out this update from my real estate business!";
+                      
+                      postMutation.mutate({
+                        content: videoTitle.substring(0, 100),
+                        platforms: ["youtube"],
+                        mediaIds: [],
+                      });
+                    }}
+                    disabled={postMutation.isPending}
+                    size="sm"
+                    className="bg-red-600 text-white hover:bg-red-700"
+                    data-testid="button-post-youtube-video"
+                  >
+                    {postMutation.isPending ? "Uploading..." : "Post Video"}
+                  </Button>
+                </>
               )}
             </div>
           </div>

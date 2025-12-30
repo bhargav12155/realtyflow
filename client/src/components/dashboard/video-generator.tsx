@@ -1282,6 +1282,7 @@ export function VideoGenerator() {
                 <ObjectUploader
                   maxNumberOfFiles={1}
                   maxFileSize={209715200}
+                  acceptedFileTypes="video/*"
                   onGetUploadParameters={async () => {
                     const response = await apiRequest(
                       "POST",

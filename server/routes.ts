@@ -3488,10 +3488,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dedicated YouTube video upload endpoint
   app.post(
     "/api/youtube/upload-video",
+    requireAuth,
     videoUpload.single("video"),
-    async (req, res) => {
+    async (req: any, res) => {
       try {
-        const { title, description, accessToken } = req.body;
+        const { title, description } = req.body;
         const videoFile = req.file;
 
         if (!videoFile) {
@@ -3502,10 +3503,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Video title is required" });
         }
 
-        if (!accessToken) {
-          return res
-            .status(400)
-            .json({ error: "YouTube access token is required" });
+        // Resolve user ID to MemStorage UUID
+        let userId = String(req.user.id);
+        let user = await storage.getUser(userId);
+
+        if (!user && req.user.email) {
+          user = await storage.getUserByEmail(req.user.email);
+        }
+
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        // Get YouTube account from storage
+        const socialAccounts = await storage.getSocialMediaAccounts(user.id);
+        const youtubeAccount = socialAccounts.find(
+          (acc) => acc.platform === "youtube"
+        );
+
+        if (!youtubeAccount || !youtubeAccount.isConnected) {
+          return res.status(400).json({
+            error: "YouTube account not connected. Please connect your YouTube account first.",
+          });
+        }
+
+        if (!youtubeAccount.accessToken) {
+          return res.status(400).json({
+            error: "YouTube access token not found. Please reconnect your YouTube account.",
+          });
         }
 
         const absoluteVideoPath = path.resolve(videoFile.path);
@@ -3523,7 +3548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           title,
           description || title,
           absoluteVideoPath,
-          accessToken
+          youtubeAccount.accessToken
         );
 
         fs.unlink(videoFile.path, (unlinkErr) => {
@@ -3828,7 +3853,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { keywords, marketData, timeframe, focus } = req.body;
 
       // Create AI prompt for intelligent content scheduling
-      const prompt = `You are an expert real estate marketing strategist and SEO specialist. Based on the following data, create an optimal 30-day content calendar for Mike Bjork's real estate business in Omaha, Nebraska.
+      const prompt = `You are an expert real estate marketing strategist and SEO specialist. Based on the following data, create an optimal 15-day content calendar for Mike Bjork's real estate business in Omaha, Nebraska.
 
 SEO Keywords to target: ${keywords
         .map(
@@ -3881,7 +3906,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         systemPrompt:
           "You are an expert real estate marketing AI that creates optimized content schedules based on SEO data and market analytics. Always respond with valid JSON only.",
         temperature: 0.7,
-        maxTokens: 1500,
+        maxTokens: 4000,
         jsonMode: true,
       });
 
@@ -4273,17 +4298,27 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           throw new Error("Failed to parse AI-generated opportunities");
         }
 
+        // Map priority strings to integers
+        const priorityToInt = (priority: string): number => {
+          const priorityMap: Record<string, number> = {
+            high: 3,
+            medium: 2,
+            low: 1,
+          };
+          return priorityMap[priority?.toLowerCase()] || 2; // Default to medium (2)
+        };
+
         // Validate and prepare for database
         const opportunitiesToInsert = generatedOpportunities
           .slice(0, 5)
           .map((opp: any) => ({
             userId,
+            opportunityType: opp.trendSource || "trend",
             title: opp.title || "Untitled Opportunity",
             description: opp.description || "AI-generated content opportunity",
-            priority: opp.priority || "medium",
+            priority: priorityToInt(opp.priority || "medium"),
             neighborhood: opp.neighborhood || null,
             keywordId: opp.relatedKeyword || null,
-            trendSource: opp.trendSource || "trend",
             searchSignal: Math.min(100, Math.max(0, opp.searchSignal || 50)),
             metadata: {
               relatedKeyword: opp.relatedKeyword,
@@ -4567,6 +4602,61 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     } catch (error) {
       console.error("Delete scheduled post error:", error);
       res.status(500).json({ error: "Failed to delete scheduled post" });
+    }
+  });
+
+  // Manually publish a scheduled post now
+  app.post("/api/scheduled-posts/:id/publish", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const post = await storage.getScheduledPostById(id);
+      if (!post) {
+        return res.status(404).json({ error: "Scheduled post not found" });
+      }
+
+      if (post.userId !== userId) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const platform = post.platform.toLowerCase();
+      
+      if (platform === "x" || platform === "twitter") {
+        try {
+          const result = await socialMediaService.postToTwitter(
+            userId,
+            post.content,
+            post.imageUrl
+          );
+
+          await storage.updateScheduledPost(id, {
+            status: "published",
+            metadata: {
+              ...post.metadata,
+              publishedAt: new Date().toISOString(),
+              platformPostId: result.postId,
+            },
+          });
+
+          return res.json({ success: true, postId: result.postId });
+        } catch (error: any) {
+          await storage.updateScheduledPost(id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+          return res.status(500).json({ error: error.message });
+        }
+      } else {
+        return res.status(400).json({ error: `Platform ${platform} not yet supported for manual publishing` });
+      }
+    } catch (error: any) {
+      console.error("Manual publish error:", error);
+      res.status(500).json({ error: "Failed to publish post" });
     }
   });
 

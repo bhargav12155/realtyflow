@@ -54,6 +54,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
 
   // Content
@@ -469,6 +470,27 @@ export class MemStorage implements IStorage {
 
     console.log(`[STORAGE] getUserByEmail(${email}) - Not found`);
     return undefined;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    const memUsers = Array.from(this.users.values());
+    
+    try {
+      const { db } = await import("./db");
+      const dbUsers = await db.query.users.findMany();
+      
+      const allUsers = [...memUsers];
+      for (const dbUser of dbUsers) {
+        if (!allUsers.some(u => u.id === dbUser.id)) {
+          allUsers.push(dbUser as User);
+        }
+      }
+      
+      return allUsers;
+    } catch (error) {
+      console.error('[STORAGE] getAllUsers - Database error:', error);
+      return memUsers;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {

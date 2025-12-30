@@ -657,9 +657,14 @@ export class SocialMediaService {
         const errorData = await response.json();
         console.error("Twitter API Error:", errorData);
 
+        if (errorData.detail?.includes('duplicate content')) {
+          throw new Error(
+            "Twitter posting failed: This content has already been posted. Twitter doesn't allow duplicate tweets.",
+          );
+        }
         if (errorData.status === 403 || errorData.errors?.[0]?.code === 403) {
           throw new Error(
-            "Twitter posting permission denied. Your account may not have tweet.write permission. Please reconnect your Twitter account.",
+            `Twitter posting permission denied: ${errorData.detail || 'Your account may not have tweet.write permission. Please reconnect your Twitter account.'}`,
           );
         }
         if (errorData.status === 401 || errorData.errors?.[0]?.code === 401) {

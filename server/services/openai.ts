@@ -441,7 +441,7 @@ export class OpenAIService {
         "content",
         async (client) => {
           return await client.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",
@@ -607,9 +607,9 @@ export class OpenAIService {
     companyProfile?: CompanyProfileData
   ): Promise<any> {
     try {
-      // Use company profile data or fallback to defaults
-      const agentName = companyProfile?.agentName || "Mike Bjork";
-      const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "Berkshire Hathaway HomeServices";
+      // Use company profile data or generic fallback
+      const agentName = companyProfile?.agentName || "your local real estate agent";
+      const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "our brokerage";
       
       const prompt = `Create a ${platform} post about "${topic}" for ${
         neighborhood || "Omaha"
@@ -621,7 +621,7 @@ export class OpenAIService {
         "social",
         async (client) => {
           return await client.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",
@@ -646,10 +646,10 @@ export class OpenAIService {
     } catch (error) {
       console.error("Social media post generation error:", error);
       
-      // Use company profile data in fallback or defaults
-      const agentName = companyProfile?.agentName || "Mike Bjork";
-      const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "Berkshire Hathaway HomeServices";
-      const agentHashtag = agentName.replace(/\s+/g, '');
+      // Use company profile data in fallback or generic text
+      const agentName = companyProfile?.agentName || "your real estate agent";
+      const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "our brokerage";
+      const agentHashtag = companyProfile?.agentName ? agentName.replace(/\s+/g, '') : "RealEstate";
       
       return {
         content: `Check out ${topic} in ${
@@ -672,7 +672,7 @@ export class OpenAIService {
         "content",
         async (client) => {
           return await client.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",
@@ -863,7 +863,7 @@ Respond with JSON in this format:
         "content",
         async (client) => {
           return await client.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",
@@ -989,7 +989,7 @@ Respond with JSON in this format:
         "content",
         async (client) => {
           return await client.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",
@@ -1152,7 +1152,7 @@ Please enhance this content while keeping the same core message and format.`;
         "content",
         async (client) => {
           return await client.chat.completions.create({
-            model: "gpt-5",
+            model: "gpt-4o",
             messages: [
               {
                 role: "system",

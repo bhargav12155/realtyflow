@@ -1,12 +1,10 @@
 import { AIContentGenerator } from "@/components/dashboard/ai-content-generator";
-import { AISearchOptimizer } from "@/components/dashboard/ai-search-optimizer";
 import { APIKeyManager } from "@/components/dashboard/api-key-manager";
 import { BrandSettings } from "@/components/dashboard/brand-settings";
 import { ContentCalendar } from "@/components/dashboard/content-calendar";
 import { LocalMarketTools } from "@/components/dashboard/local-market-tools";
 import { OverviewCards } from "@/components/dashboard/overview-cards";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
-import { ScheduledPostsManager } from "@/components/dashboard/scheduled-posts-manager";
 import { SEOOptimizer } from "@/components/dashboard/seo-optimizer";
 import { SocialLinksPrompt } from "@/components/dashboard/social-links-prompt";
 import { SocialMediaManager } from "@/components/dashboard/social-media-manager";
@@ -119,7 +117,6 @@ export default function Dashboard() {
                 Monitor your API usage, system health, and performance metrics
               </p>
             </div>
-            <AISearchOptimizer />
             <APIKeyManager />
           </div>
         );
@@ -138,10 +135,6 @@ export default function Dashboard() {
             </div>
 
             <VideoGenerator />
-
-            <AISearchOptimizer />
-
-            <ScheduledPostsManager />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
               <div className="w-full min-w-0">

@@ -193,19 +193,49 @@ export const getUserById = async (
   userType: "agent" | "public"
 ) => {
   if (userType === "public") {
+    // Convert string to number for public users
+    const id = typeof userId === 'string' ? Number(userId) : userId;
     const [user] = await db
       .select()
       .from(publicUsers)
-      .where(eq(publicUsers.id, userId as number))
+      .where(eq(publicUsers.id, id))
       .limit(1);
     return user;
   } else {
+    // Ensure string for agent users
+    const id = typeof userId === 'number' ? String(userId) : userId;
     const [user] = await db
       .select()
       .from(users)
-      .where(eq(users.id, userId as string))
+      .where(eq(users.id, id))
       .limit(1);
     return user;
+  }
+};
+
+/**
+ * Get user's display name (works for both user types)
+ */
+export const getUserName = async (
+  userId: string | number,
+  userType: "agent" | "public"
+): Promise<string> => {
+  try {
+    const user = await getUserById(userId, userType);
+    
+    if (!user) {
+      return "Agent"; // Generic fallback if user not found
+    }
+    
+    // Return the name or extract from email as fallback
+    if (userType === "public") {
+      return (user as any).name || (user as any).email.split("@")[0];
+    } else {
+      return (user as any).name || (user as any).email.split("@")[0];
+    }
+  } catch (error) {
+    console.error("Error getting user name:", error);
+    return "Agent"; // Generic fallback on error
   }
 };
 

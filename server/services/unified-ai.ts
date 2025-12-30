@@ -324,8 +324,8 @@ class UnifiedAIService {
   async generateStructuredContent(request: ContentGenerationRequest): Promise<GeneratedContent> {
     try {
       const prompt = this.buildContentPrompt(request);
-      const agentName = request.companyProfile?.agentName || "Mike Bjork";
-      const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "Berkshire Hathaway HomeServices";
+      const agentName = request.companyProfile?.agentName || "your local real estate agent";
+      const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our brokerage";
       const agentTitle = request.companyProfile?.agentTitle || "real estate agent";
 
       const systemPrompt = `You are an expert real estate content writer and SEO specialist focused on the Omaha, Nebraska market. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in Omaha. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON.`;
@@ -394,8 +394,8 @@ class UnifiedAIService {
   }
 
   private getFallbackContent(request: ContentGenerationRequest): GeneratedContent {
-    const agentName = request.companyProfile?.agentName || "Mike Bjork";
-    const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "Berkshire Hathaway HomeServices";
+    const agentName = request.companyProfile?.agentName || "your local real estate agent";
+    const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our brokerage";
 
     return {
       title: `${request.topic} - ${request.neighborhood || 'Omaha'} Real Estate`,

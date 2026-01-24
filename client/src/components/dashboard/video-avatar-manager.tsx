@@ -1,6 +1,7 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getAuthToken } from "@/lib/authToken";
 import {
   Card,
   CardContent,
@@ -415,8 +416,15 @@ export default function VideoAvatarManager() {
     
     const pollInterval = setInterval(async () => {
       try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+        
         const res = await fetch(`/api/mobile-upload/${qrSessionId}/status`, {
           credentials: "include",
+          headers,
         });
         if (!res.ok) return;
         const data = await res.json();

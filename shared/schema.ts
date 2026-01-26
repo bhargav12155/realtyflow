@@ -1475,3 +1475,25 @@ export type TwilioConversation = typeof twilioConversations.$inferSelect;
 export type InsertTwilioConversation = z.infer<typeof insertTwilioConversationSchema>;
 export type TwilioMessage = typeof twilioMessages.$inferSelect;
 export type InsertTwilioMessage = z.infer<typeof insertTwilioMessageSchema>;
+
+// =====================================================
+// AI ASSISTANT MESSAGES TABLE
+// =====================================================
+export const aiAssistantMessages = pgTable("ai_assistant_messages", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  role: text("role").notNull(), // 'user' or 'assistant'
+  content: text("content").notNull(),
+  attachments: jsonb("attachments"), // Array of { url: string, type: string, name: string }
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAiAssistantMessageSchema = createInsertSchema(aiAssistantMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type AiAssistantMessage = typeof aiAssistantMessages.$inferSelect;
+export type InsertAiAssistantMessage = z.infer<typeof insertAiAssistantMessageSchema>;

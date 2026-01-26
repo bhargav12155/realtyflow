@@ -1,4 +1,5 @@
 import {
+  aiAssistantMessages,
   contentOpportunities,
   insertAvatarSchema,
   insertBrandSettingsSchema,
@@ -16024,6 +16025,216 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     } catch (error: any) {
       console.error("Error serving VEO video:", error);
       res.status(500).json({ error: "Failed to serve video" });
+    }
+  });
+
+  // =====================================================
+  // AI ASSISTANT ROUTES
+  // =====================================================
+  
+  // Configure multer for AI assistant file uploads (images and documents)
+  const aiAssistantUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      fileSize: 20 * 1024 * 1024, // 20MB limit
+      files: 5, // Max 5 files per request
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = [
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+        'application/pdf',
+        'text/plain', 'text/csv',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ];
+      if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`File type ${file.mimetype} not allowed`));
+      }
+    },
+  });
+
+  // GET /api/ai-assistant/history - Get chat history for the user
+  app.get("/api/ai-assistant/history", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const messages = await db
+        .select()
+        .from(aiAssistantMessages)
+        .where(eq(aiAssistantMessages.userId, userId))
+        .orderBy(aiAssistantMessages.createdAt);
+
+      res.json({ messages });
+    } catch (error: any) {
+      console.error("Error fetching AI assistant history:", error);
+      res.status(500).json({ error: "Failed to fetch chat history" });
+    }
+  });
+
+  // POST /api/ai-assistant/chat - Send message with optional file uploads
+  app.post("/api/ai-assistant/chat", requireAuth, aiAssistantUpload.array('files', 5), async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { message } = req.body;
+      const files = req.files as Express.Multer.File[] || [];
+
+      if (!message && files.length === 0) {
+        return res.status(400).json({ error: "Message or files required" });
+      }
+
+      // Upload files to S3 and collect attachment info
+      const attachments: { url: string; type: string; name: string }[] = [];
+      const imageUrls: string[] = [];
+
+      for (const file of files) {
+        try {
+          const timestamp = Date.now();
+          const safeFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const key = `user-${userId}/ai-assistant/${timestamp}-${safeFileName}`;
+          
+          const url = await s3UploadService.uploadBuffer(
+            file.buffer,
+            key,
+            file.mimetype
+          );
+
+          attachments.push({
+            url,
+            type: file.mimetype,
+            name: file.originalname,
+          });
+
+          // Collect image URLs for OpenAI vision
+          if (file.mimetype.startsWith('image/')) {
+            imageUrls.push(url);
+          }
+        } catch (uploadError) {
+          console.error("Error uploading file:", uploadError);
+        }
+      }
+
+      // Save user message to database
+      const [userMessage] = await db
+        .insert(aiAssistantMessages)
+        .values({
+          userId,
+          role: 'user',
+          content: message || '',
+          attachments: attachments.length > 0 ? attachments : null,
+        })
+        .returning();
+
+      // Prepare OpenAI request with image support
+      let aiResponse: string;
+      
+      const systemPrompt = `You are an AI assistant for Nebraska Home Hub, a real estate platform. You help real estate agents with:
+- Writing property descriptions and marketing content
+- Analyzing market trends and property photos
+- Creating social media posts
+- Answering questions about real estate best practices
+- Providing advice on home staging, pricing, and marketing strategies
+Be helpful, professional, and concise.`;
+
+      try {
+        if (imageUrls.length > 0) {
+          // Use vision model for image analysis
+          const contentParts: any[] = [];
+          
+          if (message) {
+            contentParts.push({ type: 'text', text: message });
+          }
+          
+          for (const imageUrl of imageUrls) {
+            contentParts.push({
+              type: 'image_url',
+              image_url: { url: imageUrl },
+            });
+          }
+
+          const response = await multiOpenAI.makeRequest(
+            'vision',
+            async (client) => {
+              return await client.chat.completions.create({
+                model: 'gpt-4o',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: contentParts },
+                ],
+                max_tokens: 2000,
+              });
+            }
+          );
+
+          aiResponse = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+        } else {
+          // Text-only request
+          const response = await multiOpenAI.makeRequest(
+            'content',
+            async (client) => {
+              return await client.chat.completions.create({
+                model: 'gpt-4o',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: message },
+                ],
+                max_tokens: 2000,
+              });
+            }
+          );
+
+          aiResponse = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+        }
+      } catch (openaiError: any) {
+        console.error("OpenAI error:", openaiError);
+        aiResponse = "I apologize, but I'm having trouble processing your request right now. Please try again later.";
+      }
+
+      // Save assistant response to database
+      const [assistantMessage] = await db
+        .insert(aiAssistantMessages)
+        .values({
+          userId,
+          role: 'assistant',
+          content: aiResponse,
+          attachments: null,
+        })
+        .returning();
+
+      res.json({
+        userMessage,
+        assistantMessage,
+      });
+    } catch (error: any) {
+      console.error("Error in AI assistant chat:", error);
+      res.status(500).json({ error: "Failed to process chat message" });
+    }
+  });
+
+  // DELETE /api/ai-assistant/history - Clear chat history for the user
+  app.delete("/api/ai-assistant/history", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      await db
+        .delete(aiAssistantMessages)
+        .where(eq(aiAssistantMessages.userId, userId));
+
+      res.json({ success: true, message: "Chat history cleared" });
+    } catch (error: any) {
+      console.error("Error clearing AI assistant history:", error);
+      res.status(500).json({ error: "Failed to clear chat history" });
     }
   });
 

@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { DemoProvider } from "@/contexts/DemoContext";
 import { useTemplateDataImport } from "@/hooks/useTemplateDataImport";
+import AiAssistantPage from "@/pages/ai-assistant";
 import Dashboard from "@/pages/dashboard";
 import SocialMediaPage from "@/pages/social-media";
 import SettingsPage from "@/pages/settings";
@@ -75,6 +76,11 @@ function Router() {
       <Route path="/templates">
         <ProtectedRoute>
           <TemplateStudioPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/ai-assistant">
+        <ProtectedRoute>
+          <AiAssistantPage />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />

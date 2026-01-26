@@ -22,6 +22,7 @@ import {
   Home,
   MapPin,
   Menu,
+  MessageSquare,
   Palette,
   Plus,
   Radio,
@@ -37,6 +38,14 @@ import { Link, useLocation } from "wouter";
 
 const navigationItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", key: "dashboard", isPageLink: true },
+  {
+    icon: MessageSquare,
+    label: "AI Assistant",
+    href: "/ai-assistant",
+    key: "ai-assistant",
+    isPageLink: true,
+    badge: "NEW",
+  },
   {
     icon: Bot,
     label: "AI Content Generator",
@@ -383,6 +392,14 @@ function SidebarContent({
                 {!isCollapsed && (
                   <span className="flex items-center gap-2 flex-1">
                     {item.label}
+                    {item.badge && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] px-1.5 py-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white"
+                      >
+                        {item.badge}
+                      </Badge>
+                    )}
                   </span>
                 )}
               </Button>

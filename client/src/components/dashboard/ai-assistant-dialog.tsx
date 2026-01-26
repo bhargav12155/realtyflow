@@ -20,12 +20,22 @@ import {
   Sparkles,
   User,
   Bot,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getAuthToken } from "@/lib/authToken";
+
+interface Attachment {
+  url: string;
+  type: string;
+  name: string;
+}
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  attachments?: Attachment[];
 }
 
 interface QuickAction {
@@ -77,8 +87,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const scrollToBottom = useCallback(() => {
@@ -105,36 +117,122 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     inputRef.current?.focus();
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    // Limit to 5 files
+    if (selectedFiles.length + files.length > 5) {
+      toast({
+        title: "Too many files",
+        description: "You can only upload up to 5 files at a time.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check file sizes (max 10MB each)
+    const validFiles = files.filter(file => {
+      if (file.size > 10 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: `${file.name} exceeds the 10MB limit.`,
+          variant: "destructive",
+        });
+        return false;
+      }
+      return true;
+    });
+
+    setSelectedFiles(prev => [...prev, ...validFiles]);
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const sendMessage = async () => {
     const trimmedInput = input.trim();
-    if (!trimmedInput || isLoading) return;
+    if (!trimmedInput && selectedFiles.length === 0) return;
+    if (isLoading) return;
 
-    const userMessage: Message = { role: "user", content: trimmedInput };
+    // Create attachments preview for user message
+    const userAttachments: Attachment[] = selectedFiles.map(file => ({
+      url: URL.createObjectURL(file),
+      type: file.type,
+      name: file.name,
+    }));
+
+    const userMessage: Message = { 
+      role: "user", 
+      content: trimmedInput || (selectedFiles.length > 0 ? "Uploaded files" : ""),
+      attachments: userAttachments.length > 0 ? userAttachments : undefined,
+    };
     const updatedMessages = [...messages, userMessage];
     
     setMessages(updatedMessages);
     setInput("");
+    const filesToSend = [...selectedFiles];
+    setSelectedFiles([]);
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/ai/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          message: trimmedInput,
-          conversationHistory: messages,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || "Failed to get AI response");
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const data = await response.json();
+      let data;
+      
+      if (filesToSend.length > 0) {
+        // Use FormData for file uploads - use the assistant endpoint that supports files
+        const formData = new FormData();
+        formData.append("message", trimmedInput);
+        filesToSend.forEach(file => {
+          formData.append("files", file);
+        });
+
+        const response = await fetch("/api/ai-assistant/chat", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || "Failed to get AI response");
+        }
+
+        data = await response.json();
+      } else {
+        // Text-only request
+        const response = await fetch("/api/ai/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers,
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            message: trimmedInput,
+            conversationHistory: messages,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || "Failed to get AI response");
+        }
+
+        data = await response.json();
+      }
+
       const assistantMessage: Message = {
         role: "assistant",
         content: data.response || data.message || "I apologize, but I couldn't generate a response. Please try again.",
@@ -242,6 +340,26 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         : "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     )}
                   >
+                    {message.attachments && message.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {message.attachments.map((attachment, idx) => (
+                          <div key={idx}>
+                            {attachment.type.startsWith('image/') ? (
+                              <img 
+                                src={attachment.url} 
+                                alt={attachment.name}
+                                className="max-w-[150px] max-h-[100px] rounded object-cover"
+                              />
+                            ) : (
+                              <div className="flex items-center gap-1 bg-white/20 dark:bg-black/20 rounded px-2 py-1 text-xs">
+                                <FileText className="h-3 w-3" />
+                                <span className="truncate max-w-[100px]">{attachment.name}</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <p className="whitespace-pre-wrap">{message.content}</p>
                   </div>
                   {message.role === "user" && (
@@ -269,7 +387,64 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         </ScrollArea>
 
         <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50">
+          {/* File preview */}
+          {selectedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {selectedFiles.map((file, index) => (
+                <div 
+                  key={index} 
+                  className="relative group bg-gray-100 dark:bg-gray-800 rounded-lg p-2 flex items-center gap-2"
+                >
+                  {file.type.startsWith('image/') ? (
+                    <img 
+                      src={URL.createObjectURL(file)} 
+                      alt={file.name}
+                      className="h-10 w-10 rounded object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                      <FileText className="h-5 w-5 text-gray-500" />
+                    </div>
+                  )}
+                  <span className="text-xs text-gray-600 dark:text-gray-400 max-w-[100px] truncate">
+                    {file.name}
+                  </span>
+                  <button
+                    onClick={() => removeFile(index)}
+                    className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    data-testid={`button-remove-file-${index}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,.txt,.doc,.docx,.csv"
+            onChange={handleFileSelect}
+            className="hidden"
+            data-testid="input-file-upload"
+          />
+          
           <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              className="flex-shrink-0 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
+              data-testid="button-upload-file"
+              title="Upload images or files"
+            >
+              <Paperclip className="h-4 w-4 text-gray-500" />
+            </Button>
             <Input
               ref={inputRef}
               value={input}
@@ -282,7 +457,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             />
             <Button
               onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
+              disabled={(!input.trim() && selectedFiles.length === 0) || isLoading}
               className="bg-primary hover:bg-primary/90 text-white"
               data-testid="button-send-message"
             >

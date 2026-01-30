@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
   Send,
@@ -113,6 +114,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [videoImageUrl, setVideoImageUrl] = useState("");
   const [videoGenerating, setVideoGenerating] = useState(false);
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
+  const [includeAgentPhoto, setIncludeAgentPhoto] = useState(false);
+  const [agentPhotoUrl, setAgentPhotoUrl] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -134,6 +137,33 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   useEffect(() => {
     if (open && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      const fetchAgentPhoto = async () => {
+        try {
+          const token = getAuthToken();
+          if (!token) return;
+          
+          const response = await fetch("/api/user/preferences", {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+            credentials: "include",
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.agentPhotoUrl) {
+              setAgentPhotoUrl(data.agentPhotoUrl);
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching agent photo:", error);
+        }
+      };
+      fetchAgentPhoto();
     }
   }, [open]);
 
@@ -277,6 +307,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         body: JSON.stringify({
           imageUrl: videoImageUrl,
           preset: videoPreset,
+          agentPhotoUrl: includeAgentPhoto ? agentPhotoUrl : undefined,
         }),
       });
 
@@ -515,6 +546,30 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   data-testid="input-video-image-url"
                 />
               </div>
+
+              {agentPhotoUrl && (
+                <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <Checkbox
+                    id="include-agent-photo"
+                    checked={includeAgentPhoto}
+                    onCheckedChange={(checked) => setIncludeAgentPhoto(checked === true)}
+                    data-testid="checkbox-include-agent-photo"
+                  />
+                  <div className="flex items-center gap-2 flex-1">
+                    <img
+                      src={agentPhotoUrl}
+                      alt="Agent"
+                      className="w-8 h-8 rounded-full object-cover"
+                    />
+                    <label
+                      htmlFor="include-agent-photo"
+                      className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                    >
+                      Include my photo in video
+                    </label>
+                  </div>
+                </div>
+              )}
 
               <Button
                 onClick={startVideoGeneration}

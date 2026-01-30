@@ -5,6 +5,7 @@ interface VeoVideoRequest {
   prompt: string;
   aspectRatio?: "16:9" | "9:16";
   duration?: 4 | 6 | 8;
+  agentPhotoUrl?: string;
 }
 
 interface VeoVideoResult {
@@ -55,6 +56,9 @@ export class VeoVideoService {
       console.log(`🎬 [VeoVideo] Starting VEO 3.1 video generation from image`);
       console.log(`📝 [VeoVideo] Prompt: ${request.prompt.substring(0, 100)}...`);
       console.log(`🖼️ [VeoVideo] Image URL: ${request.imageUrl.substring(0, 80)}...`);
+      if (request.agentPhotoUrl) {
+        console.log(`👤 [VeoVideo] Agent photo will be included in prompt context: ${request.agentPhotoUrl.substring(0, 50)}...`);
+      }
 
       const imageData = await this.fetchImageAsBase64(request.imageUrl);
       if (!imageData) {

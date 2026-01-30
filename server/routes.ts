@@ -930,11 +930,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
 
   app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
     try {
-      const { prompt, imageUrl, preset } = req.body;
-
-      if (!prompt || typeof prompt !== "string") {
-        return res.status(400).json({ error: "Prompt is required" });
-      }
+      const { prompt, imageUrl, preset, agentPhotoUrl } = req.body;
 
       if (!imageUrl || typeof imageUrl !== "string") {
         return res.status(400).json({ error: "Image URL is required" });
@@ -953,14 +949,27 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         return res.status(500).json({ error: "VEO service not configured. GEMINI_API_KEY is required." });
       }
 
+      // Auto-generate prompt for property tour if not provided
+      let videoPrompt = prompt;
+      if (!videoPrompt || typeof videoPrompt !== "string") {
+        videoPrompt = "Create a cinematic property tour video with smooth camera movements, gentle pan and zoom effects. Professional real estate showcase style.";
+        if (agentPhotoUrl) {
+          videoPrompt += " Include a professional real estate agent introduction at the beginning.";
+        }
+      }
+
       console.log(`🎬 [VEO] Starting video generation with preset: ${preset}`);
       console.log(`📐 [VEO] Config: ${presetConfig.aspectRatio}, ${presetConfig.duration}s`);
+      if (agentPhotoUrl) {
+        console.log(`👤 [VEO] Including agent photo: ${agentPhotoUrl}`);
+      }
 
       const result = await veoVideoService.generateVideo({
-        prompt,
+        prompt: videoPrompt,
         imageUrl,
         aspectRatio: presetConfig.aspectRatio,
         duration: presetConfig.duration,
+        agentPhotoUrl,
       });
 
       if (!result.success) {

@@ -54,6 +54,7 @@ export const userPreferences = pgTable("user_preferences", {
   aiProvider: text("ai_provider").default("auto"), // "auto" | "openai" | "gemini"
   serviceArea: text("service_area"), // Main city/area (e.g., "Omaha, NE")
   communities: text("communities").array(), // List of neighborhoods/communities
+  agentPhotoUrl: text("agent_photo_url"), // URL to agent's profile photo/avatar
   onboardingCompleted: boolean("onboarding_completed").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,12 +18,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/lib/authToken";
-import { Loader2, X, MapPin, Users, Sparkles } from "lucide-react";
+import { Loader2, X, MapPin, Users, Sparkles, Camera, User } from "lucide-react";
 
 interface UserPreferences {
   serviceArea?: string;
   communities?: string[];
   aiProvider?: string;
+  agentPhotoUrl?: string;
   onboardingCompleted?: boolean;
 }
 
@@ -54,10 +55,13 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
   const [internalOpen, setInternalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [serviceArea, setServiceArea] = useState("");
   const [communities, setCommunities] = useState<string[]>([]);
   const [communityInput, setCommunityInput] = useState("");
   const [aiProvider, setAiProvider] = useState<string>("auto");
+  const [agentPhotoUrl, setAgentPhotoUrl] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const isControlled = controlledOpen !== undefined;
@@ -86,6 +90,7 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
           if (data.serviceArea) setServiceArea(data.serviceArea);
           if (data.communities) setCommunities(data.communities);
           if (data.aiProvider) setAiProvider(data.aiProvider);
+          if (data.agentPhotoUrl) setAgentPhotoUrl(data.agentPhotoUrl);
           setOpen?.(true);
         }
       } else if (response.status === 404) {
@@ -124,6 +129,63 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
     }
   };
 
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast({
+        title: "Invalid File",
+        description: "Please upload an image file (JPG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File Too Large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/user/photo", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAgentPhotoUrl(data.url);
+        toast({
+          title: "Photo Uploaded",
+          description: "Your photo has been uploaded successfully.",
+        });
+      } else {
+        throw new Error("Failed to upload photo");
+      }
+    } catch (error) {
+      console.error("Error uploading photo:", error);
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload photo. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setIsSaving(true);
     try {
@@ -148,6 +210,7 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
           serviceArea,
           communities,
           aiProvider,
+          agentPhotoUrl: agentPhotoUrl || undefined,
           onboardingCompleted: true,
         }),
       });
@@ -195,6 +258,66 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Camera className="h-4 w-4 text-primary" />
+              <label className="text-sm font-medium text-gray-900 dark:text-white">
+                Your Photo (Optional)
+              </label>
+            </div>
+            <div className="flex items-center gap-4">
+              <div
+                className="relative w-20 h-20 rounded-full border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center overflow-hidden cursor-pointer hover:border-primary transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+                data-testid="button-upload-photo"
+              >
+                {isUploadingPhoto ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                ) : agentPhotoUrl ? (
+                  <img
+                    src={agentPhotoUrl}
+                    alt="Agent photo"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="h-8 w-8 text-gray-400" />
+                )}
+              </div>
+              <div className="flex-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingPhoto}
+                  data-testid="button-choose-photo"
+                >
+                  {isUploadingPhoto ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Uploading...
+                    </>
+                  ) : agentPhotoUrl ? (
+                    "Change Photo"
+                  ) : (
+                    "Upload Photo"
+                  )}
+                </Button>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Add your photo for video intros
+                </p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handlePhotoUpload}
+                data-testid="input-photo-file"
+              />
+            </div>
+          </div>
+
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-primary" />

@@ -7,8 +7,23 @@ import { db } from "../../db";
 import { users, publicUsers, userPreferences, insertUserPreferencesSchema } from "../../../shared/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import multer from "multer";
+import { persistImageBuffer } from "../../objectStorage";
 
 const router = Router();
+
+// Configure multer for agent photo uploads
+const agentPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
 
 // Get current user profile
 router.get("/me", requireAuth, async (req: Request, res: Response) => {
@@ -73,6 +88,7 @@ const updatePreferencesSchema = z.object({
   aiProvider: z.enum(["auto", "openai", "gemini"]).optional(),
   serviceArea: z.string().optional(),
   communities: z.array(z.string()).optional(),
+  agentPhotoUrl: z.string().optional(),
   onboardingCompleted: z.boolean().optional(),
 });
 
@@ -147,6 +163,7 @@ router.put("/preferences", requireAuth, async (req: Request, res: Response) => {
           aiProvider: updates.aiProvider ?? "auto",
           serviceArea: updates.serviceArea,
           communities: updates.communities,
+          agentPhotoUrl: updates.agentPhotoUrl,
           onboardingCompleted: updates.onboardingCompleted ?? false,
         })
         .returning();
@@ -156,6 +173,57 @@ router.put("/preferences", requireAuth, async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error updating user preferences:", error);
     res.status(500).json({ error: "Failed to update user preferences" });
+  }
+});
+
+// Upload agent photo to object storage
+router.post("/photo", requireAuth, agentPhotoUpload.single("file"), async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId as string;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    // Generate unique filename
+    const ext = file.originalname.split(".").pop() || "jpg";
+    const filename = `agent-photos/${userId}-${Date.now()}.${ext}`;
+
+    // Persist to object storage
+    const url = await persistImageBuffer(file.buffer, filename, file.mimetype);
+    
+    if (!url) {
+      return res.status(500).json({ error: "Failed to upload photo to storage" });
+    }
+
+    // Update user preferences with the new photo URL
+    const [existing] = await db
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1);
+
+    if (existing) {
+      await db
+        .update(userPreferences)
+        .set({ agentPhotoUrl: url, updatedAt: new Date() })
+        .where(eq(userPreferences.userId, userId));
+    } else {
+      await db
+        .insert(userPreferences)
+        .values({
+          userId,
+          agentPhotoUrl: url,
+          aiProvider: "auto",
+          onboardingCompleted: false,
+        });
+    }
+
+    return res.json({ url });
+  } catch (error) {
+    console.error("Error uploading agent photo:", error);
+    res.status(500).json({ error: "Failed to upload photo" });
   }
 });
 

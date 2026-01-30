@@ -16365,7 +16365,33 @@ Be helpful, professional, and concise.`;
             }
           );
 
-          aiResponse = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+          // Debug logging
+          console.log("🤖 [AI Assistant] Vision response received:");
+          console.log("  - choices count:", response.choices?.length || 0);
+          console.log("  - finish_reason:", response.choices?.[0]?.finish_reason);
+          console.log("  - content length:", response.choices?.[0]?.message?.content?.length || 0);
+
+          aiResponse = response.choices?.[0]?.message?.content || "";
+          
+          // Retry with simpler request if empty
+          if (!aiResponse || aiResponse.trim() === "") {
+            console.warn("⚠️ [AI Assistant] Empty vision response, retrying with text-only...");
+            const retryResponse = await multiOpenAI.makeRequest(
+              'content',
+              async (client) => {
+                return await client.chat.completions.create({
+                  model: 'gpt-4o',
+                  messages: [
+                    { role: 'system', content: "You are a helpful real estate AI assistant. Be concise." },
+                    { role: 'user', content: message || "Please describe what you see in the uploaded images." },
+                  ],
+                  max_tokens: 1000,
+                });
+              }
+            );
+            aiResponse = retryResponse.choices?.[0]?.message?.content || "";
+            console.log("🔄 [AI Assistant] Retry response length:", aiResponse?.length || 0);
+          }
         } else {
           // Text-only request
           const response = await multiOpenAI.makeRequest(
@@ -16382,7 +16408,38 @@ Be helpful, professional, and concise.`;
             }
           );
 
-          aiResponse = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response.";
+          // Debug logging
+          console.log("🤖 [AI Assistant] Text response received:");
+          console.log("  - choices count:", response.choices?.length || 0);
+          console.log("  - finish_reason:", response.choices?.[0]?.finish_reason);
+          console.log("  - content length:", response.choices?.[0]?.message?.content?.length || 0);
+
+          aiResponse = response.choices?.[0]?.message?.content || "";
+          
+          // Retry with simpler prompt if empty
+          if (!aiResponse || aiResponse.trim() === "") {
+            console.warn("⚠️ [AI Assistant] Empty text response, retrying with simpler prompt...");
+            const retryResponse = await multiOpenAI.makeRequest(
+              'content',
+              async (client) => {
+                return await client.chat.completions.create({
+                  model: 'gpt-4o',
+                  messages: [
+                    { role: 'system', content: "You are a helpful assistant. Be concise." },
+                    { role: 'user', content: message },
+                  ],
+                  max_tokens: 1000,
+                });
+              }
+            );
+            aiResponse = retryResponse.choices?.[0]?.message?.content || "";
+            console.log("🔄 [AI Assistant] Retry response length:", aiResponse?.length || 0);
+          }
+        }
+        
+        // Final fallback
+        if (!aiResponse || aiResponse.trim() === "") {
+          aiResponse = "I'm having trouble processing your request right now. Could you try rephrasing your question or try again in a moment?";
         }
       } catch (openaiError: any) {
         console.error("OpenAI error:", openaiError);

@@ -799,13 +799,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // AI Assistant Chat endpoint
+  // AI Assistant Chat endpoint - supports multiple providers
   app.post("/api/ai/chat", requireAuth, async (req, res) => {
     try {
-      const { message, conversationHistory = [] } = req.body;
+      const { message, conversationHistory = [], provider = "auto" } = req.body;
       
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Message is required" });
+      }
+
+      const validProviders = ["openai", "gemini", "auto"];
+      if (!validProviders.includes(provider)) {
+        return res.status(400).json({ error: "Invalid provider. Must be 'openai', 'gemini', or 'auto'" });
       }
 
       const userId = req.user?.id;
@@ -814,7 +819,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         companyProfile = await storage.getCompanyProfile(userId);
       }
 
-      // Build context from conversation history
+      // Use Gemini when explicitly requested
+      if (provider === "gemini") {
+        const { geminiService } = await import("./services/gemini");
+        
+        const result = await geminiService.chat(message, conversationHistory);
+        
+        if (!result.success) {
+          return res.status(500).json({ error: result.error || "Gemini chat failed" });
+        }
+
+        return res.json({ 
+          message: result.message,
+          role: "assistant",
+          provider: "gemini"
+        });
+      }
+
+      // Use OpenAI for "openai" and "auto" providers
       const messages = [
         {
           role: "system" as const,
@@ -837,7 +859,6 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         { role: "user" as const, content: message }
       ];
 
-      // Use OpenAI for chat
       const response = await multiOpenAI.makeRequest("content", async (client) => {
         return await client.chat.completions.create({
           model: "gpt-4o",
@@ -850,11 +871,100 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
 
       res.json({ 
         message: assistantMessage,
-        role: "assistant"
+        role: "assistant",
+        provider: "openai"
       });
     } catch (error) {
       console.error("AI chat error:", error);
       res.status(500).json({ error: "Failed to process your request. Please try again." });
+    }
+  });
+
+  // VEO 3.1 Video Generation Routes
+  const VEO_PRESETS: Record<string, { aspectRatio: "16:9" | "9:16"; duration: 4 | 6 | 8 }> = {
+    "tiktok": { aspectRatio: "9:16", duration: 8 },
+    "youtube-shorts": { aspectRatio: "9:16", duration: 8 },
+    "instagram-stories": { aspectRatio: "9:16", duration: 8 },
+    "facebook-feed": { aspectRatio: "16:9", duration: 8 },
+    "linkedin-feed": { aspectRatio: "16:9", duration: 8 },
+    "commercial-15": { aspectRatio: "16:9", duration: 4 },
+    "commercial-30": { aspectRatio: "16:9", duration: 8 },
+    "commercial-60": { aspectRatio: "16:9", duration: 8 },
+  };
+
+  app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
+    try {
+      const { prompt, imageUrl, preset } = req.body;
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      if (!imageUrl || typeof imageUrl !== "string") {
+        return res.status(400).json({ error: "Image URL is required" });
+      }
+
+      if (!preset || !VEO_PRESETS[preset]) {
+        return res.status(400).json({ 
+          error: "Invalid preset. Valid presets: " + Object.keys(VEO_PRESETS).join(", ")
+        });
+      }
+
+      const presetConfig = VEO_PRESETS[preset];
+      const { veoVideoService } = await import("./services/veo-video");
+
+      if (!veoVideoService.isConfigured()) {
+        return res.status(500).json({ error: "VEO service not configured. GEMINI_API_KEY is required." });
+      }
+
+      console.log(`🎬 [VEO] Starting video generation with preset: ${preset}`);
+      console.log(`📐 [VEO] Config: ${presetConfig.aspectRatio}, ${presetConfig.duration}s`);
+
+      const result = await veoVideoService.generateVideo({
+        prompt,
+        imageUrl,
+        aspectRatio: presetConfig.aspectRatio,
+        duration: presetConfig.duration,
+      });
+
+      if (!result.success) {
+        return res.status(500).json({ error: result.error || "Failed to start video generation" });
+      }
+
+      res.json({
+        success: true,
+        operationId: result.operationId,
+        preset,
+        aspectRatio: presetConfig.aspectRatio,
+        duration: presetConfig.duration,
+      });
+    } catch (error) {
+      console.error("VEO start error:", error);
+      res.status(500).json({ error: "Failed to start video generation" });
+    }
+  });
+
+  app.get("/api/ai/veo/status/:operationId", requireAuth, async (req, res) => {
+    try {
+      const { operationId } = req.params;
+
+      if (!operationId) {
+        return res.status(400).json({ error: "Operation ID is required" });
+      }
+
+      const { veoVideoService } = await import("./services/veo-video");
+
+      const status = await veoVideoService.checkOperationStatus(operationId);
+
+      res.json({
+        operationId,
+        done: status.done,
+        videoUrl: status.videoUrl,
+        error: status.error,
+      });
+    } catch (error) {
+      console.error("VEO status check error:", error);
+      res.status(500).json({ error: "Failed to check video generation status" });
     }
   });
 

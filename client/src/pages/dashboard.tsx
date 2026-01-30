@@ -1,4 +1,5 @@
 import { AIAssistantDialog, useAIAssistantDialog } from "@/components/dashboard/ai-assistant-dialog";
+import { OnboardingDialog } from "@/components/onboarding/onboarding-dialog";
 import { AIContentGenerator } from "@/components/dashboard/ai-content-generator";
 import { AISearchOptimizer } from "@/components/dashboard/ai-search-optimizer";
 import { APIKeyManager } from "@/components/dashboard/api-key-manager";
@@ -201,6 +202,9 @@ export default function Dashboard() {
         open={aiAssistant.open}
         onOpenChange={aiAssistant.setOpen}
       />
+
+      {/* First-time User Onboarding Dialog */}
+      <OnboardingDialog />
     </div>
   );
 }

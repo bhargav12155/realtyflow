@@ -4,8 +4,9 @@ import socialLinksRoutes from "./social-links";
 import socialApiKeysRoutes from "./social-api-keys";
 import { requireAuth } from "../../middleware/auth";
 import { db } from "../../db";
-import { users, publicUsers } from "../../../shared/schema";
+import { users, publicUsers, userPreferences, insertUserPreferencesSchema } from "../../../shared/schema";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 
 const router = Router();
 
@@ -64,6 +65,97 @@ router.get("/me", requireAuth, async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Error fetching user profile:", error);
     res.status(500).json({ error: "Failed to fetch user profile" });
+  }
+});
+
+// Update preferences validation schema
+const updatePreferencesSchema = z.object({
+  aiProvider: z.enum(["auto", "openai", "gemini"]).optional(),
+  serviceArea: z.string().optional(),
+  communities: z.array(z.string()).optional(),
+  onboardingCompleted: z.boolean().optional(),
+});
+
+// Get current user's preferences (create default if not exists)
+router.get("/preferences", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId as string;
+
+    // Try to find existing preferences
+    let [preferences] = await db
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1);
+
+    // If no preferences exist, create default ones
+    if (!preferences) {
+      [preferences] = await db
+        .insert(userPreferences)
+        .values({
+          userId,
+          aiProvider: "auto",
+          onboardingCompleted: false,
+        })
+        .returning();
+    }
+
+    return res.json(preferences);
+  } catch (error) {
+    console.error("Error fetching user preferences:", error);
+    res.status(500).json({ error: "Failed to fetch user preferences" });
+  }
+});
+
+// Update user preferences
+router.put("/preferences", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId as string;
+
+    // Validate request body
+    const parsed = updatePreferencesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+    }
+
+    const updates = parsed.data;
+
+    // Check if preferences exist
+    const [existing] = await db
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1);
+
+    let preferences;
+    if (existing) {
+      // Update existing preferences
+      [preferences] = await db
+        .update(userPreferences)
+        .set({
+          ...updates,
+          updatedAt: new Date(),
+        })
+        .where(eq(userPreferences.userId, userId))
+        .returning();
+    } else {
+      // Create new preferences with provided values
+      [preferences] = await db
+        .insert(userPreferences)
+        .values({
+          userId,
+          aiProvider: updates.aiProvider ?? "auto",
+          serviceArea: updates.serviceArea,
+          communities: updates.communities,
+          onboardingCompleted: updates.onboardingCompleted ?? false,
+        })
+        .returning();
+    }
+
+    return res.json(preferences);
+  } catch (error) {
+    console.error("Error updating user preferences:", error);
+    res.status(500).json({ error: "Failed to update user preferences" });
   }
 });
 

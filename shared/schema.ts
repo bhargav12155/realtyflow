@@ -44,6 +44,22 @@ export const users = pgTable("users", {
 });
 
 // =====================================================
+// USER PREFERENCES TABLE (AI Settings & Location)
+// =====================================================
+export const userPreferences = pgTable("user_preferences", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  aiProvider: text("ai_provider").default("auto"), // "auto" | "openai" | "gemini"
+  serviceArea: text("service_area"), // Main city/area (e.g., "Omaha, NE")
+  communities: text("communities").array(), // List of neighborhoods/communities
+  onboardingCompleted: boolean("onboarding_completed").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================================
 // PUBLIC USERS TABLE (for multi-user support)
 // =====================================================
 export const publicUsers = pgTable(
@@ -622,6 +638,14 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type PublicUser = typeof publicUsers.$inferSelect;
 export type InsertPublicUser = typeof publicUsers.$inferInsert;
+
+export const insertUserPreferencesSchema = createInsertSchema(userPreferences).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertUserPreferences = z.infer<typeof insertUserPreferencesSchema>;
+export type UserPreferences = typeof userPreferences.$inferSelect;
 
 export type ContentPiece = typeof contentPieces.$inferSelect;
 export type InsertContentPiece = z.infer<typeof insertContentPieceSchema>;

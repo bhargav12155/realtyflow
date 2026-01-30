@@ -903,7 +903,43 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         });
       });
 
-      const assistantMessage = response.choices[0]?.message?.content || "I apologize, but I couldn't generate a response. Please try again.";
+      // Debug logging for response structure
+      console.log("🤖 [AI Chat] OpenAI response received:");
+      console.log("  - choices count:", response.choices?.length || 0);
+      console.log("  - finish_reason:", response.choices?.[0]?.finish_reason);
+      console.log("  - content length:", response.choices?.[0]?.message?.content?.length || 0);
+      
+      // Check for content filter or other issues
+      if (response.choices?.[0]?.finish_reason === "content_filter") {
+        console.warn("⚠️ [AI Chat] Content was filtered by OpenAI safety systems");
+      }
+
+      let assistantMessage = response.choices?.[0]?.message?.content;
+      
+      // Handle empty or null content
+      if (!assistantMessage || assistantMessage.trim() === "") {
+        console.warn("⚠️ [AI Chat] Empty response from OpenAI, attempting retry with simplified prompt");
+        
+        // Retry with a simpler prompt
+        const retryResponse = await multiOpenAI.makeRequest("content", async (client) => {
+          return await client.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+              { role: "system" as const, content: "You are a helpful assistant for real estate professionals. Be concise and helpful." },
+              { role: "user" as const, content: message }
+            ],
+            max_completion_tokens: 500,
+          });
+        });
+        
+        assistantMessage = retryResponse.choices?.[0]?.message?.content;
+        console.log("🔄 [AI Chat] Retry response length:", assistantMessage?.length || 0);
+      }
+      
+      // Final fallback if still empty
+      if (!assistantMessage || assistantMessage.trim() === "") {
+        assistantMessage = "I'm having trouble processing your request right now. Could you try rephrasing your question or try again in a moment?";
+      }
 
       res.json({ 
         message: assistantMessage,

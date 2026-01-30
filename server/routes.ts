@@ -9,6 +9,7 @@ import {
   pkceStore,
   tutorialVideos,
   updateScheduledPostSchema,
+  userPreferences,
 } from "@shared/schema";
 import crypto from "crypto";
 import { desc, eq, sql } from "drizzle-orm";
@@ -815,15 +816,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const userId = req.user?.id;
       let companyProfile = null;
+      let userPreferencesData = null;
       if (userId) {
         companyProfile = await storage.getCompanyProfile(userId);
+        // Fetch user preferences for localized content
+        const prefResults = await db
+          .select()
+          .from(userPreferences)
+          .where(eq(userPreferences.userId, userId))
+          .limit(1);
+        userPreferencesData = prefResults.length > 0 ? prefResults[0] : null;
+      }
+
+      // Build location context string
+      let locationContext = "";
+      if (userPreferencesData) {
+        if (userPreferencesData.serviceArea) {
+          locationContext += `The user is a real estate agent serving the ${userPreferencesData.serviceArea} area.`;
+        }
+        if (userPreferencesData.communities && userPreferencesData.communities.length > 0) {
+          locationContext += ` They focus on these neighborhoods/communities: ${userPreferencesData.communities.join(", ")}.`;
+        }
+        locationContext = locationContext.trim();
       }
 
       // Use Gemini when explicitly requested
       if (provider === "gemini") {
         const { geminiService } = await import("./services/gemini");
         
-        const result = await geminiService.chat(message, conversationHistory);
+        // Build Gemini system prompt with location context
+        const geminiSystemPrompt = `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
+You help with:
+- Creating social media posts and marketing content
+- Writing blog articles and property descriptions
+- Answering real estate marketing questions
+- Providing market insights and advice
+- Generating image and video ideas
+
+${locationContext ? locationContext : ""}
+
+Be professional, helpful, and focused on real estate marketing. Keep responses concise but informative.`.trim();
+        
+        const result = await geminiService.chat(message, conversationHistory, geminiSystemPrompt);
         
         if (!result.success) {
           return res.status(500).json({ error: result.error || "Gemini chat failed" });
@@ -847,6 +881,8 @@ You help with:
 - Answering real estate marketing questions
 - Providing market insights and advice
 - Generating image and video ideas
+
+${locationContext ? locationContext : ""}
 
 ${companyProfile ? `The user works for ${companyProfile.companyName || "a real estate company"} with tagline: "${companyProfile.tagline || ""}"` : ""}
 

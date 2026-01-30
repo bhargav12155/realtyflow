@@ -33,7 +33,7 @@ export class GeminiService {
     return this.client;
   }
 
-  async chat(message: string, conversationHistory?: ChatMessage[]): Promise<GeminiChatResponse> {
+  async chat(message: string, conversationHistory?: ChatMessage[], customSystemPrompt?: string): Promise<GeminiChatResponse> {
     const client = this.getClient();
     
     if (!client) {
@@ -44,7 +44,7 @@ export class GeminiService {
     try {
       console.log(`💬 [Gemini] Processing chat message with gemini-2.0-flash`);
 
-      const systemPrompt = `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
+      const systemPrompt = customSystemPrompt || `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
 You help with:
 - Creating social media posts and marketing content
 - Writing blog articles and property descriptions

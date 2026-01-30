@@ -160,7 +160,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
         const data = await response.json();
 
-        if (data.status === "completed" && data.videoUrl) {
+        if (data.done && data.videoUrl) {
           clearInterval(pollInterval);
           setVideoGenerating(false);
           setVideoOperationId(null);
@@ -175,7 +175,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             title: "Video Ready",
             description: "Your video has been generated successfully!",
           });
-        } else if (data.status === "failed") {
+        } else if (data.done && data.error) {
           clearInterval(pollInterval);
           setVideoGenerating(false);
           setVideoOperationId(null);

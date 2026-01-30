@@ -422,7 +422,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
       const assistantMessage: Message = {
         role: "assistant",
-        content: data.response || data.message || "I apologize, but I couldn't generate a response. Please try again.",
+        content: data.assistantMessage?.content || data.response || data.message || "I apologize, but I couldn't generate a response. Please try again.",
       };
       
       setMessages([...updatedMessages, assistantMessage]);

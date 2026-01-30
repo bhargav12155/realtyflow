@@ -8,6 +8,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import {
   Send,
@@ -22,6 +29,7 @@ import {
   Bot,
   Paperclip,
   X,
+  ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
@@ -36,6 +44,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   attachments?: Attachment[];
+  videoUrl?: string;
 }
 
 interface QuickAction {
@@ -78,6 +87,16 @@ const quickActions: QuickAction[] = [
   },
 ];
 
+const videoPresets = [
+  { value: "tiktok", label: "TikTok/Reels (8s, Portrait)" },
+  { value: "youtube-shorts", label: "YouTube Shorts (8s, Portrait)" },
+  { value: "instagram-stories", label: "Instagram Stories (8s, Portrait)" },
+  { value: "facebook-feed", label: "Facebook Feed (8s, Landscape)" },
+  { value: "linkedin-feed", label: "LinkedIn Feed (8s, Landscape)" },
+  { value: "commercial-15", label: "Commercial Spot (4s, Landscape)" },
+  { value: "commercial-30", label: "Commercial Spot (8s, Landscape)" },
+];
+
 interface AIAssistantDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,6 +107,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
+  const [videoMode, setVideoMode] = useState(false);
+  const [videoPreset, setVideoPreset] = useState<string>("tiktok");
+  const [videoImageUrl, setVideoImageUrl] = useState("");
+  const [videoGenerating, setVideoGenerating] = useState(false);
+  const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,7 +137,73 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!videoOperationId || !videoGenerating) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(`/api/ai/veo/status/${videoOperationId}`, {
+          method: "GET",
+          headers,
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to check video status");
+        }
+
+        const data = await response.json();
+
+        if (data.status === "completed" && data.videoUrl) {
+          clearInterval(pollInterval);
+          setVideoGenerating(false);
+          setVideoOperationId(null);
+
+          const assistantMessage: Message = {
+            role: "assistant",
+            content: `Video generated successfully! Here's your ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} video:`,
+            videoUrl: data.videoUrl,
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+          toast({
+            title: "Video Ready",
+            description: "Your video has been generated successfully!",
+          });
+        } else if (data.status === "failed") {
+          clearInterval(pollInterval);
+          setVideoGenerating(false);
+          setVideoOperationId(null);
+
+          const errorMessage: Message = {
+            role: "assistant",
+            content: `Video generation failed: ${data.error || "Unknown error occurred"}`,
+          };
+          setMessages(prev => [...prev, errorMessage]);
+          toast({
+            title: "Video Generation Failed",
+            description: data.error || "An error occurred while generating your video.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error("Error polling video status:", error);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [videoOperationId, videoGenerating, videoPreset, toast]);
+
   const handleQuickAction = (action: QuickAction) => {
+    if (action.id === "generate-video") {
+      setVideoMode(true);
+      return;
+    }
     setInput(action.starterPrompt);
     inputRef.current?.focus();
   };
@@ -121,7 +212,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // Limit to 5 files
     if (selectedFiles.length + files.length > 5) {
       toast({
         title: "Too many files",
@@ -131,7 +221,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       return;
     }
 
-    // Check file sizes (max 10MB each)
     const validFiles = files.filter(file => {
       if (file.size > 10 * 1024 * 1024) {
         toast({
@@ -145,7 +234,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     });
 
     setSelectedFiles(prev => [...prev, ...validFiles]);
-    // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -155,12 +243,80 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const startVideoGeneration = async () => {
+    if (!videoImageUrl.trim()) {
+      toast({
+        title: "Image URL Required",
+        description: "Please enter an image URL for the video source.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setVideoGenerating(true);
+
+    const userMessage: Message = {
+      role: "user",
+      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} video from: ${videoImageUrl}`,
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch("/api/ai/veo/start", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({
+          imageUrl: videoImageUrl,
+          preset: videoPreset,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to start video generation");
+      }
+
+      const data = await response.json();
+      setVideoOperationId(data.operationId);
+
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: "Video generation started! This may take a few minutes. I'll notify you when it's ready...",
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+
+      setVideoImageUrl("");
+      setVideoMode(false);
+    } catch (error) {
+      console.error("Video generation error:", error);
+      setVideoGenerating(false);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to start video generation.",
+        variant: "destructive",
+      });
+      const errorMessage: Message = {
+        role: "assistant",
+        content: "I'm sorry, I encountered an error starting the video generation. Please try again.",
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    }
+  };
+
   const sendMessage = async () => {
     const trimmedInput = input.trim();
     if (!trimmedInput && selectedFiles.length === 0) return;
     if (isLoading) return;
 
-    // Create attachments preview for user message
     const userAttachments: Attachment[] = selectedFiles.map(file => ({
       url: URL.createObjectURL(file),
       type: file.type,
@@ -190,9 +346,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       let data;
       
       if (filesToSend.length > 0) {
-        // Use FormData for file uploads - use the assistant endpoint that supports files
         const formData = new FormData();
         formData.append("message", trimmedInput);
+        formData.append("provider", aiProvider);
         filesToSend.forEach(file => {
           formData.append("files", file);
         });
@@ -211,7 +367,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
         data = await response.json();
       } else {
-        // Text-only request
         const response = await fetch("/api/ai/chat", {
           method: "POST",
           headers: {
@@ -222,6 +377,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           body: JSON.stringify({
             message: trimmedInput,
             conversationHistory: messages,
+            provider: aiProvider,
           }),
         });
 
@@ -282,6 +438,19 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         </DialogHeader>
 
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="flex items-center gap-3 mb-3">
+            <label className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">AI Provider:</label>
+            <Select value={aiProvider} onValueChange={(value: "auto" | "openai" | "gemini") => setAiProvider(value)}>
+              <SelectTrigger className="w-[200px] h-8 text-xs" data-testid="select-ai-provider">
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">Auto (Recommended)</SelectItem>
+                <SelectItem value="openai">ChatGPT (GPT-4o)</SelectItem>
+                <SelectItem value="gemini">Gemini</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick Actions</p>
           <div className="flex flex-wrap gap-2">
             {quickActions.map((action) => (
@@ -299,6 +468,75 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             ))}
           </div>
         </div>
+
+        {videoMode && (
+          <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-blue-50 dark:bg-blue-900/20">
+            <div className="flex items-center gap-2 mb-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setVideoMode(false)}
+                className="h-8 px-2"
+                data-testid="button-exit-video-mode"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+              <h4 className="font-medium text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                <Video className="h-4 w-4 text-primary" />
+                Generate Video
+              </h4>
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Platform Preset</label>
+                <Select value={videoPreset} onValueChange={setVideoPreset}>
+                  <SelectTrigger className="w-full" data-testid="select-video-preset">
+                    <SelectValue placeholder="Select preset" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {videoPresets.map((preset) => (
+                      <SelectItem key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Source Image URL</label>
+                <Input
+                  value={videoImageUrl}
+                  onChange={(e) => setVideoImageUrl(e.target.value)}
+                  placeholder="https://example.com/image.jpg"
+                  className="bg-white dark:bg-gray-900"
+                  data-testid="input-video-image-url"
+                />
+              </div>
+
+              <Button
+                onClick={startVideoGeneration}
+                disabled={videoGenerating || !videoImageUrl.trim()}
+                className="w-full bg-primary hover:bg-primary/90"
+                data-testid="button-generate-video"
+              >
+                {videoGenerating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Video className="h-4 w-4 mr-2" />
+                    Generate Video
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <ScrollArea 
           ref={scrollAreaRef}
@@ -361,6 +599,24 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.videoUrl && (
+                      <div className="mt-3">
+                        <video
+                          src={message.videoUrl}
+                          controls
+                          className="max-w-full rounded-lg"
+                          data-testid={`video-${index}`}
+                        />
+                        <a
+                          href={message.videoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline mt-2 inline-block"
+                        >
+                          Open in new tab
+                        </a>
+                      </div>
+                    )}
                   </div>
                   {message.role === "user" && (
                     <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
@@ -382,12 +638,24 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </div>
                 </div>
               )}
+              {videoGenerating && (
+                <div className="flex gap-3 justify-start" data-testid="message-video-generating">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Bot className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded-lg px-4 py-2">
+                    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-sm">Generating video... This may take a few minutes.</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </ScrollArea>
 
         <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50">
-          {/* File preview */}
           {selectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
               {selectedFiles.map((file, index) => (
@@ -421,7 +689,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             </div>
           )}
           
-          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"

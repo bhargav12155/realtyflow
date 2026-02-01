@@ -112,13 +112,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
-  const [videoImageUrl, setVideoImageUrl] = useState("");
+  const [videoImages, setVideoImages] = useState<Array<{ url: string; preview: string }>>([]);
   const [videoGenerating, setVideoGenerating] = useState(false);
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
   const [includeAgentPhoto, setIncludeAgentPhoto] = useState(false);
   const [agentPhotoUrl, setAgentPhotoUrl] = useState<string | null>(null);
   const [videoImageUploading, setVideoImageUploading] = useState(false);
-  const [videoImagePreview, setVideoImagePreview] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -281,6 +280,15 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (videoImages.length >= 3) {
+      toast({
+        title: "Maximum images reached",
+        description: "You can only upload up to 3 images.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!file.type.startsWith('image/')) {
       toast({
         title: "Invalid file type",
@@ -300,7 +308,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     }
 
     setVideoImageUploading(true);
-    setVideoImagePreview(URL.createObjectURL(file));
+    const previewUrl = URL.createObjectURL(file);
 
     try {
       const token = getAuthToken();
@@ -319,10 +327,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       }
 
       const data = await response.json();
-      setVideoImageUrl(data.url);
+      setVideoImages(prev => [...prev, { url: data.url, preview: previewUrl }]);
       toast({
         title: "Image uploaded",
-        description: "Your property image is ready for video generation.",
+        description: `Image ${videoImages.length + 1} of 3 added.`,
       });
     } catch (error) {
       console.error('Video image upload error:', error);
@@ -331,7 +339,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         description: "Failed to upload image. Please try again.",
         variant: "destructive",
       });
-      setVideoImagePreview(null);
+      URL.revokeObjectURL(previewUrl);
     } finally {
       setVideoImageUploading(false);
       if (videoImageInputRef.current) {
@@ -340,16 +348,21 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     }
   };
 
-  const clearVideoImage = () => {
-    setVideoImageUrl('');
-    setVideoImagePreview(null);
+  const removeVideoImage = (index: number) => {
+    setVideoImages(prev => {
+      const removed = prev[index];
+      if (removed?.preview) {
+        URL.revokeObjectURL(removed.preview);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const startVideoGeneration = async () => {
-    if (!videoImageUrl.trim()) {
+    if (videoImages.length === 0) {
       toast({
-        title: "Image URL Required",
-        description: "Please enter an image URL for the video source.",
+        title: "Image Required",
+        description: "Please upload at least one property image.",
         variant: "destructive",
       });
       return;
@@ -357,9 +370,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
     setVideoGenerating(true);
 
+    const imageUrls = videoImages.map(img => img.url);
     const userMessage: Message = {
       role: "user",
-      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} video from: ${videoImageUrl}`,
+      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} video from ${videoImages.length} image${videoImages.length > 1 ? 's' : ''}`,
     };
     setMessages(prev => [...prev, userMessage]);
 
@@ -377,7 +391,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         headers,
         credentials: "include",
         body: JSON.stringify({
-          imageUrl: videoImageUrl,
+          imageUrl: imageUrls[0],
+          imageUrls: imageUrls,
           preset: videoPreset,
           agentPhotoUrl: includeAgentPhoto ? agentPhotoUrl : undefined,
         }),
@@ -397,7 +412,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       };
       setMessages(prev => [...prev, assistantMessage]);
 
-      setVideoImageUrl("");
+      setVideoImages([]);
       setVideoMode(false);
     } catch (error) {
       console.error("Video generation error:", error);
@@ -609,7 +624,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               </div>
 
               <div>
-                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Property Image</label>
+                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                  Property Images ({videoImages.length}/3)
+                </label>
                 <input
                   ref={videoImageInputRef}
                   type="file"
@@ -619,41 +636,54 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   data-testid="input-video-image-file"
                 />
                 
-                {videoImageUrl || videoImagePreview ? (
-                  <div className="relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                    <img
-                      src={videoImagePreview || videoImageUrl}
-                      alt="Property"
-                      className="w-full h-32 object-cover"
-                    />
-                    {videoImageUploading && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <Loader2 className="h-6 w-6 animate-spin text-white" />
-                      </div>
-                    )}
-                    <button
-                      onClick={clearVideoImage}
-                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
-                      data-testid="button-clear-video-image"
+                <div className="grid grid-cols-3 gap-2">
+                  {videoImages.map((img, index) => (
+                    <div
+                      key={index}
+                      className="relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 aspect-square"
                     >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div
-                    onClick={() => videoImageInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors"
-                    data-testid="button-upload-video-image"
-                  >
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
-                      Click to upload property image
-                    </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                      JPG, PNG up to 10MB
-                    </p>
-                  </div>
-                )}
+                      <img
+                        src={img.preview || img.url}
+                        alt={`Property ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        onClick={() => removeVideoImage(index)}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
+                        data-testid={`button-remove-video-image-${index}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
+                        {index + 1}
+                      </span>
+                    </div>
+                  ))}
+                  
+                  {videoImages.length < 3 && (
+                    <div
+                      onClick={() => !videoImageUploading && videoImageInputRef.current?.click()}
+                      className={cn(
+                        "border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg aspect-square flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors",
+                        videoImageUploading && "opacity-50 cursor-wait"
+                      )}
+                      data-testid="button-upload-video-image"
+                    >
+                      {videoImageUploading ? (
+                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                      ) : (
+                        <>
+                          <Upload className="h-6 w-6 text-gray-400" />
+                          <span className="text-xs text-gray-500 mt-1">Add</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  Upload 1-3 property images for your video
+                </p>
               </div>
 
               {agentPhotoUrl && (
@@ -682,7 +712,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
               <Button
                 onClick={startVideoGeneration}
-                disabled={videoGenerating || !videoImageUrl.trim()}
+                disabled={videoGenerating || videoImages.length === 0}
                 className="w-full bg-primary hover:bg-primary/90"
                 data-testid="button-generate-video"
               >

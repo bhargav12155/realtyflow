@@ -428,6 +428,28 @@ export const properties = pgTable("properties", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// =====================================================
+// AI CHAT HISTORY TABLE
+// =====================================================
+export const aiChatSessions = pgTable("ai_chat_sessions", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  title: text("title").default("New Chat"),
+  messages: jsonb("messages").$type<Array<{ role: string; content: string }>>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAiChatSessionSchema = createInsertSchema(aiChatSessions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertAiChatSession = z.infer<typeof insertAiChatSessionSchema>;
+export type AiChatSession = typeof aiChatSessions.$inferSelect;
+
 // Legacy AI Content and Social Posts (keeping for compatibility)
 export const aiContent = pgTable("ai_content", {
   id: varchar("id")

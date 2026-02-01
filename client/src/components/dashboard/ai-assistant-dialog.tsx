@@ -32,9 +32,20 @@ import {
   X,
   ArrowLeft,
   Upload,
+  History,
+  Plus,
+  Trash2,
+  ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
+
+interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface Attachment {
   url: string;
@@ -118,6 +129,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [includeAgentPhoto, setIncludeAgentPhoto] = useState(false);
   const [agentPhotoUrl, setAgentPhotoUrl] = useState<string | null>(null);
   const [videoImageUploading, setVideoImageUploading] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +184,157 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       fetchAgentPhoto();
     }
   }, [open]);
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      setSessionsLoading(true);
+      const token = getAuthToken();
+      if (!token) return;
+      
+      const response = await fetch("/api/ai/chat-sessions", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSessions(data);
+      }
+    } catch (error) {
+      console.error("Error fetching chat sessions:", error);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      fetchSessions();
+    }
+  }, [open, fetchSessions]);
+
+  const createSession = useCallback(async (title: string): Promise<string | null> => {
+    try {
+      const token = getAuthToken();
+      if (!token) return null;
+      
+      const response = await fetch("/api/ai/chat-sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: JSON.stringify({ title }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        fetchSessions();
+        return data.id;
+      }
+      return null;
+    } catch (error) {
+      console.error("Error creating session:", error);
+      return null;
+    }
+  }, [fetchSessions]);
+
+  const saveSessionMessages = useCallback(async (sessionId: string, sessionMessages: Message[], title?: string) => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      
+      const body: { messages: Message[]; title?: string } = { messages: sessionMessages };
+      if (title) body.title = title;
+      
+      await fetch(`/api/ai/chat-sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      
+      fetchSessions();
+    } catch (error) {
+      console.error("Error saving session messages:", error);
+    }
+  }, [fetchSessions]);
+
+  const loadSession = useCallback(async (sessionId: string) => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      
+      const response = await fetch(`/api/ai/chat-sessions/${sessionId}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data.messages || []);
+        setCurrentSessionId(sessionId);
+        setShowHistory(false);
+      }
+    } catch (error) {
+      console.error("Error loading session:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load chat session.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      
+      const response = await fetch(`/api/ai/chat-sessions/${sessionId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+      
+      if (response.ok) {
+        if (currentSessionId === sessionId) {
+          setCurrentSessionId(null);
+          setMessages([]);
+        }
+        fetchSessions();
+        toast({
+          title: "Deleted",
+          description: "Chat session deleted successfully.",
+        });
+      }
+    } catch (error) {
+      console.error("Error deleting session:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete chat session.",
+        variant: "destructive",
+      });
+    }
+  }, [currentSessionId, fetchSessions, toast]);
+
+  const startNewChat = useCallback(() => {
+    setCurrentSessionId(null);
+    setMessages([]);
+    setInput("");
+    setShowHistory(false);
+  }, []);
+
+  const generateTitle = (message: string): string => {
+    const cleaned = message.trim().slice(0, 30);
+    return cleaned.length < message.trim().length ? cleaned + "..." : cleaned;
+  };
 
   useEffect(() => {
     if (!videoOperationId || !videoGenerating) return;
@@ -454,11 +620,22 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     setSelectedFiles([]);
     setIsLoading(true);
 
+    const isFirstMessage = messages.length === 0;
+    let sessionId = currentSessionId;
+
     try {
       const token = getAuthToken();
       const headers: Record<string, string> = {};
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      if (isFirstMessage && !sessionId) {
+        const title = generateTitle(trimmedInput || "New Chat");
+        sessionId = await createSession(title);
+        if (sessionId) {
+          setCurrentSessionId(sessionId);
+        }
       }
 
       let data;
@@ -512,7 +689,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         content: data.assistantMessage?.content || data.response || data.message || "I apologize, but I couldn't generate a response. Please try again.",
       };
       
-      setMessages([...updatedMessages, assistantMessage]);
+      const finalMessages = [...updatedMessages, assistantMessage];
+      setMessages(finalMessages);
+
+      if (sessionId) {
+        saveSessionMessages(sessionId, finalMessages);
+      }
     } catch (error) {
       console.error("AI chat error:", error);
       toast({
@@ -524,7 +706,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         role: "assistant",
         content: "I'm sorry, I encountered an error. Please try again or contact support if the issue persists.",
       };
-      setMessages([...updatedMessages, errorMessage]);
+      const finalMessages = [...updatedMessages, errorMessage];
+      setMessages(finalMessages);
+
+      if (sessionId) {
+        saveSessionMessages(sessionId, finalMessages);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -540,20 +727,120 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const clearConversation = () => {
     setMessages([]);
     setInput("");
+    setCurrentSessionId(null);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString();
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent 
-        className="sm:max-w-[600px] h-[80vh] max-h-[700px] flex flex-col p-0 gap-0 bg-white dark:bg-gray-900"
+        className={cn(
+          "h-[80vh] max-h-[700px] flex flex-col p-0 gap-0 bg-white dark:bg-gray-900",
+          showHistory ? "sm:max-w-[850px]" : "sm:max-w-[600px]"
+        )}
         data-testid="dialog-ai-assistant"
       >
         <DialogHeader className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <DialogTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
-            <Sparkles className="h-5 w-5 text-primary" />
-            AI Assistant
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-gray-900 dark:text-white">
+              <Sparkles className="h-5 w-5 text-primary" />
+              AI Assistant
+            </DialogTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={startNewChat}
+                className="text-xs"
+                data-testid="button-new-chat"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                New Chat
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowHistory(!showHistory)}
+                className={cn("text-xs", showHistory && "bg-gray-100 dark:bg-gray-800")}
+                data-testid="button-toggle-history"
+              >
+                <History className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </DialogHeader>
+
+        <div className="flex flex-1 overflow-hidden">
+          {showHistory && (
+            <div className="w-[250px] border-r border-gray-200 dark:border-gray-700 flex flex-col bg-gray-50 dark:bg-gray-800/50">
+              <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Chat History</h3>
+              </div>
+              <ScrollArea className="flex-1">
+                {sessionsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                  </div>
+                ) : sessions.length === 0 ? (
+                  <div className="text-center py-8 px-3">
+                    <MessageSquare className="h-8 w-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                    <p className="text-xs text-gray-500 dark:text-gray-400">No chat history yet</p>
+                  </div>
+                ) : (
+                  <div className="py-2">
+                    {sessions.map((session) => (
+                      <div
+                        key={session.id}
+                        className={cn(
+                          "group px-3 py-2 mx-2 rounded-md cursor-pointer transition-colors",
+                          currentSessionId === session.id
+                            ? "bg-primary/10 text-primary"
+                            : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                        )}
+                        onClick={() => loadSession(session.id)}
+                        data-testid={`session-item-${session.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate text-gray-800 dark:text-gray-200">
+                              {session.title || "Untitled"}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {formatDate(session.updatedAt)}
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteSession(session.id);
+                            }}
+                            data-testid={`button-delete-session-${session.id}`}
+                          >
+                            <Trash2 className="h-3 w-3 text-gray-400 hover:text-red-500" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          )}
+
+          <div className="flex-1 flex flex-col overflow-hidden">
 
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center gap-3 mb-3">
@@ -942,6 +1229,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               </Button>
             </div>
           )}
+        </div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

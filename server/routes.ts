@@ -1,5 +1,6 @@
 import {
   aiAssistantMessages,
+  aiChatSessions,
   contentOpportunities,
   insertAvatarSchema,
   insertBrandSettingsSchema,
@@ -12,7 +13,7 @@ import {
   userPreferences,
 } from "@shared/schema";
 import crypto from "crypto";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Express, NextFunction, Request, Response } from "express";
 import express from "express";
 import fs from "fs";
@@ -800,6 +801,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI Chat Sessions - List all chat sessions for user
+  app.get("/api/ai/chat-sessions", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const sessions = await db
+        .select({
+          id: aiChatSessions.id,
+          title: aiChatSessions.title,
+          createdAt: aiChatSessions.createdAt,
+          updatedAt: aiChatSessions.updatedAt,
+        })
+        .from(aiChatSessions)
+        .where(eq(aiChatSessions.userId, userId))
+        .orderBy(desc(aiChatSessions.updatedAt));
+      
+      res.json(sessions);
+    } catch (error) {
+      console.error("Error fetching chat sessions:", error);
+      res.status(500).json({ error: "Failed to fetch chat sessions" });
+    }
+  });
+
+  // AI Chat Sessions - Get single session with messages
+  app.get("/api/ai/chat-sessions/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const { id } = req.params;
+      
+      const sessions = await db
+        .select()
+        .from(aiChatSessions)
+        .where(and(eq(aiChatSessions.id, id), eq(aiChatSessions.userId, userId)))
+        .limit(1);
+      
+      if (sessions.length === 0) {
+        return res.status(404).json({ error: "Chat session not found" });
+      }
+      
+      res.json(sessions[0]);
+    } catch (error) {
+      console.error("Error fetching chat session:", error);
+      res.status(500).json({ error: "Failed to fetch chat session" });
+    }
+  });
+
+  // AI Chat Sessions - Create new session
+  app.post("/api/ai/chat-sessions", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const { title = "New Chat" } = req.body;
+      
+      const [session] = await db
+        .insert(aiChatSessions)
+        .values({
+          userId,
+          title,
+          messages: [],
+        })
+        .returning();
+      
+      res.json(session);
+    } catch (error) {
+      console.error("Error creating chat session:", error);
+      res.status(500).json({ error: "Failed to create chat session" });
+    }
+  });
+
+  // AI Chat Sessions - Update session (save messages)
+  app.patch("/api/ai/chat-sessions/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const { id } = req.params;
+      const { messages, title } = req.body;
+      
+      const updateData: any = { updatedAt: new Date() };
+      if (messages !== undefined) updateData.messages = messages;
+      if (title !== undefined) updateData.title = title;
+      
+      const [updated] = await db
+        .update(aiChatSessions)
+        .set(updateData)
+        .where(and(eq(aiChatSessions.id, id), eq(aiChatSessions.userId, userId)))
+        .returning();
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Chat session not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating chat session:", error);
+      res.status(500).json({ error: "Failed to update chat session" });
+    }
+  });
+
+  // AI Chat Sessions - Delete session
+  app.delete("/api/ai/chat-sessions/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const { id } = req.params;
+      
+      await db
+        .delete(aiChatSessions)
+        .where(and(eq(aiChatSessions.id, id), eq(aiChatSessions.userId, userId)));
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting chat session:", error);
+      res.status(500).json({ error: "Failed to delete chat session" });
+    }
+  });
+
   // AI Assistant Chat endpoint - supports multiple providers
   app.post("/api/ai/chat", requireAuth, async (req, res) => {
     try {
@@ -964,8 +1077,12 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
     "commercial-60": { aspectRatio: "16:9", duration: 8 },
   };
 
+  // Track VEO videos generated via AI Assistant (operationId -> userId)
+  const aiVeoVideos = new Map<string, number>();
+
   app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
     try {
+      const userId = req.user?.id;
       const { prompt, imageUrl, preset, agentPhotoUrl } = req.body;
 
       if (!imageUrl || typeof imageUrl !== "string") {
@@ -1010,6 +1127,11 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
 
       if (!result.success) {
         return res.status(500).json({ error: result.error || "Failed to start video generation" });
+      }
+
+      // Track this VEO video for the user
+      if (result.operationId && userId) {
+        aiVeoVideos.set(result.operationId, Number(userId));
       }
 
       res.json({
@@ -16211,13 +16333,19 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(400).json({ error: "Invalid filename" });
       }
       
-      const userOwnsVideo = Array.from(propertyTourJobs.values()).some(job => {
+      // Check property tour jobs ownership
+      const userOwnsPropertyTourVideo = Array.from(propertyTourJobs.values()).some(job => {
         if (job.userId !== Number(userId)) return false;
         return job.motionVideos.some(v => v.includes(filename)) || 
                job.finalVideoUrl?.includes(filename);
       });
       
-      if (!userOwnsVideo) {
+      // Check AI assistant VEO videos ownership (filename contains operationId)
+      const userOwnsAiVideo = Array.from(aiVeoVideos.entries()).some(([operationId, ownerId]) => {
+        return filename.includes(operationId) && ownerId === Number(userId);
+      });
+      
+      if (!userOwnsPropertyTourVideo && !userOwnsAiVideo) {
         return res.status(403).json({ error: "Access denied" });
       }
       

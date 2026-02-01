@@ -31,6 +31,7 @@ import {
   Paperclip,
   X,
   ArrowLeft,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
@@ -116,9 +117,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
   const [includeAgentPhoto, setIncludeAgentPhoto] = useState(false);
   const [agentPhotoUrl, setAgentPhotoUrl] = useState<string | null>(null);
+  const [videoImageUploading, setVideoImageUploading] = useState(false);
+  const [videoImagePreview, setVideoImagePreview] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoImageInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const scrollToBottom = useCallback(() => {
@@ -271,6 +275,74 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
   const removeFile = (index: number) => {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleVideoImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Image must be under 10MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setVideoImageUploading(true);
+    setVideoImagePreview(URL.createObjectURL(file));
+
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload/video-source', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to upload image');
+      }
+
+      const data = await response.json();
+      setVideoImageUrl(data.url);
+      toast({
+        title: "Image uploaded",
+        description: "Your property image is ready for video generation.",
+      });
+    } catch (error) {
+      console.error('Video image upload error:', error);
+      toast({
+        title: "Upload failed",
+        description: "Failed to upload image. Please try again.",
+        variant: "destructive",
+      });
+      setVideoImagePreview(null);
+    } finally {
+      setVideoImageUploading(false);
+      if (videoImageInputRef.current) {
+        videoImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const clearVideoImage = () => {
+    setVideoImageUrl('');
+    setVideoImagePreview(null);
   };
 
   const startVideoGeneration = async () => {
@@ -537,14 +609,51 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               </div>
 
               <div>
-                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Source Image URL</label>
-                <Input
-                  value={videoImageUrl}
-                  onChange={(e) => setVideoImageUrl(e.target.value)}
-                  placeholder="https://example.com/image.jpg"
-                  className="bg-white dark:bg-gray-900"
-                  data-testid="input-video-image-url"
+                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Property Image</label>
+                <input
+                  ref={videoImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleVideoImageUpload}
+                  className="hidden"
+                  data-testid="input-video-image-file"
                 />
+                
+                {videoImageUrl || videoImagePreview ? (
+                  <div className="relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                    <img
+                      src={videoImagePreview || videoImageUrl}
+                      alt="Property"
+                      className="w-full h-32 object-cover"
+                    />
+                    {videoImageUploading && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <Loader2 className="h-6 w-6 animate-spin text-white" />
+                      </div>
+                    )}
+                    <button
+                      onClick={clearVideoImage}
+                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      data-testid="button-clear-video-image"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => videoImageInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors"
+                    data-testid="button-upload-video-image"
+                  >
+                    <Upload className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Click to upload property image
+                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                      JPG, PNG up to 10MB
+                    </p>
+                  </div>
+                )}
               </div>
 
               {agentPhotoUrl && (

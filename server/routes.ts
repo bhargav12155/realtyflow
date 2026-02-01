@@ -1229,6 +1229,45 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
     }
   });
 
+  // Video source image upload endpoint
+  app.post("/api/upload/video-source", requireAuth, memoryImageUpload.single("file"), async (req, res) => {
+    try {
+      const userId = String(req.user!.id);
+      if (!req.file) {
+        return res.status(400).json({ error: "No file provided" });
+      }
+
+      console.log(`📤 Video source image upload for user ${userId}: ${req.file.originalname}`);
+
+      const { S3UploadService } = await import("./services/s3Upload");
+      const s3Service = new S3UploadService();
+      
+      const timestamp = Date.now();
+      const ext = req.file.originalname?.split('.').pop() || 'jpg';
+      const filename = `video-source-${userId}-${timestamp}.${ext}`;
+      const s3Key = `video-sources/${userId}/${filename}`;
+      
+      // Upload with presigned URL so VEO API can access it
+      const url = await s3Service.uploadBuffer(
+        req.file.buffer, 
+        s3Key, 
+        req.file.mimetype || "image/jpeg",
+        true, // return presigned URL
+        3600 // 1 hour expiration
+      );
+
+      if (!url) {
+        return res.status(500).json({ error: "Failed to save video source image" });
+      }
+
+      console.log(`✅ Video source image saved to S3: ${url.substring(0, 80)}...`);
+      res.json({ url });
+    } catch (error) {
+      console.error("Video source image upload error:", error);
+      res.status(500).json({ error: "Failed to upload video source image" });
+    }
+  });
+
   // AI Image Generation endpoint
   app.post("/api/images/generate", requireAuth, async (req, res) => {
     try {

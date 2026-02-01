@@ -1083,7 +1083,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
   app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;
-      const { prompt, imageUrl, preset, agentPhotoUrl } = req.body;
+      const { prompt, imageUrl, imageUrls, preset, roomType, agentPhotoUrl } = req.body;
 
       if (!imageUrl || typeof imageUrl !== "string") {
         return res.status(400).json({ error: "Image URL is required" });
@@ -1102,13 +1102,27 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         return res.status(500).json({ error: "VEO service not configured. GEMINI_API_KEY is required." });
       }
 
-      // Auto-generate prompt for property tour if not provided
+      // Generate compliant prompt based on room type
       let videoPrompt = prompt;
       if (!videoPrompt || typeof videoPrompt !== "string") {
-        videoPrompt = "Create a cinematic property tour video with smooth camera movements, gentle pan and zoom effects. Professional real estate showcase style.";
-        if (agentPhotoUrl) {
-          videoPrompt += " Include a professional real estate agent introduction at the beginning.";
+        const imageCount = Array.isArray(imageUrls) ? imageUrls.length : 1;
+        const spaceType = roomType === "exterior" ? "exterior space" : "single room";
+        const isRoom = roomType !== "exterior";
+        
+        // Compliant prompt that preserves property images without alterations
+        videoPrompt = `Create a realistic video tour of the ${spaceType} depicted in the attached ${imageCount === 1 ? "image" : `${imageCount} images`}.${
+          imageCount > 1 ? " Each image is in triangle position in the room starting from left to right with the last being the view from the other side." : ""
         }
+
+Compliance Constraint: Ensure strict adherence to the existing layout. Do not add any objects, decor, or architectural features that are not present in the source images. The video must be a factual representation of the space.
+
+Visual Style & Movement: Start the video with a wide view (matching the widest input image). The camera should perform a slow 'dolly in' movement, moving steadily forward into the center of the ${isRoom ? "room" : "scene"} at eye level. As the camera moves forward, subtly pan left and right to reveal the space exactly as arranged in the photos. Maintain crisp focus throughout.`;
+        
+        if (agentPhotoUrl) {
+          videoPrompt += "\n\nInclude a brief, professional real estate agent presence at the end as a subtle overlay or corner introduction.";
+        }
+        
+        console.log(`📝 [VEO] Generated compliant prompt for ${roomType || "room"} with ${imageCount} image(s)`);
       }
 
       console.log(`🎬 [VEO] Starting video generation with preset: ${preset}`);

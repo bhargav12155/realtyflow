@@ -110,6 +110,11 @@ const videoPresets = [
   { value: "commercial-30", label: "Commercial Spot (8s, Landscape)" },
 ];
 
+const roomTypes = [
+  { value: "room", label: "Interior Room", description: "Living room, bedroom, kitchen, etc." },
+  { value: "exterior", label: "Exterior", description: "Front yard, backyard, patio, etc." },
+];
+
 interface AIAssistantDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -123,6 +128,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
+  const [roomType, setRoomType] = useState<"room" | "exterior">("room");
   const [videoImages, setVideoImages] = useState<Array<{ url: string; preview: string }>>([]);
   const [videoGenerating, setVideoGenerating] = useState(false);
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
@@ -537,9 +543,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     setVideoGenerating(true);
 
     const imageUrls = videoImages.map(img => img.url);
+    const roomTypeLabel = roomTypes.find(r => r.value === roomType)?.label || roomType;
     const userMessage: Message = {
       role: "user",
-      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} video from ${videoImages.length} image${videoImages.length > 1 ? 's' : ''}`,
+      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} ${roomTypeLabel} tour video from ${videoImages.length} image${videoImages.length > 1 ? 's' : ''}`,
     };
     setMessages(prev => [...prev, userMessage]);
 
@@ -560,6 +567,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           imageUrl: imageUrls[0],
           imageUrls: imageUrls,
           preset: videoPreset,
+          roomType: roomType,
           agentPhotoUrl: includeAgentPhoto ? agentPhotoUrl : undefined,
         }),
       });
@@ -894,20 +902,37 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             </div>
             
             <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Platform Preset</label>
-                <Select value={videoPreset} onValueChange={setVideoPreset}>
-                  <SelectTrigger className="w-full" data-testid="select-video-preset">
-                    <SelectValue placeholder="Select preset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {videoPresets.map((preset) => (
-                      <SelectItem key={preset.value} value={preset.value}>
-                        {preset.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Platform Preset</label>
+                  <Select value={videoPreset} onValueChange={setVideoPreset}>
+                    <SelectTrigger className="w-full" data-testid="select-video-preset">
+                      <SelectValue placeholder="Select preset" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {videoPresets.map((preset) => (
+                        <SelectItem key={preset.value} value={preset.value}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Space Type</label>
+                  <Select value={roomType} onValueChange={(val: "room" | "exterior") => setRoomType(val)}>
+                    <SelectTrigger className="w-full" data-testid="select-room-type">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roomTypes.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <div>
@@ -968,9 +993,14 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   )}
                 </div>
                 
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                  Upload 1-3 property images for your video
-                </p>
+                <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <p className="text-xs text-amber-700 dark:text-amber-300 font-medium mb-1">
+                    Triangle Position Guide
+                  </p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    For best results with multiple images: Photo 1 (left view) → Photo 2 (right view) → Photo 3 (opposite side looking back). This creates a natural camera path through the space.
+                  </p>
+                </div>
               </div>
 
               {agentPhotoUrl && (

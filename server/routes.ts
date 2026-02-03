@@ -1083,7 +1083,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
   app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;
-      const { prompt, imageUrl, imageUrls, preset, roomType, agentPhotoUrl } = req.body;
+      const { prompt, imageUrl, imageUrls, preset, roomType, customDescription, noSound, agentPhotoUrl } = req.body;
 
       if (!imageUrl || typeof imageUrl !== "string") {
         return res.status(400).json({ error: "Image URL is required" });
@@ -1118,11 +1118,27 @@ Compliance Constraint: Ensure strict adherence to the existing layout. Do not ad
 
 Visual Style & Movement: Start the video with a wide view (matching the widest input image). The camera should perform a slow 'dolly in' movement, moving steadily forward into the center of the ${isRoom ? "room" : "scene"} at eye level. As the camera moves forward, subtly pan left and right to reveal the space exactly as arranged in the photos. Maintain crisp focus throughout.`;
         
+        // Add custom description if provided
+        if (customDescription && typeof customDescription === "string" && customDescription.trim()) {
+          videoPrompt += `\n\nProperty Details: ${customDescription.trim()}`;
+        }
+        
+        // Handle no sound preference
+        if (noSound) {
+          videoPrompt += "\n\nAudio: This video should be silent with no background music or sound effects.";
+        }
+        
         if (agentPhotoUrl) {
           videoPrompt += "\n\nInclude a brief, professional real estate agent presence at the end as a subtle overlay or corner introduction.";
         }
         
         console.log(`📝 [VEO] Generated compliant prompt for ${roomType || "room"} with ${imageCount} image(s)`);
+        if (customDescription) {
+          console.log(`📝 [VEO] Custom description added: ${customDescription.substring(0, 50)}...`);
+        }
+        if (noSound) {
+          console.log(`🔇 [VEO] Silent video requested`);
+        }
       }
 
       console.log(`🎬 [VEO] Starting video generation with preset: ${preset}`);

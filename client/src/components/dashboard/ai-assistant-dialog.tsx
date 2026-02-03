@@ -129,6 +129,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [videoMode, setVideoMode] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
   const [roomType, setRoomType] = useState<"room" | "exterior">("room");
+  const [customDescription, setCustomDescription] = useState("");
+  const [noSound, setNoSound] = useState(false);
   const [videoImages, setVideoImages] = useState<Array<{ url: string; preview: string }>>([]);
   const [videoGenerating, setVideoGenerating] = useState(false);
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
@@ -568,6 +570,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           imageUrls: imageUrls,
           preset: videoPreset,
           roomType: roomType,
+          customDescription: customDescription.trim() || undefined,
+          noSound: noSound,
           agentPhotoUrl: includeAgentPhoto ? agentPhotoUrl : undefined,
         }),
       });
@@ -1001,6 +1005,35 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                     For best results with multiple images: Photo 1 (left view) → Photo 2 (right view) → Photo 3 (opposite side looking back). This creates a natural camera path through the space.
                   </p>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                  Custom Description (Optional)
+                </label>
+                <textarea
+                  value={customDescription}
+                  onChange={(e) => setCustomDescription(e.target.value)}
+                  placeholder="Add notes about this property, like '4BR/3BA with updated kitchen, open concept living area...' This will be included in the video generation."
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                  rows={2}
+                  data-testid="input-custom-description"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <Checkbox
+                  id="no-sound-checkbox"
+                  checked={noSound}
+                  onCheckedChange={(checked) => setNoSound(checked === true)}
+                  data-testid="checkbox-no-sound"
+                />
+                <label
+                  htmlFor="no-sound-checkbox"
+                  className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                >
+                  No sound (silent video)
+                </label>
               </div>
 
               {agentPhotoUrl && (

@@ -887,13 +887,13 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         </div>
 
         {videoMode && (
-          <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-blue-50 dark:bg-blue-900/20">
-            <div className="flex items-center gap-2 mb-3">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-blue-50 dark:bg-blue-900/20 max-h-[70vh] overflow-y-auto">
+            <div className="flex items-center gap-2 mb-2 sticky top-0 bg-blue-50 dark:bg-blue-900/20 -mt-3 -mx-4 px-4 pt-3 pb-2 border-b border-blue-100 dark:border-blue-800/30">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setVideoMode(false)}
-                className="h-8 px-2"
+                className="h-7 px-2"
                 data-testid="button-exit-video-mode"
               >
                 <ArrowLeft className="h-4 w-4 mr-1" />
@@ -905,7 +905,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               </h4>
             </div>
             
-            <div className="space-y-3">
+            <div className="space-y-2 mt-2">
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Platform Preset</label>
@@ -997,14 +997,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   )}
                 </div>
                 
-                <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                  <p className="text-xs text-amber-700 dark:text-amber-300 font-medium mb-1">
-                    Triangle Position Guide
-                  </p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                    For best results with multiple images: Photo 1 (left view) → Photo 2 (right view) → Photo 3 (opposite side looking back). This creates a natural camera path through the space.
-                  </p>
-                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Tip: For 3 images use triangle positioning (left → right → opposite view)
+                </p>
               </div>
 
               <div>
@@ -1021,7 +1016,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 />
               </div>
 
-              <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="no-sound-checkbox"
                   checked={noSound}
@@ -1030,33 +1025,31 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 />
                 <label
                   htmlFor="no-sound-checkbox"
-                  className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
+                  className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer"
                 >
                   No sound (silent video)
                 </label>
               </div>
 
               {agentPhotoUrl && (
-                <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2">
                   <Checkbox
                     id="include-agent-photo"
                     checked={includeAgentPhoto}
                     onCheckedChange={(checked) => setIncludeAgentPhoto(checked === true)}
                     data-testid="checkbox-include-agent-photo"
                   />
-                  <div className="flex items-center gap-2 flex-1">
-                    <img
-                      src={agentPhotoUrl}
-                      alt="Agent"
-                      className="w-8 h-8 rounded-full object-cover"
-                    />
-                    <label
-                      htmlFor="include-agent-photo"
-                      className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer"
-                    >
-                      Include my photo in video
-                    </label>
-                  </div>
+                  <img
+                    src={agentPhotoUrl}
+                    alt="Agent"
+                    className="w-5 h-5 rounded-full object-cover"
+                  />
+                  <label
+                    htmlFor="include-agent-photo"
+                    className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer"
+                  >
+                    Include my photo
+                  </label>
                 </div>
               )}
 

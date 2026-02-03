@@ -854,41 +854,43 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
           <div className="flex-1 flex flex-col overflow-hidden">
 
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <div className="flex items-center gap-3 mb-3">
-            <label className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">AI Provider:</label>
-            <Select value={aiProvider} onValueChange={(value: "auto" | "openai" | "gemini") => setAiProvider(value)}>
-              <SelectTrigger className="w-[200px] h-8 text-xs" data-testid="select-ai-provider">
-                <SelectValue placeholder="Select provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Auto (Recommended)</SelectItem>
-                <SelectItem value="openai">ChatGPT (GPT-4o)</SelectItem>
-                <SelectItem value="gemini">Gemini</SelectItem>
-              </SelectContent>
-            </Select>
+        {!videoMode && (
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+            <div className="flex items-center gap-3 mb-3">
+              <label className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">AI Provider:</label>
+              <Select value={aiProvider} onValueChange={(value: "auto" | "openai" | "gemini") => setAiProvider(value)}>
+                <SelectTrigger className="w-[200px] h-8 text-xs" data-testid="select-ai-provider">
+                  <SelectValue placeholder="Select provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (Recommended)</SelectItem>
+                  <SelectItem value="openai">ChatGPT (GPT-4o)</SelectItem>
+                  <SelectItem value="gemini">Gemini</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick Actions</p>
+            <div className="flex flex-wrap gap-2">
+              {quickActions.map((action) => (
+                <Button
+                  key={action.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleQuickAction(action)}
+                  className="text-xs bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                  data-testid={`button-quick-action-${action.id}`}
+                >
+                  {action.icon}
+                  <span className="ml-1">{action.label}</span>
+                </Button>
+              ))}
+            </div>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick Actions</p>
-          <div className="flex flex-wrap gap-2">
-            {quickActions.map((action) => (
-              <Button
-                key={action.id}
-                variant="outline"
-                size="sm"
-                onClick={() => handleQuickAction(action)}
-                className="text-xs bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300"
-                data-testid={`button-quick-action-${action.id}`}
-              >
-                {action.icon}
-                <span className="ml-1">{action.label}</span>
-              </Button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {videoMode && (
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-blue-50 dark:bg-blue-900/20 max-h-[70vh] overflow-y-auto">
-            <div className="flex items-center gap-2 mb-2 sticky top-0 bg-blue-50 dark:bg-blue-900/20 -mt-3 -mx-4 px-4 pt-3 pb-2 border-b border-blue-100 dark:border-blue-800/30">
+          <div className="flex-1 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 overflow-y-auto">
+            <div className="flex items-center gap-2 mb-3">
               <Button
                 variant="ghost"
                 size="sm"
@@ -1075,6 +1077,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           </div>
         )}
 
+        {!videoMode && (
         <ScrollArea 
           ref={scrollAreaRef}
           className="flex-1 px-4 py-4"
@@ -1191,7 +1194,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             </div>
           )}
         </ScrollArea>
+        )}
 
+        {!videoMode && (
         <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50">
           {selectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
@@ -1286,6 +1291,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             </div>
           )}
         </div>
+        )}
           </div>
         </div>
       </DialogContent>

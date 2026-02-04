@@ -1083,7 +1083,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
   app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;
-      const { prompt, imageUrl, imageUrls, preset, roomType, customDescription, noSound, agentPhotoUrl } = req.body;
+      const { prompt, imageUrl, imageUrls, roomTypes, preset, spaceType, customDescription, noSound, agentPhotoUrl } = req.body;
 
       if (!imageUrl || typeof imageUrl !== "string") {
         return res.status(400).json({ error: "Image URL is required" });
@@ -1102,21 +1102,59 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         return res.status(500).json({ error: "VEO service not configured. GEMINI_API_KEY is required." });
       }
 
-      // Generate compliant prompt based on room type
+      // Room type to descriptive prompt mapping
+      const roomPromptMap: Record<string, string> = {
+        // Interior rooms
+        "living-room": "spacious living room with elegant furnishings",
+        "kitchen": "modern kitchen with premium appliances and countertops",
+        "master-bedroom": "luxurious master bedroom with ample natural light",
+        "bedroom": "comfortable bedroom with quality finishes",
+        "bathroom": "updated bathroom with contemporary fixtures",
+        "master-bath": "spa-like master bathroom with upscale finishes",
+        "dining-room": "elegant dining room perfect for entertaining",
+        "office": "functional home office with natural lighting",
+        "basement": "finished basement with versatile living space",
+        "laundry": "convenient laundry room with modern appliances",
+        "garage": "spacious garage with ample storage",
+        "other": "beautifully finished interior space",
+        // Exterior spaces
+        "front-yard": "stunning curb appeal with manicured landscaping",
+        "backyard": "private backyard oasis perfect for outdoor living",
+        "patio": "inviting outdoor patio ideal for entertaining",
+        "pool": "sparkling pool with resort-style amenities",
+        "garden": "professionally designed landscaping and garden",
+        "driveway": "welcoming entrance with elegant driveway",
+        "aerial": "expansive property showcasing the full lot",
+        "other-exterior": "impressive outdoor feature",
+      };
+
+      // Generate compliant prompt based on room types array
       let videoPrompt = prompt;
       if (!videoPrompt || typeof videoPrompt !== "string") {
         const imageCount = Array.isArray(imageUrls) ? imageUrls.length : 1;
-        const spaceType = roomType === "exterior" ? "exterior space" : "single room";
-        const isRoom = roomType !== "exterior";
+        const isExterior = spaceType === "exterior";
+        const roomTypesArray = Array.isArray(roomTypes) ? roomTypes : [];
+        
+        // Build room descriptions from provided room types
+        let roomDescriptions = "";
+        if (roomTypesArray.length > 0) {
+          const descriptions = roomTypesArray.map((rt: string, idx: number) => {
+            const desc = roomPromptMap[rt] || (isExterior ? "outdoor space" : "interior space");
+            return `Image ${idx + 1}: ${desc}`;
+          });
+          roomDescriptions = descriptions.join(". ") + ".";
+        }
+        
+        const sceneType = isExterior ? "exterior property" : "interior space";
         
         // Compliant prompt that preserves property images without alterations
-        videoPrompt = `Create a realistic video tour of the ${spaceType} depicted in the attached ${imageCount === 1 ? "image" : `${imageCount} images`}.${
-          imageCount > 1 ? " Each image is in triangle position in the room starting from left to right with the last being the view from the other side." : ""
-        }
+        videoPrompt = `Create a realistic ${presetConfig.duration}-second video tour of the ${sceneType} depicted in the attached ${imageCount === 1 ? "image" : `${imageCount} images`}.${
+          imageCount > 1 ? " Each image is in triangle position starting from left to right with the last being the view from the other side." : ""
+        }${roomDescriptions ? `\n\nRoom Details: ${roomDescriptions}` : ""}
 
 Compliance Constraint: Ensure strict adherence to the existing layout. Do not add any objects, decor, or architectural features that are not present in the source images. The video must be a factual representation of the space.
 
-Visual Style & Movement: Start the video with a wide view (matching the widest input image). The camera should perform a slow 'dolly in' movement, moving steadily forward into the center of the ${isRoom ? "room" : "scene"} at eye level. As the camera moves forward, subtly pan left and right to reveal the space exactly as arranged in the photos. Maintain crisp focus throughout.`;
+Visual Style & Movement: Start the video with a wide view (matching the widest input image). The camera should perform a slow 'dolly in' movement, moving steadily forward into the center of the ${isExterior ? "scene" : "room"} at eye level. As the camera moves forward, subtly pan left and right to reveal the space exactly as arranged in the photos. Maintain crisp focus throughout.`;
         
         // Add custom description if provided
         if (customDescription && typeof customDescription === "string" && customDescription.trim()) {
@@ -1132,7 +1170,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           videoPrompt += "\n\nInclude a brief, professional real estate agent presence at the end as a subtle overlay or corner introduction.";
         }
         
-        console.log(`📝 [VEO] Generated compliant prompt for ${roomType || "room"} with ${imageCount} image(s)`);
+        console.log(`📝 [VEO] Generated compliant prompt for ${spaceType || "interior"} with ${imageCount} image(s), room types: ${roomTypesArray.join(", ") || "none specified"}`);
         if (customDescription) {
           console.log(`📝 [VEO] Custom description added: ${customDescription.substring(0, 50)}...`);
         }
@@ -1198,6 +1236,138 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
     } catch (error) {
       console.error("VEO status check error:", error);
       res.status(500).json({ error: "Failed to check video generation status" });
+    }
+  });
+
+  // Combine multiple videos into a full house tour using ffmpeg
+  app.post("/api/ai/veo/combine", requireAuth, async (req, res) => {
+    try {
+      const { videoUrls, title } = req.body;
+      const userId = req.user?.id;
+
+      if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
+        return res.status(400).json({ error: "At least 2 video URLs are required to combine" });
+      }
+
+      if (videoUrls.length > 10) {
+        return res.status(400).json({ error: "Maximum 10 videos can be combined at once" });
+      }
+
+      // Security: Strict URL validation for video sources
+      const S3_BUCKET_NAME = process.env.AWS_S3_BUCKET || "nebraskahomehub";
+      
+      for (const url of videoUrls) {
+        try {
+          const parsedUrl = new URL(url);
+          
+          // Only allow HTTPS
+          if (parsedUrl.protocol !== "https:") {
+            return res.status(400).json({ error: "Only HTTPS URLs are allowed" });
+          }
+          
+          // Validate against our specific S3 bucket or Google's Gemini API
+          const isOurS3Bucket = 
+            parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.amazonaws.com` ||
+            parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.us-east-1.amazonaws.com` ||
+            parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.us-east-2.amazonaws.com` ||
+            (parsedUrl.hostname === "s3.amazonaws.com" && parsedUrl.pathname.startsWith(`/${S3_BUCKET_NAME}/`)) ||
+            (parsedUrl.hostname === "s3.us-east-1.amazonaws.com" && parsedUrl.pathname.startsWith(`/${S3_BUCKET_NAME}/`));
+          
+          const isGeminiApi = 
+            parsedUrl.hostname === "generativelanguage.googleapis.com" ||
+            parsedUrl.hostname === "storage.googleapis.com";
+          
+          if (!isOurS3Bucket && !isGeminiApi) {
+            console.warn(`🔒 [VEO Combine] Blocked URL from non-allowed source: ${parsedUrl.hostname}`);
+            return res.status(400).json({ error: "Video URLs must be from your property tour videos" });
+          }
+          
+          // Block any URL containing private IP ranges or localhost patterns in path
+          const suspiciousPatterns = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+          if (suspiciousPatterns.test(url)) {
+            return res.status(400).json({ error: "Invalid URL detected" });
+          }
+        } catch (e) {
+          return res.status(400).json({ error: "Invalid video URL format" });
+        }
+      }
+
+      console.log(`🎬 [VEO Combine] Combining ${videoUrls.length} videos for user ${userId}`);
+
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const os = await import("os");
+
+      // Create temp directory for video processing
+      const tempDir = path.join(os.tmpdir(), `veo-combine-${Date.now()}`);
+      await fs.mkdir(tempDir, { recursive: true });
+
+      try {
+        // Download all videos to temp directory
+        const downloadedFiles: string[] = [];
+        for (let i = 0; i < videoUrls.length; i++) {
+          const videoUrl = videoUrls[i];
+          const tempFile = path.join(tempDir, `video_${i}.mp4`);
+          
+          console.log(`📥 [VEO Combine] Downloading video ${i + 1}/${videoUrls.length}`);
+          
+          const response = await fetch(videoUrl);
+          if (!response.ok) {
+            throw new Error(`Failed to download video ${i + 1}: ${response.statusText}`);
+          }
+          
+          const buffer = Buffer.from(await response.arrayBuffer());
+          await fs.writeFile(tempFile, buffer);
+          downloadedFiles.push(tempFile);
+        }
+
+        // Create concat file for ffmpeg
+        const concatListPath = path.join(tempDir, "concat_list.txt");
+        const concatContent = downloadedFiles.map(f => `file '${f}'`).join("\n");
+        await fs.writeFile(concatListPath, concatContent);
+
+        // Output file
+        const outputFile = path.join(tempDir, "combined_tour.mp4");
+
+        // Run ffmpeg to combine videos with re-encoding for compatibility
+        console.log(`🔧 [VEO Combine] Running ffmpeg to combine videos...`);
+        
+        // Re-encode to ensure compatible codec/resolution across all videos
+        // Using H.264 with AAC audio for maximum compatibility
+        const ffmpegCmd = `ffmpeg -f concat -safe 0 -i "${concatListPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -movflags +faststart -y "${outputFile}"`;
+        
+        await execAsync(ffmpegCmd, { timeout: 300000 }); // 5 minute timeout for re-encoding
+
+        // Read the combined video
+        const combinedVideoBuffer = await fs.readFile(outputFile);
+        
+        // Upload to S3
+        const { uploadToS3 } = await import("./services/s3");
+        const s3Key = `videos/property-tours/combined-${Date.now()}-${userId}.mp4`;
+        const s3Url = await uploadToS3(combinedVideoBuffer, s3Key, "video/mp4");
+
+        console.log(`✅ [VEO Combine] Combined video uploaded to S3: ${s3Url}`);
+
+        // Cleanup temp files
+        await fs.rm(tempDir, { recursive: true, force: true });
+
+        res.json({
+          success: true,
+          videoUrl: s3Url,
+          title: title || "Full Property Tour",
+          videoCount: videoUrls.length,
+        });
+      } catch (ffmpegError: any) {
+        // Cleanup on error
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        throw ffmpegError;
+      }
+    } catch (error: any) {
+      console.error("VEO combine error:", error);
+      res.status(500).json({ error: error.message || "Failed to combine videos" });
     }
   });
 

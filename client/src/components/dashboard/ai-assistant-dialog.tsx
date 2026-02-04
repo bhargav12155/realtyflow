@@ -110,9 +110,35 @@ const videoPresets = [
   { value: "commercial-30", label: "Commercial Spot (8s, Landscape)" },
 ];
 
-const roomTypes = [
-  { value: "room", label: "Interior Room", description: "Living room, bedroom, kitchen, etc." },
-  { value: "exterior", label: "Exterior", description: "Front yard, backyard, patio, etc." },
+const spaceTypes = [
+  { value: "interior", label: "Interior Rooms" },
+  { value: "exterior", label: "Exterior Spaces" },
+];
+
+const interiorRoomTypes = [
+  { value: "living-room", label: "Living Room", prompt: "spacious living room with elegant furnishings" },
+  { value: "kitchen", label: "Kitchen", prompt: "modern kitchen with premium appliances and countertops" },
+  { value: "master-bedroom", label: "Master Bedroom", prompt: "luxurious master bedroom with ample natural light" },
+  { value: "bedroom", label: "Bedroom", prompt: "comfortable bedroom with quality finishes" },
+  { value: "bathroom", label: "Bathroom", prompt: "updated bathroom with contemporary fixtures" },
+  { value: "master-bath", label: "Master Bath", prompt: "spa-like master bathroom with upscale finishes" },
+  { value: "dining-room", label: "Dining Room", prompt: "elegant dining room perfect for entertaining" },
+  { value: "office", label: "Home Office", prompt: "functional home office with natural lighting" },
+  { value: "basement", label: "Basement", prompt: "finished basement with versatile living space" },
+  { value: "laundry", label: "Laundry Room", prompt: "convenient laundry room with modern appliances" },
+  { value: "garage", label: "Garage", prompt: "spacious garage with ample storage" },
+  { value: "other", label: "Other Room", prompt: "beautifully finished interior space" },
+];
+
+const exteriorRoomTypes = [
+  { value: "front-yard", label: "Front Yard / Curb Appeal", prompt: "stunning curb appeal with manicured landscaping" },
+  { value: "backyard", label: "Backyard", prompt: "private backyard oasis perfect for outdoor living" },
+  { value: "patio", label: "Patio / Deck", prompt: "inviting outdoor patio ideal for entertaining" },
+  { value: "pool", label: "Pool Area", prompt: "sparkling pool with resort-style amenities" },
+  { value: "garden", label: "Garden / Landscaping", prompt: "professionally designed landscaping and garden" },
+  { value: "driveway", label: "Driveway / Entrance", prompt: "welcoming entrance with elegant driveway" },
+  { value: "aerial", label: "Aerial / Lot View", prompt: "expansive property showcasing the full lot" },
+  { value: "other-exterior", label: "Other Exterior", prompt: "impressive outdoor feature" },
 ];
 
 interface AIAssistantDialogProps {
@@ -128,15 +154,18 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
-  const [roomType, setRoomType] = useState<"room" | "exterior">("room");
+  const [spaceType, setSpaceType] = useState<"interior" | "exterior">("interior");
   const [customDescription, setCustomDescription] = useState("");
   const [noSound, setNoSound] = useState(false);
-  const [videoImages, setVideoImages] = useState<Array<{ url: string; preview: string }>>([]);
+  const [videoImages, setVideoImages] = useState<Array<{ url: string; preview: string; roomType: string }>>([]);
   const [videoGenerating, setVideoGenerating] = useState(false);
   const [videoOperationId, setVideoOperationId] = useState<string | null>(null);
   const [includeAgentPhoto, setIncludeAgentPhoto] = useState(false);
   const [agentPhotoUrl, setAgentPhotoUrl] = useState<string | null>(null);
   const [videoImageUploading, setVideoImageUploading] = useState(false);
+  const [completedVideos, setCompletedVideos] = useState<Array<{ url: string; roomType: string; label: string }>>([]);
+  const [combiningVideos, setCombiningVideos] = useState(false);
+  const pendingVideoDataRef = useRef<Map<string, { label: string; spaceType: string }>>(new Map());
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -372,6 +401,17 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           setVideoGenerating(false);
           setVideoOperationId(null);
 
+          // Add to completed videos for full tour compilation using operation ID
+          const pendingData = videoOperationId ? pendingVideoDataRef.current.get(videoOperationId) : null;
+          if (pendingData) {
+            setCompletedVideos(prev => [...prev, {
+              url: data.videoUrl,
+              roomType: pendingData.spaceType,
+              label: pendingData.label,
+            }]);
+            pendingVideoDataRef.current.delete(videoOperationId!);
+          }
+
           const assistantMessage: Message = {
             role: "assistant",
             content: `Video generated successfully! Here's your ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} video:`,
@@ -501,7 +541,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       }
 
       const data = await response.json();
-      setVideoImages(prev => [...prev, { url: data.url, preview: previewUrl }]);
+      const defaultRoomType = spaceType === "interior" ? "living-room" : "front-yard";
+      setVideoImages(prev => [...prev, { url: data.url, preview: previewUrl, roomType: defaultRoomType }]);
       toast({
         title: "Image uploaded",
         description: `Image ${videoImages.length + 1} of 3 added.`,
@@ -544,11 +585,17 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
     setVideoGenerating(true);
 
-    const imageUrls = videoImages.map(img => img.url);
-    const roomTypeLabel = roomTypes.find(r => r.value === roomType)?.label || roomType;
+    const imageData = videoImages.map(img => ({
+      url: img.url,
+      roomType: img.roomType,
+    }));
+    const allRoomTypes = [...interiorRoomTypes, ...exteriorRoomTypes];
+    const roomLabels = videoImages.map(img => 
+      allRoomTypes.find(r => r.value === img.roomType)?.label || img.roomType
+    );
     const userMessage: Message = {
       role: "user",
-      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} ${roomTypeLabel} tour video from ${videoImages.length} image${videoImages.length > 1 ? 's' : ''}`,
+      content: `Generate a ${videoPresets.find(p => p.value === videoPreset)?.label || videoPreset} property tour video from ${videoImages.length} image${videoImages.length > 1 ? 's' : ''}: ${roomLabels.join(', ')}`,
     };
     setMessages(prev => [...prev, userMessage]);
 
@@ -566,10 +613,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         headers,
         credentials: "include",
         body: JSON.stringify({
-          imageUrl: imageUrls[0],
-          imageUrls: imageUrls,
+          imageUrl: imageData[0].url,
+          imageUrls: imageData.map(d => d.url),
+          roomTypes: imageData.map(d => d.roomType),
           preset: videoPreset,
-          roomType: roomType,
+          spaceType: spaceType,
           customDescription: customDescription.trim() || undefined,
           noSound: noSound,
           agentPhotoUrl: includeAgentPhoto ? agentPhotoUrl : undefined,
@@ -583,6 +631,18 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
       const data = await response.json();
       setVideoOperationId(data.operationId);
+      
+      // Store label and spaceType keyed by operation ID to handle concurrent generations
+      const allRoomTypes = [...interiorRoomTypes, ...exteriorRoomTypes];
+      const roomLabel = videoImages.map(img => 
+        allRoomTypes.find(r => r.value === img.roomType)?.label || img.roomType
+      ).join(", ");
+      if (data.operationId) {
+        pendingVideoDataRef.current.set(data.operationId, {
+          label: roomLabel,
+          spaceType: spaceType,
+        });
+      }
 
       const assistantMessage: Message = {
         role: "assistant",
@@ -926,12 +986,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Space Type</label>
-                  <Select value={roomType} onValueChange={(val: "room" | "exterior") => setRoomType(val)}>
-                    <SelectTrigger className="w-full" data-testid="select-room-type">
+                  <Select value={spaceType} onValueChange={(val: "interior" | "exterior") => setSpaceType(val)}>
+                    <SelectTrigger className="w-full" data-testid="select-space-type">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {roomTypes.map((type) => (
+                      {spaceTypes.map((type) => (
                         <SelectItem key={type.value} value={type.value}>
                           {type.label}
                         </SelectItem>
@@ -943,7 +1003,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
               <div>
                 <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                  Property Images ({videoImages.length}/3)
+                  Property Images ({videoImages.length}/3) - Select room type for each
                 </label>
                 <input
                   ref={videoImageInputRef}
@@ -954,53 +1014,88 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   data-testid="input-video-image-file"
                 />
                 
-                <div className="grid grid-cols-3 gap-2">
-                  {videoImages.map((img, index) => (
-                    <div
-                      key={index}
-                      className="relative rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 aspect-square"
-                    >
-                      <img
-                        src={img.preview || img.url}
-                        alt={`Property ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <button
-                        onClick={() => removeVideoImage(index)}
-                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
-                        data-testid={`button-remove-video-image-${index}`}
+                <div className="space-y-3">
+                  {videoImages.map((img, index) => {
+                    const currentRoomOptions = spaceType === "interior" ? interiorRoomTypes : exteriorRoomTypes;
+                    const currentRoomType = currentRoomOptions.find(r => r.value === img.roomType);
+                    return (
+                      <div
+                        key={index}
+                        className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-1.5 py-0.5 rounded">
-                        {index + 1}
-                      </span>
-                    </div>
-                  ))}
+                        <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                          <img
+                            src={img.preview || img.url}
+                            alt={`Property ${index + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-0.5">
+                            #{index + 1}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <Select 
+                            value={img.roomType} 
+                            onValueChange={(val) => {
+                              setVideoImages(prev => prev.map((item, i) => 
+                                i === index ? { ...item, roomType: val } : item
+                              ));
+                            }}
+                          >
+                            <SelectTrigger className="w-full h-8 text-xs" data-testid={`select-room-type-${index}`}>
+                              <SelectValue placeholder="Select room type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {currentRoomOptions.map((room) => (
+                                <SelectItem key={room.value} value={room.value}>
+                                  {room.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {currentRoomType && (
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+                              {currentRoomType.prompt}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => removeVideoImage(index)}
+                          className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 flex-shrink-0"
+                          data-testid={`button-remove-video-image-${index}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
                   
                   {videoImages.length < 3 && (
                     <div
                       onClick={() => !videoImageUploading && videoImageInputRef.current?.click()}
                       className={cn(
-                        "border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg aspect-square flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors",
+                        "border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg py-3 flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors",
                         videoImageUploading && "opacity-50 cursor-wait"
                       )}
                       data-testid="button-upload-video-image"
                     >
                       {videoImageUploading ? (
-                        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                        <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
                       ) : (
-                        <>
-                          <Upload className="h-6 w-6 text-gray-400" />
-                          <span className="text-xs text-gray-500 mt-1">Add</span>
-                        </>
+                        <div className="flex items-center gap-2">
+                          <Upload className="h-5 w-5 text-gray-400" />
+                          <span className="text-xs text-gray-500">Add {spaceType === "interior" ? "Room" : "Exterior"} Image</span>
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
                 
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   Tip: For 3 images use triangle positioning (left → right → opposite view)
+                </p>
+                <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1">
+                  VEO API: 10 requests/min, pay-per-use ($0.75/sec), no daily limit
                 </p>
               </div>
 
@@ -1073,6 +1168,102 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </>
                 )}
               </Button>
+
+              {completedVideos.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-800">
+                  <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Completed Videos ({completedVideos.length})
+                  </h5>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {completedVideos.map((video, index) => (
+                      <div 
+                        key={index}
+                        className="flex items-center justify-between bg-white dark:bg-gray-800 rounded p-2 text-xs"
+                      >
+                        <span className="truncate flex-1">{video.label}</span>
+                        <button
+                          onClick={() => setCompletedVideos(prev => prev.filter((_, i) => i !== index))}
+                          className="ml-2 text-red-500 hover:text-red-700"
+                          data-testid={`button-remove-completed-video-${index}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {completedVideos.length >= 2 && (
+                    <Button
+                      onClick={async () => {
+                        setCombiningVideos(true);
+                        try {
+                          const token = getAuthToken();
+                          const headers: Record<string, string> = {
+                            "Content-Type": "application/json",
+                          };
+                          if (token) {
+                            headers["Authorization"] = `Bearer ${token}`;
+                          }
+
+                          const response = await fetch("/api/ai/veo/combine", {
+                            method: "POST",
+                            headers,
+                            credentials: "include",
+                            body: JSON.stringify({
+                              videoUrls: completedVideos.map(v => v.url),
+                              title: "Full Property Tour",
+                            }),
+                          });
+
+                          if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.error || "Failed to combine videos");
+                          }
+
+                          const data = await response.json();
+                          
+                          const assistantMessage: Message = {
+                            role: "assistant",
+                            content: `Full property tour created! Combined ${completedVideos.length} videos into one seamless tour:`,
+                            videoUrl: data.videoUrl,
+                          };
+                          setMessages(prev => [...prev, assistantMessage]);
+                          setCompletedVideos([]);
+                          setVideoMode(false);
+                          
+                          toast({
+                            title: "Full Tour Created",
+                            description: `Combined ${completedVideos.length} videos into a complete property tour!`,
+                          });
+                        } catch (error: any) {
+                          toast({
+                            title: "Failed to Create Tour",
+                            description: error.message || "An error occurred while combining videos.",
+                            variant: "destructive",
+                          });
+                        } finally {
+                          setCombiningVideos(false);
+                        }
+                      }}
+                      disabled={combiningVideos}
+                      className="w-full mt-3 bg-green-600 hover:bg-green-700"
+                      data-testid="button-create-full-tour"
+                    >
+                      {combiningVideos ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          Creating Full Tour...
+                        </>
+                      ) : (
+                        <>
+                          <Video className="h-4 w-4 mr-2" />
+                          Create Full House Tour
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

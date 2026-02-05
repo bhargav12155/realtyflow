@@ -16005,36 +16005,27 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     const ext = mimeType.split('/')[1]?.split('+')[0] || 'jpg';
     const filename = `property-tour-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
     
-    const objectStorage = new ObjectStorageService();
-    if (!objectStorage.isConfigured()) {
-      throw new Error('Object storage not configured');
+    // Use S3 storage (same as working video-source upload)
+    const { S3UploadService } = await import("./services/s3Upload");
+    const s3Service = new S3UploadService();
+    
+    const s3Key = `property-tour/${userId}/${filename}`;
+    
+    // Upload with presigned URL so VEO API can access it
+    const url = await s3Service.uploadBuffer(
+      buffer, 
+      s3Key, 
+      mimeType,
+      true, // return presigned URL
+      3600 // 1 hour expiration
+    );
+    
+    if (!url) {
+      throw new Error('Failed to upload image to S3');
     }
     
-    const privateDir = objectStorage.getPrivateObjectDir();
-    const fullPath = `${privateDir}/property-tour-uploads/${filename}`;
-    
-    const pathParts = fullPath.startsWith('/') ? fullPath.split('/') : `/${fullPath}`.split('/');
-    const bucketName = pathParts[1];
-    const objectName = pathParts.slice(2).join('/');
-    
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-    
-    await file.save(buffer, {
-      contentType: mimeType,
-      resumable: false,
-      metadata: {
-        cacheControl: 'private, max-age=86400',
-      },
-    });
-    
-    const [signedUrl] = await file.getSignedUrl({
-      action: 'read',
-      expires: Date.now() + 24 * 60 * 60 * 1000,
-    });
-    
-    console.log(`✅ [PropertyTour] Uploaded base64 image to storage: ${filename}`);
-    return signedUrl;
+    console.log(`✅ [PropertyTour] Uploaded base64 image to S3: ${filename}`);
+    return url;
   }
 
   async function processPhotoUrls(photos: string[], userId: string): Promise<string[]> {

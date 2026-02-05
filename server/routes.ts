@@ -15979,6 +15979,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     message: string;
     photos: string[];
     roomTypes?: string[];
+    roomClipDuration?: number;
     avatarId: string;
     avatarImageKey?: string;
     script: string;
@@ -16153,13 +16154,18 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
           
           console.log(`🏠 [PropertyTour] Room ${roomIdx + 1}/${totalRooms}: ${room.roomType} with ${room.photos.length} photos`);
           
+          // Check if user wants 8s (single clip) or 16s (dual clips)
+          const wantsDualClips = (job.roomClipDuration || 8) >= 16;
+          
           // Split photos into batches of 3 for panoramic generation
           // Batch 1: photos 1-3 → first 8-second clip
-          // Batch 2: photos 4-6 → second 8-second clip
+          // Batch 2: photos 4-6 → second 8-second clip (only if 16s mode)
           const batch1Photos = room.photos.slice(0, 3);
-          const batch2Photos = room.photos.slice(3, 6);
+          const batch2Photos = wantsDualClips ? room.photos.slice(3, 6) : [];
           
           const clipUrls: string[] = [];
+          
+          console.log(`⏱️ [PropertyTour] Clip mode: ${wantsDualClips ? '16 seconds (2 clips)' : '8 seconds (single clip)'}`);
           
           // Process batch 1 (photos 1-3) - first 8-second panoramic clip
           if (batch1Photos.length > 0) {
@@ -16185,8 +16191,8 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
             }
           }
           
-          // Process batch 2 (photos 4-6) - second 8-second panoramic clip
-          if (batch2Photos.length > 0) {
+          // Process batch 2 (photos 4-6) - second 8-second panoramic clip (only in 16s mode)
+          if (wantsDualClips && batch2Photos.length > 0) {
             const primaryPhoto = batch2Photos[0];
             const prompt2 = getCompliancePrompt(roomDesc, false);
             
@@ -16206,8 +16212,8 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
                 console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready (from ${batch2Photos.length} photos)`);
               }
             }
-          } else if (clipUrls.length === 1) {
-            // Only have 1-3 photos - generate second clip from same batch with different motion
+          } else if (wantsDualClips && clipUrls.length === 1) {
+            // Only have 1-3 photos but want 16s - generate second clip from same batch with different motion
             const primaryPhoto = batch1Photos[batch1Photos.length - 1] || batch1Photos[0];
             const prompt2 = getCompliancePrompt(roomDesc, false);
             
@@ -16229,13 +16235,15 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
             }
           }
           
-          // Combine clips into 16-second room video
+          // Import fs/promises at room level for clip handling
+          const fsPromises = await import('fs/promises');
+          const path = await import('path');
+          
+          // Combine clips into 16-second room video (only in dual clip mode)
           if (clipUrls.length >= 2) {
             try {
               console.log(`🎬 [PropertyTour] Combining ${clipUrls.length} clips for ${room.roomType} into 16-second video...`);
               const { spawn } = await import('child_process');
-              const fsPromises = await import('fs/promises');
-              const path = await import('path');
               
               const outputDir = '/tmp/property-tour-combined';
               await fsPromises.mkdir(outputDir, { recursive: true });
@@ -16462,7 +16470,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const { photos, roomTypes, avatarId, avatarImageKey, script, backgroundType, includeBranding, property } = req.body;
+      const { photos, roomTypes, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration } = req.body;
 
       if (!photos || !Array.isArray(photos) || photos.length === 0) {
         return res.status(400).json({ error: "At least one photo is required" });
@@ -16492,6 +16500,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
       console.log("🎭 Avatar ID:", avatarId);
       console.log("🎨 Background:", backgroundType);
       console.log("🏷️ Branding:", includeBranding);
+      console.log("⏱️ Room clip duration:", roomClipDuration || 8, "seconds");
 
       const jobId = `tour-${userId}-${Date.now()}`;
       
@@ -16508,6 +16517,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         script,
         backgroundType: backgroundType || "office",
         includeBranding: includeBranding !== false,
+        roomClipDuration: roomClipDuration || 8,
         property,
         klingTaskIds: [],
         motionVideos: [],

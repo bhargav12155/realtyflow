@@ -181,6 +181,11 @@ const VIDEO_DURATIONS = [
   { value: "180", label: "3 minutes", seconds: 180, targetWords: 450, targetChars: 2250 },
 ];
 
+const ROOM_CLIP_DURATIONS = [
+  { value: "8", label: "8 seconds", description: "Single smooth clip per room (faster, less choppy)" },
+  { value: "16", label: "16 seconds", description: "Two clips combined (longer, more coverage)" },
+];
+
 export function PropertyTourStudio() {
   const { toast } = useToast();
   
@@ -212,6 +217,7 @@ export function PropertyTourStudio() {
   const [roomDragOver, setRoomDragOver] = useState<string | null>(null);
   const [targetPlatform, setTargetPlatform] = useState<string>("youtube");
   const [videoDuration, setVideoDuration] = useState<string>("60");
+  const [roomClipDuration, setRoomClipDuration] = useState<string>("8");
   const [customPrompt, setCustomPrompt] = useState<string>("");
 
   const { data: avatarsData, isLoading: avatarsLoading } = useQuery<{ photos: AvatarPhoto[] }>({
@@ -725,6 +731,7 @@ ${propertyDetails}`;
           script: generatedScript,
           backgroundType,
           includeBranding,
+          roomClipDuration: parseInt(roomClipDuration, 10),
           property: selectedProperty ? {
             address: selectedProperty.address,
             city: selectedProperty.city,
@@ -1363,6 +1370,25 @@ ${propertyDetails}`;
                             <div className="flex items-center gap-2">
                               <span>{duration.label}</span>
                               <span className="text-xs text-muted-foreground">(~{duration.targetWords} words)</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="room-clip-duration">Room Clip Length</Label>
+                    <Select value={roomClipDuration} onValueChange={setRoomClipDuration}>
+                      <SelectTrigger id="room-clip-duration" data-testid="room-clip-duration-select">
+                        <SelectValue placeholder="Select clip length" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROOM_CLIP_DURATIONS.map((clip) => (
+                          <SelectItem key={clip.value} value={clip.value}>
+                            <div className="flex flex-col">
+                              <span>{clip.label}</span>
+                              <span className="text-xs text-muted-foreground">{clip.description}</span>
                             </div>
                           </SelectItem>
                         ))}

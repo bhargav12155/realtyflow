@@ -47,7 +47,9 @@ import {
   Droplets,
   Plane,
   MapPin,
+  ExternalLink,
 } from "lucide-react";
+import { Link } from "wouter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -1569,6 +1571,18 @@ ${propertyDetails}`;
                     )}
                     {savedToLibrary ? "Saved to Library" : "Save to Library"}
                   </Button>
+                  {savedToLibrary && (
+                    <Link href="/dashboard?tab=videos">
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        data-testid="view-library-btn"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        View in Library
+                      </Button>
+                    </Link>
+                  )}
                   <Button
                     variant="secondary"
                     className="gap-2"

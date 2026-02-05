@@ -141,7 +141,9 @@ export class VeoVideoService {
             await client.files.download({ file: video, downloadPath: filepath });
             
             console.log(`✅ [VeoVideo] VEO 3.1 video saved: ${filepath}`);
-            return { done: true, videoUrl: `/api/property-tour/veo-video/${filename}` };
+            // Return local file path for internal use (ffmpeg combining)
+            // The API route /api/property-tour/veo-video/ can serve these files externally
+            return { done: true, videoUrl: filepath };
           }
         }
         

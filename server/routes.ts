@@ -16243,17 +16243,18 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
               const combinedFilename = `room-${job.id}-${room.roomType}.mp4`;
               const combinedPath = path.join(outputDir, combinedFilename);
               
-              // Download clips with validation
+              // Use local file paths directly (clipUrls now contains /tmp/veo-output/... paths)
               const clipPaths: string[] = [];
               for (let c = 0; c < clipUrls.length; c++) {
-                const clipRes = await fetch(clipUrls[c]);
-                if (!clipRes.ok) {
-                  throw new Error(`Failed to download clip ${c + 1}: ${clipRes.status}`);
+                const localPath = clipUrls[c];
+                // Verify file exists
+                try {
+                  await fsPromises.access(localPath);
+                  clipPaths.push(localPath);
+                  console.log(`📁 [PropertyTour] Using local clip: ${localPath}`);
+                } catch {
+                  throw new Error(`Clip file not found: ${localPath}`);
                 }
-                const clipBuffer = Buffer.from(await clipRes.arrayBuffer());
-                const clipPath = path.join(outputDir, `clip${c + 1}-${job.id}-${roomIdx}.mp4`);
-                await fsPromises.writeFile(clipPath, clipBuffer);
-                clipPaths.push(clipPath);
               }
               
               // Create concat file (use escaped paths)
@@ -16294,20 +16295,41 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
                 console.log(`✅ [PropertyTour] ${room.roomType} 16-second video uploaded: ${uploadedUrl.substring(0, 60)}...`);
               }
               
-              // Cleanup temp files
+              // Cleanup temp files (combined output and concat list, keep original VEO clips for now)
               await Promise.all([
-                ...clipPaths.map(p => fsPromises.unlink(p).catch(() => {})),
                 fsPromises.unlink(concatPath).catch(() => {}),
                 fsPromises.unlink(combinedPath).catch(() => {}),
               ]);
+              // Clean up original VEO clips after successful combine
+              for (const clipPath of clipPaths) {
+                await fsPromises.unlink(clipPath).catch(() => {});
+              }
             } catch (combineError: any) {
               console.error(`❌ [PropertyTour] Failed to combine ${room.roomType} clips:`, combineError.message);
-              // Fall back to using just the first clip
-              if (clipUrls.length > 0) roomVideos.push(clipUrls[0]);
+              // Fall back to uploading just the first clip to S3
+              if (clipUrls.length > 0) {
+                try {
+                  const fallbackBuffer = await fsPromises.readFile(clipUrls[0]);
+                  const s3Service = new S3UploadService();
+                  const fallbackKey = `property-tour-videos/${job.userId}/fallback-${job.id}-${room.roomType}.mp4`;
+                  const fallbackUrl = await s3Service.uploadBuffer(fallbackBuffer, fallbackKey, 'video/mp4', true, 86400);
+                  if (fallbackUrl) roomVideos.push(fallbackUrl);
+                } catch (uploadErr) {
+                  console.error(`❌ [PropertyTour] Failed to upload fallback clip:`, uploadErr);
+                }
+              }
             }
           } else if (clipUrls.length === 1) {
-            // Only one clip succeeded - use it directly
-            roomVideos.push(clipUrls[0]);
+            // Only one clip succeeded - upload it to S3
+            try {
+              const singleBuffer = await fsPromises.readFile(clipUrls[0]);
+              const s3Service = new S3UploadService();
+              const singleKey = `property-tour-videos/${job.userId}/single-${job.id}-${room.roomType}.mp4`;
+              const singleUrl = await s3Service.uploadBuffer(singleBuffer, singleKey, 'video/mp4', true, 86400);
+              if (singleUrl) roomVideos.push(singleUrl);
+            } catch (uploadErr) {
+              console.error(`❌ [PropertyTour] Failed to upload single clip:`, uploadErr);
+            }
           }
         }
         

@@ -36,7 +36,19 @@ import {
   X,
   CircleOff,
   Film,
+  Plus,
+  Bed,
+  Bath,
+  UtensilsCrossed,
+  Sofa,
+  Briefcase,
+  Car,
+  WashingMachine,
+  Droplets,
+  Plane,
+  MapPin,
 } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { SiFacebook, SiInstagram, SiLinkedin, SiX, SiYoutube, SiTiktok } from "react-icons/si";
@@ -55,6 +67,41 @@ interface SelectedPhoto {
   source?: "mls" | "upload";
   roomType?: string;
 }
+
+interface RoomPhoto {
+  url: string;
+  order: number;
+  source?: "mls" | "upload";
+}
+
+interface RoomPhotos {
+  roomId: string;
+  roomName: string;
+  roomType: "interior" | "exterior";
+  photos: RoomPhoto[];
+  maxPhotos: 6;
+}
+
+const ROOM_ZONES: Omit<RoomPhotos, "photos">[] = [
+  { roomId: "living-room", roomName: "Living Room", roomType: "interior", maxPhotos: 6 },
+  { roomId: "kitchen", roomName: "Kitchen", roomType: "interior", maxPhotos: 6 },
+  { roomId: "dining-room", roomName: "Dining Room", roomType: "interior", maxPhotos: 6 },
+  { roomId: "master-bedroom", roomName: "Master Bedroom", roomType: "interior", maxPhotos: 6 },
+  { roomId: "bedroom-2", roomName: "Bedroom 2", roomType: "interior", maxPhotos: 6 },
+  { roomId: "bedroom-3", roomName: "Bedroom 3", roomType: "interior", maxPhotos: 6 },
+  { roomId: "bathroom", roomName: "Bathroom", roomType: "interior", maxPhotos: 6 },
+  { roomId: "master-bath", roomName: "Master Bath", roomType: "interior", maxPhotos: 6 },
+  { roomId: "office", roomName: "Office", roomType: "interior", maxPhotos: 6 },
+  { roomId: "basement", roomName: "Basement", roomType: "interior", maxPhotos: 6 },
+  { roomId: "garage", roomName: "Garage", roomType: "interior", maxPhotos: 6 },
+  { roomId: "laundry", roomName: "Laundry", roomType: "interior", maxPhotos: 6 },
+  { roomId: "front-yard", roomName: "Front Yard", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "backyard", roomName: "Backyard", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "pool", roomName: "Pool", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "patio-deck", roomName: "Patio/Deck", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "driveway", roomName: "Driveway", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "aerial-view", roomName: "Aerial View", roomType: "exterior", maxPhotos: 6 },
+];
 
 const ROOM_TYPES = [
   { value: "auto", label: "Auto-Detect" },
@@ -154,6 +201,13 @@ export function PropertyTourStudio() {
   const [showPhotoSelectModal, setShowPhotoSelectModal] = useState<boolean>(false);
   const [tempPhotoSelection, setTempPhotoSelection] = useState<{url: string; selected: boolean}[]>([]);
   const [scriptStyle, setScriptStyle] = useState<string>("standard");
+  
+  const [roomPhotos, setRoomPhotos] = useState<Record<string, RoomPhoto[]>>({});
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [showRoomModal, setShowRoomModal] = useState<boolean>(false);
+  const [showGlobalUploadModal, setShowGlobalUploadModal] = useState<boolean>(false);
+  const [unassignedPhotos, setUnassignedPhotos] = useState<{url: string; source: "mls" | "upload"}[]>([]);
+  const [roomDragOver, setRoomDragOver] = useState<string | null>(null);
   const [targetPlatform, setTargetPlatform] = useState<string>("youtube");
   const [videoDuration, setVideoDuration] = useState<string>("60");
   const [customPrompt, setCustomPrompt] = useState<string>("");
@@ -252,13 +306,12 @@ ${propertyDetails}`;
   const confirmPhotoSelection = useCallback(() => {
     const selected = tempPhotoSelection
       .filter(p => p.selected)
-      .map((p, index) => ({
+      .map((p) => ({
         url: p.url,
-        index,
-        selected: true,
         source: "mls" as const,
       }));
-    setSelectedPhotos(selected);
+    setUnassignedPhotos(selected);
+    setRoomPhotos({});
     setShowPhotoSelectModal(false);
     setCurrentStep(2);
   }, [tempPhotoSelection]);
@@ -387,6 +440,165 @@ ${propertyDetails}`;
     });
   }, [toast]);
 
+  const getRoomIcon = useCallback((roomId: string) => {
+    const icons: Record<string, any> = {
+      "living-room": Sofa,
+      "kitchen": UtensilsCrossed,
+      "dining-room": UtensilsCrossed,
+      "master-bedroom": Bed,
+      "bedroom-2": Bed,
+      "bedroom-3": Bed,
+      "bathroom": Bath,
+      "master-bath": Bath,
+      "office": Briefcase,
+      "basement": Home,
+      "garage": Car,
+      "laundry": WashingMachine,
+      "front-yard": Trees,
+      "backyard": Trees,
+      "pool": Droplets,
+      "patio-deck": Trees,
+      "driveway": MapPin,
+      "aerial-view": Plane,
+    };
+    return icons[roomId] || Home;
+  }, []);
+
+  const addPhotoToRoom = useCallback((roomId: string, photoUrl: string, source: "mls" | "upload" = "upload") => {
+    setRoomPhotos(prev => {
+      const currentPhotos = prev[roomId] || [];
+      if (currentPhotos.length >= 6) {
+        toast({
+          title: "Room Full",
+          description: "This room already has 6 photos (maximum).",
+          variant: "destructive",
+        });
+        return prev;
+      }
+      return {
+        ...prev,
+        [roomId]: [...currentPhotos, { url: photoUrl, order: currentPhotos.length, source }],
+      };
+    });
+  }, [toast]);
+
+  const removePhotoFromRoom = useCallback((roomId: string, photoUrl: string) => {
+    setRoomPhotos(prev => {
+      const currentPhotos = prev[roomId] || [];
+      const filtered = currentPhotos.filter(p => p.url !== photoUrl);
+      return {
+        ...prev,
+        [roomId]: filtered.map((p, i) => ({ ...p, order: i })),
+      };
+    });
+  }, []);
+
+  const reorderRoomPhotos = useCallback((roomId: string, fromIndex: number, toIndex: number) => {
+    setRoomPhotos(prev => {
+      const currentPhotos = [...(prev[roomId] || [])];
+      const [moved] = currentPhotos.splice(fromIndex, 1);
+      currentPhotos.splice(toIndex, 0, moved);
+      return {
+        ...prev,
+        [roomId]: currentPhotos.map((p, i) => ({ ...p, order: i })),
+      };
+    });
+  }, []);
+
+  const handleRoomDrop = useCallback((e: React.DragEvent, roomId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRoomDragOver(null);
+    
+    const photoData = e.dataTransfer.getData("application/json");
+    if (photoData) {
+      try {
+        const { url, source } = JSON.parse(photoData);
+        addPhotoToRoom(roomId, url, source);
+        setUnassignedPhotos(prev => prev.filter(p => p.url !== url));
+      } catch (err) {
+        console.error("Failed to parse dropped photo data", err);
+      }
+    } else if (e.dataTransfer.files?.length > 0) {
+      const file = e.dataTransfer.files[0];
+      const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+      if (validTypes.includes(file.type)) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const dataUrl = evt.target?.result as string;
+          if (dataUrl) {
+            addPhotoToRoom(roomId, dataUrl, "upload");
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  }, [addPhotoToRoom]);
+
+  const handleRoomClick = useCallback((roomId: string) => {
+    setSelectedRoomId(roomId);
+    setShowRoomModal(true);
+  }, []);
+
+  const handleRoomFileUpload = useCallback((files: FileList | null, roomId: string) => {
+    if (!files || files.length === 0) return;
+    
+    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    const currentCount = roomPhotos[roomId]?.length || 0;
+    const slotsAvailable = 6 - currentCount;
+    
+    if (slotsAvailable === 0) {
+      toast({
+        title: "Room Full",
+        description: "This room already has 6 photos (maximum).",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    const filesToProcess = Array.from(files).slice(0, slotsAvailable);
+    
+    filesToProcess.forEach((file) => {
+      if (!validTypes.includes(file.type)) {
+        toast({
+          title: "Invalid File Type",
+          description: `${file.name} is not a supported image format.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        if (dataUrl) {
+          addPhotoToRoom(roomId, dataUrl, "upload");
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    if (files.length > slotsAvailable) {
+      toast({
+        title: "Some Photos Skipped",
+        description: `Only ${slotsAvailable} photos added. Room limit is 6.`,
+      });
+    }
+  }, [roomPhotos, addPhotoToRoom, toast]);
+
+  const getTotalRoomPhotoCount = useCallback(() => {
+    return Object.values(roomPhotos).reduce((sum, photos) => sum + photos.length, 0);
+  }, [roomPhotos]);
+
+  const getRoomsWithPhotos = useCallback(() => {
+    return Object.entries(roomPhotos)
+      .filter(([_, photos]) => photos.length > 0)
+      .map(([roomId, photos]) => {
+        const zone = ROOM_ZONES.find(z => z.roomId === roomId);
+        return { roomId, roomName: zone?.roomName || roomId, photos };
+      });
+  }, [roomPhotos]);
+
   const handleGenerateScript = useCallback(() => {
     if (!selectedProperty) return;
     generateScriptMutation.mutate(selectedProperty);
@@ -483,12 +695,15 @@ ${propertyDetails}`;
     setStatusMessage("Starting video generation...");
     
     try {
-      const photosWithRoomTypes = selectedPhotos
-        .filter(p => p.selected)
-        .map(p => ({
-          url: p.url,
-          roomType: p.roomType || "auto",
-        }));
+      const photosWithRoomTypes: { url: string; roomType: string }[] = [];
+      getRoomsWithPhotos().forEach(({ roomId, photos }) => {
+        photos.forEach(photo => {
+          photosWithRoomTypes.push({
+            url: photo.url,
+            roomType: roomId,
+          });
+        });
+      });
       
       const photosToInclude = photosWithRoomTypes.map(p => p.url);
       const roomTypes = photosWithRoomTypes.map(p => p.roomType);
@@ -551,7 +766,7 @@ ${propertyDetails}`;
         variant: "destructive",
       });
     }
-  }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, selectedPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData]);
+  }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, getRoomsWithPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData]);
 
   const handleSaveToLibrary = useCallback(async () => {
     if (!currentJobId) return;
@@ -686,7 +901,7 @@ ${propertyDetails}`;
       case 2:
         return selectedProperty !== null || noMlsMode;
       case 3:
-        return selectedPhotos.filter(p => p.selected).length > 0;
+        return getTotalRoomPhotoCount() > 0;
       case 4:
         return selectedAvatar !== "" && generatedScript.trim() !== "";
       default:
@@ -790,255 +1005,190 @@ ${propertyDetails}`;
         )}
 
         {currentStep === 2 && (
-          <div className="space-y-4" data-testid="step-2-content">
-            <div className="flex items-center justify-between">
+          <div className="space-y-6" data-testid="step-2-content">
+            <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h4 className="font-medium">Arrange Tour Photos</h4>
+                <h4 className="font-medium">Property Floor Plan</h4>
                 <p className="text-sm text-muted-foreground">
-                  Select and drag to reorder photos for your tour
+                  Click on a room to add photos (up to 6 per room). Drag photos directly onto rooms.
                 </p>
               </div>
-              <Badge variant="secondary" data-testid="photo-count">
-                {selectedPhotoCount} of {selectedPhotos.length} selected
-                {uploadedPhotos.length > 0 && ` (${uploadedPhotos.length} uploaded)`}
-              </Badge>
-            </div>
-
-            <div
-              className={`border-2 border-dashed rounded-lg p-6 transition-colors ${
-                isDragOver
-                  ? "border-primary bg-primary/5"
-                  : "border-muted-foreground/25 hover:border-primary/50"
-              }`}
-              onDragOver={handleDropZoneDragOver}
-              onDragLeave={handleDropZoneDragLeave}
-              onDrop={handleDropZoneDrop}
-              data-testid="upload-drop-zone"
-            >
-              <div className="flex flex-col items-center gap-3 text-center">
-                {isUploading ? (
-                  <>
-                    <Loader2 className="h-10 w-10 text-primary animate-spin" />
-                    <p className="text-sm text-muted-foreground">Uploading photos...</p>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-10 w-10 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">Upload Custom Photos</p>
-                      <p className="text-sm text-muted-foreground">
-                        Drag and drop images here, or click to browse
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Supports JPG, PNG, WebP
-                      </p>
-                    </div>
-                    <Input
-                      type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/webp"
-                      multiple
-                      className="max-w-xs"
-                      onChange={(e) => handleFileUpload(e.target.files)}
-                      data-testid="photo-upload-input"
-                    />
-                  </>
-                )}
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary" data-testid="photo-count">
+                  {getTotalRoomPhotoCount()} photos in {getRoomsWithPhotos().length} rooms
+                </Badge>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowGlobalUploadModal(true)}
+                  data-testid="global-upload-btn"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Photos
+                </Button>
               </div>
             </div>
 
-            <Tabs value={photoViewTab} onValueChange={setPhotoViewTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="all" data-testid="tab-all-photos">
-                  All Photos ({selectedPhotos.length})
-                </TabsTrigger>
-                <TabsTrigger value="mls" data-testid="tab-mls-photos">
-                  MLS Photos ({selectedPhotos.filter(p => p.source === "mls").length})
-                </TabsTrigger>
-                <TabsTrigger value="upload" data-testid="tab-upload-photos">
-                  Uploaded ({uploadedPhotos.length})
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="all" className="mt-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {selectedPhotos.map((photo, index) => (
+            {unassignedPhotos.length > 0 && (
+              <div className="p-4 bg-muted rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <h5 className="font-medium text-sm">Unassigned Photos</h5>
+                  <span className="text-xs text-muted-foreground">Drag to a room below</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {unassignedPhotos.map((photo, index) => (
                     <div
-                      key={`${photo.source}-${photo.url.substring(0, 50)}-${index}`}
+                      key={`unassigned-${index}`}
                       draggable
-                      onDragStart={() => handleDragStart(index)}
-                      onDragOver={(e) => handleDragOver(e, index)}
-                      onDragEnd={handleDragEnd}
-                      className={`relative group rounded-lg overflow-hidden border-2 transition-all cursor-move ${
-                        photo.selected
-                          ? "border-primary"
-                          : "border-transparent opacity-50"
-                      } ${draggedIndex === index ? "scale-95 opacity-70" : ""}`}
-                      data-testid={`photo-item-${index}`}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("application/json", JSON.stringify(photo));
+                      }}
+                      className="w-20 h-14 rounded-md overflow-hidden border-2 border-dashed border-muted-foreground/30 cursor-grab hover:border-primary transition-colors"
+                      data-testid={`unassigned-photo-${index}`}
                     >
-                      <img
-                        src={photo.url}
-                        alt={`Property photo ${index + 1}`}
-                        className="w-full aspect-video object-cover"
-                      />
-                      <div className="absolute top-2 left-2 flex items-center gap-2">
-                        <div className="bg-black/70 text-white px-2 py-1 rounded text-xs">
-                          #{index + 1}
-                        </div>
-                        <GripVertical className="h-4 w-4 text-white drop-shadow" />
-                        {photo.source === "upload" && (
-                          <Badge variant="secondary" className="text-xs py-0 px-1">
-                            <Upload className="h-3 w-3" />
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="absolute top-2 right-2 flex items-center gap-1">
-                        {photo.source === "upload" && (
-                          <Button
-                            size="icon"
-                            variant="destructive"
-                            className="h-6 w-6"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveUploadedPhoto(photo.url);
-                            }}
-                            data-testid={`remove-photo-${index}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        )}
-                        <Checkbox
-                          checked={photo.selected}
-                          onCheckedChange={() => handlePhotoToggle(index)}
-                          className="bg-white/90"
-                          data-testid={`photo-checkbox-${index}`}
-                        />
-                      </div>
-                      {photo.selected && (
-                        <div className="absolute bottom-2 left-2 right-2">
-                          <Select
-                            value={photo.roomType || "auto"}
-                            onValueChange={(value) => handleRoomTypeChange(index, value)}
-                          >
-                            <SelectTrigger 
-                              className="h-7 text-xs bg-white/95 border-0"
-                              onClick={(e) => e.stopPropagation()}
-                              data-testid={`room-type-select-${index}`}
-                            >
-                              <SelectValue placeholder="Room type" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ROOM_TYPES.map((type) => (
-                                <SelectItem key={type.value} value={type.value}>
-                                  {type.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
+                      <img src={photo.url} alt="Unassigned" className="w-full h-full object-cover" />
                     </div>
                   ))}
                 </div>
-              </TabsContent>
+              </div>
+            )}
 
-              <TabsContent value="mls" className="mt-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {selectedPhotos.filter(p => p.source === "mls").map((photo) => {
-                    const originalIndex = selectedPhotos.findIndex(p => p.url === photo.url);
+            <Tabs defaultValue="interior" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="interior" data-testid="tab-interior">
+                  Interior Rooms ({ROOM_ZONES.filter(r => r.roomType === "interior").length})
+                </TabsTrigger>
+                <TabsTrigger value="exterior" data-testid="tab-exterior">
+                  Exterior Areas ({ROOM_ZONES.filter(r => r.roomType === "exterior").length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="interior" className="mt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {ROOM_ZONES.filter(room => room.roomType === "interior").map((room) => {
+                    const photos = roomPhotos[room.roomId] || [];
+                    const RoomIcon = getRoomIcon(room.roomId);
+                    const hasPhotos = photos.length > 0;
+                    const isFull = photos.length >= 6;
+                    
                     return (
                       <div
-                        key={photo.url}
-                        className={`relative group rounded-lg overflow-hidden border-2 transition-all ${
-                          photo.selected
-                            ? "border-primary"
-                            : "border-transparent opacity-50"
-                        }`}
-                        data-testid={`mls-photo-item-${originalIndex}`}
+                        key={room.roomId}
+                        onClick={() => handleRoomClick(room.roomId)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setRoomDragOver(room.roomId);
+                        }}
+                        onDragLeave={() => setRoomDragOver(null)}
+                        onDrop={(e) => handleRoomDrop(e, room.roomId)}
+                        className={`relative p-3 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md ${
+                          roomDragOver === room.roomId
+                            ? "border-primary bg-primary/10"
+                            : hasPhotos
+                            ? "border-primary/50 bg-primary/5"
+                            : "border-dashed border-muted-foreground/30 hover:border-primary/50"
+                        } ${isFull ? "ring-2 ring-green-500/30" : ""}`}
+                        data-testid={`room-zone-${room.roomId}`}
                       >
-                        <img
-                          src={photo.url}
-                          alt={`MLS photo`}
-                          className="w-full aspect-video object-cover"
-                        />
-                        <div className="absolute top-2 left-2">
-                          <div className="bg-black/70 text-white px-2 py-1 rounded text-xs">
-                            #{originalIndex + 1}
-                          </div>
-                        </div>
-                        <div className="absolute top-2 right-2">
-                          <Checkbox
-                            checked={photo.selected}
-                            onCheckedChange={() => handlePhotoToggle(originalIndex)}
-                            className="bg-white/90"
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                {selectedPhotos.filter(p => p.source === "mls").length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No MLS photos available
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="upload" className="mt-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {selectedPhotos.filter(p => p.source === "upload").map((photo) => {
-                    const originalIndex = selectedPhotos.findIndex(p => p.url === photo.url);
-                    return (
-                      <div
-                        key={photo.url.substring(0, 50)}
-                        className={`relative group rounded-lg overflow-hidden border-2 transition-all ${
-                          photo.selected
-                            ? "border-primary"
-                            : "border-transparent opacity-50"
-                        }`}
-                        data-testid={`upload-photo-item-${originalIndex}`}
-                      >
-                        <img
-                          src={photo.url}
-                          alt={`Uploaded photo`}
-                          className="w-full aspect-video object-cover"
-                        />
-                        <div className="absolute top-2 left-2">
-                          <div className="bg-black/70 text-white px-2 py-1 rounded text-xs flex items-center gap-1">
-                            <Upload className="h-3 w-3" />
-                            #{originalIndex + 1}
-                          </div>
-                        </div>
-                        <div className="absolute top-2 right-2 flex items-center gap-1">
-                          <Button
-                            size="icon"
-                            variant="destructive"
-                            className="h-6 w-6"
-                            onClick={() => handleRemoveUploadedPhoto(photo.url)}
-                            data-testid={`remove-upload-photo-${originalIndex}`}
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          {hasPhotos && photos[0] ? (
+                            <div className="w-12 h-12 rounded-md overflow-hidden">
+                              <img 
+                                src={photos[0].url} 
+                                alt={room.roomName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center">
+                              <RoomIcon className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                          )}
+                          <span className="text-xs font-medium leading-tight">{room.roomName}</span>
+                          <Badge 
+                            variant={hasPhotos ? "default" : "secondary"} 
+                            className="text-xs py-0 h-5"
                           >
-                            <X className="h-3 w-3" />
-                          </Button>
-                          <Checkbox
-                            checked={photo.selected}
-                            onCheckedChange={() => handlePhotoToggle(originalIndex)}
-                            className="bg-white/90"
-                          />
+                            {photos.length}/6
+                          </Badge>
                         </div>
+                        {hasPhotos && photos.length > 1 && (
+                          <div className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                            +{photos.length - 1}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-                {uploadedPhotos.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No uploaded photos yet. Use the upload area above to add custom images.
-                  </div>
-                )}
+              </TabsContent>
+
+              <TabsContent value="exterior" className="mt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                  {ROOM_ZONES.filter(room => room.roomType === "exterior").map((room) => {
+                    const photos = roomPhotos[room.roomId] || [];
+                    const RoomIcon = getRoomIcon(room.roomId);
+                    const hasPhotos = photos.length > 0;
+                    const isFull = photos.length >= 6;
+                    
+                    return (
+                      <div
+                        key={room.roomId}
+                        onClick={() => handleRoomClick(room.roomId)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setRoomDragOver(room.roomId);
+                        }}
+                        onDragLeave={() => setRoomDragOver(null)}
+                        onDrop={(e) => handleRoomDrop(e, room.roomId)}
+                        className={`relative p-3 rounded-lg border-2 cursor-pointer transition-all hover:shadow-md ${
+                          roomDragOver === room.roomId
+                            ? "border-primary bg-primary/10"
+                            : hasPhotos
+                            ? "border-primary/50 bg-primary/5"
+                            : "border-dashed border-muted-foreground/30 hover:border-primary/50"
+                        } ${isFull ? "ring-2 ring-green-500/30" : ""}`}
+                        data-testid={`room-zone-${room.roomId}`}
+                      >
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          {hasPhotos && photos[0] ? (
+                            <div className="w-12 h-12 rounded-md overflow-hidden">
+                              <img 
+                                src={photos[0].url} 
+                                alt={room.roomName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center">
+                              <RoomIcon className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                          )}
+                          <span className="text-xs font-medium leading-tight">{room.roomName}</span>
+                          <Badge 
+                            variant={hasPhotos ? "default" : "secondary"} 
+                            className="text-xs py-0 h-5"
+                          >
+                            {photos.length}/6
+                          </Badge>
+                        </div>
+                        {hasPhotos && photos.length > 1 && (
+                          <div className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                            +{photos.length - 1}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </TabsContent>
             </Tabs>
-            
-            {selectedPhotos.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                No photos available. Upload some images to get started.
+
+            {getTotalRoomPhotoCount() === 0 && (
+              <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
+                <Image className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="font-medium">No photos added yet</p>
+                <p className="text-sm">Click on any room above to add photos, or use the Upload button</p>
               </div>
             )}
           </div>
@@ -1292,7 +1442,7 @@ ${propertyDetails}`;
                 </div>
                 <div>
                   <span className="text-muted-foreground">Photos:</span>
-                  <p data-testid="summary-photos">{selectedPhotoCount} selected</p>
+                  <p data-testid="summary-photos">{getTotalRoomPhotoCount()} in {getRoomsWithPhotos().length} rooms</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Avatar:</span>
@@ -1642,6 +1792,250 @@ ${propertyDetails}`;
               data-testid="photo-select-confirm-btn"
             >
               Continue with {tempPhotoSelection.filter(p => p.selected).length} Photos
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRoomModal} onOpenChange={(open) => {
+        setShowRoomModal(open);
+        if (!open) setSelectedRoomId(null);
+      }}>
+        <DialogContent className="max-w-2xl" data-testid="room-modal">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selectedRoomId && (() => {
+                const RoomIcon = getRoomIcon(selectedRoomId);
+                return <RoomIcon className="h-5 w-5" />;
+              })()}
+              {ROOM_ZONES.find(r => r.roomId === selectedRoomId)?.roomName || "Room"}
+            </DialogTitle>
+            <DialogDescription>
+              Add up to 6 photos for this room. Each room creates a 16-second panoramic video segment.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedRoomId && (
+            <div className="space-y-4 py-4">
+              <div className="flex items-center justify-between">
+                <Badge variant="secondary">
+                  {(roomPhotos[selectedRoomId] || []).length}/6 photos
+                </Badge>
+                <label className="cursor-pointer">
+                  <Input
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => handleRoomFileUpload(e.target.files, selectedRoomId)}
+                    data-testid="room-file-input"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="pointer-events-none"
+                    disabled={(roomPhotos[selectedRoomId] || []).length >= 6}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Photos
+                  </Button>
+                </label>
+              </div>
+
+              {(roomPhotos[selectedRoomId] || []).length === 0 ? (
+                <div 
+                  className="border-2 border-dashed rounded-lg p-8 text-center"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => handleRoomDrop(e, selectedRoomId)}
+                >
+                  <Image className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                  <p className="font-medium">No photos yet</p>
+                  <p className="text-sm text-muted-foreground">Drag and drop or click Add Photos</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  {(roomPhotos[selectedRoomId] || []).map((photo, index) => (
+                    <div
+                      key={index}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", String(index));
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
+                        if (!isNaN(fromIndex) && fromIndex !== index && selectedRoomId) {
+                          reorderRoomPhotos(selectedRoomId, fromIndex, index);
+                        }
+                      }}
+                      className="relative rounded-lg overflow-hidden border-2 border-muted group cursor-grab"
+                      data-testid={`room-photo-${index}`}
+                    >
+                      <img 
+                        src={photo.url} 
+                        alt={`Photo ${index + 1}`}
+                        className="w-full aspect-video object-cover"
+                      />
+                      <div className="absolute top-1 left-1 flex items-center gap-1">
+                        <div className="bg-black/70 text-white px-1.5 py-0.5 rounded text-xs">
+                          #{index + 1}
+                        </div>
+                        <GripVertical className="h-4 w-4 text-white drop-shadow" />
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => selectedRoomId && removePhotoFromRoom(selectedRoomId, photo.url)}
+                        data-testid={`remove-room-photo-${index}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setShowRoomModal(false)} data-testid="room-modal-close-btn">
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showGlobalUploadModal} onOpenChange={setShowGlobalUploadModal}>
+        <DialogContent className="max-w-xl" data-testid="global-upload-modal">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Upload Photos
+            </DialogTitle>
+            <DialogDescription>
+              Upload photos and select which room to add them to.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Select Room</Label>
+              <Select value={selectedRoomId || ""} onValueChange={setSelectedRoomId}>
+                <SelectTrigger data-testid="upload-room-select">
+                  <SelectValue placeholder="Choose a room" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unassigned__">Add to Unassigned</SelectItem>
+                  {ROOM_ZONES.map((room) => {
+                    const count = (roomPhotos[room.roomId] || []).length;
+                    const isFull = count >= 6;
+                    return (
+                      <SelectItem 
+                        key={room.roomId} 
+                        value={room.roomId}
+                        disabled={isFull}
+                      >
+                        <div className="flex items-center justify-between gap-2 w-full">
+                          <span>{room.roomName}</span>
+                          <span className={`text-xs ${isFull ? "text-red-500" : "text-muted-foreground"}`}>
+                            ({count}/6)
+                          </span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                isDragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                const files = e.dataTransfer.files;
+                if (selectedRoomId === "__unassigned__") {
+                  Array.from(files).forEach(file => {
+                    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+                    if (validTypes.includes(file.type)) {
+                      const reader = new FileReader();
+                      reader.onload = (evt) => {
+                        const dataUrl = evt.target?.result as string;
+                        if (dataUrl) {
+                          setUnassignedPhotos(prev => [...prev, { url: dataUrl, source: "upload" }]);
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  });
+                } else if (selectedRoomId) {
+                  handleRoomFileUpload(files, selectedRoomId);
+                }
+              }}
+            >
+              {isUploading ? (
+                <Loader2 className="h-10 w-10 mx-auto animate-spin text-primary" />
+              ) : (
+                <>
+                  <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+                  <p className="font-medium">Drag and drop photos here</p>
+                  <p className="text-sm text-muted-foreground mb-3">or click to browse</p>
+                  <label className="cursor-pointer">
+                    <Input
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        if (!files || !selectedRoomId) return;
+                        
+                        if (selectedRoomId === "__unassigned__") {
+                          Array.from(files).forEach(file => {
+                            const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+                            if (validTypes.includes(file.type)) {
+                              const reader = new FileReader();
+                              reader.onload = (evt) => {
+                                const dataUrl = evt.target?.result as string;
+                                if (dataUrl) {
+                                  setUnassignedPhotos(prev => [...prev, { url: dataUrl, source: "upload" }]);
+                                }
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          });
+                          toast({
+                            title: "Photos Added",
+                            description: `Added ${files.length} photos to unassigned. Drag them to rooms.`,
+                          });
+                        } else {
+                          handleRoomFileUpload(files, selectedRoomId);
+                        }
+                      }}
+                    />
+                    <Button variant="secondary" className="pointer-events-none">
+                      Browse Files
+                    </Button>
+                  </label>
+                </>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setShowGlobalUploadModal(false)} data-testid="global-upload-close-btn">
+              Done
             </Button>
           </DialogFooter>
         </DialogContent>

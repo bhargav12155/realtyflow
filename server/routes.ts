@@ -15994,28 +15994,66 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     createdAt: Date;
   }
   
+  // Group photos by room for batch processing
+  interface RoomBatch {
+    roomType: string;
+    photos: string[];
+  }
+  
+  function groupPhotosByRoom(photos: string[], roomTypes: string[]): RoomBatch[] {
+    const roomMap = new Map<string, string[]>();
+    
+    for (let i = 0; i < photos.length; i++) {
+      const roomType = roomTypes[i] || "auto";
+      if (!roomMap.has(roomType)) {
+        roomMap.set(roomType, []);
+      }
+      roomMap.get(roomType)!.push(photos[i]);
+    }
+    
+    return Array.from(roomMap.entries()).map(([roomType, photos]) => ({
+      roomType,
+      photos: photos.slice(0, 6), // Max 6 photos per room
+    }));
+  }
+  
+  // COMPLIANCE-FOCUSED: These prompts ONLY describe camera motion, NOT content to add
+  // Real Estate Commission compliant - no AI-generated additions to actual property photos
   const ROOM_PROMPT_MAP: Record<string, string> = {
-    "auto": "interior space with elegant design",
-    "living-room": "spacious living room with modern decor and comfortable seating",
-    "kitchen": "gourmet kitchen with premium appliances and beautiful countertops",
-    "master-bedroom": "luxurious master bedroom suite with elegant furnishings",
-    "bedroom": "cozy bedroom with ample natural light",
-    "bathroom": "spa-like bathroom with premium fixtures",
-    "dining-room": "elegant dining room perfect for entertaining",
-    "office": "professional home office space",
-    "basement": "finished basement with versatile living space",
-    "garage": "spacious garage with ample storage",
-    "laundry": "convenient laundry room with modern appliances",
-    "hallway": "welcoming entryway and hallway",
-    "front-yard": "beautiful front yard with curb appeal landscaping",
-    "backyard": "expansive backyard oasis perfect for outdoor living",
-    "pool": "stunning pool area with resort-style amenities",
-    "patio": "relaxing patio and deck space for outdoor entertaining",
-    "driveway": "impressive driveway and exterior approach",
-    "garden": "lush garden and landscaping",
-    "roof": "quality roofing and exterior architectural details",
-    "aerial": "bird's eye aerial view showcasing property and surroundings",
+    "auto": "interior space",
+    "living-room": "living room",
+    "kitchen": "kitchen",
+    "master-bedroom": "master bedroom",
+    "bedroom": "bedroom",
+    "bathroom": "bathroom",
+    "dining-room": "dining room",
+    "office": "home office",
+    "basement": "basement",
+    "garage": "garage",
+    "laundry": "laundry room",
+    "hallway": "entryway",
+    "front-yard": "front yard",
+    "backyard": "backyard",
+    "pool": "pool area",
+    "patio": "patio",
+    "driveway": "driveway",
+    "garden": "garden",
+    "roof": "exterior",
+    "aerial": "aerial view",
   };
+  
+  // Compliance-focused VEO prompts - ONLY camera motion, no additions
+  function getCompliancePrompt(roomDesc: string, isFirstClip: boolean): string {
+    if (isFirstClip) {
+      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features. 
+      
+Camera motion: Slow, smooth cinematic dolly-in entering this ${roomDesc}. Professional real estate video feel. Pan across the space exactly as photographed. No alterations to the photo content whatsoever.`;
+    } else {
+      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.
+
+Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tracking movement. Keep all original photo elements exactly as they appear. No alterations to the photo content whatsoever.`;
+    }
+  }
 
   const propertyTourJobs = new Map<string, PropertyTourJob>();
 
@@ -16091,69 +16129,110 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const { VideoStudioService } = await import("./services/video-studio");
       
       if (veoVideoService.isConfigured()) {
-        job.message = "Starting Gemini VEO 3.1 video generation...";
+        job.message = "Starting Gemini VEO 3.1 panoramic video generation...";
         console.log(`🎬 [PropertyTour] ========================================`);
-        console.log(`🎬 [PropertyTour] VIDEO ENGINE: GEMINI VEO 3.1 (16-second room clips)`);
+        console.log(`🎬 [PropertyTour] VIDEO ENGINE: GEMINI VEO 3.1 (PANORAMIC BATCH PROCESSING)`);
+        console.log(`🎬 [PropertyTour] COMPLIANCE MODE: Camera motion only, no AI additions`);
         console.log(`🎬 [PropertyTour] ========================================`);
         
         job.progress = 10;
         
-        // Generate 2x 8-second clips per room and combine into 16-second videos
+        // Group photos by room (max 6 per room, process 3 at a time)
+        const roomBatches = groupPhotosByRoom(processedPhotos, job.roomTypes || []);
         const roomVideos: string[] = [];
-        const totalRooms = processedPhotos.length;
+        const totalRooms = roomBatches.length;
         
-        for (let i = 0; i < processedPhotos.length; i++) {
-          const photoUrl = processedPhotos[i];
-          const roomType = job.roomTypes?.[i] || "auto";
-          const roomDesc = ROOM_PROMPT_MAP[roomType] || ROOM_PROMPT_MAP["auto"];
+        console.log(`🏠 [PropertyTour] Processing ${totalRooms} rooms with grouped photos`);
+        
+        for (let roomIdx = 0; roomIdx < roomBatches.length; roomIdx++) {
+          const room = roomBatches[roomIdx];
+          const roomDesc = ROOM_PROMPT_MAP[room.roomType] || ROOM_PROMPT_MAP["auto"];
           
-          job.progress = 10 + Math.floor((i / totalRooms) * 40);
-          job.message = `Generating room ${i + 1}/${totalRooms}: ${roomType.replace("-", " ")}...`;
+          job.progress = 10 + Math.floor((roomIdx / totalRooms) * 50);
+          job.message = `Generating ${room.roomType.replace("-", " ")} (${room.photos.length} photos)...`;
           
-          console.log(`🏠 [PropertyTour] Room ${i + 1}/${totalRooms}: ${roomType} - ${roomDesc}`);
+          console.log(`🏠 [PropertyTour] Room ${roomIdx + 1}/${totalRooms}: ${room.roomType} with ${room.photos.length} photos`);
           
-          // Generate first 8-second clip with entering/establishing shot
-          const prompt1 = `Cinematic real estate video. Smooth camera dolly entering a ${roomDesc}. Slow, elegant camera movement. Professional cinematography. High-end property showcase.`;
+          // Split photos into batches of 3 for panoramic generation
+          // Batch 1: photos 1-3 → first 8-second clip
+          // Batch 2: photos 4-6 → second 8-second clip
+          const batch1Photos = room.photos.slice(0, 3);
+          const batch2Photos = room.photos.slice(3, 6);
           
-          const veoResult1 = await veoVideoService.generateVideo({
-            imageUrl: photoUrl,
-            prompt: prompt1,
-            aspectRatio: "16:9",
-            duration: 8,
-          });
+          const clipUrls: string[] = [];
           
-          let clip1Url: string | null = null;
-          if (veoResult1.success && veoResult1.operationId) {
-            const completion1 = await veoVideoService.waitForCompletion(veoResult1.operationId, 180000);
-            if (completion1.done && completion1.videoUrl) {
-              clip1Url = completion1.videoUrl;
-              console.log(`✅ [PropertyTour] Room ${i + 1} clip 1 ready`);
+          // Process batch 1 (photos 1-3) - first 8-second panoramic clip
+          if (batch1Photos.length > 0) {
+            // Use first photo as primary, others provide context for panoramic feel
+            const primaryPhoto = batch1Photos[0];
+            const prompt1 = getCompliancePrompt(roomDesc, true);
+            
+            console.log(`📸 [PropertyTour] Batch 1: ${batch1Photos.length} photos for first 8-sec clip`);
+            
+            const veoResult1 = await veoVideoService.generateVideo({
+              imageUrl: primaryPhoto,
+              prompt: prompt1,
+              aspectRatio: "16:9",
+              duration: 8,
+            });
+            
+            if (veoResult1.success && veoResult1.operationId) {
+              const completion1 = await veoVideoService.waitForCompletion(veoResult1.operationId, 180000);
+              if (completion1.done && completion1.videoUrl) {
+                clipUrls.push(completion1.videoUrl);
+                console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 1 ready (from ${batch1Photos.length} photos)`);
+              }
             }
           }
           
-          // Generate second 8-second clip with panning/detail shot
-          const prompt2 = `Cinematic real estate video. Slow camera pan revealing details of a ${roomDesc}. Smooth tracking shot highlighting features. Professional cinematography.`;
-          
-          const veoResult2 = await veoVideoService.generateVideo({
-            imageUrl: photoUrl,
-            prompt: prompt2,
-            aspectRatio: "16:9",
-            duration: 8,
-          });
-          
-          let clip2Url: string | null = null;
-          if (veoResult2.success && veoResult2.operationId) {
-            const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
-            if (completion2.done && completion2.videoUrl) {
-              clip2Url = completion2.videoUrl;
-              console.log(`✅ [PropertyTour] Room ${i + 1} clip 2 ready`);
+          // Process batch 2 (photos 4-6) - second 8-second panoramic clip
+          if (batch2Photos.length > 0) {
+            const primaryPhoto = batch2Photos[0];
+            const prompt2 = getCompliancePrompt(roomDesc, false);
+            
+            console.log(`📸 [PropertyTour] Batch 2: ${batch2Photos.length} photos for second 8-sec clip`);
+            
+            const veoResult2 = await veoVideoService.generateVideo({
+              imageUrl: primaryPhoto,
+              prompt: prompt2,
+              aspectRatio: "16:9",
+              duration: 8,
+            });
+            
+            if (veoResult2.success && veoResult2.operationId) {
+              const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
+              if (completion2.done && completion2.videoUrl) {
+                clipUrls.push(completion2.videoUrl);
+                console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready (from ${batch2Photos.length} photos)`);
+              }
+            }
+          } else if (clipUrls.length === 1) {
+            // Only have 1-3 photos - generate second clip from same batch with different motion
+            const primaryPhoto = batch1Photos[batch1Photos.length - 1] || batch1Photos[0];
+            const prompt2 = getCompliancePrompt(roomDesc, false);
+            
+            console.log(`📸 [PropertyTour] Generating second clip from same batch (${batch1Photos.length} photos)`);
+            
+            const veoResult2 = await veoVideoService.generateVideo({
+              imageUrl: primaryPhoto,
+              prompt: prompt2,
+              aspectRatio: "16:9",
+              duration: 8,
+            });
+            
+            if (veoResult2.success && veoResult2.operationId) {
+              const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
+              if (completion2.done && completion2.videoUrl) {
+                clipUrls.push(completion2.videoUrl);
+                console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready`);
+              }
             }
           }
           
-          // Combine both clips into a 16-second room video
-          if (clip1Url && clip2Url) {
+          // Combine clips into 16-second room video
+          if (clipUrls.length >= 2) {
             try {
-              console.log(`🎬 [PropertyTour] Combining clips for room ${i + 1} into 16-second video...`);
+              console.log(`🎬 [PropertyTour] Combining ${clipUrls.length} clips for ${room.roomType} into 16-second video...`);
               const { spawn } = await import('child_process');
               const fsPromises = await import('fs/promises');
               const path = await import('path');
@@ -16161,33 +16240,28 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               const outputDir = '/tmp/property-tour-combined';
               await fsPromises.mkdir(outputDir, { recursive: true });
               
-              const combinedFilename = `room-${job.id}-${i + 1}.mp4`;
+              const combinedFilename = `room-${job.id}-${room.roomType}.mp4`;
               const combinedPath = path.join(outputDir, combinedFilename);
               
-              // Download both clips with validation
-              const clip1Res = await fetch(clip1Url);
-              if (!clip1Res.ok) {
-                throw new Error(`Failed to download clip 1: ${clip1Res.status}`);
+              // Download clips with validation
+              const clipPaths: string[] = [];
+              for (let c = 0; c < clipUrls.length; c++) {
+                const clipRes = await fetch(clipUrls[c]);
+                if (!clipRes.ok) {
+                  throw new Error(`Failed to download clip ${c + 1}: ${clipRes.status}`);
+                }
+                const clipBuffer = Buffer.from(await clipRes.arrayBuffer());
+                const clipPath = path.join(outputDir, `clip${c + 1}-${job.id}-${roomIdx}.mp4`);
+                await fsPromises.writeFile(clipPath, clipBuffer);
+                clipPaths.push(clipPath);
               }
-              const clip1Buffer = Buffer.from(await clip1Res.arrayBuffer());
-              const clip1Path = path.join(outputDir, `clip1-${job.id}-${i}.mp4`);
-              await fsPromises.writeFile(clip1Path, clip1Buffer);
-              
-              const clip2Res = await fetch(clip2Url);
-              if (!clip2Res.ok) {
-                throw new Error(`Failed to download clip 2: ${clip2Res.status}`);
-              }
-              const clip2Buffer = Buffer.from(await clip2Res.arrayBuffer());
-              const clip2Path = path.join(outputDir, `clip2-${job.id}-${i}.mp4`);
-              await fsPromises.writeFile(clip2Path, clip2Buffer);
               
               // Create concat file (use escaped paths)
-              const concatPath = path.join(outputDir, `concat-${job.id}-${i}.txt`);
-              const escapedClip1 = clip1Path.replace(/'/g, "'\\''");
-              const escapedClip2 = clip2Path.replace(/'/g, "'\\''");
-              await fsPromises.writeFile(concatPath, `file '${escapedClip1}'\nfile '${escapedClip2}'`);
+              const concatPath = path.join(outputDir, `concat-${job.id}-${roomIdx}.txt`);
+              const concatContent = clipPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+              await fsPromises.writeFile(concatPath, concatContent);
               
-              // Combine with ffmpeg (use -an since VEO clips often don't have audio)
+              // Combine with ffmpeg (use -an since VEO clips don't have audio)
               await new Promise<void>((resolve, reject) => {
                 const ffmpeg = spawn('ffmpeg', [
                   '-y',
@@ -16217,26 +16291,23 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               
               if (uploadedUrl) {
                 roomVideos.push(uploadedUrl);
-                console.log(`✅ [PropertyTour] Room ${i + 1} 16-second video uploaded: ${uploadedUrl.substring(0, 60)}...`);
+                console.log(`✅ [PropertyTour] ${room.roomType} 16-second video uploaded: ${uploadedUrl.substring(0, 60)}...`);
               }
               
               // Cleanup temp files
               await Promise.all([
-                fsPromises.unlink(clip1Path).catch(() => {}),
-                fsPromises.unlink(clip2Path).catch(() => {}),
+                ...clipPaths.map(p => fsPromises.unlink(p).catch(() => {})),
                 fsPromises.unlink(concatPath).catch(() => {}),
                 fsPromises.unlink(combinedPath).catch(() => {}),
               ]);
             } catch (combineError: any) {
-              console.error(`❌ [PropertyTour] Failed to combine room ${i + 1} clips:`, combineError.message);
+              console.error(`❌ [PropertyTour] Failed to combine ${room.roomType} clips:`, combineError.message);
               // Fall back to using just the first clip
-              if (clip1Url) roomVideos.push(clip1Url);
+              if (clipUrls.length > 0) roomVideos.push(clipUrls[0]);
             }
-          } else if (clip1Url) {
-            // At least one clip succeeded
-            roomVideos.push(clip1Url);
-          } else if (clip2Url) {
-            roomVideos.push(clip2Url);
+          } else if (clipUrls.length === 1) {
+            // Only one clip succeeded - use it directly
+            roomVideos.push(clipUrls[0]);
           }
         }
         

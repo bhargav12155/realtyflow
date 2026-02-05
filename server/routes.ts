@@ -16164,22 +16164,30 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               const combinedFilename = `room-${job.id}-${i + 1}.mp4`;
               const combinedPath = path.join(outputDir, combinedFilename);
               
-              // Download both clips
+              // Download both clips with validation
               const clip1Res = await fetch(clip1Url);
+              if (!clip1Res.ok) {
+                throw new Error(`Failed to download clip 1: ${clip1Res.status}`);
+              }
               const clip1Buffer = Buffer.from(await clip1Res.arrayBuffer());
               const clip1Path = path.join(outputDir, `clip1-${job.id}-${i}.mp4`);
               await fsPromises.writeFile(clip1Path, clip1Buffer);
               
               const clip2Res = await fetch(clip2Url);
+              if (!clip2Res.ok) {
+                throw new Error(`Failed to download clip 2: ${clip2Res.status}`);
+              }
               const clip2Buffer = Buffer.from(await clip2Res.arrayBuffer());
               const clip2Path = path.join(outputDir, `clip2-${job.id}-${i}.mp4`);
               await fsPromises.writeFile(clip2Path, clip2Buffer);
               
-              // Create concat file
+              // Create concat file (use escaped paths)
               const concatPath = path.join(outputDir, `concat-${job.id}-${i}.txt`);
-              await fsPromises.writeFile(concatPath, `file '${clip1Path}'\nfile '${clip2Path}'`);
+              const escapedClip1 = clip1Path.replace(/'/g, "'\\''");
+              const escapedClip2 = clip2Path.replace(/'/g, "'\\''");
+              await fsPromises.writeFile(concatPath, `file '${escapedClip1}'\nfile '${escapedClip2}'`);
               
-              // Combine with ffmpeg
+              // Combine with ffmpeg (use -an since VEO clips often don't have audio)
               await new Promise<void>((resolve, reject) => {
                 const ffmpeg = spawn('ffmpeg', [
                   '-y',
@@ -16189,8 +16197,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                   '-c:v', 'libx264',
                   '-preset', 'fast',
                   '-crf', '23',
-                  '-c:a', 'aac',
-                  '-b:a', '128k',
+                  '-an',
                   '-movflags', '+faststart',
                   combinedPath
                 ]);
@@ -16377,8 +16384,18 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(400).json({ error: "Script is required" });
       }
 
+      // Normalize roomTypes array to match photos length
+      let normalizedRoomTypes: string[] = [];
+      if (Array.isArray(roomTypes) && roomTypes.length === photos.length) {
+        normalizedRoomTypes = roomTypes;
+      } else {
+        // Default to "auto" for all photos if roomTypes missing or mismatched
+        normalizedRoomTypes = photos.map(() => "auto");
+      }
+
       console.log("🎬 Property Tour: Starting generation for user", userId);
       console.log("📸 Photos:", photos.length);
+      console.log("🏠 Room types:", normalizedRoomTypes.join(", "));
       console.log("🎭 Avatar ID:", avatarId);
       console.log("🎨 Background:", backgroundType);
       console.log("🏷️ Branding:", includeBranding);
@@ -16392,7 +16409,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         progress: 0,
         message: "Job queued for processing",
         photos,
-        roomTypes: Array.isArray(roomTypes) ? roomTypes : [],
+        roomTypes: normalizedRoomTypes,
         avatarId,
         avatarImageKey: avatarImageKey || undefined,
         script,

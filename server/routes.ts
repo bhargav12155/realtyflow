@@ -15979,6 +15979,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     message: string;
     photos: string[];
     roomTypes?: string[];
+    tourOrder?: string[];
     roomClipDuration?: number;
     avatarId: string;
     avatarImageKey?: string;
@@ -15988,6 +15989,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     property: any;
     klingTaskIds: string[];
     motionVideos: string[];
+    combinedTourUrl?: string;
     avatarVideoId?: string;
     avatarVideoUrl?: string;
     finalVideoUrl?: string;
@@ -16343,8 +16345,156 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         
         if (roomVideos.length > 0) {
           job.motionVideos = roomVideos;
-          job.progress = 60;
+          job.progress = 50;
           console.log(`✅ [PropertyTour] Generated ${roomVideos.length} room videos`);
+          
+          // Combine all room videos into one final property tour
+          if (roomVideos.length > 1) {
+            job.progress = 55;
+            job.message = "Combining room videos into complete tour...";
+            console.log(`🎬 [PropertyTour] Combining ${roomVideos.length} room videos with transitions...`);
+            
+            try {
+              const { spawn } = await import('child_process');
+              const fsPromises = await import('fs/promises');
+              const path = await import('path');
+              
+              const outputDir = '/tmp/property-tour-final';
+              await fsPromises.mkdir(outputDir, { recursive: true });
+              
+              const finalFilename = `complete-tour-${job.id}.mp4`;
+              const finalPath = path.join(outputDir, finalFilename);
+              
+              // Download room videos to local files for combining
+              const localVideoPaths: string[] = [];
+              for (let i = 0; i < roomVideos.length; i++) {
+                const videoUrl = roomVideos[i];
+                const localPath = path.join(outputDir, `room-${i}.mp4`);
+                
+                if (videoUrl.startsWith('/tmp/')) {
+                  // Already local
+                  localVideoPaths.push(videoUrl);
+                } else if (videoUrl.startsWith('http')) {
+                  // Download from URL
+                  const response = await fetch(videoUrl);
+                  const buffer = Buffer.from(await response.arrayBuffer());
+                  await fsPromises.writeFile(localPath, buffer);
+                  localVideoPaths.push(localPath);
+                } else {
+                  localVideoPaths.push(videoUrl);
+                }
+              }
+              
+              // Build ffmpeg command with xfade crossfade transitions
+              const fadeDuration = 0.5; // 0.5 second crossfade between clips
+              const clipDuration = job.roomClipDuration || 8;
+              
+              // For 2+ videos, use xfade filter for smooth transitions
+              // For single video, just copy it
+              if (localVideoPaths.length === 1) {
+                // Single video - just copy
+                await fsPromises.copyFile(localVideoPaths[0], finalPath);
+              } else if (localVideoPaths.length === 2) {
+                // Two videos - simple xfade with dynamic offset based on clip duration
+                const offset = clipDuration - fadeDuration;
+                await new Promise<void>((resolve, reject) => {
+                  const ffmpeg = spawn('ffmpeg', [
+                    '-y',
+                    '-i', localVideoPaths[0],
+                    '-i', localVideoPaths[1],
+                    '-filter_complex',
+                    `[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]`,
+                    '-map', '[vout]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '22',
+                    '-an',
+                    '-movflags', '+faststart',
+                    finalPath
+                  ]);
+                  
+                  ffmpeg.stderr.on('data', (data) => {
+                    console.log(`[FFmpeg Tour] ${data.toString().slice(0, 200)}`);
+                  });
+                  
+                  ffmpeg.on('close', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`ffmpeg xfade exited with code ${code}`));
+                  });
+                  ffmpeg.on('error', reject);
+                });
+              } else {
+                // 3+ videos - chain xfade filters with normalized inputs
+                // First normalize all inputs, then chain xfades
+                const inputs = localVideoPaths.map((p, i) => ['-i', p]).flat();
+                
+                // Build normalization filters for each input
+                let filterComplex = localVideoPaths.map((_, i) => 
+                  `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`
+                ).join(';');
+                
+                // Chain xfade filters
+                // First xfade: [n0][n1]xfade[x1]
+                // Second xfade: [x1][n2]xfade[x2]
+                // etc.
+                let prevOutput = 'n0';
+                for (let i = 1; i < localVideoPaths.length; i++) {
+                  // Cumulative offset: each clip adds (clipDuration - fadeDuration) after the first
+                  const offset = (clipDuration - fadeDuration) * i;
+                  const outputLabel = i === localVideoPaths.length - 1 ? 'vout' : `x${i}`;
+                  filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outputLabel}]`;
+                  prevOutput = outputLabel;
+                }
+                
+                await new Promise<void>((resolve, reject) => {
+                  const ffmpegArgs = [
+                    '-y',
+                    ...inputs,
+                    '-filter_complex', filterComplex,
+                    '-map', '[vout]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '22',
+                    '-an',
+                    '-movflags', '+faststart',
+                    finalPath
+                  ];
+                  
+                  console.log(`[FFmpeg Tour] Running xfade with ${localVideoPaths.length} clips, filter: ${filterComplex.slice(0, 200)}...`);
+                  const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+                  
+                  ffmpeg.stderr.on('data', (data) => {
+                    console.log(`[FFmpeg Tour] ${data.toString().slice(0, 200)}`);
+                  });
+                  
+                  ffmpeg.on('close', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`ffmpeg xfade chain exited with code ${code}`));
+                  });
+                  ffmpeg.on('error', reject);
+                });
+              }
+              
+              // Upload combined tour to S3
+              const combinedBuffer = await fsPromises.readFile(finalPath);
+              const s3Service = new S3UploadService();
+              const tourKey = `property-tour-videos/${job.userId}/complete-tour-${job.id}.mp4`;
+              const tourUrl = await s3Service.uploadBuffer(combinedBuffer, tourKey, 'video/mp4', true, 86400);
+              
+              if (tourUrl) {
+                job.combinedTourUrl = tourUrl;
+                console.log(`✅ [PropertyTour] Complete tour video ready: ${roomVideos.length} rooms combined`);
+              }
+              
+              // Clean up local files
+              await fsPromises.rm(outputDir, { recursive: true, force: true }).catch(() => {});
+            } catch (combineErr) {
+              console.error(`❌ [PropertyTour] Failed to combine tour videos:`, combineErr);
+              // Continue without combined video - individual room videos still available
+            }
+          }
+          
+          job.progress = 60;
         } else {
           console.error(`❌ [PropertyTour] No VEO clips generated, falling back to FFmpeg`);
           job.message = `VEO generation failed. Falling back to FFmpeg...`;
@@ -16470,7 +16620,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const { photos, roomTypes, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration } = req.body;
+      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration } = req.body;
 
       if (!photos || !Array.isArray(photos) || photos.length === 0) {
         return res.status(400).json({ error: "At least one photo is required" });
@@ -16497,6 +16647,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
       console.log("🎬 Property Tour: Starting generation for user", userId);
       console.log("📸 Photos:", photos.length);
       console.log("🏠 Room types:", normalizedRoomTypes.join(", "));
+      console.log("🗺️ Tour order:", tourOrder?.join(" → ") || "default");
       console.log("🎭 Avatar ID:", avatarId);
       console.log("🎨 Background:", backgroundType);
       console.log("🏷️ Branding:", includeBranding);
@@ -16518,6 +16669,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         backgroundType: backgroundType || "office",
         includeBranding: includeBranding !== false,
         roomClipDuration: roomClipDuration || 8,
+        tourOrder: tourOrder || [],
         property,
         klingTaskIds: [],
         motionVideos: [],
@@ -16575,6 +16727,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         progress: job.progress,
         message: job.message,
         motionVideos: motionVideoUrls,
+        combinedTourUrl: job.combinedTourUrl,
         avatarVideoUrl: job.avatarVideoUrl,
         finalVideoUrl: finalUrl,
         error: job.error,

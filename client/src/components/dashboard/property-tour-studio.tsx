@@ -219,6 +219,7 @@ export function PropertyTourStudio() {
   const [videoDuration, setVideoDuration] = useState<string>("60");
   const [roomClipDuration, setRoomClipDuration] = useState<string>("8");
   const [customPrompt, setCustomPrompt] = useState<string>("");
+  const [tourOrder, setTourOrder] = useState<string[]>([]);
 
   const { data: avatarsData, isLoading: avatarsLoading } = useQuery<{ photos: AvatarPhoto[] }>({
     queryKey: ["/api/avatar-iv/photos"],
@@ -483,6 +484,10 @@ ${propertyDetails}`;
         });
         return prev;
       }
+      // Auto-add to tour order when first photo added
+      if (currentPhotos.length === 0) {
+        setTourOrder(order => order.includes(roomId) ? order : [...order, roomId]);
+      }
       return {
         ...prev,
         [roomId]: [...currentPhotos, { url: photoUrl, order: currentPhotos.length, source }],
@@ -494,6 +499,10 @@ ${propertyDetails}`;
     setRoomPhotos(prev => {
       const currentPhotos = prev[roomId] || [];
       const filtered = currentPhotos.filter(p => p.url !== photoUrl);
+      // Remove from tour order when room has no photos
+      if (filtered.length === 0) {
+        setTourOrder(order => order.filter(id => id !== roomId));
+      }
       return {
         ...prev,
         [roomId]: filtered.map((p, i) => ({ ...p, order: i })),
@@ -615,6 +624,7 @@ ${propertyDetails}`;
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
   const [motionVideos, setMotionVideos] = useState<string[]>([]);
+  const [combinedTourUrl, setCombinedTourUrl] = useState<string | null>(null);
   const [avatarVideoUrl, setAvatarVideoUrl] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [savedToLibrary, setSavedToLibrary] = useState<boolean>(false);
@@ -652,6 +662,9 @@ ${propertyDetails}`;
       if (data.motionVideos && data.motionVideos.length > 0) {
         setMotionVideos(data.motionVideos);
       }
+      if (data.combinedTourUrl) {
+        setCombinedTourUrl(data.combinedTourUrl);
+      }
       
       if (data.status === "completed") {
         setGenerationComplete(true);
@@ -662,13 +675,17 @@ ${propertyDetails}`;
         if (data.motionVideos) {
           setMotionVideos(data.motionVideos);
         }
+        if (data.combinedTourUrl) {
+          setCombinedTourUrl(data.combinedTourUrl);
+        }
         if (data.avatarVideoUrl) {
           setAvatarVideoUrl(data.avatarVideoUrl);
         }
-        const avatarMsg = data.avatarVideoUrl ? " and avatar narration" : "";
+        const tourMsg = data.combinedTourUrl ? " complete tour" : `${data.motionVideos?.length || 1} room clips`;
+        const avatarMsg = data.avatarVideoUrl ? " + avatar narration" : "";
         toast({
           title: "Video Generation Complete",
-          description: `Generated ${data.motionVideos?.length || 1} motion clips${avatarMsg}!`,
+          description: `Generated ${tourMsg}${avatarMsg}!`,
         });
         return true;
       }
@@ -699,12 +716,16 @@ ${propertyDetails}`;
     setGenerationComplete(false);
     setGeneratedVideoUrl(null);
     setMotionVideos([]);
+    setCombinedTourUrl(null);
     setAvatarVideoUrl(null);
     setStatusMessage("Starting video generation...");
     
     try {
+      // Prepare photos in tour order (rooms in sequence, photos within each room)
       const photosWithRoomTypes: { url: string; roomType: string }[] = [];
-      getRoomsWithPhotos().forEach(({ roomId, photos }) => {
+      const orderedRooms = tourOrder.length > 0 ? tourOrder : getRoomsWithPhotos().map(r => r.roomId);
+      orderedRooms.forEach((roomId) => {
+        const photos = roomPhotos[roomId] || [];
         photos.forEach(photo => {
           photosWithRoomTypes.push({
             url: photo.url,
@@ -726,6 +747,7 @@ ${propertyDetails}`;
         body: JSON.stringify({
           photos: photosToInclude,
           roomTypes,
+          tourOrder: orderedRooms,
           avatarId: selectedAvatar,
           avatarImageKey,
           script: generatedScript,
@@ -829,11 +851,11 @@ ${propertyDetails}`;
       : `🏠 Check out this amazing property tour! #RealEstate #PropertyTour`;
     setShareContent(defaultContent);
     
-    const defaultVideo = avatarVideoUrl || (motionVideos.length > 0 ? motionVideos[0] : "");
+    const defaultVideo = combinedTourUrl || avatarVideoUrl || (motionVideos.length > 0 ? motionVideos[0] : "");
     setSelectedVideoForShare(defaultVideo);
     setSelectedPlatform("");
     setShowShareDialog(true);
-  }, [selectedProperty, noMlsMode, avatarVideoUrl, motionVideos]);
+  }, [selectedProperty, noMlsMode, combinedTourUrl, avatarVideoUrl, motionVideos]);
 
   const handleShareToSocial = useCallback(async () => {
     if (!selectedPlatform || !selectedVideoForShare || !shareContent) {
@@ -1079,6 +1101,7 @@ ${propertyDetails}`;
                     const RoomIcon = getRoomIcon(room.roomId);
                     const hasPhotos = photos.length > 0;
                     const isFull = photos.length >= 6;
+                    const tourIndex = tourOrder.indexOf(room.roomId);
                     
                     return (
                       <div
@@ -1099,6 +1122,11 @@ ${propertyDetails}`;
                         } ${isFull ? "ring-2 ring-green-500/30" : ""}`}
                         data-testid={`room-zone-${room.roomId}`}
                       >
+                        {tourIndex >= 0 && (
+                          <div className="absolute -top-2 -left-2 w-6 h-6 bg-blue-600 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-md z-10">
+                            {tourIndex + 1}
+                          </div>
+                        )}
                         <div className="flex flex-col items-center gap-2 text-center">
                           {hasPhotos && photos[0] ? (
                             <div className="w-12 h-12 rounded-md overflow-hidden">
@@ -1139,6 +1167,7 @@ ${propertyDetails}`;
                     const RoomIcon = getRoomIcon(room.roomId);
                     const hasPhotos = photos.length > 0;
                     const isFull = photos.length >= 6;
+                    const tourIndex = tourOrder.indexOf(room.roomId);
                     
                     return (
                       <div
@@ -1159,6 +1188,11 @@ ${propertyDetails}`;
                         } ${isFull ? "ring-2 ring-green-500/30" : ""}`}
                         data-testid={`room-zone-${room.roomId}`}
                       >
+                        {tourIndex >= 0 && (
+                          <div className="absolute -top-2 -left-2 w-6 h-6 bg-blue-600 text-white text-xs font-bold rounded-full flex items-center justify-center shadow-md z-10">
+                            {tourIndex + 1}
+                          </div>
+                        )}
                         <div className="flex flex-col items-center gap-2 text-center">
                           {hasPhotos && photos[0] ? (
                             <div className="w-12 h-12 rounded-md overflow-hidden">
@@ -1192,6 +1226,77 @@ ${propertyDetails}`;
                 </div>
               </TabsContent>
             </Tabs>
+
+            {tourOrder.length > 0 && (
+              <div className="mt-6 p-4 bg-muted/30 rounded-lg border">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Film className="h-5 w-5 text-blue-600" />
+                    <h4 className="font-medium">Tour Sequence</h4>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {tourOrder.length} rooms • ~{tourOrder.length * (roomClipDuration === "16" ? 16 : 8)}s total
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tourOrder.map((roomId, index) => {
+                    const room = ROOM_ZONES.find(r => r.roomId === roomId);
+                    const photoCount = (roomPhotos[roomId] || []).length;
+                    return (
+                      <div 
+                        key={roomId}
+                        className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 rounded-lg border shadow-sm"
+                      >
+                        <span className="w-6 h-6 bg-blue-600 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                          {index + 1}
+                        </span>
+                        <span className="text-sm font-medium">{room?.roomName || roomId}</span>
+                        <Badge variant="secondary" className="text-xs">{photoCount}</Badge>
+                        <div className="flex gap-1 ml-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            disabled={index === 0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTourOrder(prev => {
+                                const newOrder = [...prev];
+                                [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                                return newOrder;
+                              });
+                            }}
+                            data-testid={`tour-move-up-${roomId}`}
+                          >
+                            <ChevronLeft className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            disabled={index === tourOrder.length - 1}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTourOrder(prev => {
+                                const newOrder = [...prev];
+                                [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                                return newOrder;
+                              });
+                            }}
+                            data-testid={`tour-move-down-${roomId}`}
+                          >
+                            <ChevronRight className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  Use arrows to reorder rooms. Videos will be combined in this sequence with smooth transitions.
+                </p>
+              </div>
+            )}
 
             {getTotalRoomPhotoCount() === 0 && (
               <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
@@ -1548,9 +1653,45 @@ ${propertyDetails}`;
                   </div>
                 )}
                 
+                {combinedTourUrl && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Film className="h-5 w-5 text-blue-600" />
+                      <h5 className="font-medium">Complete Property Tour</h5>
+                      <Badge variant="secondary" className="text-xs">
+                        {tourOrder.length} rooms combined
+                      </Badge>
+                    </div>
+                    <div className="rounded-lg overflow-hidden border-2 border-blue-200 bg-black max-w-3xl mx-auto">
+                      <video
+                        src={combinedTourUrl}
+                        controls
+                        className="w-full aspect-video"
+                        data-testid="combined-tour-video"
+                      />
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 p-3 flex items-center justify-between">
+                        <span className="text-sm font-medium">Full Property Tour Video</span>
+                        <Button 
+                          size="sm" 
+                          variant="default" 
+                          className="gap-1"
+                          asChild
+                        >
+                          <a href={combinedTourUrl} download target="_blank" rel="noopener noreferrer">
+                            <Download className="h-4 w-4" />
+                            Download Tour
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 {motionVideos.length > 0 && (
                   <div className="space-y-3">
-                    <h5 className="font-medium text-sm">Property Motion Clips</h5>
+                    <h5 className="font-medium text-sm text-muted-foreground">
+                      {combinedTourUrl ? "Individual Room Clips" : "Property Motion Clips"}
+                    </h5>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {motionVideos.map((videoUrl, index) => (
                         <div key={index} className="rounded-lg overflow-hidden border bg-black">
@@ -1561,7 +1702,9 @@ ${propertyDetails}`;
                             data-testid={`motion-video-${index}`}
                           />
                           <div className="bg-muted p-2 flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">Clip {index + 1}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {tourOrder[index] ? ROOM_ZONES.find(r => r.roomId === tourOrder[index])?.roomName || `Clip ${index + 1}` : `Clip ${index + 1}`}
+                            </span>
                             <Button 
                               size="sm" 
                               variant="ghost" 
@@ -1625,6 +1768,7 @@ ${propertyDetails}`;
                       setGenerationComplete(false);
                       setGeneratedVideoUrl(null);
                       setMotionVideos([]);
+                      setCombinedTourUrl(null);
                       setAvatarVideoUrl(null);
                       setSavedToLibrary(false);
                       setSavedVideos([]);

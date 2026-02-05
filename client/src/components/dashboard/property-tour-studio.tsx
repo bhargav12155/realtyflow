@@ -81,28 +81,29 @@ interface RoomPhotos {
   roomName: string;
   roomType: "interior" | "exterior";
   photos: RoomPhoto[];
-  maxPhotos: 6;
+  maxPhotos: 3;
 }
 
+// VEO 3.1 produces best quality with exactly 3 photos per room
 const ROOM_ZONES: Omit<RoomPhotos, "photos">[] = [
-  { roomId: "living-room", roomName: "Living Room", roomType: "interior", maxPhotos: 6 },
-  { roomId: "kitchen", roomName: "Kitchen", roomType: "interior", maxPhotos: 6 },
-  { roomId: "dining-room", roomName: "Dining Room", roomType: "interior", maxPhotos: 6 },
-  { roomId: "master-bedroom", roomName: "Master Bedroom", roomType: "interior", maxPhotos: 6 },
-  { roomId: "bedroom-2", roomName: "Bedroom 2", roomType: "interior", maxPhotos: 6 },
-  { roomId: "bedroom-3", roomName: "Bedroom 3", roomType: "interior", maxPhotos: 6 },
-  { roomId: "bathroom", roomName: "Bathroom", roomType: "interior", maxPhotos: 6 },
-  { roomId: "master-bath", roomName: "Master Bath", roomType: "interior", maxPhotos: 6 },
-  { roomId: "office", roomName: "Office", roomType: "interior", maxPhotos: 6 },
-  { roomId: "basement", roomName: "Basement", roomType: "interior", maxPhotos: 6 },
-  { roomId: "garage", roomName: "Garage", roomType: "interior", maxPhotos: 6 },
-  { roomId: "laundry", roomName: "Laundry", roomType: "interior", maxPhotos: 6 },
-  { roomId: "front-yard", roomName: "Front Yard", roomType: "exterior", maxPhotos: 6 },
-  { roomId: "backyard", roomName: "Backyard", roomType: "exterior", maxPhotos: 6 },
-  { roomId: "pool", roomName: "Pool", roomType: "exterior", maxPhotos: 6 },
-  { roomId: "patio-deck", roomName: "Patio/Deck", roomType: "exterior", maxPhotos: 6 },
-  { roomId: "driveway", roomName: "Driveway", roomType: "exterior", maxPhotos: 6 },
-  { roomId: "aerial-view", roomName: "Aerial View", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "living-room", roomName: "Living Room", roomType: "interior", maxPhotos: 3 },
+  { roomId: "kitchen", roomName: "Kitchen", roomType: "interior", maxPhotos: 3 },
+  { roomId: "dining-room", roomName: "Dining Room", roomType: "interior", maxPhotos: 3 },
+  { roomId: "master-bedroom", roomName: "Master Bedroom", roomType: "interior", maxPhotos: 3 },
+  { roomId: "bedroom-2", roomName: "Bedroom 2", roomType: "interior", maxPhotos: 3 },
+  { roomId: "bedroom-3", roomName: "Bedroom 3", roomType: "interior", maxPhotos: 3 },
+  { roomId: "bathroom", roomName: "Bathroom", roomType: "interior", maxPhotos: 3 },
+  { roomId: "master-bath", roomName: "Master Bath", roomType: "interior", maxPhotos: 3 },
+  { roomId: "office", roomName: "Office", roomType: "interior", maxPhotos: 3 },
+  { roomId: "basement", roomName: "Basement", roomType: "interior", maxPhotos: 3 },
+  { roomId: "garage", roomName: "Garage", roomType: "interior", maxPhotos: 3 },
+  { roomId: "laundry", roomName: "Laundry", roomType: "interior", maxPhotos: 3 },
+  { roomId: "front-yard", roomName: "Front Yard", roomType: "exterior", maxPhotos: 3 },
+  { roomId: "backyard", roomName: "Backyard", roomType: "exterior", maxPhotos: 3 },
+  { roomId: "pool", roomName: "Pool", roomType: "exterior", maxPhotos: 3 },
+  { roomId: "patio-deck", roomName: "Patio/Deck", roomType: "exterior", maxPhotos: 3 },
+  { roomId: "driveway", roomName: "Driveway", roomType: "exterior", maxPhotos: 3 },
+  { roomId: "aerial-view", roomName: "Aerial View", roomType: "exterior", maxPhotos: 3 },
 ];
 
 const ROOM_TYPES = [
@@ -173,18 +174,8 @@ const TARGET_PLATFORMS = [
   { value: "twitter", label: "X (Twitter)", charLimit: 280, icon: SiX, description: "Short-form posts" },
 ];
 
-const VIDEO_DURATIONS = [
-  { value: "30", label: "30 seconds", seconds: 30, targetWords: 75, targetChars: 375 },
-  { value: "60", label: "1 minute", seconds: 60, targetWords: 150, targetChars: 750 },
-  { value: "90", label: "90 seconds", seconds: 90, targetWords: 225, targetChars: 1125 },
-  { value: "120", label: "2 minutes", seconds: 120, targetWords: 300, targetChars: 1500 },
-  { value: "180", label: "3 minutes", seconds: 180, targetWords: 450, targetChars: 2250 },
-];
-
-const ROOM_CLIP_DURATIONS = [
-  { value: "8", label: "8 seconds", description: "Single smooth clip per room (faster, less choppy)" },
-  { value: "16", label: "16 seconds", description: "Two clips combined (longer, more coverage)" },
-];
+// VEO 3.1 generates best quality with 8-second clips - fixed duration
+const ROOM_CLIP_DURATION = 8;
 
 export function PropertyTourStudio() {
   const { toast } = useToast();
@@ -215,10 +206,7 @@ export function PropertyTourStudio() {
   const [showGlobalUploadModal, setShowGlobalUploadModal] = useState<boolean>(false);
   const [unassignedPhotos, setUnassignedPhotos] = useState<{url: string; source: "mls" | "upload"}[]>([]);
   const [roomDragOver, setRoomDragOver] = useState<string | null>(null);
-  const [targetPlatform, setTargetPlatform] = useState<string>("youtube");
-  const [videoDuration, setVideoDuration] = useState<string>("60");
-  const [roomClipDuration, setRoomClipDuration] = useState<string>("8");
-  const [customPrompt, setCustomPrompt] = useState<string>("");
+    const [customPrompt, setCustomPrompt] = useState<string>("");
   const [tourOrder, setTourOrder] = useState<string[]>([]);
 
   const { data: avatarsData, isLoading: avatarsLoading } = useQuery<{ photos: AvatarPhoto[] }>({
@@ -241,9 +229,10 @@ ${property.features && property.features.length > 0 ? `Features: ${property.feat
 `.trim();
 
       const selectedStyle = SCRIPT_STYLES.find(s => s.value === scriptStyle) || SCRIPT_STYLES[0];
-      const platform = TARGET_PLATFORMS.find(p => p.value === targetPlatform) || TARGET_PLATFORMS[0];
-      const duration = VIDEO_DURATIONS.find(d => d.value === videoDuration) || VIDEO_DURATIONS[1];
-      const targetWordCount = Math.min(duration.targetWords, Math.floor(platform.charLimit / 5));
+      // Calculate target words based on number of rooms (8 seconds per room, ~2 words per second)
+      const roomCount = tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 3;
+      const totalDuration = roomCount * ROOM_CLIP_DURATION;
+      const targetWordCount = Math.floor(totalDuration * 2); // ~2 words per second for narration
 
       const userInstructions = customPrompt.trim() 
         ? `\n\nADDITIONAL USER INSTRUCTIONS:\n${customPrompt.trim()}`
@@ -254,8 +243,7 @@ ${property.features && property.features.length > 0 ? `Features: ${property.feat
 IMPORTANT RULES:
 - Only describe features that are explicitly mentioned in the property data provided
 - Do not make up or assume any features, amenities, or characteristics not in the MLS data
-- Keep the script around ${targetWordCount} words for a ${duration.label} video
-- This will be posted on ${platform.label} (max ${platform.charLimit} characters)
+- Keep the script around ${targetWordCount} words for a ${totalDuration} second video (${roomCount} rooms x 8 seconds each)
 - Make it professional and suitable for video narration${userInstructions}
 
 Write a property tour video script for this listing. Only include information that is explicitly provided below:
@@ -476,10 +464,10 @@ ${propertyDetails}`;
   const addPhotoToRoom = useCallback((roomId: string, photoUrl: string, source: "mls" | "upload" = "upload") => {
     setRoomPhotos(prev => {
       const currentPhotos = prev[roomId] || [];
-      if (currentPhotos.length >= 6) {
+      if (currentPhotos.length >= 3) {
         toast({
           title: "Room Full",
-          description: "This room already has 6 photos (maximum).",
+          description: "This room already has 3 photos (optimal for VEO quality).",
           variant: "destructive",
         });
         return prev;
@@ -562,12 +550,12 @@ ${propertyDetails}`;
     
     const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
     const currentCount = roomPhotos[roomId]?.length || 0;
-    const slotsAvailable = 6 - currentCount;
+    const slotsAvailable = 3 - currentCount;
     
-    if (slotsAvailable === 0) {
+    if (slotsAvailable <= 0) {
       toast({
         title: "Room Full",
-        description: "This room already has 6 photos (maximum).",
+        description: "This room already has 3 photos (optimal for VEO quality).",
         variant: "destructive",
       });
       return;
@@ -598,7 +586,7 @@ ${propertyDetails}`;
     if (files.length > slotsAvailable) {
       toast({
         title: "Some Photos Skipped",
-        description: `Only ${slotsAvailable} photos added. Room limit is 6.`,
+        description: `Only ${slotsAvailable} photos added. Room limit is 3 for optimal quality.`,
       });
     }
   }, [roomPhotos, addPhotoToRoom, toast]);
@@ -753,7 +741,7 @@ ${propertyDetails}`;
           script: generatedScript,
           backgroundType,
           includeBranding,
-          roomClipDuration: parseInt(roomClipDuration, 10),
+          roomClipDuration: ROOM_CLIP_DURATION,
           property: selectedProperty ? {
             address: selectedProperty.address,
             city: selectedProperty.city,
@@ -1100,7 +1088,7 @@ ${propertyDetails}`;
                     const photos = roomPhotos[room.roomId] || [];
                     const RoomIcon = getRoomIcon(room.roomId);
                     const hasPhotos = photos.length > 0;
-                    const isFull = photos.length >= 6;
+                    const isFull = photos.length >= 3;
                     const tourIndex = tourOrder.indexOf(room.roomId);
                     
                     return (
@@ -1166,7 +1154,7 @@ ${propertyDetails}`;
                     const photos = roomPhotos[room.roomId] || [];
                     const RoomIcon = getRoomIcon(room.roomId);
                     const hasPhotos = photos.length > 0;
-                    const isFull = photos.length >= 6;
+                    const isFull = photos.length >= 3;
                     const tourIndex = tourOrder.indexOf(room.roomId);
                     
                     return (
@@ -1235,7 +1223,7 @@ ${propertyDetails}`;
                     <h4 className="font-medium">Tour Sequence</h4>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {tourOrder.length} rooms • ~{tourOrder.length * (roomClipDuration === "16" ? 16 : 8)}s total
+                    {tourOrder.length} rooms • ~{tourOrder.length * ROOM_CLIP_DURATION}s total
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -1444,61 +1432,15 @@ ${propertyDetails}`;
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="target-platform">Target Platform</Label>
-                    <Select value={targetPlatform} onValueChange={setTargetPlatform}>
-                      <SelectTrigger id="target-platform" data-testid="target-platform-select">
-                        <SelectValue placeholder="Select platform" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {TARGET_PLATFORMS.map((platform) => (
-                          <SelectItem key={platform.value} value={platform.value}>
-                            <div className="flex items-center gap-2">
-                              <platform.icon className="h-4 w-4" />
-                              <span>{platform.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="video-duration">Video Duration</Label>
-                    <Select value={videoDuration} onValueChange={setVideoDuration}>
-                      <SelectTrigger id="video-duration" data-testid="video-duration-select">
-                        <SelectValue placeholder="Select duration" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VIDEO_DURATIONS.map((duration) => (
-                          <SelectItem key={duration.value} value={duration.value}>
-                            <div className="flex items-center gap-2">
-                              <span>{duration.label}</span>
-                              <span className="text-xs text-muted-foreground">(~{duration.targetWords} words)</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="room-clip-duration">Room Clip Length</Label>
-                    <Select value={roomClipDuration} onValueChange={setRoomClipDuration}>
-                      <SelectTrigger id="room-clip-duration" data-testid="room-clip-duration-select">
-                        <SelectValue placeholder="Select clip length" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ROOM_CLIP_DURATIONS.map((clip) => (
-                          <SelectItem key={clip.value} value={clip.value}>
-                            <div className="flex flex-col">
-                              <span>{clip.label}</span>
-                              <span className="text-xs text-muted-foreground">{clip.description}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Film className="h-4 w-4 text-blue-600" />
+                      <span className="font-medium">Video Duration:</span>
+                      <span className="text-blue-700 dark:text-blue-400">
+                        {tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 0} rooms × 8 seconds = ~{(tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 0) * ROOM_CLIP_DURATION}s
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">VEO 3.1 generates optimal quality with 3 photos per room and 8-second clips</p>
                   </div>
                 </div>
 
@@ -1519,37 +1461,29 @@ ${propertyDetails}`;
                   data-testid="script-textarea"
                 />
                 {(() => {
-                  const platform = TARGET_PLATFORMS.find(p => p.value === targetPlatform) || TARGET_PLATFORMS[0];
-                  const duration = VIDEO_DURATIONS.find(d => d.value === videoDuration) || VIDEO_DURATIONS[1];
-                  const charCount = generatedScript.length;
-                  const charLimit = platform.charLimit;
+                  const roomCount = tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 3;
+                  const totalDuration = roomCount * ROOM_CLIP_DURATION;
+                  const targetWords = Math.floor(totalDuration * 2); // ~2 words per second
                   const wordCount = generatedScript.trim() ? generatedScript.trim().split(/\s+/).length : 0;
-                  const targetWords = duration.targetWords;
                   
-                  const isOverPlatformLimit = charCount > charLimit;
-                  const isOverDurationTarget = wordCount > targetWords * 1.1;
-                  const isUnderDurationTarget = wordCount < targetWords * 0.7;
+                  const isOverTarget = wordCount > targetWords * 1.1;
+                  const isUnderTarget = wordCount < targetWords * 0.7;
                   
                   let wordStatus = "text-muted-foreground";
-                  if (isOverDurationTarget) wordStatus = "text-red-500 font-medium";
-                  else if (isUnderDurationTarget && wordCount > 0) wordStatus = "text-yellow-500";
+                  if (isOverTarget) wordStatus = "text-red-500 font-medium";
+                  else if (isUnderTarget && wordCount > 0) wordStatus = "text-yellow-500";
                   
                   return (
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-4">
-                          <span className={wordStatus}>
-                            {wordCount} / {targetWords} words
-                            {isOverDurationTarget && " (too long for video)"}
-                          </span>
-                          <span className={isOverPlatformLimit ? "text-red-500 font-medium" : "text-muted-foreground"}>
-                            {charCount} / {charLimit} chars ({platform.label})
-                            {isOverPlatformLimit && " (over limit)"}
-                          </span>
-                        </div>
+                        <span className={wordStatus}>
+                          {wordCount} / {targetWords} words
+                          {isOverTarget && " (too long for video)"}
+                          {isUnderTarget && wordCount > 0 && " (could be longer)"}
+                        </span>
                         <div className="flex items-center gap-1 text-muted-foreground">
                           <Play className="h-3 w-3" />
-                          <span>Target: {duration.label}</span>
+                          <span>Target: {totalDuration}s video ({roomCount} rooms)</span>
                         </div>
                       </div>
                       <Progress 
@@ -2018,7 +1952,7 @@ ${propertyDetails}`;
                     variant="outline" 
                     size="sm" 
                     className="pointer-events-none"
-                    disabled={(roomPhotos[selectedRoomId] || []).length >= 6}
+                    disabled={(roomPhotos[selectedRoomId] || []).length >= 3}
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add Photos
@@ -2116,7 +2050,7 @@ ${propertyDetails}`;
                   <SelectItem value="__unassigned__">Add to Unassigned</SelectItem>
                   {ROOM_ZONES.map((room) => {
                     const count = (roomPhotos[room.roomId] || []).length;
-                    const isFull = count >= 6;
+                    const isFull = count >= 3;
                     return (
                       <SelectItem 
                         key={room.roomId} 

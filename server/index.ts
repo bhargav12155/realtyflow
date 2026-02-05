@@ -18,10 +18,10 @@ if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
-// Increase payload limit to handle audio file uploads (avatar voice recordings)
+// Increase payload limit to handle property tour photo uploads (multiple high-res images as base64)
 // Capture raw body for webhook signature verification
 app.use(express.json({ 
-  limit: "10mb",
+  limit: "50mb",
   verify: (req: any, res, buf) => {
     // Store raw body for webhook signature verification
     if (req.url?.startsWith('/api/webhooks/')) {
@@ -29,7 +29,7 @@ app.use(express.json({
     }
   }
 }));
-app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 app.use(cookieParser());
 
 // CORS configuration for NebraskaHomeHub integration

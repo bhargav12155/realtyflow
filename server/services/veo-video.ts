@@ -13,12 +13,14 @@ interface VeoVideoResult {
   videoUrl?: string;
   operationId?: string;
   error?: string;
+  quotaExceeded?: boolean;
 }
 
 interface VeoOperationStatus {
   done: boolean;
   videoUrl?: string;
   error?: string;
+  quotaExceeded?: boolean;
 }
 
 export class VeoVideoService {
@@ -90,11 +92,32 @@ export class VeoVideoService {
         operationId,
       };
     } catch (error: any) {
-      console.error("❌ [VeoVideo] VEO 3.1 generation error:", error.message);
+      const errorStr = JSON.stringify(error);
+      console.error("❌ [VeoVideo] VEO 3.1 generation error:", errorStr);
+      
+      // Check for quota exceeded / rate limit errors
+      if (
+        error.status === 429 || 
+        error.code === 429 ||
+        errorStr.includes("429") ||
+        errorStr.includes("RESOURCE_EXHAUSTED") ||
+        errorStr.includes("quota") ||
+        error.message?.includes("quota") ||
+        error.message?.includes("rate limit") ||
+        error.message?.includes("exceeded")
+      ) {
+        console.error("⚠️ [VeoVideo] QUOTA EXCEEDED - Gemini API rate limit hit");
+        return { 
+          success: false, 
+          error: "Gemini VEO quota exceeded. Please wait for your quota to reset or upgrade your API plan.", 
+          quotaExceeded: true 
+        };
+      }
+      
       if (error.message?.includes("API key")) {
         return { success: false, error: "Invalid Gemini API key. Please check your GEMINI_API_KEY secret." };
       }
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || "Unknown VEO error" };
     }
   }
 
@@ -156,8 +179,24 @@ export class VeoVideoService {
 
       return { done: false };
     } catch (error: any) {
-      console.error("❌ [VeoVideo] VEO status check error:", error.message);
-      return { done: false, error: error.message };
+      const errorStr = JSON.stringify(error);
+      console.error("❌ [VeoVideo] VEO status check error:", errorStr);
+      
+      // Check for quota exceeded during operation polling
+      if (
+        error.status === 429 || 
+        error.code === 429 ||
+        errorStr.includes("429") ||
+        errorStr.includes("RESOURCE_EXHAUSTED") ||
+        errorStr.includes("quota") ||
+        error.message?.includes("quota") ||
+        error.message?.includes("rate limit")
+      ) {
+        console.error("⚠️ [VeoVideo] QUOTA EXCEEDED during operation polling");
+        return { done: true, error: "Quota exceeded during video processing", quotaExceeded: true };
+      }
+      
+      return { done: false, error: error.message || "Unknown status check error" };
     }
   }
 

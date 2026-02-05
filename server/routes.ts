@@ -15994,6 +15994,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     avatarVideoUrl?: string;
     finalVideoUrl?: string;
     error?: string;
+    quotaExceeded?: boolean;
+    quotaError?: string;
     createdAt: Date;
   }
   
@@ -16184,9 +16186,17 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
               duration: 8,
             });
             
-            if (veoResult1.success && veoResult1.operationId) {
+            // Check for quota exceeded - don't silently fall back
+            if (veoResult1.quotaExceeded) {
+              console.error(`⚠️ [PropertyTour] VEO QUOTA EXCEEDED - cannot generate high-quality video`);
+              job.quotaExceeded = true;
+              job.quotaError = veoResult1.error || "Gemini VEO quota exceeded";
+            } else if (veoResult1.success && veoResult1.operationId) {
               const completion1 = await veoVideoService.waitForCompletion(veoResult1.operationId, 180000);
-              if (completion1.done && completion1.videoUrl) {
+              if (completion1.quotaExceeded) {
+                job.quotaExceeded = true;
+                job.quotaError = completion1.error || "Gemini VEO quota exceeded during processing";
+              } else if (completion1.done && completion1.videoUrl) {
                 clipUrls.push(completion1.videoUrl);
                 console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 1 ready (from ${batch1Photos.length} photos)`);
               }
@@ -16207,9 +16217,15 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
               duration: 8,
             });
             
-            if (veoResult2.success && veoResult2.operationId) {
+            if (veoResult2.quotaExceeded) {
+              job.quotaExceeded = true;
+              job.quotaError = veoResult2.error || "Gemini VEO quota exceeded";
+            } else if (veoResult2.success && veoResult2.operationId) {
               const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
-              if (completion2.done && completion2.videoUrl) {
+              if (completion2.quotaExceeded) {
+                job.quotaExceeded = true;
+                job.quotaError = completion2.error || "Gemini VEO quota exceeded during processing";
+              } else if (completion2.done && completion2.videoUrl) {
                 clipUrls.push(completion2.videoUrl);
                 console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready (from ${batch2Photos.length} photos)`);
               }
@@ -16228,13 +16244,25 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
               duration: 8,
             });
             
-            if (veoResult2.success && veoResult2.operationId) {
+            if (veoResult2.quotaExceeded) {
+              job.quotaExceeded = true;
+              job.quotaError = veoResult2.error || "Gemini VEO quota exceeded";
+            } else if (veoResult2.success && veoResult2.operationId) {
               const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
-              if (completion2.done && completion2.videoUrl) {
+              if (completion2.quotaExceeded) {
+                job.quotaExceeded = true;
+                job.quotaError = completion2.error || "Gemini VEO quota exceeded during processing";
+              } else if (completion2.done && completion2.videoUrl) {
                 clipUrls.push(completion2.videoUrl);
                 console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready`);
               }
             }
+          }
+          
+          // If quota is exceeded, break early and don't process more rooms
+          if (job.quotaExceeded) {
+            console.error(`⚠️ [PropertyTour] Stopping VEO generation due to quota limits`);
+            break;
           }
           
           // Import fs/promises at room level for clip handling
@@ -16495,6 +16523,11 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
           }
           
           job.progress = 60;
+        } else if (job.quotaExceeded) {
+          // Quota exceeded - show clear error to user instead of silent fallback
+          console.error(`❌ [PropertyTour] VEO quota exceeded - using fallback with user notification`);
+          job.message = `VEO quota exceeded. Using simplified video effects. Please wait for quota reset or upgrade your Gemini API plan for HD quality.`;
+          await fallbackToFFmpeg(job, processedPhotos);
         } else {
           console.error(`❌ [PropertyTour] No VEO clips generated, falling back to FFmpeg`);
           job.message = `VEO generation failed. Falling back to FFmpeg...`;
@@ -16731,6 +16764,8 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         avatarVideoUrl: job.avatarVideoUrl,
         finalVideoUrl: finalUrl,
         error: job.error,
+        quotaExceeded: job.quotaExceeded,
+        quotaError: job.quotaError,
       });
     } catch (error: any) {
       console.error("Error checking property tour status:", error);

@@ -669,6 +669,16 @@ ${propertyDetails}`;
         if (data.avatarVideoUrl) {
           setAvatarVideoUrl(data.avatarVideoUrl);
         }
+        
+        // Show quota warning if VEO quota was exceeded
+        if (data.quotaExceeded) {
+          toast({
+            title: "VEO Quota Exceeded",
+            description: "Video was created using simplified effects. Upgrade your Gemini API plan for HD quality.",
+            variant: "destructive",
+          });
+        }
+        
         const tourMsg = data.combinedTourUrl ? " complete tour" : `${data.motionVideos?.length || 1} room clips`;
         const avatarMsg = data.avatarVideoUrl ? " + avatar narration" : "";
         toast({

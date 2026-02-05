@@ -53,7 +53,31 @@ interface SelectedPhoto {
   index: number;
   selected: boolean;
   source?: "mls" | "upload";
+  roomType?: string;
 }
+
+const ROOM_TYPES = [
+  { value: "auto", label: "Auto-Detect" },
+  { value: "living-room", label: "Living Room" },
+  { value: "kitchen", label: "Kitchen" },
+  { value: "master-bedroom", label: "Master Bedroom" },
+  { value: "bedroom", label: "Bedroom" },
+  { value: "bathroom", label: "Bathroom" },
+  { value: "dining-room", label: "Dining Room" },
+  { value: "office", label: "Office" },
+  { value: "basement", label: "Basement" },
+  { value: "garage", label: "Garage" },
+  { value: "laundry", label: "Laundry Room" },
+  { value: "hallway", label: "Hallway" },
+  { value: "front-yard", label: "Front Yard" },
+  { value: "backyard", label: "Backyard" },
+  { value: "pool", label: "Pool" },
+  { value: "patio", label: "Patio/Deck" },
+  { value: "driveway", label: "Driveway" },
+  { value: "garden", label: "Garden" },
+  { value: "roof", label: "Roof/Exterior" },
+  { value: "aerial", label: "Aerial View" },
+];
 
 const STEPS = [
   { id: 1, title: "Select Property", icon: Home, description: "Choose a listing" },
@@ -243,6 +267,14 @@ ${propertyDetails}`;
     setSelectedPhotos(prev => 
       prev.map((photo, i) => 
         i === index ? { ...photo, selected: !photo.selected } : photo
+      )
+    );
+  }, []);
+
+  const handleRoomTypeChange = useCallback((index: number, roomType: string) => {
+    setSelectedPhotos(prev => 
+      prev.map((photo, i) => 
+        i === index ? { ...photo, roomType } : photo
       )
     );
   }, []);
@@ -451,9 +483,15 @@ ${propertyDetails}`;
     setStatusMessage("Starting video generation...");
     
     try {
-      const photosToInclude = selectedPhotos
+      const photosWithRoomTypes = selectedPhotos
         .filter(p => p.selected)
-        .map(p => p.url);
+        .map(p => ({
+          url: p.url,
+          roomType: p.roomType || "auto",
+        }));
+      
+      const photosToInclude = photosWithRoomTypes.map(p => p.url);
+      const roomTypes = photosWithRoomTypes.map(p => p.roomType);
 
       const selectedAvatarData = avatarsData?.photos?.find(a => a.id === selectedAvatar);
       const avatarImageKey = selectedAvatarData?.image_key || selectedAvatarData?.id;
@@ -464,6 +502,7 @@ ${propertyDetails}`;
         credentials: "include",
         body: JSON.stringify({
           photos: photosToInclude,
+          roomTypes,
           avatarId: selectedAvatar,
           avatarImageKey,
           script: generatedScript,
@@ -874,6 +913,29 @@ ${propertyDetails}`;
                           data-testid={`photo-checkbox-${index}`}
                         />
                       </div>
+                      {photo.selected && (
+                        <div className="absolute bottom-2 left-2 right-2">
+                          <Select
+                            value={photo.roomType || "auto"}
+                            onValueChange={(value) => handleRoomTypeChange(index, value)}
+                          >
+                            <SelectTrigger 
+                              className="h-7 text-xs bg-white/95 border-0"
+                              onClick={(e) => e.stopPropagation()}
+                              data-testid={`room-type-select-${index}`}
+                            >
+                              <SelectValue placeholder="Room type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ROOM_TYPES.map((type) => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

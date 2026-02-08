@@ -33,6 +33,7 @@ The backend uses Express.js with TypeScript (ESM) and Replit's OpenID Connect fo
 - **Background Video Generation**: Allows users to start video generation and navigate away. A background worker polls HeyGen for status updates, and WebSocket notifications alert users when videos are complete. Users can toggle between foreground (wait for video) and background (continue working) modes.
 - **LinkedIn Image Upload**: Full LinkedIn media support with 3-step image upload process (register → upload → post), enabling property photos to attach correctly to LinkedIn posts.
 - **Twilio AI SMS/Voice Chatbot**: Multi-tenant AI-powered chatbot for lead capture and qualification via SMS and voice. Each subscriber gets their own Twilio phone number. Features include: AI-powered responses using OpenAI, configurable AI personality (friendly/professional/casual), business hours with after-hours messaging, lead capture (name, email, interest), voice IVR with speech recognition, conversation history tracking, and optional live agent transfer. Webhooks validate Twilio signatures for security.
+- **Property Tour Studio**: 4-step wizard for creating professional property tour videos. Features: up to 6 photos per room organized on a visual floor plan, camera position markers showing where each photo was taken, room connection/door markers defining how spaces connect (e.g., hallway→kitchen), VEO 3.1 generates two 8-second clips per room combined into smooth 16-second segments with spatial camera motion based on positions. Per-room video generation allows sharing individual room clips on social media. Users can select specific rooms and combine them into a custom full house tour with crossfade transitions. Photo reordering uses button controls (up/down arrows) instead of drag-and-drop to avoid scroll conflicts. Room connections feed transition hints into VEO prompts for smoother room-to-room camera movement.
 
 ### System Design Choices
 - **Database**: PostgreSQL with Drizzle ORM, supporting main users (agents) and public users (clients) with multi-tenancy.
@@ -43,7 +44,7 @@ The backend uses Express.js with TypeScript (ESM) and Replit's OpenID Connect fo
 ## External Dependencies
 
 - **Database**: PostgreSQL (Neon serverless hosting)
-- **AI Services**: OpenAI GPT-5 API, Kling AI, ElevenLabs
+- **AI Services**: OpenAI GPT-5 API, Kling AI, ElevenLabs, Gemini VEO 3.1
 - **Authentication**: Replit OpenID Connect
 - **Social Media APIs**: Twitter/X OAuth 2.0, YouTube OAuth (with placeholders for Facebook, Instagram, LinkedIn, TikTok)
 - **UI Components**: Radix UI, Tailwind CSS

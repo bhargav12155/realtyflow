@@ -20,6 +20,8 @@ import {
   Video,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   GripVertical,
   Wand2,
   Loader2,
@@ -48,6 +50,7 @@ import {
   Plane,
   MapPin,
   ExternalLink,
+  DoorOpen,
 } from "lucide-react";
 import { Link } from "wouter";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -216,6 +219,10 @@ export function PropertyTourStudio() {
   const [cameraPositions, setCameraPositions] = useState<Record<string, CameraPosition[]>>({});
     const [customPrompt, setCustomPrompt] = useState<string>("");
   const [tourOrder, setTourOrder] = useState<string[]>([]);
+  const [roomConnections, setRoomConnections] = useState<{fromRoom: string; toRoom: string; label: string}[]>([]);
+  const [connectionFrom, setConnectionFrom] = useState<string>("");
+  const [connectionTo, setConnectionTo] = useState<string>("");
+  const [connectionLabel, setConnectionLabel] = useState<string>("");
 
   const { data: avatarsData, isLoading: avatarsLoading } = useQuery<{ photos: AvatarPhoto[] }>({
     queryKey: ["/api/avatar-iv/photos"],
@@ -623,6 +630,7 @@ ${propertyDetails}`;
   const [motionVideos, setMotionVideos] = useState<string[]>([]);
   const [combinedTourUrl, setCombinedTourUrl] = useState<string | null>(null);
   const [avatarVideoUrl, setAvatarVideoUrl] = useState<string | null>(null);
+  const [roomVideoMap, setRoomVideoMap] = useState<Record<string, string>>({});
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [savedToLibrary, setSavedToLibrary] = useState<boolean>(false);
   const [savedVideos, setSavedVideos] = useState<{ url: string; id: string; title: string }[]>([]);
@@ -632,6 +640,8 @@ ${propertyDetails}`;
   const [selectedPlatform, setSelectedPlatform] = useState<string>("");
   const [isSavingToLibrary, setIsSavingToLibrary] = useState<boolean>(false);
   const [isPosting, setIsPosting] = useState<boolean>(false);
+  const [selectedRoomsForCombine, setSelectedRoomsForCombine] = useState<Set<string>>(new Set());
+  const [isCombining, setIsCombining] = useState(false);
 
   const SOCIAL_PLATFORMS = [
     { value: "facebook", label: "Facebook", icon: SiFacebook },
@@ -659,6 +669,9 @@ ${propertyDetails}`;
       if (data.motionVideos && data.motionVideos.length > 0) {
         setMotionVideos(data.motionVideos);
       }
+      if (data.roomVideoMap) {
+        setRoomVideoMap(data.roomVideoMap);
+      }
       if (data.combinedTourUrl) {
         setCombinedTourUrl(data.combinedTourUrl);
       }
@@ -677,6 +690,9 @@ ${propertyDetails}`;
         }
         if (data.avatarVideoUrl) {
           setAvatarVideoUrl(data.avatarVideoUrl);
+        }
+        if (data.roomVideoMap) {
+          setRoomVideoMap(data.roomVideoMap);
         }
         
         // Show quota warning if VEO quota was exceeded
@@ -725,6 +741,8 @@ ${propertyDetails}`;
     setMotionVideos([]);
     setCombinedTourUrl(null);
     setAvatarVideoUrl(null);
+    setRoomVideoMap({});
+    setSelectedRoomsForCombine(new Set());
     setStatusMessage("Starting video generation...");
     
     try {
@@ -762,6 +780,7 @@ ${propertyDetails}`;
           includeBranding,
           roomClipDuration: ROOM_CLIP_DURATION,
           cameraPositions,
+          roomConnections,
           property: selectedProperty ? {
             address: selectedProperty.address,
             city: selectedProperty.city,
@@ -932,8 +951,12 @@ ${propertyDetails}`;
     motionVideos.forEach((url, index) => {
       options.push({ value: url, label: `Motion Clip ${index + 1}` });
     });
+    Object.entries(roomVideoMap).forEach(([roomId, url]) => {
+      const roomName = ROOM_ZONES.find(r => r.roomId === roomId)?.roomName || roomId;
+      options.push({ value: url, label: `${roomName} Room Video` });
+    });
     return options;
-  }, [avatarVideoUrl, motionVideos]);
+  }, [avatarVideoUrl, motionVideos, roomVideoMap]);
 
   const canProceedToStep = (step: number): boolean => {
     switch (step) {
@@ -1306,6 +1329,105 @@ ${propertyDetails}`;
               </div>
             )}
 
+            {getRoomsWithPhotos().length >= 2 && (
+              <div className="mt-4 p-4 bg-muted/20 rounded-lg border">
+                <div className="flex items-center gap-2 mb-3">
+                  <DoorOpen className="h-5 w-5 text-orange-600" />
+                  <h4 className="font-medium">Room Connections</h4>
+                  <span className="text-xs text-muted-foreground">(Optional - improves video transitions)</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Define how rooms connect to create smoother camera transitions between spaces in the tour video.
+                </p>
+                
+                <div className="flex flex-wrap items-end gap-2 mb-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">From</Label>
+                    <Select value={connectionFrom} onValueChange={setConnectionFrom}>
+                      <SelectTrigger className="w-[150px] h-8 text-xs" data-testid="connection-from-select">
+                        <SelectValue placeholder="Select room" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getRoomsWithPhotos().map(r => (
+                          <SelectItem key={r.roomId} value={r.roomId}>{r.roomName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <span className="text-muted-foreground pb-1 text-lg">→</span>
+                  <div className="space-y-1">
+                    <Label className="text-xs">To</Label>
+                    <Select value={connectionTo} onValueChange={setConnectionTo}>
+                      <SelectTrigger className="w-[150px] h-8 text-xs" data-testid="connection-to-select">
+                        <SelectValue placeholder="Select room" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getRoomsWithPhotos().map(r => (
+                          <SelectItem key={r.roomId} value={r.roomId}>{r.roomName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Entry Type</Label>
+                    <Input 
+                      placeholder="e.g., through hallway" 
+                      value={connectionLabel}
+                      onChange={(e) => setConnectionLabel(e.target.value)}
+                      className="w-[150px] h-8 text-xs"
+                      data-testid="connection-label-input"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    data-testid="add-connection-btn"
+                    disabled={!connectionFrom || !connectionTo || connectionFrom === connectionTo}
+                    onClick={() => {
+                      if (!connectionFrom || !connectionTo || connectionFrom === connectionTo) return;
+                      const exists = roomConnections.some(c => c.fromRoom === connectionFrom && c.toRoom === connectionTo);
+                      if (exists) return;
+                      setRoomConnections(prev => [...prev, { fromRoom: connectionFrom, toRoom: connectionTo, label: connectionLabel.trim() || "" }]);
+                      setConnectionFrom("");
+                      setConnectionTo("");
+                      setConnectionLabel("");
+                    }}
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Add
+                  </Button>
+                </div>
+
+                {roomConnections.length > 0 && (
+                  <div className="space-y-1.5">
+                    {roomConnections.map((conn, idx) => {
+                      const fromName = ROOM_ZONES.find(r => r.roomId === conn.fromRoom)?.roomName || conn.fromRoom;
+                      const toName = ROOM_ZONES.find(r => r.roomId === conn.toRoom)?.roomName || conn.toRoom;
+                      return (
+                        <div key={idx} className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 rounded border text-sm">
+                          <DoorOpen className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          <span className="font-medium">{fromName}</span>
+                          <span className="text-muted-foreground">→</span>
+                          <span className="font-medium">{toName}</span>
+                          {conn.label && <span className="text-xs text-muted-foreground italic">({conn.label})</span>}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 w-5 p-0 ml-auto"
+                            onClick={() => setRoomConnections(prev => prev.filter((_, i) => i !== idx))}
+                            data-testid={`remove-connection-${idx}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
             {getTotalRoomPhotoCount() === 0 && (
               <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
                 <Image className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -1566,7 +1688,7 @@ ${propertyDetails}`;
             )}
 
             {generationComplete && (
-              <div className="p-6 bg-green-500/10 border border-green-500/20 rounded-lg space-y-4" data-testid="generation-complete">
+              <div className="p-6 bg-green-500/10 border border-green-500/20 rounded-lg space-y-6" data-testid="generation-complete">
                 <div className="flex items-center gap-3">
                   <Check className="h-6 w-6 text-green-500" />
                   <div>
@@ -1574,7 +1696,9 @@ ${propertyDetails}`;
                       Property Tour Videos Generated
                     </h4>
                     <p className="text-sm text-muted-foreground">
-                      {motionVideos.length} motion clips{avatarVideoUrl ? " and avatar narration" : ""} are ready.
+                      {Object.keys(roomVideoMap).length || motionVideos.length} room videos ready
+                      {avatarVideoUrl ? " + avatar narration" : ""}
+                      {combinedTourUrl ? " + full tour" : ""}
                     </p>
                   </div>
                 </div>
@@ -1625,55 +1749,216 @@ ${propertyDetails}`;
                       />
                       <div className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 p-3 flex items-center justify-between">
                         <span className="text-sm font-medium">Full Property Tour Video</span>
-                        <Button 
-                          size="sm" 
-                          variant="default" 
-                          className="gap-1"
-                          asChild
-                        >
-                          <a href={combinedTourUrl} download target="_blank" rel="noopener noreferrer">
-                            <Download className="h-4 w-4" />
-                            Download Tour
-                          </a>
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="gap-1 h-7 text-xs"
+                            onClick={() => {
+                              setSelectedVideoForShare(combinedTourUrl);
+                              handleOpenShareDialog();
+                            }}
+                            data-testid="share-tour-btn"
+                          >
+                            <Share2 className="h-3 w-3" />
+                            Share
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="default" 
+                            className="gap-1 h-7"
+                            asChild
+                          >
+                            <a href={combinedTourUrl} download target="_blank" rel="noopener noreferrer">
+                              <Download className="h-4 w-4" />
+                              Download Tour
+                            </a>
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
                 
-                {motionVideos.length > 0 && (
+                {(Object.keys(roomVideoMap).length > 0 || motionVideos.length > 0) && (
                   <div className="space-y-3">
-                    <h5 className="font-medium text-sm text-muted-foreground">
-                      {combinedTourUrl ? "Individual Room Clips" : "Property Motion Clips"}
-                    </h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {motionVideos.map((videoUrl, index) => (
-                        <div key={index} className="rounded-lg overflow-hidden border bg-black">
-                          <video
-                            src={videoUrl}
-                            controls
-                            className="w-full aspect-video"
-                            data-testid={`motion-video-${index}`}
-                          />
-                          <div className="bg-muted p-2 flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">
-                              {tourOrder[index] ? ROOM_ZONES.find(r => r.roomId === tourOrder[index])?.roomName || `Clip ${index + 1}` : `Clip ${index + 1}`}
-                            </span>
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="h-6 gap-1 text-xs"
-                              asChild
-                            >
-                              <a href={videoUrl} download target="_blank" rel="noopener noreferrer">
-                                <Download className="h-3 w-3" />
-                                Save
-                              </a>
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Home className="h-5 w-5 text-primary" />
+                        <h5 className="font-medium">Individual Room Videos</h5>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Share individual rooms on social media or download separately
+                      </p>
                     </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {Object.keys(roomVideoMap).length > 0 ? (
+                        Object.entries(roomVideoMap).map(([roomId, videoUrl]) => {
+                          const roomName = ROOM_ZONES.find(r => r.roomId === roomId)?.roomName || roomId.replace(/-/g, ' ');
+                          return (
+                            <div key={roomId} className="rounded-lg overflow-hidden border bg-black relative" data-testid={`room-video-card-${roomId}`}>
+                              <div className="absolute top-2 right-2 z-10">
+                                <Checkbox
+                                  checked={selectedRoomsForCombine.has(roomId)}
+                                  onCheckedChange={(checked) => {
+                                    setSelectedRoomsForCombine(prev => {
+                                      const next = new Set(prev);
+                                      if (checked) next.add(roomId);
+                                      else next.delete(roomId);
+                                      return next;
+                                    });
+                                  }}
+                                  className="bg-white/80 border-white"
+                                  data-testid={`select-room-${roomId}`}
+                                />
+                              </div>
+                              <video
+                                src={videoUrl}
+                                controls
+                                className="w-full aspect-video"
+                                data-testid={`room-video-${roomId}`}
+                              />
+                              <div className="bg-muted p-2.5 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs capitalize">{roomName}</Badge>
+                                    <span className="text-xs text-muted-foreground">16s clip</span>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="flex-1 h-7 gap-1 text-xs"
+                                    onClick={() => {
+                                      setSelectedVideoForShare(videoUrl);
+                                      handleOpenShareDialog();
+                                    }}
+                                    data-testid={`share-room-${roomId}`}
+                                  >
+                                    <Share2 className="h-3 w-3" />
+                                    Share on Social
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-7 gap-1 text-xs"
+                                    asChild
+                                  >
+                                    <a href={videoUrl} download target="_blank" rel="noopener noreferrer">
+                                      <Download className="h-3 w-3" />
+                                      Save
+                                    </a>
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        motionVideos.map((videoUrl, index) => (
+                          <div key={index} className="rounded-lg overflow-hidden border bg-black">
+                            <video
+                              src={videoUrl}
+                              controls
+                              className="w-full aspect-video"
+                              data-testid={`motion-video-${index}`}
+                            />
+                            <div className="bg-muted p-2.5 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Badge variant="outline" className="text-xs capitalize">
+                                  {tourOrder[index] ? ROOM_ZONES.find(r => r.roomId === tourOrder[index])?.roomName || `Clip ${index + 1}` : `Clip ${index + 1}`}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">16s clip</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  className="flex-1 h-7 gap-1 text-xs"
+                                  onClick={() => {
+                                    setSelectedVideoForShare(videoUrl);
+                                    handleOpenShareDialog();
+                                  }}
+                                  data-testid={`share-motion-${index}`}
+                                >
+                                  <Share2 className="h-3 w-3" />
+                                  Share on Social
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="h-7 gap-1 text-xs"
+                                  asChild
+                                >
+                                  <a href={videoUrl} download target="_blank" rel="noopener noreferrer">
+                                    <Download className="h-3 w-3" />
+                                    Save
+                                  </a>
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    {Object.keys(roomVideoMap).length >= 2 && (
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={selectedRoomsForCombine.size === Object.keys(roomVideoMap).length}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedRoomsForCombine(new Set(Object.keys(roomVideoMap)));
+                              } else {
+                                setSelectedRoomsForCombine(new Set());
+                              }
+                            }}
+                            data-testid="select-all-rooms-checkbox"
+                          />
+                          <span className="text-sm text-muted-foreground">
+                            {selectedRoomsForCombine.size} of {Object.keys(roomVideoMap).length} rooms selected
+                          </span>
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={selectedRoomsForCombine.size < 2 || isCombining}
+                          onClick={async () => {
+                            if (!currentJobId || selectedRoomsForCombine.size < 2) return;
+                            setIsCombining(true);
+                            try {
+                              const response = await fetch("/api/property-tour/combine", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                credentials: "include",
+                                body: JSON.stringify({
+                                  jobId: currentJobId,
+                                  selectedRooms: Array.from(selectedRoomsForCombine),
+                                }),
+                              });
+                              if (!response.ok) throw new Error("Failed to combine");
+                              const data = await response.json();
+                              if (data.combinedUrl) {
+                                setCombinedTourUrl(data.combinedUrl);
+                                toast({ title: "Tour Combined", description: `Combined ${selectedRoomsForCombine.size} room videos into a tour.` });
+                              }
+                            } catch (err: any) {
+                              toast({ title: "Combine Failed", description: err.message, variant: "destructive" });
+                            } finally {
+                              setIsCombining(false);
+                            }
+                          }}
+                          data-testid="combine-selected-btn"
+                        >
+                          {isCombining ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Film className="h-4 w-4 mr-2" />
+                          )}
+                          Combine Selected into Tour
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
                 
@@ -1992,48 +2277,59 @@ ${propertyDetails}`;
                 </div>
               ) : (
                 <div className="grid grid-cols-3 gap-3">
-                  {(roomPhotos[selectedRoomId] || []).map((photo, index) => (
-                    <div
-                      key={index}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("text/plain", String(index));
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const fromIndex = parseInt(e.dataTransfer.getData("text/plain"));
-                        if (!isNaN(fromIndex) && fromIndex !== index && selectedRoomId) {
-                          reorderRoomPhotos(selectedRoomId, fromIndex, index);
-                        }
-                      }}
-                      className="relative rounded-lg overflow-hidden border-2 border-muted group cursor-grab"
-                      data-testid={`room-photo-${index}`}
-                    >
-                      <img 
-                        src={photo.url} 
-                        alt={`Photo ${index + 1}`}
-                        className="w-full aspect-video object-cover"
-                      />
-                      <div className="absolute top-1 left-1 flex items-center gap-1">
-                        <div className="bg-black/70 text-white px-1.5 py-0.5 rounded text-xs">
-                          #{index + 1}
-                        </div>
-                        <GripVertical className="h-4 w-4 text-white drop-shadow" />
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="destructive"
-                        className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => selectedRoomId && removePhotoFromRoom(selectedRoomId, photo.url)}
-                        data-testid={`remove-room-photo-${index}`}
+                  {(roomPhotos[selectedRoomId] || []).map((photo, index) => {
+                    const photos = roomPhotos[selectedRoomId] || [];
+                    return (
+                      <div
+                        key={index}
+                        className="relative rounded-lg overflow-hidden border-2 border-muted group"
+                        data-testid={`room-photo-${index}`}
                       >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))}
+                        <img 
+                          src={photo.url} 
+                          alt={`Photo ${index + 1}`}
+                          className="w-full aspect-video object-cover"
+                        />
+                        <div className="absolute top-1 left-1 flex items-center gap-1">
+                          <div className="bg-black/70 text-white px-1.5 py-0.5 rounded text-xs">
+                            #{index + 1}
+                          </div>
+                          <GripVertical className="h-4 w-4 text-white drop-shadow" />
+                        </div>
+                        <div className="absolute top-1 right-1 flex items-center gap-0.5">
+                          <Button
+                            size="icon"
+                            variant="secondary"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity bg-black/70 hover:bg-black/90 text-white"
+                            onClick={() => selectedRoomId && index > 0 && reorderRoomPhotos(selectedRoomId, index, index - 1)}
+                            disabled={index === 0}
+                            data-testid={`move-up-room-photo-${index}`}
+                          >
+                            <ChevronUp className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="secondary"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity bg-black/70 hover:bg-black/90 text-white"
+                            onClick={() => selectedRoomId && index < photos.length - 1 && reorderRoomPhotos(selectedRoomId, index, index + 1)}
+                            disabled={index === photos.length - 1}
+                            data-testid={`move-down-room-photo-${index}`}
+                          >
+                            <ChevronDown className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="destructive"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => selectedRoomId && removePhotoFromRoom(selectedRoomId, photo.url)}
+                            data-testid={`remove-room-photo-${index}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -2185,7 +2481,7 @@ ${propertyDetails}`;
                   <SelectItem value="__unassigned__">Add to Unassigned</SelectItem>
                   {ROOM_ZONES.map((room) => {
                     const count = (roomPhotos[room.roomId] || []).length;
-                    const isFull = count >= 3;
+                    const isFull = count >= 6;
                     return (
                       <SelectItem 
                         key={room.roomId} 

@@ -15971,6 +15971,12 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   // PROPERTY TOUR VIDEO GENERATION
   // =====================================================
 
+  interface RoomConnection {
+    fromRoom: string;
+    toRoom: string;
+    label: string;
+  }
+
   interface PropertyTourJob {
     id: string;
     userId: number;
@@ -15982,6 +15988,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     tourOrder?: string[];
     roomClipDuration?: number;
     cameraPositions?: Record<string, { x: number; y: number; photoIndex: number; direction?: number }[]>;
+    roomConnections?: RoomConnection[];
     avatarId: string;
     avatarImageKey?: string;
     script: string;
@@ -15990,6 +15997,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     property: any;
     klingTaskIds: string[];
     motionVideos: string[];
+    roomVideoMap?: Record<string, string>;
     combinedTourUrl?: string;
     avatarVideoId?: string;
     avatarVideoUrl?: string;
@@ -16050,8 +16058,12 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     "aerial": "aerial view",
   };
   
-  // Compliance-focused VEO prompts - ONLY camera motion, no additions
-  function getCompliancePrompt(roomDesc: string, isFirstClip: boolean, positions?: { x: number; y: number; photoIndex: number }[]): string {
+  function getCompliancePrompt(
+    roomDesc: string, 
+    isFirstClip: boolean, 
+    positions?: { x: number; y: number; photoIndex: number }[],
+    connectionContext?: { fromRoom?: string; toRoom?: string; label?: string }
+  ): string {
     let spatialHint = "";
     
     if (positions && positions.length >= 2) {
@@ -16079,13 +16091,24 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         spatialHint = `\nCamera path: ${motionType} moving ${direction} through this ${roomDesc}. `;
       }
     }
+
+    let transitionHint = "";
+    if (connectionContext) {
+      if (isFirstClip && connectionContext.fromRoom) {
+        const entryLabel = connectionContext.label ? ` ${connectionContext.label}` : "";
+        transitionHint = `\nTransition feel: Camera entering this ${roomDesc}${entryLabel} from the ${connectionContext.fromRoom}. `;
+      } else if (!isFirstClip && connectionContext.toRoom) {
+        const exitLabel = connectionContext.label ? ` ${connectionContext.label}` : "";
+        transitionHint = `\nTransition feel: Camera movement toward the exit${exitLabel} leading to the ${connectionContext.toRoom}. `;
+      }
+    }
     
     if (isFirstClip) {
-      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.${spatialHint}
+      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.${spatialHint}${transitionHint}
       
 Camera motion: Slow, smooth cinematic ${spatialHint ? "movement following the photographer's path" : "dolly-in entering this " + roomDesc}. Professional real estate video feel. Pan across the space exactly as photographed. No alterations to the photo content whatsoever.`;
     } else {
-      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.${spatialHint}
+      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.${spatialHint}${transitionHint}
 
 Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panning shot slowly revealing this " + roomDesc}. Smooth tracking movement. Keep all original photo elements exactly as they appear. No alterations to the photo content whatsoever.`;
     }
@@ -16176,9 +16199,14 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
         // Group photos by room (max 6 per room, process 3 at a time)
         const roomBatches = groupPhotosByRoom(processedPhotos, job.roomTypes || [], job.cameraPositions);
         const roomVideos: string[] = [];
+        const roomVideoMap: Record<string, string> = {};
         const totalRooms = roomBatches.length;
+        const connections = job.roomConnections || [];
         
         console.log(`🏠 [PropertyTour] Processing ${totalRooms} rooms with grouped photos`);
+        if (connections.length > 0) {
+          console.log(`🚪 [PropertyTour] Room connections: ${connections.map(c => `${c.fromRoom}→${c.toRoom}`).join(', ')}`);
+        }
         
         for (let roomIdx = 0; roomIdx < roomBatches.length; roomIdx++) {
           const room = roomBatches[roomIdx];
@@ -16189,12 +16217,16 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
           
           console.log(`🏠 [PropertyTour] Room ${roomIdx + 1}/${totalRooms}: ${room.roomType} with ${room.photos.length} photos`);
           
-          // Check if user wants 8s (single clip) or 16s (dual clips)
+          const incomingConn = connections.find(c => c.toRoom === room.roomType);
+          const outgoingConn = connections.find(c => c.fromRoom === room.roomType);
+          const connectionCtx = {
+            fromRoom: incomingConn ? (ROOM_PROMPT_MAP[incomingConn.fromRoom] || incomingConn.fromRoom) : undefined,
+            toRoom: outgoingConn ? (ROOM_PROMPT_MAP[outgoingConn.toRoom] || outgoingConn.toRoom) : undefined,
+            label: incomingConn?.label || outgoingConn?.label || undefined,
+          };
+          
           const wantsDualClips = (job.roomClipDuration || 8) >= 16;
           
-          // Split photos into batches of 3 for panoramic generation
-          // Batch 1: photos 1-3 → first 8-second clip
-          // Batch 2: photos 4-6 → second 8-second clip (only if 16s mode)
           const batch1Photos = room.photos.slice(0, 3);
           const batch2Photos = wantsDualClips ? room.photos.slice(3, 6) : [];
           
@@ -16202,11 +16234,9 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
           
           console.log(`⏱️ [PropertyTour] Clip mode: ${wantsDualClips ? '16 seconds (2 clips)' : '8 seconds (single clip)'}`);
           
-          // Process batch 1 (photos 1-3) - first 8-second panoramic clip
           if (batch1Photos.length > 0) {
-            // Use first photo as primary, others provide context for panoramic feel
             const primaryPhoto = batch1Photos[0];
-            const prompt1 = getCompliancePrompt(roomDesc, true, room.cameraPositions);
+            const prompt1 = getCompliancePrompt(roomDesc, true, room.cameraPositions, connectionCtx);
             
             console.log(`📸 [PropertyTour] Batch 1: ${batch1Photos.length} photos for first 8-sec clip`);
             
@@ -16234,10 +16264,9 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
             }
           }
           
-          // Process batch 2 (photos 4-6) - second 8-second panoramic clip (only in 16s mode)
           if (wantsDualClips && batch2Photos.length > 0) {
             const primaryPhoto = batch2Photos[0];
-            const prompt2 = getCompliancePrompt(roomDesc, false, room.cameraPositions);
+            const prompt2 = getCompliancePrompt(roomDesc, false, room.cameraPositions, connectionCtx);
             
             console.log(`📸 [PropertyTour] Batch 2: ${batch2Photos.length} photos for second 8-sec clip`);
             
@@ -16262,9 +16291,8 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
               }
             }
           } else if (wantsDualClips && clipUrls.length === 1) {
-            // Only have 1-3 photos but want 16s - generate second clip from same batch with different motion
             const primaryPhoto = batch1Photos[batch1Photos.length - 1] || batch1Photos[0];
-            const prompt2 = getCompliancePrompt(roomDesc, false, room.cameraPositions);
+            const prompt2 = getCompliancePrompt(roomDesc, false, room.cameraPositions, connectionCtx);
             
             console.log(`📸 [PropertyTour] Generating second clip from same batch (${batch1Photos.length} photos)`);
             
@@ -16361,6 +16389,7 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
               
               if (uploadedUrl) {
                 roomVideos.push(uploadedUrl);
+                roomVideoMap[room.roomType] = uploadedUrl;
                 console.log(`✅ [PropertyTour] ${room.roomType} 16-second video uploaded: ${uploadedUrl.substring(0, 60)}...`);
               }
               
@@ -16382,7 +16411,10 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
                   const s3Service = new S3UploadService();
                   const fallbackKey = `property-tour-videos/${job.userId}/fallback-${job.id}-${room.roomType}.mp4`;
                   const fallbackUrl = await s3Service.uploadBuffer(fallbackBuffer, fallbackKey, 'video/mp4', true, 86400);
-                  if (fallbackUrl) roomVideos.push(fallbackUrl);
+                  if (fallbackUrl) {
+                    roomVideos.push(fallbackUrl);
+                    roomVideoMap[room.roomType] = fallbackUrl;
+                  }
                 } catch (uploadErr) {
                   console.error(`❌ [PropertyTour] Failed to upload fallback clip:`, uploadErr);
                 }
@@ -16395,7 +16427,10 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
               const s3Service = new S3UploadService();
               const singleKey = `property-tour-videos/${job.userId}/single-${job.id}-${room.roomType}.mp4`;
               const singleUrl = await s3Service.uploadBuffer(singleBuffer, singleKey, 'video/mp4', true, 86400);
-              if (singleUrl) roomVideos.push(singleUrl);
+              if (singleUrl) {
+                roomVideos.push(singleUrl);
+                roomVideoMap[room.roomType] = singleUrl;
+              }
             } catch (uploadErr) {
               console.error(`❌ [PropertyTour] Failed to upload single clip:`, uploadErr);
             }
@@ -16404,6 +16439,7 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
         
         if (roomVideos.length > 0) {
           job.motionVideos = roomVideos;
+          job.roomVideoMap = roomVideoMap;
           job.progress = 50;
           console.log(`✅ [PropertyTour] Generated ${roomVideos.length} room videos`);
           
@@ -16689,7 +16725,7 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration, cameraPositions } = req.body;
+      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration, cameraPositions, roomConnections } = req.body;
 
       if (!photos || !Array.isArray(photos) || photos.length === 0) {
         return res.status(400).json({ error: "At least one photo is required" });
@@ -16739,6 +16775,7 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
         includeBranding: includeBranding !== false,
         roomClipDuration: roomClipDuration || 8,
         cameraPositions: cameraPositions || {},
+        roomConnections: Array.isArray(roomConnections) ? roomConnections : [],
         tourOrder: tourOrder || [],
         property,
         klingTaskIds: [],
@@ -16797,6 +16834,7 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
         progress: job.progress,
         message: job.message,
         motionVideos: motionVideoUrls,
+        roomVideoMap: job.roomVideoMap || {},
         combinedTourUrl: job.combinedTourUrl,
         avatarVideoUrl: job.avatarVideoUrl,
         finalVideoUrl: finalUrl,
@@ -16834,6 +16872,124 @@ Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panni
     } catch (error: any) {
       console.error("Error fetching property tour jobs:", error);
       res.status(500).json({ error: "Failed to fetch jobs" });
+    }
+  });
+
+  // POST /api/property-tour/combine - Combine selected room videos into a custom tour
+  app.post("/api/property-tour/combine", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { jobId, selectedRooms } = req.body;
+      if (!jobId || !Array.isArray(selectedRooms) || selectedRooms.length < 2) {
+        return res.status(400).json({ error: "Job ID and at least 2 selected rooms are required" });
+      }
+
+      const job = propertyTourJobs.get(jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+      if (job.userId !== Number(userId)) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const roomMap = job.roomVideoMap || {};
+      const selectedVideoUrls: string[] = [];
+      for (const roomId of selectedRooms) {
+        const url = roomMap[roomId];
+        if (url) selectedVideoUrls.push(url);
+      }
+
+      if (selectedVideoUrls.length < 2) {
+        return res.status(400).json({ error: "Need at least 2 room videos to combine" });
+      }
+
+      console.log(`🎬 [PropertyTour] Combining ${selectedVideoUrls.length} selected rooms for user ${userId}`);
+
+      const { spawn } = await import('child_process');
+      const fsPromises = await import('fs/promises');
+      const path = await import('path');
+
+      const outputDir = '/tmp/property-tour-custom';
+      await fsPromises.mkdir(outputDir, { recursive: true });
+
+      const finalFilename = `custom-tour-${jobId}-${Date.now()}.mp4`;
+      const finalPath = path.join(outputDir, finalFilename);
+
+      const localPaths: string[] = [];
+      for (let i = 0; i < selectedVideoUrls.length; i++) {
+        const videoUrl = selectedVideoUrls[i];
+        const localPath = path.join(outputDir, `selected-${i}.mp4`);
+        if (videoUrl.startsWith('/tmp/')) {
+          localPaths.push(videoUrl);
+        } else if (videoUrl.startsWith('http')) {
+          const response = await fetch(videoUrl);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          await fsPromises.writeFile(localPath, buffer);
+          localPaths.push(localPath);
+        } else {
+          localPaths.push(videoUrl);
+        }
+      }
+
+      const fadeDuration = 0.5;
+      const clipDuration = job.roomClipDuration || 8;
+
+      if (localPaths.length === 2) {
+        const offset = clipDuration - fadeDuration;
+        await new Promise<void>((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', [
+            '-y', '-i', localPaths[0], '-i', localPaths[1],
+            '-filter_complex',
+            `[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]`,
+            '-map', '[vout]', '-c:v', 'libx264', '-preset', 'fast', '-crf', '22', '-an', '-movflags', '+faststart',
+            finalPath
+          ]);
+          ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)));
+          ffmpeg.on('error', reject);
+        });
+      } else {
+        const inputs = localPaths.map((p) => ['-i', p]).flat();
+        let filterComplex = localPaths.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(';');
+        let prevOutput = 'n0';
+        for (let i = 1; i < localPaths.length; i++) {
+          const offset = (clipDuration - fadeDuration) * i;
+          const outputLabel = i === localPaths.length - 1 ? 'vout' : `x${i}`;
+          filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outputLabel}]`;
+          prevOutput = outputLabel;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const ffmpeg = spawn('ffmpeg', [
+            '-y', ...inputs, '-filter_complex', filterComplex,
+            '-map', '[vout]', '-c:v', 'libx264', '-preset', 'fast', '-crf', '22', '-an', '-movflags', '+faststart',
+            finalPath
+          ]);
+          ffmpeg.on('close', (code) => code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}`)));
+          ffmpeg.on('error', reject);
+        });
+      }
+
+      const { S3UploadService } = await import("./services/s3Upload");
+      const combinedBuffer = await fsPromises.readFile(finalPath);
+      const s3Service = new S3UploadService();
+      const tourKey = `property-tour-videos/${userId}/custom-tour-${Date.now()}.mp4`;
+      const tourUrl = await s3Service.uploadBuffer(combinedBuffer, tourKey, 'video/mp4', true, 86400);
+
+      await fsPromises.rm(outputDir, { recursive: true, force: true }).catch(() => {});
+
+      if (tourUrl) {
+        job.combinedTourUrl = tourUrl;
+        console.log(`✅ [PropertyTour] Custom tour combined: ${selectedVideoUrls.length} rooms`);
+        res.json({ success: true, combinedUrl: tourUrl });
+      } else {
+        res.status(500).json({ error: "Failed to upload combined tour" });
+      }
+    } catch (error: any) {
+      console.error("Error combining room videos:", error);
+      res.status(500).json({ error: error.message || "Failed to combine videos" });
     }
   });
 

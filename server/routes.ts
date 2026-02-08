@@ -1228,10 +1228,31 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
       const status = await veoVideoService.checkOperationStatus(operationId);
 
+      let publicVideoUrl = status.videoUrl;
+
+      if (status.done && status.videoUrl && status.videoUrl.startsWith("/tmp/")) {
+        try {
+          const fs = await import("fs");
+          const path = await import("path");
+          const { S3UploadService } = await import("./services/s3Upload");
+          const s3Service = new S3UploadService();
+          const userId = req.user?.id || "unknown";
+
+          const videoBuffer = fs.readFileSync(status.videoUrl);
+          const s3Key = `ai-videos/${userId}/veo-${operationId}-${Date.now()}.mp4`;
+          publicVideoUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, "video/mp4", true);
+          console.log(`✅ [VEO] Uploaded AI Assistant video to S3: ${publicVideoUrl.substring(0, 80)}...`);
+
+          try { fs.unlinkSync(status.videoUrl); } catch {}
+        } catch (uploadErr: any) {
+          console.error("❌ [VEO] Failed to upload video to S3:", uploadErr.message);
+        }
+      }
+
       res.json({
         operationId,
         done: status.done,
-        videoUrl: status.videoUrl,
+        videoUrl: publicVideoUrl,
         error: status.error,
       });
     } catch (error) {

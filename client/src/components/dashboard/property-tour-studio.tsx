@@ -2407,9 +2407,8 @@ ${propertyDetails}`;
                     {(cameraPositions[selectedRoomId || ""] || []).map((pos, idx) => (
                       <div
                         key={idx}
-                        className="absolute w-8 h-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shadow-lg border-2 border-white cursor-pointer hover:scale-110 transition-transform z-10"
+                        className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer z-10"
                         style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                        title={`Photo ${pos.photoIndex + 1} - Click to rotate direction, right-click to remove`}
                         data-testid={`camera-marker-${idx}`}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2431,16 +2430,23 @@ ${propertyDetails}`;
                           }));
                         }}
                       >
-                        <span className="text-[10px] font-bold relative z-20">{pos.photoIndex + 1}</span>
-                        <div 
-                          className="absolute inset-0 pointer-events-none"
+                        <svg 
+                          width="48" height="48" viewBox="0 0 48 48"
+                          className="hover:scale-110 transition-transform drop-shadow-lg"
                           style={{ transform: `rotate(${pos.direction || 0}deg)` }}
                         >
-                          <div className="absolute left-1/2 -translate-x-1/2 -top-2.5">
-                            <svg width="10" height="8" viewBox="0 0 10 8">
-                              <polygon points="5,0 1,7 9,7" fill="white" stroke="hsl(var(--primary))" strokeWidth="1.5" />
-                            </svg>
-                          </div>
+                          <path
+                            d="M24 4 L38 20 L24 16 L10 20 Z"
+                            fill="hsl(var(--primary))"
+                            fillOpacity="0.5"
+                            stroke="hsl(var(--primary))"
+                            strokeWidth="1.5"
+                          />
+                          <circle cx="24" cy="24" r="10" fill="hsl(var(--primary))" stroke="white" strokeWidth="2.5" />
+                          <text x="24" y="28" textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">{pos.photoIndex + 1}</text>
+                        </svg>
+                        <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-muted-foreground whitespace-nowrap bg-background/80 px-1 rounded">
+                          {Math.round(pos.direction || 0)}°
                         </div>
                       </div>
                     ))}

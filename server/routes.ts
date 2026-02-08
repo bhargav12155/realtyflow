@@ -15981,6 +15981,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     roomTypes?: string[];
     tourOrder?: string[];
     roomClipDuration?: number;
+    cameraPositions?: Record<string, { x: number; y: number; photoIndex: number; direction?: number }[]>;
     avatarId: string;
     avatarImageKey?: string;
     script: string;
@@ -16003,9 +16004,10 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   interface RoomBatch {
     roomType: string;
     photos: string[];
+    cameraPositions?: { x: number; y: number; photoIndex: number; direction?: number }[];
   }
   
-  function groupPhotosByRoom(photos: string[], roomTypes: string[]): RoomBatch[] {
+  function groupPhotosByRoom(photos: string[], roomTypes: string[], cameraPositions?: Record<string, { x: number; y: number; photoIndex: number; direction?: number }[]>): RoomBatch[] {
     const roomMap = new Map<string, string[]>();
     
     for (let i = 0; i < photos.length; i++) {
@@ -16019,6 +16021,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     return Array.from(roomMap.entries()).map(([roomType, photos]) => ({
       roomType,
       photos: photos.slice(0, 6), // Max 6 photos per room
+      cameraPositions: cameraPositions?.[roomType] || [],
     }));
   }
   
@@ -16048,15 +16051,43 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   };
   
   // Compliance-focused VEO prompts - ONLY camera motion, no additions
-  function getCompliancePrompt(roomDesc: string, isFirstClip: boolean): string {
-    if (isFirstClip) {
-      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features. 
+  function getCompliancePrompt(roomDesc: string, isFirstClip: boolean, positions?: { x: number; y: number; photoIndex: number }[]): string {
+    let spatialHint = "";
+    
+    if (positions && positions.length >= 2) {
+      const clipPositions = isFirstClip 
+        ? positions.filter(p => p.photoIndex < 3)
+        : positions.filter(p => p.photoIndex >= 3);
       
-Camera motion: Slow, smooth cinematic dolly-in entering this ${roomDesc}. Professional real estate video feel. Pan across the space exactly as photographed. No alterations to the photo content whatsoever.`;
+      if (clipPositions.length >= 2) {
+        const first = clipPositions[0];
+        const last = clipPositions[clipPositions.length - 1];
+        const dx = last.x - first.x;
+        const dy = last.y - first.y;
+        
+        let direction = "";
+        if (Math.abs(dx) > Math.abs(dy)) {
+          direction = dx > 0 ? "left to right" : "right to left";
+        } else {
+          direction = dy > 0 ? "from the entrance deeper into the room" : "from the back toward the entrance";
+        }
+        
+        const isWide = Math.abs(dx) > 40;
+        const isDeep = Math.abs(dy) > 40;
+        const motionType = isWide ? "wide panoramic sweep" : isDeep ? "smooth dolly tracking shot" : "gentle floating glide";
+        
+        spatialHint = `\nCamera path: ${motionType} moving ${direction} through this ${roomDesc}. `;
+      }
+    }
+    
+    if (isFirstClip) {
+      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.${spatialHint}
+      
+Camera motion: Slow, smooth cinematic ${spatialHint ? "movement following the photographer's path" : "dolly-in entering this " + roomDesc}. Professional real estate video feel. Pan across the space exactly as photographed. No alterations to the photo content whatsoever.`;
     } else {
-      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.
+      return `STRICT REQUIREMENT: Only apply camera motion to this exact photo. DO NOT add, remove, or modify any objects, furniture, people, or features.${spatialHint}
 
-Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tracking movement. Keep all original photo elements exactly as they appear. No alterations to the photo content whatsoever.`;
+Camera motion: Gentle ${spatialHint ? "continuation of the camera path" : "panning shot slowly revealing this " + roomDesc}. Smooth tracking movement. Keep all original photo elements exactly as they appear. No alterations to the photo content whatsoever.`;
     }
   }
 
@@ -16143,7 +16174,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         job.progress = 10;
         
         // Group photos by room (max 6 per room, process 3 at a time)
-        const roomBatches = groupPhotosByRoom(processedPhotos, job.roomTypes || []);
+        const roomBatches = groupPhotosByRoom(processedPhotos, job.roomTypes || [], job.cameraPositions);
         const roomVideos: string[] = [];
         const totalRooms = roomBatches.length;
         
@@ -16175,7 +16206,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
           if (batch1Photos.length > 0) {
             // Use first photo as primary, others provide context for panoramic feel
             const primaryPhoto = batch1Photos[0];
-            const prompt1 = getCompliancePrompt(roomDesc, true);
+            const prompt1 = getCompliancePrompt(roomDesc, true, room.cameraPositions);
             
             console.log(`📸 [PropertyTour] Batch 1: ${batch1Photos.length} photos for first 8-sec clip`);
             
@@ -16206,7 +16237,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
           // Process batch 2 (photos 4-6) - second 8-second panoramic clip (only in 16s mode)
           if (wantsDualClips && batch2Photos.length > 0) {
             const primaryPhoto = batch2Photos[0];
-            const prompt2 = getCompliancePrompt(roomDesc, false);
+            const prompt2 = getCompliancePrompt(roomDesc, false, room.cameraPositions);
             
             console.log(`📸 [PropertyTour] Batch 2: ${batch2Photos.length} photos for second 8-sec clip`);
             
@@ -16233,7 +16264,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
           } else if (wantsDualClips && clipUrls.length === 1) {
             // Only have 1-3 photos but want 16s - generate second clip from same batch with different motion
             const primaryPhoto = batch1Photos[batch1Photos.length - 1] || batch1Photos[0];
-            const prompt2 = getCompliancePrompt(roomDesc, false);
+            const prompt2 = getCompliancePrompt(roomDesc, false, room.cameraPositions);
             
             console.log(`📸 [PropertyTour] Generating second clip from same batch (${batch1Photos.length} photos)`);
             
@@ -16524,22 +16555,27 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
           
           job.progress = 60;
         } else if (job.quotaExceeded) {
-          // Quota exceeded - show clear error to user instead of silent fallback
-          console.error(`❌ [PropertyTour] VEO quota exceeded - using fallback with user notification`);
-          job.message = `VEO quota exceeded. Using simplified video effects. Please wait for quota reset or upgrade your Gemini API plan for HD quality.`;
-          await fallbackToFFmpeg(job, processedPhotos);
+          console.error(`❌ [PropertyTour] VEO quota exceeded - cannot generate video`);
+          job.status = "failed";
+          job.error = job.quotaError || "Gemini VEO quota exceeded. Please wait for your quota to reset or upgrade your Gemini API plan.";
+          job.message = job.error;
+          propertyTourJobs.set(job.id, job);
+          return;
         } else {
-          console.error(`❌ [PropertyTour] No VEO clips generated, falling back to FFmpeg`);
-          job.message = `VEO generation failed. Falling back to FFmpeg...`;
-          await fallbackToFFmpeg(job, processedPhotos);
+          console.error(`❌ [PropertyTour] VEO failed to generate clips`);
+          job.status = "failed";
+          job.error = "VEO video generation failed. Please try again or check your Gemini API configuration.";
+          job.message = job.error;
+          propertyTourJobs.set(job.id, job);
+          return;
         }
       } else {
-        console.log(`🎬 [PropertyTour] ========================================`);
-        console.log(`🎬 [PropertyTour] VIDEO ENGINE: FFMPEG KEN BURNS (VEO not configured)`);
-        console.log(`🎬 [PropertyTour] Reason: GEMINI_API_KEY secret not found`);
-        console.log(`🎬 [PropertyTour] ========================================`);
-        job.message = "Using FFmpeg Ken Burns effects (VEO not configured)...";
-        await fallbackToFFmpeg(job, processedPhotos);
+        console.error(`❌ [PropertyTour] GEMINI_API_KEY not configured - VEO 3.1 required`);
+        job.status = "failed";
+        job.error = "Gemini API key is required for video generation. Please add your GEMINI_API_KEY in secrets.";
+        job.message = job.error;
+        propertyTourJobs.set(job.id, job);
+        return;
       }
       
       if (job.motionVideos.length > 0 && job.avatarImageKey && job.avatarId !== "no-avatar") {
@@ -16653,7 +16689,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration } = req.body;
+      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration, cameraPositions } = req.body;
 
       if (!photos || !Array.isArray(photos) || photos.length === 0) {
         return res.status(400).json({ error: "At least one photo is required" });
@@ -16702,6 +16738,7 @@ Camera motion: Gentle panning shot slowly revealing this ${roomDesc}. Smooth tra
         backgroundType: backgroundType || "office",
         includeBranding: includeBranding !== false,
         roomClipDuration: roomClipDuration || 8,
+        cameraPositions: cameraPositions || {},
         tourOrder: tourOrder || [],
         property,
         klingTaskIds: [],

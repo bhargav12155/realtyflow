@@ -76,34 +76,41 @@ interface RoomPhoto {
   source?: "mls" | "upload";
 }
 
+interface CameraPosition {
+  x: number;
+  y: number;
+  photoIndex: number;
+  direction?: number;
+}
+
 interface RoomPhotos {
   roomId: string;
   roomName: string;
   roomType: "interior" | "exterior";
   photos: RoomPhoto[];
-  maxPhotos: 3;
+  maxPhotos: 6;
 }
 
-// VEO 3.1 produces best quality with exactly 3 photos per room
+// VEO 3.1: 6 photos per room (3 per clip), two 8-sec clips combined into smooth 16-sec room video
 const ROOM_ZONES: Omit<RoomPhotos, "photos">[] = [
-  { roomId: "living-room", roomName: "Living Room", roomType: "interior", maxPhotos: 3 },
-  { roomId: "kitchen", roomName: "Kitchen", roomType: "interior", maxPhotos: 3 },
-  { roomId: "dining-room", roomName: "Dining Room", roomType: "interior", maxPhotos: 3 },
-  { roomId: "master-bedroom", roomName: "Master Bedroom", roomType: "interior", maxPhotos: 3 },
-  { roomId: "bedroom-2", roomName: "Bedroom 2", roomType: "interior", maxPhotos: 3 },
-  { roomId: "bedroom-3", roomName: "Bedroom 3", roomType: "interior", maxPhotos: 3 },
-  { roomId: "bathroom", roomName: "Bathroom", roomType: "interior", maxPhotos: 3 },
-  { roomId: "master-bath", roomName: "Master Bath", roomType: "interior", maxPhotos: 3 },
-  { roomId: "office", roomName: "Office", roomType: "interior", maxPhotos: 3 },
-  { roomId: "basement", roomName: "Basement", roomType: "interior", maxPhotos: 3 },
-  { roomId: "garage", roomName: "Garage", roomType: "interior", maxPhotos: 3 },
-  { roomId: "laundry", roomName: "Laundry", roomType: "interior", maxPhotos: 3 },
-  { roomId: "front-yard", roomName: "Front Yard", roomType: "exterior", maxPhotos: 3 },
-  { roomId: "backyard", roomName: "Backyard", roomType: "exterior", maxPhotos: 3 },
-  { roomId: "pool", roomName: "Pool", roomType: "exterior", maxPhotos: 3 },
-  { roomId: "patio-deck", roomName: "Patio/Deck", roomType: "exterior", maxPhotos: 3 },
-  { roomId: "driveway", roomName: "Driveway", roomType: "exterior", maxPhotos: 3 },
-  { roomId: "aerial-view", roomName: "Aerial View", roomType: "exterior", maxPhotos: 3 },
+  { roomId: "living-room", roomName: "Living Room", roomType: "interior", maxPhotos: 6 },
+  { roomId: "kitchen", roomName: "Kitchen", roomType: "interior", maxPhotos: 6 },
+  { roomId: "dining-room", roomName: "Dining Room", roomType: "interior", maxPhotos: 6 },
+  { roomId: "master-bedroom", roomName: "Master Bedroom", roomType: "interior", maxPhotos: 6 },
+  { roomId: "bedroom-2", roomName: "Bedroom 2", roomType: "interior", maxPhotos: 6 },
+  { roomId: "bedroom-3", roomName: "Bedroom 3", roomType: "interior", maxPhotos: 6 },
+  { roomId: "bathroom", roomName: "Bathroom", roomType: "interior", maxPhotos: 6 },
+  { roomId: "master-bath", roomName: "Master Bath", roomType: "interior", maxPhotos: 6 },
+  { roomId: "office", roomName: "Office", roomType: "interior", maxPhotos: 6 },
+  { roomId: "basement", roomName: "Basement", roomType: "interior", maxPhotos: 6 },
+  { roomId: "garage", roomName: "Garage", roomType: "interior", maxPhotos: 6 },
+  { roomId: "laundry", roomName: "Laundry", roomType: "interior", maxPhotos: 6 },
+  { roomId: "front-yard", roomName: "Front Yard", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "backyard", roomName: "Backyard", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "pool", roomName: "Pool", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "patio-deck", roomName: "Patio/Deck", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "driveway", roomName: "Driveway", roomType: "exterior", maxPhotos: 6 },
+  { roomId: "aerial-view", roomName: "Aerial View", roomType: "exterior", maxPhotos: 6 },
 ];
 
 const ROOM_TYPES = [
@@ -174,8 +181,8 @@ const TARGET_PLATFORMS = [
   { value: "twitter", label: "X (Twitter)", charLimit: 280, icon: SiX, description: "Short-form posts" },
 ];
 
-// VEO 3.1 generates best quality with 8-second clips - fixed duration
-const ROOM_CLIP_DURATION = 8;
+// VEO 3.1: 16-second dual-clip mode - two 8-sec clips combined per room
+const ROOM_CLIP_DURATION = 16;
 
 export function PropertyTourStudio() {
   const { toast } = useToast();
@@ -206,6 +213,7 @@ export function PropertyTourStudio() {
   const [showGlobalUploadModal, setShowGlobalUploadModal] = useState<boolean>(false);
   const [unassignedPhotos, setUnassignedPhotos] = useState<{url: string; source: "mls" | "upload"}[]>([]);
   const [roomDragOver, setRoomDragOver] = useState<string | null>(null);
+  const [cameraPositions, setCameraPositions] = useState<Record<string, CameraPosition[]>>({});
     const [customPrompt, setCustomPrompt] = useState<string>("");
   const [tourOrder, setTourOrder] = useState<string[]>([]);
 
@@ -464,10 +472,10 @@ ${propertyDetails}`;
   const addPhotoToRoom = useCallback((roomId: string, photoUrl: string, source: "mls" | "upload" = "upload") => {
     setRoomPhotos(prev => {
       const currentPhotos = prev[roomId] || [];
-      if (currentPhotos.length >= 3) {
+      if (currentPhotos.length >= 6) {
         toast({
           title: "Room Full",
-          description: "This room already has 3 photos (optimal for VEO quality).",
+          description: "This room already has 6 photos (maximum for dual-clip mode).",
           variant: "destructive",
         });
         return prev;
@@ -487,7 +495,6 @@ ${propertyDetails}`;
     setRoomPhotos(prev => {
       const currentPhotos = prev[roomId] || [];
       const filtered = currentPhotos.filter(p => p.url !== photoUrl);
-      // Remove from tour order when room has no photos
       if (filtered.length === 0) {
         setTourOrder(order => order.filter(id => id !== roomId));
       }
@@ -496,6 +503,7 @@ ${propertyDetails}`;
         [roomId]: filtered.map((p, i) => ({ ...p, order: i })),
       };
     });
+    setCameraPositions(prev => ({ ...prev, [roomId]: [] }));
   }, []);
 
   const reorderRoomPhotos = useCallback((roomId: string, fromIndex: number, toIndex: number) => {
@@ -508,6 +516,7 @@ ${propertyDetails}`;
         [roomId]: currentPhotos.map((p, i) => ({ ...p, order: i })),
       };
     });
+    setCameraPositions(prev => ({ ...prev, [roomId]: [] }));
   }, []);
 
   const handleRoomDrop = useCallback((e: React.DragEvent, roomId: string) => {
@@ -550,12 +559,12 @@ ${propertyDetails}`;
     
     const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
     const currentCount = roomPhotos[roomId]?.length || 0;
-    const slotsAvailable = 3 - currentCount;
+    const slotsAvailable = 6 - currentCount;
     
     if (slotsAvailable <= 0) {
       toast({
         title: "Room Full",
-        description: "This room already has 3 photos (optimal for VEO quality).",
+        description: "This room already has 6 photos (maximum for dual-clip mode).",
         variant: "destructive",
       });
       return;
@@ -586,7 +595,7 @@ ${propertyDetails}`;
     if (files.length > slotsAvailable) {
       toast({
         title: "Some Photos Skipped",
-        description: `Only ${slotsAvailable} photos added. Room limit is 3 for optimal quality.`,
+        description: `Only ${slotsAvailable} photos added. Room limit is 6 for dual-clip mode.`,
       });
     }
   }, [roomPhotos, addPhotoToRoom, toast]);
@@ -752,6 +761,7 @@ ${propertyDetails}`;
           backgroundType,
           includeBranding,
           roomClipDuration: ROOM_CLIP_DURATION,
+          cameraPositions,
           property: selectedProperty ? {
             address: selectedProperty.address,
             city: selectedProperty.city,
@@ -1447,10 +1457,10 @@ ${propertyDetails}`;
                       <Film className="h-4 w-4 text-blue-600" />
                       <span className="font-medium">Video Duration:</span>
                       <span className="text-blue-700 dark:text-blue-400">
-                        {tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 0} rooms × 8 seconds = ~{(tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 0) * ROOM_CLIP_DURATION}s
+                        {tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 0} rooms × 16 seconds = ~{(tourOrder.length || Object.keys(roomPhotos).filter(k => roomPhotos[k]?.length > 0).length || 0) * ROOM_CLIP_DURATION}s
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">VEO 3.1 generates optimal quality with 3 photos per room and 8-second clips</p>
+                    <p className="text-xs text-muted-foreground mt-1">VEO 3.1: Up to 6 photos per room, two 8-sec clips combined into smooth 16-sec room video</p>
                   </div>
                 </div>
 
@@ -1962,7 +1972,7 @@ ${propertyDetails}`;
                     variant="outline" 
                     size="sm" 
                     className="pointer-events-none"
-                    disabled={(roomPhotos[selectedRoomId] || []).length >= 3}
+                    disabled={(roomPhotos[selectedRoomId] || []).length >= 6}
                   >
                     <Plus className="h-4 w-4 mr-2" />
                     Add Photos
@@ -2024,6 +2034,121 @@ ${propertyDetails}`;
                       </Button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {(roomPhotos[selectedRoomId] || []).length > 0 && (
+                <div className="space-y-2 mt-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium flex items-center gap-1.5">
+                      <MapPin className="h-4 w-4" />
+                      Camera Positions (Optional)
+                    </Label>
+                    <span className="text-xs text-muted-foreground">Click the grid to place where each photo was taken</span>
+                  </div>
+                  <div 
+                    className="relative w-full aspect-[4/3] bg-muted/30 border-2 border-dashed rounded-lg cursor-crosshair overflow-hidden"
+                    data-testid="camera-position-grid"
+                    onClick={(e) => {
+                      if (!selectedRoomId) return;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = ((e.clientX - rect.left) / rect.width) * 100;
+                      const y = ((e.clientY - rect.top) / rect.height) * 100;
+                      const photos = roomPhotos[selectedRoomId] || [];
+                      const currentPositions = cameraPositions[selectedRoomId] || [];
+                      if (currentPositions.length >= photos.length) return;
+                      const newPosition: CameraPosition = {
+                        x,
+                        y,
+                        photoIndex: currentPositions.length,
+                      };
+                      setCameraPositions(prev => ({
+                        ...prev,
+                        [selectedRoomId]: [...(prev[selectedRoomId] || []), newPosition],
+                      }));
+                    }}
+                  >
+                    <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[10px] text-muted-foreground/60 uppercase tracking-wider">Door/Entry</div>
+                    <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[10px] text-muted-foreground/60 uppercase tracking-wider">Back Wall</div>
+                    <div className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/60 uppercase tracking-wider rotate-[-90deg]">Left</div>
+                    <div className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/60 uppercase tracking-wider rotate-90">Right</div>
+                    
+                    <div className="absolute inset-0 grid grid-cols-4 grid-rows-3 pointer-events-none">
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <div key={i} className="border border-muted-foreground/10" />
+                      ))}
+                    </div>
+
+                    {(cameraPositions[selectedRoomId || ""] || []).length > 1 && (
+                      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        <defs>
+                          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="hsl(var(--primary))" fillOpacity="0.7" />
+                          </marker>
+                        </defs>
+                        {(cameraPositions[selectedRoomId || ""] || []).map((pos, idx, arr) => {
+                          if (idx === 0) return null;
+                          const prev = arr[idx - 1];
+                          return (
+                            <line
+                              key={idx}
+                              x1={prev.x}
+                              y1={prev.y}
+                              x2={pos.x}
+                              y2={pos.y}
+                              stroke="hsl(var(--primary))"
+                              strokeWidth="0.5"
+                              strokeOpacity="0.5"
+                              strokeDasharray="2,1"
+                              markerEnd="url(#arrowhead)"
+                            />
+                          );
+                        })}
+                      </svg>
+                    )}
+
+                    {(cameraPositions[selectedRoomId || ""] || []).map((pos, idx) => (
+                      <div
+                        key={idx}
+                        className="absolute w-7 h-7 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shadow-lg border-2 border-white cursor-pointer hover:scale-110 transition-transform z-10"
+                        style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                        title={`Photo ${pos.photoIndex + 1} position - click to remove`}
+                        data-testid={`camera-marker-${idx}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!selectedRoomId) return;
+                          setCameraPositions(prev => ({
+                            ...prev,
+                            [selectedRoomId]: (prev[selectedRoomId] || []).filter((_, i) => i !== idx).map((p, i) => ({ ...p, photoIndex: i })),
+                          }));
+                        }}
+                      >
+                        {pos.photoIndex + 1}
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                      {(cameraPositions[selectedRoomId || ""] || []).length}/{(roomPhotos[selectedRoomId || ""] || []).length} positions placed
+                      {(cameraPositions[selectedRoomId || ""] || []).length > 0 && " - click a marker to remove it"}
+                    </p>
+                    {(cameraPositions[selectedRoomId || ""] || []).length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          if (selectedRoomId) {
+                            setCameraPositions(prev => ({ ...prev, [selectedRoomId]: [] }));
+                          }
+                        }}
+                        data-testid="clear-positions-btn"
+                      >
+                        Clear All
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

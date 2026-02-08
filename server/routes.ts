@@ -16059,8 +16059,20 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   };
   
   function angleToDirection(deg: number): string {
-    const dirs = ["up (toward ceiling/top)", "upper-right", "right", "lower-right", "down (toward floor)", "lower-left", "left", "upper-left"];
+    const dirs = ["forward", "forward-right", "right", "back-right", "backward", "back-left", "left", "forward-left"];
     return dirs[Math.round(((deg % 360 + 360) % 360) / 45) % 8];
+  }
+
+  function angleToCameraMove(deg: number): string {
+    const normalized = ((deg % 360) + 360) % 360;
+    if (normalized <= 22 || normalized >= 338) return "dolly forward";
+    if (normalized <= 67) return "dolly forward while panning right";
+    if (normalized <= 112) return "truck right";
+    if (normalized <= 157) return "truck right while pulling back";
+    if (normalized <= 202) return "dolly backward";
+    if (normalized <= 247) return "truck left while pulling back";
+    if (normalized <= 292) return "truck left";
+    return "dolly forward while panning left";
   }
 
   function getCompliancePrompt(
@@ -16069,19 +16081,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     positions?: { x: number; y: number; photoIndex: number; direction?: number }[],
     connectionContext?: { fromRoom?: string; toRoom?: string; label?: string }
   ): string {
-    let spatialHint = "";
-    let directionHint = "";
+    let cameraMotion = "";
     
     if (positions && positions.length >= 1) {
       const clipPositions = isFirstClip 
         ? positions.filter(p => p.photoIndex < 3)
         : positions.filter(p => p.photoIndex >= 3);
       
-      if (clipPositions.length >= 1 && clipPositions[0].direction !== undefined) {
-        const facing = angleToDirection(clipPositions[0].direction);
-        directionHint = `\nPhotographer was facing ${facing} when taking this photo. `;
-      }
-
       if (clipPositions.length >= 2) {
         const first = clipPositions[0];
         const last = clipPositions[clipPositions.length - 1];
@@ -16089,73 +16095,58 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const dy = last.y - first.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
-        let travelDirection = "";
-        if (Math.abs(dx) > Math.abs(dy)) {
-          travelDirection = dx > 0 ? "left to right" : "right to left";
+        const movements: string[] = [];
+        
+        if (distance > 30) {
+          if (Math.abs(dx) > Math.abs(dy) * 2) {
+            movements.push(dx > 0 ? "slow truck right" : "slow truck left");
+          } else if (Math.abs(dy) > Math.abs(dx) * 2) {
+            movements.push(dy > 0 ? "slow dolly forward" : "slow dolly backward");
+          } else {
+            const hDir = dx > 0 ? "right" : "left";
+            const vDir = dy > 0 ? "forward" : "backward";
+            movements.push(`slow dolly ${vDir} while trucking ${hDir}`);
+          }
+        } else if (distance > 10) {
+          movements.push("gentle dolly forward");
         } else {
-          travelDirection = dy > 0 ? "from the entrance deeper into the room" : "from the back toward the entrance";
+          movements.push("very slow push-in");
         }
         
-        const isWide = Math.abs(dx) > 40;
-        const isDeep = Math.abs(dy) > 40;
-        const isDiagonal = Math.abs(dx) > 20 && Math.abs(dy) > 20;
-        
-        let motionType: string;
-        if (isDiagonal) {
-          motionType = "cinematic diagonal tracking shot with parallax depth";
-        } else if (isWide) {
-          motionType = "sweeping panoramic arc revealing the full width of the space";
-        } else if (isDeep) {
-          motionType = "smooth steadicam dolly pushing deeper into the space";
-        } else if (distance > 15) {
-          motionType = "gentle floating drift with subtle parallax";
-        } else {
-          motionType = "slow cinematic push-in with natural depth perspective";
+        if (first.direction !== undefined) {
+          const startMove = angleToCameraMove(first.direction);
+          movements.unshift(`Begin facing ${angleToDirection(first.direction)}, then ${startMove}`);
+          
+          if (last.direction !== undefined && Math.abs(first.direction - last.direction) > 30) {
+            const rotDelta = ((last.direction - first.direction + 540) % 360) - 180;
+            const panDir = rotDelta > 0 ? "right" : "left";
+            movements.push(`with a gradual ${Math.abs(rotDelta)}° pan ${panDir}`);
+          }
         }
         
-        spatialHint = `\nCamera path: ${motionType}, traveling ${travelDirection} through this ${roomDesc}. `;
-        
-        if (first.direction !== undefined && last.direction !== undefined && first.direction !== last.direction) {
-          const startFacing = angleToDirection(first.direction);
-          const endFacing = angleToDirection(last.direction);
-          directionHint = `\nCamera rotation: Start facing ${startFacing}, gradually rotate to face ${endFacing} during the movement. `;
-        }
+        cameraMotion = movements.join(", ") + ".";
+      } else if (clipPositions.length === 1 && clipPositions[0].direction !== undefined) {
+        const dir = clipPositions[0].direction;
+        cameraMotion = `Camera facing ${angleToDirection(dir)}, ${angleToCameraMove(dir)}.`;
       }
     }
 
     let transitionHint = "";
     if (connectionContext) {
       if (isFirstClip && connectionContext.fromRoom) {
-        const entryLabel = connectionContext.label ? ` through the ${connectionContext.label}` : "";
-        transitionHint = `\nTransition: Begin as if the camera just entered this ${roomDesc}${entryLabel} from the ${connectionContext.fromRoom}, with a natural arrival feeling. `;
+        transitionHint = ` Begin the motion as if entering from the ${connectionContext.fromRoom}.`;
       } else if (!isFirstClip && connectionContext.toRoom) {
-        const exitLabel = connectionContext.label ? ` toward the ${connectionContext.label}` : "";
-        transitionHint = `\nTransition: End the movement drifting${exitLabel} as if preparing to enter the ${connectionContext.toRoom}. `;
+        transitionHint = ` End the motion drifting toward the ${connectionContext.toRoom}.`;
       }
     }
 
-    const cinematicStyles = [
-      "like a professional Steadicam operator walking through a luxury home",
-      "as seen in an architectural documentary with smooth, deliberate camera work",
-      "with the fluid motion of a gimbal-stabilized camera gliding through the space",
-      "like a cinematic real estate showcase filmed with a motorized slider and jib arm",
-    ];
-    const styleIndex = roomDesc.length % cinematicStyles.length;
-    const cinematicStyle = cinematicStyles[styleIndex];
-    
-    if (isFirstClip) {
-      return `CRITICAL: This is a real property photo. Apply ONLY camera motion effects. DO NOT generate, add, remove, alter, or modify any objects, furniture, walls, windows, flooring, lighting fixtures, or features in the image. The photo must remain pixel-perfect except for the camera movement effect.${spatialHint}${directionHint}${transitionHint}
+    const defaultMotion = isFirstClip
+      ? "Slow, steady dolly forward into the room."
+      : "Gentle pan across the room revealing the full space.";
 
-Cinematic camera motion for this ${roomDesc}: ${spatialHint 
-  ? "Follow the photographer's walking path through the room" 
-  : "Slow, dramatic entrance reveal - the camera gently pushes forward into the space"}, ${cinematicStyle}. Use only pan, tilt, dolly, and zoom movements - no perspective warping or scene geometry changes. Maintain sharp focus throughout. The motion should feel like walking through the room in person - smooth, purposeful, and immersive. Do not add, transform, or warp any objects. 8 seconds of continuous fluid motion.`;
-    } else {
-      return `CRITICAL: This is a real property photo. Apply ONLY camera motion effects. DO NOT generate, add, remove, alter, or modify any objects, furniture, walls, windows, flooring, lighting fixtures, or features in the image. The photo must remain pixel-perfect except for the camera movement effect.${spatialHint}${directionHint}${transitionHint}
+    const motion = cameraMotion || defaultMotion;
 
-Cinematic camera motion for this ${roomDesc}: ${spatialHint 
-  ? "Continue the camera's journey through the remaining area of the room" 
-  : "Slow revealing pan across the space, gradually uncovering the room's full scope"}, ${cinematicStyle}. Use only pan, tilt, dolly, and zoom movements - no perspective warping or scene geometry changes. The motion should be buttery smooth with natural deceleration at the end. Do not add, transform, or warp any objects. Professional luxury real estate video quality. 8 seconds of continuous fluid motion.`;
-    }
+    return `Smooth, professional real estate video of this ${roomDesc}. Apply camera motion only (pan, tilt, dolly, truck, zoom) — do not alter, add, or remove anything in the scene. ${motion}${transitionHint} Gimbal-stabilized, 8 seconds, constant slow speed, no sudden moves or jerky transitions. Sharp focus, natural lighting preserved.`;
   }
 
   const propertyTourJobs = new Map<string, PropertyTourJob>();

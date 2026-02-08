@@ -2224,7 +2224,7 @@ ${propertyDetails}`;
         setShowRoomModal(open);
         if (!open) setSelectedRoomId(null);
       }}>
-        <DialogContent className="max-w-2xl" data-testid="room-modal">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="room-modal">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedRoomId && (() => {
@@ -2357,6 +2357,7 @@ ${propertyDetails}`;
                         x,
                         y,
                         photoIndex: currentPositions.length,
+                        direction: 0,
                       };
                       setCameraPositions(prev => ({
                         ...prev,
@@ -2406,11 +2407,22 @@ ${propertyDetails}`;
                     {(cameraPositions[selectedRoomId || ""] || []).map((pos, idx) => (
                       <div
                         key={idx}
-                        className="absolute w-7 h-7 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shadow-lg border-2 border-white cursor-pointer hover:scale-110 transition-transform z-10"
+                        className="absolute w-8 h-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shadow-lg border-2 border-white cursor-pointer hover:scale-110 transition-transform z-10"
                         style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                        title={`Photo ${pos.photoIndex + 1} position - click to remove`}
+                        title={`Photo ${pos.photoIndex + 1} - Click to rotate direction, right-click to remove`}
                         data-testid={`camera-marker-${idx}`}
                         onClick={(e) => {
+                          e.stopPropagation();
+                          if (!selectedRoomId) return;
+                          setCameraPositions(prev => ({
+                            ...prev,
+                            [selectedRoomId]: (prev[selectedRoomId] || []).map((p, i) => 
+                              i === idx ? { ...p, direction: ((p.direction || 0) + 45) % 360 } : p
+                            ),
+                          }));
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           if (!selectedRoomId) return;
                           setCameraPositions(prev => ({
@@ -2419,7 +2431,17 @@ ${propertyDetails}`;
                           }));
                         }}
                       >
-                        {pos.photoIndex + 1}
+                        <span className="text-[10px] font-bold relative z-20">{pos.photoIndex + 1}</span>
+                        <div 
+                          className="absolute inset-0 pointer-events-none"
+                          style={{ transform: `rotate(${pos.direction || 0}deg)` }}
+                        >
+                          <div className="absolute left-1/2 -translate-x-1/2 -top-2.5">
+                            <svg width="10" height="8" viewBox="0 0 10 8">
+                              <polygon points="5,0 1,7 9,7" fill="white" stroke="hsl(var(--primary))" strokeWidth="1.5" />
+                            </svg>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2427,7 +2449,7 @@ ${propertyDetails}`;
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
                       {(cameraPositions[selectedRoomId || ""] || []).length}/{(roomPhotos[selectedRoomId || ""] || []).length} positions placed
-                      {(cameraPositions[selectedRoomId || ""] || []).length > 0 && " - click a marker to remove it"}
+                      {(cameraPositions[selectedRoomId || ""] || []).length > 0 && " - click to rotate, right-click to remove"}
                     </p>
                     {(cameraPositions[selectedRoomId || ""] || []).length > 0 && (
                       <Button

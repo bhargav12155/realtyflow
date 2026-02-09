@@ -10214,8 +10214,27 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const savedPath = await persistImageBuffer(req.file.buffer, filename, req.file.mimetype || "image/jpeg");
       console.log(`💾 Photo backup saved: ${savedPath || 'failed'}`);
 
-      // Save to media assets library for reuse
+      // Auto-create avatar group and start training (fire-and-forget)
       const photoTitle = req.body.title || req.file.originalname || "Uploaded Photo";
+      let groupId: string | undefined;
+      try {
+        const photoAvatarService = new HeyGenPhotoAvatarService();
+        const groupResult = await photoAvatarService.createAvatarGroup(photoTitle, uploadResult.image_key);
+        groupId = groupResult?.group_id || groupResult?.avatar_group_id;
+        console.log(`🎭 Auto-created avatar group: ${groupId}`);
+
+        if (groupId) {
+          photoAvatarService.trainAvatarGroup(groupId).then(() => {
+            console.log(`🚀 Auto-training started for group: ${groupId}`);
+          }).catch((trainErr: any) => {
+            console.error(`⚠️ Auto-training failed for group ${groupId}:`, trainErr?.message);
+          });
+        }
+      } catch (groupErr: any) {
+        console.error(`⚠️ Auto-create avatar group failed:`, groupErr?.message);
+      }
+
+      // Save to media assets library for reuse
       const mediaAsset = await storage.createMediaAsset({
         userId,
         type: "avatar-photo",
@@ -10229,6 +10248,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           imageKey: uploadResult.image_key,
           heygenAssetId: uploadResult.id,
           savedPath,
+          groupId,
         },
       });
       console.log(`📚 Photo saved to library: ${mediaAsset.id}`);
@@ -10240,10 +10260,65 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         assetId: uploadResult.id,
         savedPath,
         libraryId: mediaAsset.id,
+        groupId,
       });
     } catch (error: any) {
       console.error("Avatar IV upload failed:", error);
       res.status(500).json({ error: "Failed to upload image", details: error?.message });
+    }
+  });
+
+  // Create avatar group on-demand for photos that were uploaded before auto-group-creation
+  app.post("/api/avatar-iv/photos/:photoId/create-group", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user?.id);
+      const { photoId } = req.params;
+
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const asset = await storage.getMediaAssetById(photoId);
+      if (!asset || asset.userId !== userId) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+
+      const metadata = asset.metadata as any;
+      if (!metadata?.imageKey) {
+        return res.status(400).json({ error: "Photo has no imageKey – please re-upload" });
+      }
+
+      if (metadata?.groupId) {
+        return res.json({ groupId: metadata.groupId, alreadyExists: true });
+      }
+
+      console.log(`🎭 On-demand group creation for photo ${photoId}, imageKey: ${metadata.imageKey}`);
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      const title = asset.title || "Uploaded Photo";
+      const groupResult = await photoAvatarService.createAvatarGroup(title, metadata.imageKey);
+      const groupId = groupResult?.group_id || groupResult?.avatar_group_id;
+
+      if (!groupId) {
+        return res.status(500).json({ error: "Failed to create avatar group – no groupId returned" });
+      }
+
+      console.log(`🎭 Created group ${groupId} for photo ${photoId}`);
+
+      photoAvatarService.trainAvatarGroup(groupId).then(() => {
+        console.log(`🚀 Training started for on-demand group: ${groupId}`);
+      }).catch((trainErr: any) => {
+        console.error(`⚠️ Training failed for on-demand group ${groupId}:`, trainErr?.message);
+      });
+
+      await storage.updateMediaAsset(photoId, {
+        metadata: { ...metadata, groupId },
+      });
+
+      res.json({ groupId, created: true });
+    } catch (error: any) {
+      console.error("On-demand group creation failed:", error);
+      res.status(500).json({ error: "Failed to create avatar group", details: error?.message });
     }
   });
 

@@ -76,6 +76,7 @@ interface PhotoAsset {
   metadata?: {
     imageKey: string;
     heygenAssetId: string;
+    groupId?: string;
   };
   createdAt?: string;
 }
@@ -241,7 +242,9 @@ export function AvatarIVStudio() {
   const [changeStyleDialogOpen, setChangeStyleDialogOpen] = useState(false);
   const [changeStylePrompt, setChangeStylePrompt] = useState("");
   const [selectedPhotoForStyle, setSelectedPhotoForStyle] = useState<PhotoAsset | null>(null);
-  const [selectedGroupForStyle, setSelectedGroupForStyle] = useState<string>("");
+
+  // Multi-upload state
+  const [multiUploadProgress, setMultiUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
   // WebSocket for background job notifications
   const handleWebSocketMessage = (message: any) => {
@@ -309,12 +312,6 @@ export function AvatarIVStudio() {
 
   const voices = voicesData?.voices || FALLBACK_VOICES;
 
-  const { data: avatarGroupsData } = useQuery<any>({
-    queryKey: ["/api/photo-avatars/groups"],
-  });
-  const trainedGroups = (avatarGroupsData?.avatar_group_list || []).filter(
-    (g: any) => g.train_status === "ready"
-  );
   
   // Filter voices based on search and gender
   const filteredVoices = useMemo(() => {
@@ -738,6 +735,37 @@ export function AvatarIVStudio() {
     },
   });
 
+  const createGroupMutation = useMutation({
+    mutationFn: async (photoId: string) => {
+      const response = await apiRequest("POST", `/api/avatar-iv/photos/${photoId}/create-group`);
+      return response as unknown as { groupId: string; created?: boolean; alreadyExists?: boolean };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/photos"] });
+      if (selectedPhotoForStyle) {
+        setSelectedPhotoForStyle({
+          ...selectedPhotoForStyle,
+          metadata: {
+            ...selectedPhotoForStyle.metadata!,
+            groupId: data.groupId,
+          },
+        });
+      }
+      toast({
+        title: "Avatar Group Created",
+        description: "Preparing your avatar for style changes... Training may take a minute.",
+        duration: 6000,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Preparation Failed",
+        description: error.message || "Could not prepare avatar for style changes",
+        variant: "destructive",
+      });
+    },
+  });
+
   const changeStyleMutation = useMutation({
     mutationFn: async ({ groupId, prompt }: { groupId: string; prompt: string }) => {
       return await apiRequest("POST", `/api/heygen/avatars/${groupId}/generate-look`, {
@@ -755,7 +783,6 @@ export function AvatarIVStudio() {
       });
       setChangeStyleDialogOpen(false);
       setChangeStylePrompt("");
-      setSelectedGroupForStyle("");
       setSelectedPhotoForStyle(null);
     },
     onError: (error: any) => {
@@ -822,30 +849,41 @@ export function AvatarIVStudio() {
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    console.log("File selected:", file?.name, file?.type, file?.size);
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const isHeic = file.type === "image/heic" || file.type === "image/heif" || 
-                   file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
+    const validFiles: File[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const isHeic = file.type === "image/heic" || file.type === "image/heif" || 
+                     file.name.toLowerCase().endsWith(".heic") || file.name.toLowerCase().endsWith(".heif");
+      if (file.type.startsWith("image/") || isHeic) {
+        validFiles.push(file);
+      }
+    }
 
-    if (!file.type.startsWith("image/") && !isHeic) {
+    if (validFiles.length === 0) {
       toast({
         title: "Invalid File",
-        description: "Please select an image file (JPG, PNG, HEIC)",
+        description: "Please select image files (JPG, PNG, HEIC)",
         variant: "destructive",
       });
       return;
     }
 
-    setUploadedImage(file);
+    const firstFile = validFiles[0];
+    setUploadedImage(firstFile);
+    console.log("Files selected:", validFiles.length, "first:", firstFile.name);
+
+    const isHeic = firstFile.type === "image/heic" || firstFile.type === "image/heif" || 
+                   firstFile.name.toLowerCase().endsWith(".heic") || firstFile.name.toLowerCase().endsWith(".heif");
 
     if (isHeic) {
       try {
         setIsConvertingHeic(true);
         console.log("Converting HEIC to JPEG for preview...");
         const convertedBlob = await heic2any({
-          blob: file,
+          blob: firstFile,
           toType: "image/jpeg",
           quality: 0.8,
         });
@@ -853,14 +891,10 @@ export function AvatarIVStudio() {
         const reader = new FileReader();
         reader.onload = (event) => {
           const result = event.target?.result as string;
-          console.log("HEIC converted preview length:", result?.length);
           setImagePreview(result);
           setIsConvertingHeic(false);
         };
-        reader.onerror = (err) => {
-          console.error("FileReader error after HEIC conversion:", err);
-          setIsConvertingHeic(false);
-        };
+        reader.onerror = () => setIsConvertingHeic(false);
         reader.readAsDataURL(jpegBlob);
       } catch (err) {
         console.error("HEIC conversion error:", err);
@@ -874,14 +908,78 @@ export function AvatarIVStudio() {
     } else {
       const reader = new FileReader();
       reader.onload = (event) => {
-        const result = event.target?.result as string;
-        console.log("FileReader result length:", result?.length);
-        setImagePreview(result);
+        setImagePreview(event.target?.result as string);
       };
-      reader.onerror = (err) => {
-        console.error("FileReader error:", err);
-      };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(firstFile);
+    }
+
+    if (validFiles.length > 1) {
+      handleMultiUpload(validFiles);
+    }
+  };
+
+  const handleMultiUpload = async (files: File[]) => {
+    setMultiUploadProgress({ current: 0, total: files.length });
+    let lastSuccessData: { imageKey: string; imageUrl: string } | null = null;
+    let successCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      setMultiUploadProgress({ current: i + 1, total: files.length });
+      try {
+        let fileToUpload = files[i];
+
+        const isHeic = fileToUpload.type === "image/heic" || fileToUpload.type === "image/heif" ||
+                       fileToUpload.name.toLowerCase().endsWith(".heic") || fileToUpload.name.toLowerCase().endsWith(".heif");
+
+        if (isHeic) {
+          try {
+            console.log(`Converting HEIC file ${fileToUpload.name} to JPEG before upload...`);
+            const convertedBlob = await heic2any({
+              blob: fileToUpload,
+              toType: "image/jpeg",
+              quality: 0.8,
+            });
+            const jpegBlob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+            const newName = fileToUpload.name.replace(/\.heic$/i, ".jpg").replace(/\.heif$/i, ".jpg");
+            fileToUpload = new File([jpegBlob], newName, { type: "image/jpeg" });
+          } catch (convErr) {
+            console.error(`HEIC conversion failed for ${fileToUpload.name}, uploading as-is:`, convErr);
+          }
+        }
+
+        const formData = new FormData();
+        formData.append("image", fileToUpload);
+        const response = await fetch("/api/avatar-iv/upload", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          console.error(`Upload failed for ${files[i].name}:`, error.error);
+        } else {
+          const data = await response.json();
+          lastSuccessData = { imageKey: data.imageKey, imageUrl: data.imageUrl };
+          successCount++;
+        }
+      } catch (err: any) {
+        console.error(`Upload error for ${files[i].name}:`, err?.message);
+      }
+    }
+
+    if (lastSuccessData) {
+      setImageKey(lastSuccessData.imageKey);
+      setImagePreview(lastSuccessData.imageUrl);
+    }
+
+    setMultiUploadProgress(null);
+    queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/photos"] });
+    toast({
+      title: "Upload Complete",
+      description: `${successCount} of ${files.length} photos uploaded and saved to your library.`,
+    });
+    if (lastSuccessData) {
+      setCurrentStep(2);
     }
   };
 
@@ -1183,7 +1281,16 @@ export function AvatarIVStudio() {
                     </div>
                   )}
 
-                  {uploadedImage && !imageKey && (
+                  {multiUploadProgress && (
+                    <div className="text-center py-3" data-testid="multi-upload-progress">
+                      <Loader2 className="h-6 w-6 mx-auto text-[#D4AF37] mb-2 animate-spin" />
+                      <p className="text-sm text-gray-600">
+                        Uploading {multiUploadProgress.current} of {multiUploadProgress.total} photos...
+                      </p>
+                    </div>
+                  )}
+
+                  {uploadedImage && !imageKey && !multiUploadProgress && (
                     <div className="flex justify-center">
                       <Button
                         onClick={handleUpload}
@@ -1212,6 +1319,7 @@ export function AvatarIVStudio() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*,.heic,.heif"
+                multiple
                 className="hidden"
                 onChange={handleFileSelect}
                 data-testid="input-file"
@@ -1754,31 +1862,43 @@ export function AvatarIVStudio() {
                 </div>
               </div>
             )}
-            {trainedGroups.length === 0 ? (
-              <div className="text-center py-4 border rounded-lg bg-amber-50 border-amber-200">
-                <p className="text-sm text-amber-800 font-medium mb-1">No trained avatars found</p>
+            {!selectedPhotoForStyle?.metadata?.groupId ? (
+              <div className="text-center py-4 border rounded-lg bg-amber-50 border-amber-200 space-y-2">
+                <p className="text-sm text-amber-800 font-medium mb-1">Style changes not yet available</p>
                 <p className="text-xs text-amber-600">
-                  You need a trained avatar group to change styles. Go to the Manage tab in Photo Avatar Manager to train one first.
+                  This photo needs to be prepared for style changes.
                 </p>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (selectedPhotoForStyle?.id) {
+                      createGroupMutation.mutate(selectedPhotoForStyle.id);
+                    }
+                  }}
+                  disabled={createGroupMutation.isPending}
+                  className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
+                  data-testid="button-prepare-style"
+                >
+                  {createGroupMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Preparing...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-4 h-4 mr-2" />
+                      Prepare for Style Changes
+                    </>
+                  )}
+                </Button>
+                {createGroupMutation.isPending && (
+                  <p className="text-xs text-amber-600 italic">
+                    Preparing your avatar for style changes... This may take a minute.
+                  </p>
+                )}
               </div>
             ) : (
               <>
-                <div className="space-y-2">
-                  <Label>Select Avatar Group</Label>
-                  <Select value={selectedGroupForStyle} onValueChange={setSelectedGroupForStyle}>
-                    <SelectTrigger data-testid="select-style-group">
-                      <SelectValue placeholder="Choose a trained avatar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {trainedGroups.map((group: any) => (
-                        <SelectItem key={group.group_id} value={group.group_id}>
-                          {group.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
                 <div className="space-y-2">
                   <Label>Quick Outfit Presets</Label>
                   <div className="grid grid-cols-3 gap-2">
@@ -1827,24 +1947,24 @@ export function AvatarIVStudio() {
               onClick={() => {
                 setChangeStyleDialogOpen(false);
                 setChangeStylePrompt("");
-                setSelectedGroupForStyle("");
                 setSelectedPhotoForStyle(null);
               }}
               data-testid="button-cancel-style"
             >
               Cancel
             </Button>
-            {trainedGroups.length > 0 && (
+            {selectedPhotoForStyle?.metadata?.groupId && (
               <Button
                 onClick={() => {
-                  if (selectedGroupForStyle && changeStylePrompt.trim()) {
+                  const groupId = selectedPhotoForStyle?.metadata?.groupId;
+                  if (groupId && changeStylePrompt.trim()) {
                     changeStyleMutation.mutate({
-                      groupId: selectedGroupForStyle,
+                      groupId,
                       prompt: changeStylePrompt.trim(),
                     });
                   }
                 }}
-                disabled={!selectedGroupForStyle || !changeStylePrompt.trim() || changeStyleMutation.isPending}
+                disabled={!selectedPhotoForStyle?.metadata?.groupId || !changeStylePrompt.trim() || changeStyleMutation.isPending}
                 className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
                 data-testid="button-generate-style"
               >

@@ -59,10 +59,18 @@ import {
   Upload,
   UserPlus,
   Users,
+  MoreVertical,
+  Trash2,
   Wand2,
   X,
   ZoomIn,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useEffect, useRef, useState } from "react";
 import { AvatarPhotoGallery } from "./avatar-photo-gallery";
 import { VoiceLibraryManager } from "./voice-library-manager";
@@ -72,10 +80,14 @@ function LargeAvatarCard({
   groupId,
   groupName,
   onOpenGallery,
+  onChangeOutfit,
+  onDelete,
 }: {
   groupId: string;
   groupName: string;
   onOpenGallery: () => void;
+  onChangeOutfit: () => void;
+  onDelete: () => void;
 }) {
   const { data: photoData } = useQuery<any>({
     queryKey: [`/api/photo-avatars/groups/${groupId}/photos`],
@@ -88,9 +100,12 @@ function LargeAvatarCard({
   if (!firstPhoto) return null;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpenGallery}
-      className="relative group rounded-2xl overflow-hidden hover:shadow-2xl transition-all duration-300 bg-white w-full"
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenGallery(); } }}
+      className="relative group rounded-2xl overflow-hidden hover:shadow-2xl transition-all duration-300 bg-white w-full cursor-pointer"
       data-testid={`large-avatar-${groupId}`}
     >
       <div className="aspect-[3/4] w-full">
@@ -100,6 +115,44 @@ function LargeAvatarCard({
           className="w-full h-full object-cover"
         />
       </div>
+
+      {/* Three-dot menu - Always visible */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="absolute top-2 right-2 w-7 h-7 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center z-20 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+            data-testid={`button-menu-avatar-${groupId}`}
+          >
+            <MoreVertical className="h-4 w-4 text-white" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              onChangeOutfit();
+            }}
+            data-testid={`button-menu-outfit-avatar-${groupId}`}
+          >
+            <Shirt className="h-4 w-4 mr-2" />
+            Change Outfit
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm("Delete this avatar group? This cannot be undone.")) {
+                onDelete();
+              }
+            }}
+            className="text-red-600 focus:text-red-600"
+            data-testid={`button-menu-delete-avatar-${groupId}`}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Name Overlay at Bottom - Always Visible */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
@@ -124,12 +177,12 @@ function LargeAvatarCard({
 
       {/* Video Badge */}
       {firstPhoto.motion_preview_url && (
-        <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-full font-medium flex items-center gap-1">
+        <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-full font-medium flex items-center gap-1">
           <Play className="w-3 h-3" />
           Video
         </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -1767,6 +1820,11 @@ export function PhotoAvatarManager() {
                       onOpenGallery={() =>
                         setOpenGalleryGroupId(group.group_id)
                       }
+                      onChangeOutfit={() => {
+                        setSelectedGroupForEdit(group);
+                        setEditDialogOpen(true);
+                      }}
+                      onDelete={() => deleteGroupMutation.mutate(group.group_id)}
                     />
                   ))}
                 </div>
@@ -2424,13 +2482,49 @@ export function PhotoAvatarManager() {
                                 ` • ${group.avatar_count} photos`}
                             </p>
                           </div>
-                          <Badge
-                            className={`${getStatusColor(
-                              group.status
-                            )} text-white text-[9px] px-1.5 py-0.5`}
-                          >
-                            {group.status}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge
+                              className={`${getStatusColor(
+                                group.status
+                              )} text-white text-[9px] px-1.5 py-0.5`}
+                            >
+                              {group.status}
+                            </Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  className="w-6 h-6 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-full flex items-center justify-center transition-colors"
+                                  data-testid={`button-menu-group-${group.group_id}`}
+                                >
+                                  <MoreVertical className="h-3.5 w-3.5 text-gray-500" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedGroupForEdit(group);
+                                    setEditDialogOpen(true);
+                                  }}
+                                  data-testid={`button-menu-outfit-${group.group_id}`}
+                                >
+                                  <Shirt className="h-4 w-4 mr-2" />
+                                  Change Outfit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    if (confirm("Delete this avatar group? This cannot be undone.")) {
+                                      deleteGroupMutation.mutate(group.group_id);
+                                    }
+                                  }}
+                                  className="text-red-600 focus:text-red-600"
+                                  data-testid={`button-menu-delete-${group.group_id}`}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </div>
 
                         {/* Training Progress - Compact */}

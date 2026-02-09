@@ -47,6 +47,7 @@ import {
   Clock,
   Edit,
   Image,
+  Shirt,
   Loader2,
   Mic,
   MicOff,
@@ -131,6 +132,15 @@ function LargeAvatarCard({
     </button>
   );
 }
+
+const OUTFIT_PRESETS = [
+  { label: "Business Suit", prompt: "wearing a tailored navy blue business suit with white dress shirt and silk tie, professional office setting", icon: "👔" },
+  { label: "Casual Polo", prompt: "wearing a fitted casual polo shirt in solid color, relaxed professional look", icon: "👕" },
+  { label: "Real Estate Blazer", prompt: "wearing a stylish modern blazer over crisp button-down shirt, professional real estate agent look", icon: "🧥" },
+  { label: "Smart Casual", prompt: "wearing smart casual outfit with quarter-zip sweater over collared shirt, approachable professional look", icon: "👔" },
+  { label: "Formal Dress", prompt: "wearing elegant formal business dress or blouse with professional styling, confident real estate professional", icon: "👗" },
+  { label: "Outdoor/Active", prompt: "wearing clean outdoor casual attire, quarter-zip jacket, ready for property showings and open houses", icon: "🧤" },
+];
 
 // Professional HeyGen Voices
 const PROFESSIONAL_VOICES = [
@@ -2512,11 +2522,11 @@ export function PhotoAvatarManager() {
                                     setSelectedGroupForEdit(group);
                                     setEditDialogOpen(true);
                                   }}
-                                  data-testid={`button-edit-look-${group.group_id}`}
+                                  data-testid={`button-change-outfit-${group.group_id}`}
                                   className="border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37]/10 h-7 text-[10px] px-2"
                                 >
-                                  <Edit className="w-3 h-3 mr-1" />
-                                  Edit
+                                  <Shirt className="w-3 h-3 mr-1" />
+                                  Change Outfit
                                 </Button>
                               </>
                             )}
@@ -2572,13 +2582,11 @@ export function PhotoAvatarManager() {
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit className="h-5 w-5 text-[#D4AF37]" />
-              Edit Avatar Look
+              <Shirt className="h-5 w-5 text-[#D4AF37]" />
+              Change Outfit
             </DialogTitle>
             <DialogDescription>
-              Describe the edits you'd like to make to this avatar look. Be
-              specific about changes to appearance, clothing, background, or
-              style.
+              Choose a preset outfit or describe what you'd like your avatar to wear. HeyGen will generate a new look with the selected clothing.
             </DialogDescription>
           </DialogHeader>
 
@@ -2591,12 +2599,38 @@ export function PhotoAvatarManager() {
             </div>
 
             <div className="space-y-2">
+              <Label>Quick Outfit Presets</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {OUTFIT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setEditPrompt(preset.prompt)}
+                    className={`p-2 rounded-lg border text-left transition-all hover:border-[#D4AF37] hover:bg-[#D4AF37]/5 ${
+                      editPrompt === preset.prompt ? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-200 dark:border-gray-700'
+                    }`}
+                    data-testid={`button-preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <span className="text-lg">{preset.icon}</span>
+                    <p className="text-xs font-medium mt-1">{preset.label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 my-2">
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+              <span className="text-xs text-gray-400">or describe your own</span>
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="edit-prompt">
-                Describe the edits you'd like to make
+                Describe the outfit
               </Label>
               <Textarea
                 id="edit-prompt"
-                placeholder="Example: professional business suit, office background, confident expression..."
+                placeholder="Describe the outfit: e.g., navy blazer with white shirt, or casual polo with khakis..."
                 value={editPrompt}
                 onChange={(e) => setEditPrompt(e.target.value)}
                 rows={4}
@@ -2696,7 +2730,7 @@ export function PhotoAvatarManager() {
               ) : (
                 <>
                   <Wand2 className="w-4 h-4 mr-2" />
-                  Generate New Look
+                  Generate Outfit
                 </>
               )}
             </Button>

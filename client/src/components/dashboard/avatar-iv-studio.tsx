@@ -42,6 +42,7 @@ import {
   Search,
   Save,
   MoreVertical,
+  Shirt,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -49,6 +50,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Voice {
   voice_id: string;
@@ -90,6 +98,15 @@ const SCRIPT_STYLES = [
   { id: "market_update", label: "Market Update", description: "Local real estate market insights" },
   { id: "agent_intro", label: "Agent Introduction", description: "Professional self-introduction" },
   { id: "neighborhood_guide", label: "Neighborhood Guide", description: "Area highlights and amenities" },
+];
+
+const OUTFIT_PRESETS = [
+  { label: "Business Suit", prompt: "wearing a tailored navy blue business suit with white dress shirt and silk tie, professional office setting", icon: "👔" },
+  { label: "Casual Polo", prompt: "wearing a fitted casual polo shirt in solid color, relaxed professional look", icon: "👕" },
+  { label: "Real Estate Blazer", prompt: "wearing a stylish modern blazer over crisp button-down shirt, professional real estate agent look", icon: "🧥" },
+  { label: "Smart Casual", prompt: "wearing smart casual outfit with quarter-zip sweater over collared shirt, approachable professional look", icon: "👔" },
+  { label: "Formal Dress", prompt: "wearing elegant formal business dress or blouse with professional styling, confident real estate professional", icon: "👗" },
+  { label: "Outdoor/Active", prompt: "wearing clean outdoor casual attire, quarter-zip jacket, ready for property showings and open houses", icon: "🧤" },
 ];
 
 const STEPS = [
@@ -221,6 +238,10 @@ export function AvatarIVStudio() {
   const [generatingVideoId, setGeneratingVideoId] = useState<string | null>(null);
   const [videoStatus, setVideoStatus] = useState<VideoStatus | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [changeStyleDialogOpen, setChangeStyleDialogOpen] = useState(false);
+  const [changeStylePrompt, setChangeStylePrompt] = useState("");
+  const [selectedPhotoForStyle, setSelectedPhotoForStyle] = useState<PhotoAsset | null>(null);
+  const [selectedGroupForStyle, setSelectedGroupForStyle] = useState<string>("");
 
   // WebSocket for background job notifications
   const handleWebSocketMessage = (message: any) => {
@@ -287,6 +308,13 @@ export function AvatarIVStudio() {
   });
 
   const voices = voicesData?.voices || FALLBACK_VOICES;
+
+  const { data: avatarGroupsData } = useQuery<any>({
+    queryKey: ["/api/photo-avatars/groups"],
+  });
+  const trainedGroups = (avatarGroupsData?.avatar_group_list || []).filter(
+    (g: any) => g.train_status === "ready"
+  );
   
   // Filter voices based on search and gender
   const filteredVoices = useMemo(() => {
@@ -710,6 +738,35 @@ export function AvatarIVStudio() {
     },
   });
 
+  const changeStyleMutation = useMutation({
+    mutationFn: async ({ groupId, prompt }: { groupId: string; prompt: string }) => {
+      return await apiRequest("POST", `/api/heygen/avatars/${groupId}/generate-look`, {
+        prompt,
+        orientation: "square",
+        pose: "half_body",
+        style: "Realistic",
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Generating New Look",
+        description: "Your new outfit is being generated. It will appear in your avatar group shortly (30-60 seconds).",
+        duration: 6000,
+      });
+      setChangeStyleDialogOpen(false);
+      setChangeStylePrompt("");
+      setSelectedGroupForStyle("");
+      setSelectedPhotoForStyle(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Style change failed",
+        description: error.message || "Could not generate new look",
+        variant: "destructive",
+      });
+    },
+  });
+
   const startPolling = (videoId: string, vidTitle?: string, vidScript?: string) => {
     if (!videoId) {
       console.error("Cannot start polling without a video ID");
@@ -1054,6 +1111,17 @@ export function AvatarIVStudio() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedPhotoForStyle(photo);
+                                  setChangeStyleDialogOpen(true);
+                                }}
+                                data-testid={`button-style-photo-${photo.id}`}
+                              >
+                                <Shirt className="h-4 w-4 mr-2" />
+                                Change Style
+                              </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1659,6 +1727,143 @@ export function AvatarIVStudio() {
             </div>
           )}
         </CardContent>
+
+      <Dialog open={changeStyleDialogOpen} onOpenChange={setChangeStyleDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shirt className="h-5 w-5 text-[#D4AF37]" />
+              Change Style
+            </DialogTitle>
+            <DialogDescription>
+              Choose a preset outfit or describe what you'd like. This will generate a new look on your trained avatar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {selectedPhotoForStyle && (
+              <div className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <img
+                  src={selectedPhotoForStyle.thumbnailUrl || selectedPhotoForStyle.url}
+                  alt={selectedPhotoForStyle.title || "Selected photo"}
+                  className="w-12 h-12 rounded-lg object-cover"
+                />
+                <div>
+                  <p className="text-sm font-medium">{selectedPhotoForStyle.title || "Selected Photo"}</p>
+                  <p className="text-xs text-gray-500">Generating a new style for this photo</p>
+                </div>
+              </div>
+            )}
+            {trainedGroups.length === 0 ? (
+              <div className="text-center py-4 border rounded-lg bg-amber-50 border-amber-200">
+                <p className="text-sm text-amber-800 font-medium mb-1">No trained avatars found</p>
+                <p className="text-xs text-amber-600">
+                  You need a trained avatar group to change styles. Go to the Manage tab in Photo Avatar Manager to train one first.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Select Avatar Group</Label>
+                  <Select value={selectedGroupForStyle} onValueChange={setSelectedGroupForStyle}>
+                    <SelectTrigger data-testid="select-style-group">
+                      <SelectValue placeholder="Choose a trained avatar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {trainedGroups.map((group: any) => (
+                        <SelectItem key={group.group_id} value={group.group_id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Quick Outfit Presets</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {OUTFIT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => setChangeStylePrompt(preset.prompt)}
+                        className={`p-2 rounded-lg border text-left transition-all hover:border-[#D4AF37] hover:bg-[#D4AF37]/5 ${
+                          changeStylePrompt === preset.prompt ? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-200 dark:border-gray-700'
+                        }`}
+                        data-testid={`button-style-preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
+                      >
+                        <span className="text-lg">{preset.icon}</span>
+                        <p className="text-xs font-medium mt-1">{preset.label}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 my-2">
+                  <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+                  <span className="text-xs text-gray-400">or describe your own</span>
+                  <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="style-prompt">Describe the outfit</Label>
+                  <Textarea
+                    id="style-prompt"
+                    placeholder="e.g., navy blazer with white shirt, or casual polo with khakis..."
+                    value={changeStylePrompt}
+                    onChange={(e) => setChangeStylePrompt(e.target.value)}
+                    rows={3}
+                    className="resize-none"
+                    data-testid="textarea-style-prompt"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setChangeStyleDialogOpen(false);
+                setChangeStylePrompt("");
+                setSelectedGroupForStyle("");
+                setSelectedPhotoForStyle(null);
+              }}
+              data-testid="button-cancel-style"
+            >
+              Cancel
+            </Button>
+            {trainedGroups.length > 0 && (
+              <Button
+                onClick={() => {
+                  if (selectedGroupForStyle && changeStylePrompt.trim()) {
+                    changeStyleMutation.mutate({
+                      groupId: selectedGroupForStyle,
+                      prompt: changeStylePrompt.trim(),
+                    });
+                  }
+                }}
+                disabled={!selectedGroupForStyle || !changeStylePrompt.trim() || changeStyleMutation.isPending}
+                className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
+                data-testid="button-generate-style"
+              >
+                {changeStyleMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-4 h-4 mr-2" />
+                    Generate Outfit
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       </Card>
     </div>
   );

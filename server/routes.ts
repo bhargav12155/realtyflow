@@ -10111,6 +10111,28 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     }
   });
 
+  app.delete("/api/avatar-iv/photos/:photoId", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user?.id);
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { photoId } = req.params;
+      const asset = await storage.getMediaAssetById(photoId);
+      if (!asset || asset.userId !== userId) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+      
+      await storage.deleteMediaAsset(photoId);
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Failed to delete photo:", error);
+      res.status(500).json({ error: "Failed to delete photo", details: error?.message });
+    }
+  });
+
   // Upload photo and get image_key for Avatar IV
   app.post("/api/avatar-iv/upload", requireAuth, memoryImageUpload.single("image"), async (req, res) => {
     try {

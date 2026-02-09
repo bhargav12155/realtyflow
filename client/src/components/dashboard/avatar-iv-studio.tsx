@@ -41,7 +41,14 @@ import {
   RotateCcw,
   Search,
   Save,
+  MoreVertical,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Voice {
   voice_id: string;
@@ -690,6 +697,19 @@ export function AvatarIVStudio() {
     },
   });
 
+  const deletePhotoMutation = useMutation({
+    mutationFn: async (photoId: string) => {
+      await apiRequest("DELETE", `/api/avatar-iv/photos/${photoId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/photos"] });
+      toast({ title: "Photo deleted", description: "Photo removed from your library." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Delete failed", description: error.message || "Could not delete photo", variant: "destructive" });
+    },
+  });
+
   const startPolling = (videoId: string, vidTitle?: string, vidScript?: string) => {
     if (!videoId) {
       console.error("Cannot start polling without a video ID");
@@ -1023,6 +1043,32 @@ export function AvatarIVStudio() {
                               <Check className="h-8 w-8 text-[#D4AF37]" />
                             </div>
                           )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute top-1 right-1 w-6 h-6 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center z-20 transition-colors"
+                                data-testid={`button-menu-photo-${photo.id}`}
+                              >
+                                <MoreVertical className="h-3.5 w-3.5 text-white" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm("Delete this photo? This cannot be undone.")) {
+                                    deletePhotoMutation.mutate(photo.id);
+                                  }
+                                }}
+                                className="text-red-600 focus:text-red-600"
+                                data-testid={`button-delete-photo-${photo.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       ))}
                     </div>

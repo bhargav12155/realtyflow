@@ -54,6 +54,8 @@ import {
   Download,
   Terminal,
   MoreHorizontal,
+  MoreVertical,
+  Shirt,
   Edit2,
   Copy,
   Heart,
@@ -149,6 +151,15 @@ const PLATFORM_OPTIONS = [
   { id: "tiktok", name: "TikTok", duration: 30, description: "21-34 sec optimal" },
   { id: "linkedin", name: "LinkedIn", duration: 90, description: "1-2 min optimal" },
   { id: "custom", name: "Custom Length", duration: 60, description: "Set your own duration" },
+];
+
+const OUTFIT_PRESETS = [
+  { label: "Business Suit", prompt: "wearing a tailored navy blue business suit with white dress shirt and silk tie, professional office setting", icon: "👔" },
+  { label: "Casual Polo", prompt: "wearing a fitted casual polo shirt in solid color, relaxed professional look", icon: "👕" },
+  { label: "Real Estate Blazer", prompt: "wearing a stylish modern blazer over crisp button-down shirt, professional real estate agent look", icon: "🧥" },
+  { label: "Smart Casual", prompt: "wearing smart casual outfit with quarter-zip sweater over collared shirt, approachable professional look", icon: "👔" },
+  { label: "Formal Dress", prompt: "wearing elegant formal business dress or blouse with professional styling, confident real estate professional", icon: "👗" },
+  { label: "Outdoor/Active", prompt: "wearing clean outdoor casual attire, quarter-zip jacket, ready for property showings and open houses", icon: "🧤" },
 ];
 
 export function AvatarStudio() {
@@ -316,6 +327,12 @@ export function AvatarStudio() {
     message?: string;
     error?: string;
   } | null>(null);
+  
+  const [changeStyleDialogOpen, setChangeStyleDialogOpen] = useState(false);
+  const [changeStylePrompt, setChangeStylePrompt] = useState("");
+  const [changeStyleOrientation, setChangeStyleOrientation] = useState("square");
+  const [changeStylePose, setChangeStylePose] = useState("half_body");
+  const [changeStyleStyle, setChangeStyleStyle] = useState("Realistic");
   
   // Ref to track previous group train statuses for detecting changes
   const previousGroupStatusRef = useRef<Record<string, string>>({});
@@ -792,6 +809,37 @@ export function AvatarStudio() {
       toast({
         title: "Generation Failed",
         description: error?.message || "Failed to generate looks",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const changeStyleMutation = useMutation({
+    mutationFn: async ({ groupId, prompt, orientation, pose, style }: { groupId: string; prompt: string; orientation?: string; pose?: string; style?: string }) => {
+      const response = await apiRequest(
+        "POST",
+        `/api/heygen/avatars/${groupId}/generate-look`,
+        { prompt, orientation, pose, style }
+      );
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Style Change Started!",
+        description: "Your new look is being generated. It will appear in 30-60 seconds.",
+        duration: 6000,
+      });
+      setChangeStyleDialogOpen(false);
+      setChangeStylePrompt("");
+      if (selectedAvatarGroup) {
+        queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups", selectedAvatarGroup, "looks"] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Style Change Failed",
+        description: error?.message || "Failed to change style. Make sure the avatar is trained first.",
         variant: "destructive",
       });
     },
@@ -2104,7 +2152,7 @@ export function AvatarStudio() {
                           }}
                           onMouseEnter={() => setHoveredLookId(lookId)}
                           onMouseLeave={() => setHoveredLookId(null)}
-                          className={`relative rounded-lg overflow-hidden border-2 transition-all duration-200 cursor-pointer ${
+                          className={`relative group rounded-lg overflow-hidden border-2 transition-all duration-200 cursor-pointer ${
                             selectedAvatarLook === lookId
                               ? "border-[#D4AF37] ring-2 ring-[#D4AF37]/30"
                               : "border-gray-200 dark:border-gray-700 hover:border-[#D4AF37]/50"
@@ -2113,7 +2161,7 @@ export function AvatarStudio() {
                         >
                           {/* Selected indicator */}
                           {selectedAvatarLook === lookId && (
-                            <div className="absolute top-1 right-1 w-5 h-5 bg-[#D4AF37] rounded-full flex items-center justify-center z-10">
+                            <div className="absolute bottom-1 left-1 w-5 h-5 bg-[#D4AF37] rounded-full flex items-center justify-center z-10">
                               <Check className="h-3 w-3 text-white" />
                             </div>
                           )}
@@ -2126,22 +2174,43 @@ export function AvatarStudio() {
                             </div>
                           )}
                           
-                          {/* Delete button */}
-                          {isHovered && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (confirm("Delete this avatar look? This cannot be undone.")) {
-                                  deleteAvatarLookMutation.mutate(lookId);
-                                }
-                              }}
-                              disabled={deleteAvatarLookMutation.isPending}
-                              className="absolute bottom-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center z-10 transition-colors"
-                              data-testid={`button-delete-look-${lookId}`}
-                            >
-                              <Trash2 className="h-3 w-3 text-white" />
-                            </button>
-                          )}
+                          {/* Three-dot menu */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute top-1 right-1 w-6 h-6 bg-black/50 hover:bg-black/70 rounded-full flex items-center justify-center z-20 transition-colors"
+                                data-testid={`button-menu-look-${lookId}`}
+                              >
+                                <MoreVertical className="h-3.5 w-3.5 text-white" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setChangeStyleDialogOpen(true);
+                                }}
+                                data-testid={`button-change-style-${lookId}`}
+                              >
+                                <Shirt className="h-4 w-4 mr-2" />
+                                Change Style
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm("Delete this avatar look? This cannot be undone.")) {
+                                    deleteAvatarLookMutation.mutate(lookId);
+                                  }
+                                }}
+                                className="text-red-600 focus:text-red-600"
+                                data-testid={`button-delete-look-${lookId}`}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                           
                           {/* Image or Video on hover */}
                           {hasMotion && isHovered ? (
@@ -4083,6 +4152,144 @@ export function AvatarStudio() {
             >
               <Check className="h-4 w-4 mr-2" />
               Use This Look
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={changeStyleDialogOpen} onOpenChange={setChangeStyleDialogOpen}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shirt className="h-5 w-5 text-[#D4AF37]" />
+              Change Style
+            </DialogTitle>
+            <DialogDescription>
+              Choose a preset outfit or describe what you'd like your avatar to wear.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Quick Outfit Presets</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {OUTFIT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setChangeStylePrompt(preset.prompt)}
+                    className={`p-2 rounded-lg border text-left transition-all hover:border-[#D4AF37] hover:bg-[#D4AF37]/5 ${
+                      changeStylePrompt === preset.prompt ? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-200 dark:border-gray-700'
+                    }`}
+                    data-testid={`button-preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <span className="text-lg">{preset.icon}</span>
+                    <p className="text-xs font-medium mt-1">{preset.label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 my-2">
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+              <span className="text-xs text-gray-400">or describe your own</span>
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="change-style-prompt">Describe the outfit</Label>
+              <Textarea
+                id="change-style-prompt"
+                placeholder="Describe the outfit: e.g., navy blazer with white shirt, or casual polo with khakis..."
+                value={changeStylePrompt}
+                onChange={(e) => setChangeStylePrompt(e.target.value)}
+                rows={3}
+                className="resize-none"
+                data-testid="textarea-change-style-prompt"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Orientation</Label>
+                <Select value={changeStyleOrientation} onValueChange={setChangeStyleOrientation}>
+                  <SelectTrigger data-testid="select-change-style-orientation">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="square">Square</SelectItem>
+                    <SelectItem value="landscape">Landscape</SelectItem>
+                    <SelectItem value="portrait">Portrait</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Pose</Label>
+                <Select value={changeStylePose} onValueChange={setChangeStylePose}>
+                  <SelectTrigger data-testid="select-change-style-pose">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="half_body">Half Body</SelectItem>
+                    <SelectItem value="full_body">Full Body</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Style</Label>
+                <Select value={changeStyleStyle} onValueChange={setChangeStyleStyle}>
+                  <SelectTrigger data-testid="select-change-style-style">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Realistic">Realistic</SelectItem>
+                    <SelectItem value="Cinematic">Cinematic</SelectItem>
+                    <SelectItem value="Pixar">Pixar</SelectItem>
+                    <SelectItem value="Vintage">Vintage</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setChangeStyleDialogOpen(false);
+                setChangeStylePrompt("");
+              }}
+              data-testid="button-cancel-change-style"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedAvatarGroup && changeStylePrompt.trim()) {
+                  changeStyleMutation.mutate({
+                    groupId: selectedAvatarGroup,
+                    prompt: changeStylePrompt.trim(),
+                    orientation: changeStyleOrientation,
+                    pose: changeStylePose,
+                    style: changeStyleStyle,
+                  });
+                }
+              }}
+              disabled={!changeStylePrompt.trim() || changeStyleMutation.isPending}
+              className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
+              data-testid="button-generate-style"
+            >
+              {changeStyleMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  Generate Outfit
+                </>
+              )}
             </Button>
           </div>
         </DialogContent>

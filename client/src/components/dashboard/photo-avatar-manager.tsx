@@ -1106,7 +1106,8 @@ export function PhotoAvatarManager() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    setUploadedFiles(files);
+    setUploadedFiles((prev) => [...prev, ...files]);
+    if (e.target) e.target.value = "";
   };
 
   const handleUploadFiles = async () => {
@@ -1792,7 +1793,7 @@ export function PhotoAvatarManager() {
               </AlertDescription>
             </Alert>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+            <div className="border-2 border-dashed border-gray-300 hover:border-[#D4AF37] rounded-lg p-6 text-center transition-colors">
               <input
                 type="file"
                 multiple
@@ -1807,10 +1808,13 @@ export function PhotoAvatarManager() {
                 data-testid="label-upload"
               >
                 <Image className="w-12 h-12 text-gray-400 mb-2" />
-                <span className="text-sm text-gray-600">
-                  Click to upload photos
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Click to select multiple photos
                 </span>
                 <span className="text-xs text-gray-500 mt-1">
+                  Hold Ctrl (or Cmd on Mac) to select multiple files at once
+                </span>
+                <span className="text-xs text-gray-400 mt-0.5">
                   PNG, JPG up to 10MB each
                 </span>
               </label>
@@ -1818,33 +1822,52 @@ export function PhotoAvatarManager() {
 
             {uploadedFiles.length > 0 && (
               <>
-                <div className="space-y-2">
-                  {uploadedFiles.map((file, index) => (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {uploadedFiles.length} photo{uploadedFiles.length > 1 ? "s" : ""} selected
+                  </p>
+                  <label
+                    htmlFor="photo-upload"
+                    className="text-xs text-[#D4AF37] hover:underline cursor-pointer"
+                  >
+                    + Add more
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {uploadedFiles.map((file, index) => {
+                    const previewUrl = URL.createObjectURL(file);
+                    return (
                     <div
-                      key={index}
-                      className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                      key={`${file.name}-${file.size}-${index}`}
+                      className="relative group aspect-square rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700"
                     >
-                      <span className="text-sm">{file.name}</span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
+                      <img
+                        src={previewUrl}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                        onLoad={() => URL.revokeObjectURL(previewUrl)}
+                      />
+                      <button
                         onClick={() =>
                           setUploadedFiles((files) =>
                             files.filter((_, i) => i !== index)
                           )
                         }
+                        className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         data-testid={`button-remove-${index}`}
                       >
-                        <X className="w-4 h-4" />
-                      </Button>
+                        <X className="w-3 h-3 text-white" />
+                      </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <Button
                   onClick={handleUploadFiles}
                   disabled={uploadPhotoMutation.isPending}
-                  className="w-full"
+                  className="w-full bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 text-white"
                   data-testid="button-upload-files"
                 >
                   {uploadPhotoMutation.isPending ? (
@@ -1856,7 +1879,7 @@ export function PhotoAvatarManager() {
                     <>
                       <Upload className="w-4 h-4 mr-2" />
                       Upload {uploadedFiles.length} Photo
-                      {uploadedFiles.length > 1 ? "s" : ""}
+                      {uploadedFiles.length > 1 ? "s" : ""} & Create Avatar
                     </>
                   )}
                 </Button>

@@ -2196,17 +2196,19 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${fallbackScope}&state=${stateParam}`;
       };
 
+      const instagramClientId = process.env.INSTAGRAM_CLIENT_ID;
+      const instagramRedirectUri = encodeURIComponent(baseUrl + "/api/social/callback/instagram");
+      const instagramStateParam = encodeURIComponent(state);
+
       const oauthUrls: Record<string, string | null> = {
         facebook: buildFacebookOAuthUrl(
           "/api/social/callback/facebook",
           facebookConfigId,
           "pages_show_list,pages_manage_posts,pages_read_engagement"
         ),
-        instagram: buildFacebookOAuthUrl(
-          "/api/social/callback/instagram",
-          instagramConfigId || facebookConfigId,
-          "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish"
-        ),
+        instagram: instagramClientId
+          ? `https://api.instagram.com/oauth/authorize?client_id=${instagramClientId}&redirect_uri=${instagramRedirectUri}&response_type=code&scope=instagram_business_basic,instagram_business_content_publish,instagram_business_manage_messages,instagram_manage_comments&state=${instagramStateParam}`
+          : null,
         linkedin: process.env.LINKEDIN_CLIENT_ID
           ? `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${
               process.env.LINKEDIN_CLIENT_ID
@@ -2621,12 +2623,9 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           `);
         }
       } else if (platform.toLowerCase() === "instagram") {
-        // Instagram uses Facebook OAuth (Meta owns Instagram)
-        // Use Facebook credentials since Instagram is part of Meta
-        const clientId =
-          process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
-        const clientSecret =
-          process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+        // Instagram API with Instagram Business Login (direct Instagram OAuth)
+        const clientId = process.env.INSTAGRAM_CLIENT_ID;
+        const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
         const redirectUri = `${baseUrl}/api/social/callback/instagram`;
 
         if (!clientId || !clientSecret) {
@@ -2634,8 +2633,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
             <html>
               <body>
                 <h1>Instagram OAuth Not Configured</h1>
-                <p>You must set <code>FACEBOOK_APP_ID</code> and <code>FACEBOOK_APP_SECRET</code> in your environment.</p>
-                <p>Instagram uses Facebook's OAuth system since Meta owns both platforms.</p>
+                <p>You must set <code>INSTAGRAM_CLIENT_ID</code> and <code>INSTAGRAM_CLIENT_SECRET</code> in your environment.</p>
                 <script>
                   window.opener?.postMessage({ success: false, platform: 'instagram', error: 'missing_credentials' }, '*');
                   setTimeout(() => window.close(), 4000);
@@ -2646,16 +2644,20 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         }
 
         try {
-          // Exchange code for access token using Facebook Graph API
-          const tokenParams = new URLSearchParams({
-            client_id: clientId,
-            redirect_uri: redirectUri,
-            client_secret: clientSecret,
-            code: code as string,
-          });
-
+          // Step 1: Exchange code for short-lived access token via Instagram API
           const tokenResponse = await fetch(
-            `https://graph.facebook.com/v22.0/oauth/access_token?${tokenParams.toString()}`
+            "https://api.instagram.com/oauth/access_token",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                grant_type: "authorization_code",
+                redirect_uri: redirectUri,
+                code: code as string,
+              }).toString(),
+            }
           );
 
           if (!tokenResponse.ok) {
@@ -2664,8 +2666,8 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
             return res.send(`
               <html>
                 <body>
-                  <h1>❌ Instagram Connection Failed</h1>
-                  <p>Token exchange failed. Make sure you have pages_show_list, pages_read_engagement, pages_manage_posts, instagram_business_basic, and instagram_content_publish permissions enabled in your Facebook App.</p>
+                  <h1>Instagram Connection Failed</h1>
+                  <p>Token exchange failed. Please check your Instagram app configuration and try again.</p>
                   <script>
                     window.opener?.postMessage({ success: false, platform: 'instagram', error: 'token_exchange_failed' }, '*');
                     setTimeout(() => window.close(), 4000);
@@ -2676,107 +2678,77 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           }
 
           const tokenData = await tokenResponse.json();
-          const accessToken = tokenData.access_token as string;
+          const shortLivedToken = tokenData.access_token as string;
+          const igUserId = String(tokenData.user_id);
 
-          if (!accessToken) {
-            throw new Error("Instagram token response missing access_token");
+          if (!shortLivedToken || !igUserId) {
+            throw new Error("Instagram token response missing access_token or user_id");
           }
 
-          // Get user's Facebook pages to find Instagram Business Account
-          const pagesResponse = await fetch(
-            `https://graph.facebook.com/v22.0/me/accounts?access_token=${accessToken}`
-          );
-          const pagesData = await pagesResponse.json();
-          
-          let igUserId: string | null = null;
-          let igUsername: string | null = null;
-          let pageAccessToken: string | null = null;
-          
-          // Check each page for connected Instagram Business Account
-          if (pagesData.data && pagesData.data.length > 0) {
-            for (const page of pagesData.data) {
-              try {
-                const igResponse = await fetch(
-                  `https://graph.facebook.com/v22.0/${page.id}?fields=instagram_business_account{username,id}&access_token=${page.access_token}`
-                );
-                const igData = await igResponse.json();
-                
-                if (igData.instagram_business_account) {
-                  igUserId = igData.instagram_business_account.id;
-                  igUsername = igData.instagram_business_account.username;
-                  pageAccessToken = page.access_token;
-                  console.log(`✅ Found Instagram Business Account: @${igUsername} (ID: ${igUserId})`);
-                  break;
-                }
-              } catch (igError) {
-                console.warn(`Could not check Instagram for page ${page.id}:`, igError);
+          console.log(`Instagram short-lived token obtained for user ${igUserId}`);
+
+          // Step 2: Exchange short-lived token for long-lived token (60 days)
+          let longLivedToken = shortLivedToken;
+          try {
+            const longLivedResponse = await fetch(
+              `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${clientSecret}&access_token=${shortLivedToken}`
+            );
+            if (longLivedResponse.ok) {
+              const longLivedData = await longLivedResponse.json();
+              if (longLivedData.access_token) {
+                longLivedToken = longLivedData.access_token;
+                console.log(`Instagram long-lived token obtained (expires in ${longLivedData.expires_in}s)`);
               }
             }
+          } catch (llError) {
+            console.warn("Could not exchange for long-lived token, using short-lived:", llError);
           }
 
-          if (!igUserId) {
-            return res.send(`
-              <html>
-                <body>
-                  <h1>⚠️ No Instagram Business Account Found</h1>
-                  <p>Your Facebook account doesn't have an Instagram Business or Creator account connected.</p>
-                  <p><strong>To fix this:</strong></p>
-                  <ol>
-                    <li>Convert your Instagram to a Business or Creator account</li>
-                    <li>Connect it to a Facebook Business Page</li>
-                    <li>Try connecting again</li>
-                  </ol>
-                  <script>
-                    window.opener?.postMessage({ success: false, platform: 'instagram', error: 'no_instagram_account' }, '*');
-                    setTimeout(() => window.close(), 8000);
-                  </script>
-                </body>
-              </html>
-            `);
+          // Step 3: Get user profile info
+          const profileResponse = await fetch(
+            `https://graph.instagram.com/me?fields=user_id,username,name&access_token=${longLivedToken}`
+          );
+          
+          let igUsername = igUserId;
+          if (profileResponse.ok) {
+            const profileData = await profileResponse.json();
+            igUsername = profileData.username || igUserId;
+            console.log(`Instagram profile: @${igUsername} (ID: ${igUserId})`);
           }
 
           const stableUserId = String(userId);
-          console.log(`✅ Instagram token exchange successful for stable DB user ${stableUserId}`);
+          console.log(`Instagram token exchange successful for stable DB user ${stableUserId}`);
 
           const existingAccounts = await storage.getSocialMediaAccounts(stableUserId);
           const instagramAccount = existingAccounts.find(
             (acc) => acc.platform.toLowerCase() === "instagram"
           );
 
-          const metadata = {
-            igUserId,
-            igUsername,
-            tokenType: "bearer",
-          };
-
-          // Store Instagram Business Account ID in account_username field as: "igBusinessId:username"
           const accountUsernameWithId = `${igUserId}:@${igUsername}`;
           
           if (instagramAccount) {
-            console.log(`🔄 Updating existing Instagram account ${instagramAccount.id}`);
+            console.log(`Updating existing Instagram account ${instagramAccount.id}`);
             await storage.updateSocialMediaAccount(instagramAccount.id, {
-              accessToken: pageAccessToken || accessToken,
+              accessToken: longLivedToken,
               accountUsername: accountUsernameWithId,
               isConnected: true,
               lastSync: new Date(),
             });
-            console.log(`✅ Instagram account updated successfully (ID: ${igUserId}, @${igUsername})`);
           } else {
-            console.log(`➕ Creating new Instagram account for stable DB user ${stableUserId}`);
+            console.log(`Creating new Instagram account for stable DB user ${stableUserId}`);
             await storage.createSocialMediaAccount({
               userId: stableUserId,
               platform: "instagram",
-              accessToken: pageAccessToken || accessToken,
+              accessToken: longLivedToken,
               accountUsername: accountUsernameWithId,
               isConnected: true,
             });
-            console.log(`✅ Instagram account created successfully (ID: ${igUserId}, @${igUsername})`);
           }
 
           return res.send(`
             <html>
               <body>
-                <h1>✅ Instagram Connected Successfully!</h1>
+                <h1>Instagram Connected Successfully!</h1>
                 <p>Connected to @${igUsername}. You can now post content to Instagram.</p>
                 <script>
                   window.opener?.postMessage({ success: true, platform: 'instagram' }, '*');

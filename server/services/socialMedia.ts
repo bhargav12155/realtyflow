@@ -405,7 +405,7 @@ export class SocialMediaService {
       }
 
       const containerResponse = await fetch(
-        `https://graph.facebook.com/v21.0/${userId}/media`,
+        `https://graph.instagram.com/v22.0/${userId}/media`,
         {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -440,7 +440,7 @@ export class SocialMediaService {
 
       // Step 2: Publish the media container
       const publishResponse = await fetch(
-        `https://graph.facebook.com/v21.0/${userId}/media_publish`,
+        `https://graph.instagram.com/v22.0/${userId}/media_publish`,
         {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },

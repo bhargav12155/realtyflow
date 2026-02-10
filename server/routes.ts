@@ -10224,6 +10224,25 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log(`🎭 Auto-created avatar group: ${groupId}`);
 
         if (groupId) {
+          // Save to photoAvatarGroups table for ownership checks (idempotent)
+          try {
+            const existingGroup = await storage.getPhotoAvatarGroupByHeygenId(groupId);
+            if (!existingGroup) {
+              await storage.createPhotoAvatarGroup({
+                userId,
+                groupName: photoTitle,
+                heygenGroupId: groupId,
+                trainingStatus: "pending",
+                heygenImageKey: uploadResult.image_key,
+              });
+              console.log(`💾 Saved avatar group ${groupId} to database`);
+            } else {
+              console.log(`💾 Avatar group ${groupId} already exists in database`);
+            }
+          } catch (dbErr: any) {
+            console.error(`⚠️ Failed to save group to database:`, dbErr?.message);
+          }
+
           photoAvatarService.trainAvatarGroup(groupId).then(() => {
             console.log(`🚀 Auto-training started for group: ${groupId}`);
           }).catch((trainErr: any) => {
@@ -10304,6 +10323,25 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       }
 
       console.log(`🎭 Created group ${groupId} for photo ${photoId}`);
+
+      // Save to photoAvatarGroups table for ownership checks (idempotent)
+      try {
+        const existingGroup = await storage.getPhotoAvatarGroupByHeygenId(groupId);
+        if (!existingGroup) {
+          await storage.createPhotoAvatarGroup({
+            userId,
+            groupName: title,
+            heygenGroupId: groupId,
+            trainingStatus: "pending",
+            heygenImageKey: metadata.imageKey,
+          });
+          console.log(`💾 Saved on-demand avatar group ${groupId} to database`);
+        } else {
+          console.log(`💾 On-demand avatar group ${groupId} already exists in database`);
+        }
+      } catch (dbErr: any) {
+        console.error(`⚠️ Failed to save on-demand group to database:`, dbErr?.message);
+      }
 
       photoAvatarService.trainAvatarGroup(groupId).then(() => {
         console.log(`🚀 Training started for on-demand group: ${groupId}`);
@@ -10648,13 +10686,40 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(400).json({ error: "Prompt is required" });
       }
 
-      // Ownership check
-      const dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+      // Ownership check - try photoAvatarGroups table first, fallback to media asset metadata
+      let dbGroup = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
         groupId,
         userId
       );
       if (!dbGroup) {
-        return res.status(404).json({ error: "Avatar group not found" });
+        // Fallback: check if any media asset owned by this user has this groupId in metadata
+        const userAssets = await storage.getMediaAssets(userId);
+        const matchingAsset = userAssets.find((a: any) => {
+          const meta = a.metadata as any;
+          return meta?.groupId === groupId;
+        });
+        if (!matchingAsset) {
+          return res.status(404).json({ error: "Avatar group not found" });
+        }
+        // Auto-create the missing DB record for this legacy group
+        try {
+          const existing = await storage.getPhotoAvatarGroupByHeygenId(groupId);
+          if (!existing) {
+            dbGroup = await storage.createPhotoAvatarGroup({
+              userId,
+              groupName: matchingAsset.title || "Uploaded Photo",
+              heygenGroupId: groupId,
+              trainingStatus: "pending",
+              heygenImageKey: (matchingAsset.metadata as any)?.imageKey || "",
+            });
+            console.log(`💾 Auto-backfilled avatar group ${groupId} to database`);
+          } else {
+            dbGroup = existing;
+          }
+        } catch (backfillErr: any) {
+          console.error(`⚠️ Backfill failed:`, backfillErr?.message);
+          // Still allow the request through since we verified ownership via media asset
+        }
       }
 
       console.log("✏️ Editing look for group:", groupId);
@@ -10672,11 +10737,26 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log("📋 Avatar group training status:", statusCheck);
 
         if (statusCheck.status !== "ready") {
+          // If still training, auto-retry training and give user a friendly message
+          if (statusCheck.status === "pending" || statusCheck.status === "processing") {
+            return res.status(400).json({
+              error: "Avatar is still being prepared",
+              status: statusCheck.status,
+              message: "Your avatar is still training. This usually takes 1-2 minutes after upload. Please try again shortly.",
+            });
+          }
           return res.status(400).json({
             error: "Avatar group must be trained before generating looks",
             status: statusCheck.status,
-            message: `Current status: ${statusCheck.status}. Please train the avatar group first using the 'Train Avatar' button.`,
+            message: `Current status: ${statusCheck.status}. Please train the avatar group first.`,
           });
+        } else {
+          // Update DB training status to "ready" if it was pending
+          if (dbGroup && dbGroup.trainingStatus !== "ready") {
+            try {
+              await storage.updatePhotoAvatarGroup(dbGroup.id, { trainingStatus: "ready" });
+            } catch (e) { /* ignore */ }
+          }
         }
       } catch (statusError) {
         console.error("Failed to check training status:", statusError);

@@ -2185,14 +2185,14 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
       const oauthUrls: Record<string, string | null> = {
         facebook: facebookClientId
-          ? `https://www.facebook.com/v18.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
+          ? `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
               baseUrl + "/api/social/callback/facebook"
-            )}&scope=pages_manage_posts,pages_read_engagement&state=${encodeURIComponent(
+            )}&scope=pages_show_list,pages_manage_posts,pages_read_engagement&state=${encodeURIComponent(
               state
             )}`
           : null,
         instagram: facebookClientId
-          ? `https://www.facebook.com/v18.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
+          ? `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
               baseUrl + "/api/social/callback/instagram"
             )}&scope=pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish&state=${encodeURIComponent(
               state
@@ -2488,7 +2488,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           });
 
           const tokenResponse = await fetch(
-            `https://graph.facebook.com/v18.0/oauth/access_token?${tokenParams.toString()}`
+            `https://graph.facebook.com/v22.0/oauth/access_token?${tokenParams.toString()}`
           );
 
           if (!tokenResponse.ok) {
@@ -2526,7 +2526,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           let profile: any = null;
           try {
             const profileResp = await fetch(
-              `https://graph.facebook.com/v18.0/me?fields=id,name,email&access_token=${accessToken}`
+              `https://graph.facebook.com/v22.0/me?fields=id,name,email&access_token=${accessToken}`
             );
             if (profileResp.ok) {
               profile = await profileResp.json();
@@ -2646,7 +2646,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           });
 
           const tokenResponse = await fetch(
-            `https://graph.facebook.com/v18.0/oauth/access_token?${tokenParams.toString()}`
+            `https://graph.facebook.com/v22.0/oauth/access_token?${tokenParams.toString()}`
           );
 
           if (!tokenResponse.ok) {
@@ -2675,7 +2675,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
           // Get user's Facebook pages to find Instagram Business Account
           const pagesResponse = await fetch(
-            `https://graph.facebook.com/v18.0/me/accounts?access_token=${accessToken}`
+            `https://graph.facebook.com/v22.0/me/accounts?access_token=${accessToken}`
           );
           const pagesData = await pagesResponse.json();
           
@@ -2688,7 +2688,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
             for (const page of pagesData.data) {
               try {
                 const igResponse = await fetch(
-                  `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account{username,id}&access_token=${page.access_token}`
+                  `https://graph.facebook.com/v22.0/${page.id}?fields=instagram_business_account{username,id}&access_token=${page.access_token}`
                 );
                 const igData = await igResponse.json();
                 
@@ -4215,7 +4215,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       for (const page of pages) {
         try {
           const response = await fetch(
-            `https://graph.facebook.com/v18.0/${page.id}?fields=instagram_business_account{username,id}&access_token=${delegatedToken}`
+            `https://graph.facebook.com/v22.0/${page.id}?fields=instagram_business_account{username,id}&access_token=${delegatedToken}`
           );
 
           if (response.ok) {
@@ -4279,7 +4279,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
         // Fetch Instagram Business Account linked to this Page
         const response = await fetch(
-          `https://graph.facebook.com/v18.0/${pageId}?fields=instagram_business_account&access_token=${delegatedToken}`
+          `https://graph.facebook.com/v22.0/${pageId}?fields=instagram_business_account&access_token=${delegatedToken}`
         );
 
         if (!response.ok) {

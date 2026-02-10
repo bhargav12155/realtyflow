@@ -1005,7 +1005,7 @@ export class SocialMediaService {
 
         // Validate Facebook token by making a simple API call
         const response = await fetch(
-          `https://graph.facebook.com/v18.0/me?access_token=${token}`,
+          `https://graph.facebook.com/v22.0/me?access_token=${token}`,
         );
         return response.ok;
       }
@@ -1095,7 +1095,7 @@ export class SocialMediaService {
 
       console.log("🔍 Facebook Debug - Making API call to me/accounts");
       const response = await fetch(
-        `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`,
+        `https://graph.facebook.com/v22.0/me/accounts?access_token=${token}`,
       );
 
       console.log("🔍 Facebook Debug - Response status:", response.status);
@@ -1177,8 +1177,8 @@ export class SocialMediaService {
         }
 
         const endpoint = photoUrl
-          ? `https://graph.facebook.com/v18.0/${pageId}/photos`
-          : `https://graph.facebook.com/v18.0/${pageId}/feed`;
+          ? `https://graph.facebook.com/v22.0/${pageId}/photos`
+          : `https://graph.facebook.com/v22.0/${pageId}/feed`;
 
         const response = await fetch(endpoint, {
           method: "POST",
@@ -1205,7 +1205,7 @@ export class SocialMediaService {
       // First get the page access token
       console.log("🔍 Facebook Post Debug - Fetching page access token");
       const pagesResponse = await fetch(
-        `https://graph.facebook.com/v18.0/me/accounts?access_token=${token}`,
+        `https://graph.facebook.com/v22.0/me/accounts?access_token=${token}`,
       );
 
       console.log(
@@ -1257,7 +1257,7 @@ export class SocialMediaService {
           "🔍 Facebook Post Debug - Page not in me/accounts. Trying /{pageId}?fields=name,access_token",
         );
         const pageInfoResp = await fetch(
-          `https://graph.facebook.com/v18.0/${pageId}?fields=name,access_token&access_token=${token}`,
+          `https://graph.facebook.com/v22.0/${pageId}?fields=name,access_token&access_token=${token}`,
         );
         console.log(
           "🔍 Facebook Post Debug - Direct page info status:",
@@ -1326,8 +1326,8 @@ export class SocialMediaService {
 
       // Make the API call to post to the page
       const endpoint = photoUrl
-        ? `https://graph.facebook.com/v18.0/${pageId}/photos`
-        : `https://graph.facebook.com/v18.0/${pageId}/feed`;
+        ? `https://graph.facebook.com/v22.0/${pageId}/photos`
+        : `https://graph.facebook.com/v22.0/${pageId}/feed`;
 
       const response = await fetch(endpoint, {
         method: "POST",

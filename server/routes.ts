@@ -2207,7 +2207,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           "pages_show_list,pages_manage_posts,pages_read_engagement"
         ),
         instagram: instagramClientId
-          ? `https://api.instagram.com/oauth/authorize?client_id=${instagramClientId}&redirect_uri=${instagramRedirectUri}&response_type=code&scope=instagram_business_basic,instagram_business_content_publish,instagram_business_manage_messages,instagram_manage_comments&state=${instagramStateParam}`
+          ? `https://api.instagram.com/oauth/authorize?client_id=${instagramClientId}&redirect_uri=${instagramRedirectUri}&response_type=code&scope=instagram_business_basic,instagram_business_content_publish&state=${instagramStateParam}`
           : null,
         linkedin: process.env.LINKEDIN_CLIENT_ID
           ? `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${

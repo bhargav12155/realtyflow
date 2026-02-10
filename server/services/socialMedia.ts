@@ -404,7 +404,8 @@ export class SocialMediaService {
         }
       }
 
-      const containerResponse = await fetch(
+      // Try with user ID first, fall back to 'me' endpoint for Instagram Business Login tokens
+      let containerResponse = await fetch(
         `https://graph.instagram.com/v22.0/${userId}/media`,
         {
           method: "POST",
@@ -413,18 +414,41 @@ export class SocialMediaService {
         },
       );
 
+      // If user ID doesn't work (common with Instagram Business Login tokens), try 'me' endpoint
+      if (!containerResponse.ok) {
+        const errorData = await containerResponse.json();
+        console.error("Instagram Container API Error (user ID):", errorData);
+
+        if (errorData.error?.code === 100) {
+          console.log("Retrying Instagram media creation with 'me' endpoint...");
+          containerResponse = await fetch(
+            `https://graph.instagram.com/v22.0/me/media`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams(containerData).toString(),
+            },
+          );
+        }
+      }
+
       if (!containerResponse.ok) {
         const errorData = await containerResponse.json();
         console.error("Instagram Container API Error:", errorData);
 
         if (errorData.error?.code === 190) {
           throw new Error(
-            "Instagram setup incomplete. Token must be from Facebook page admin with connected Instagram business account.",
+            "Instagram session expired. Please reconnect your Instagram account.",
+          );
+        }
+        if (errorData.error?.code === 100 && errorData.error?.error_subcode === 33) {
+          throw new Error(
+            "Instagram content publishing permission not granted. Please add 'instagram_business_content_publish' permission in your Meta Developer dashboard.",
           );
         }
         if (errorData.error?.code === 100) {
           throw new Error(
-            "Invalid Instagram parameters. Please check your content and image.",
+            `Instagram API error: ${errorData.error?.message || "Invalid parameters. Please check your content and image."}`,
           );
         }
 
@@ -438,8 +462,8 @@ export class SocialMediaService {
       const containerResult = await containerResponse.json();
       const containerId = containerResult.id;
 
-      // Step 2: Publish the media container
-      const publishResponse = await fetch(
+      // Step 2: Publish the media container (try user ID, then 'me')
+      let publishResponse = await fetch(
         `https://graph.instagram.com/v22.0/${userId}/media_publish`,
         {
           method: "POST",
@@ -450,6 +474,24 @@ export class SocialMediaService {
           }).toString(),
         },
       );
+
+      if (!publishResponse.ok) {
+        const pubError = await publishResponse.json();
+        if (pubError.error?.code === 100) {
+          console.log("Retrying Instagram publish with 'me' endpoint...");
+          publishResponse = await fetch(
+            `https://graph.instagram.com/v22.0/me/media_publish`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                access_token: token,
+                creation_id: containerId,
+              }).toString(),
+            },
+          );
+        }
+      }
 
       if (!publishResponse.ok) {
         const errorData = await publishResponse.json();

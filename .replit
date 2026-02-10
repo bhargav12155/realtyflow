@@ -41,3 +41,8 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[userenv]
+
+[userenv.shared]
+FACEBOOK_CONFIG_ID = "1310292357563578"

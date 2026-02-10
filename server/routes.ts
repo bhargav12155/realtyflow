@@ -2183,21 +2183,30 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       const facebookClientId =
         process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
 
+      const facebookConfigId = process.env.FACEBOOK_CONFIG_ID;
+      const instagramConfigId = process.env.INSTAGRAM_CONFIG_ID;
+
+      const buildFacebookOAuthUrl = (redirectPath: string, configId: string | undefined, fallbackScope: string) => {
+        if (!facebookClientId) return null;
+        const redirectUri = encodeURIComponent(baseUrl + redirectPath);
+        const stateParam = encodeURIComponent(state);
+        if (configId) {
+          return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&state=${stateParam}&config_id=${configId}`;
+        }
+        return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&scope=${fallbackScope}&state=${stateParam}`;
+      };
+
       const oauthUrls: Record<string, string | null> = {
-        facebook: facebookClientId
-          ? `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
-              baseUrl + "/api/social/callback/facebook"
-            )}&scope=pages_show_list,pages_manage_posts,pages_read_engagement&state=${encodeURIComponent(
-              state
-            )}`
-          : null,
-        instagram: facebookClientId
-          ? `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${encodeURIComponent(
-              baseUrl + "/api/social/callback/instagram"
-            )}&scope=pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish&state=${encodeURIComponent(
-              state
-            )}`
-          : null,
+        facebook: buildFacebookOAuthUrl(
+          "/api/social/callback/facebook",
+          facebookConfigId,
+          "pages_show_list,pages_manage_posts,pages_read_engagement"
+        ),
+        instagram: buildFacebookOAuthUrl(
+          "/api/social/callback/instagram",
+          instagramConfigId || facebookConfigId,
+          "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish"
+        ),
         linkedin: process.env.LINKEDIN_CLIENT_ID
           ? `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${
               process.env.LINKEDIN_CLIENT_ID

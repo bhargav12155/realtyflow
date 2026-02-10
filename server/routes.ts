@@ -2191,9 +2191,9 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         const redirectUri = encodeURIComponent(baseUrl + redirectPath);
         const stateParam = encodeURIComponent(state);
         if (configId) {
-          return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&state=${stateParam}&config_id=${configId}`;
+          return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&state=${stateParam}&config_id=${configId}`;
         }
-        return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&scope=${fallbackScope}&state=${stateParam}`;
+        return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${fallbackScope}&state=${stateParam}`;
       };
 
       const oauthUrls: Record<string, string | null> = {

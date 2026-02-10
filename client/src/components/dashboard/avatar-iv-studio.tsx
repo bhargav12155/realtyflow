@@ -786,10 +786,13 @@ export function AvatarIVStudio() {
       setSelectedPhotoForStyle(null);
     },
     onError: (error: any) => {
+      const msg = error.message || "Could not generate new look";
+      const isTraining = msg.includes("still training") || msg.includes("being prepared") || msg.includes("1-2 minutes");
       toast({
-        title: "Style change failed",
-        description: error.message || "Could not generate new look",
-        variant: "destructive",
+        title: isTraining ? "Avatar Still Preparing" : "Style change failed",
+        description: isTraining ? "Your avatar is being trained. Please wait 1-2 minutes and try again." : msg,
+        variant: isTraining ? "default" : "destructive",
+        duration: isTraining ? 6000 : 5000,
       });
     },
   });

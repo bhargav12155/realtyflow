@@ -10737,7 +10737,21 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log("📋 Avatar group training status:", statusCheck);
 
         if (statusCheck.status !== "ready") {
-          // If still training, auto-retry training and give user a friendly message
+          if (statusCheck.status === "empty" || statusCheck.status === "failed") {
+            // Training was never started or failed - auto-trigger it now
+            console.log(`🔄 Training status is "${statusCheck.status}" - auto-triggering training for group ${groupId}`);
+            try {
+              await photoAvatarService.trainAvatarGroup(groupId);
+              console.log(`🚀 Auto-training triggered for group: ${groupId}`);
+            } catch (trainErr: any) {
+              console.error(`⚠️ Auto-training trigger failed:`, trainErr?.message);
+            }
+            return res.status(400).json({
+              error: "Avatar is being prepared",
+              status: statusCheck.status,
+              message: "We've started preparing your avatar for style changes. This takes about 1-2 minutes. Please try again shortly.",
+            });
+          }
           if (statusCheck.status === "pending" || statusCheck.status === "processing") {
             return res.status(400).json({
               error: "Avatar is still being prepared",

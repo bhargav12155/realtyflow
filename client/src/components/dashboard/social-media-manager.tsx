@@ -255,19 +255,37 @@ export function SocialMediaManager() {
     try {
       setConnectingPlatform(platform);
 
-      // Show connecting message
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      popup = window.open(
+        "about:blank",
+        `${platform}_oauth`,
+        `width=${width},height=${height},left=${left},top=${top}`,
+      );
+
+      if (!popup || popup.closed) {
+        throw new Error("POPUP_BLOCKED");
+      }
+
+      popup.document.write(
+        `<html><body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;background:#f5f5f5"><div style="text-align:center"><div style="width:40px;height:40px;border:4px solid #ddd;border-top-color:#333;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px"></div><p style="color:#555">Connecting to ${platform}...</p></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style></body></html>`
+      );
+
       const connectingMsg = messages.oauth.connecting(platform);
       toast({
         title: connectingMsg.title,
         description: connectingMsg.description,
       });
 
-      // Get OAuth URL from backend
       const response = await fetch(`/api/social/connect/${platform}`, {
         method: "POST",
       });
 
       if (!response.ok) {
+        popup.close();
         const error = friendlyError({ status: response.status });
         throw new Error(error.description);
       }
@@ -275,22 +293,7 @@ export function SocialMediaManager() {
       const data = await response.json();
       const { authUrl } = data;
 
-      // Try to open OAuth window
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
-
-      popup = window.open(
-        authUrl,
-        `${platform}_oauth`,
-        `width=${width},height=${height},left=${left},top=${top}`,
-      );
-
-      // Handle popup blocking with friendly message
-      if (!popup || popup.closed) {
-        throw new Error("POPUP_BLOCKED");
-      }
+      popup.location.href = authUrl;
 
       // Listen for OAuth callback message
       const messageHandler = (event: MessageEvent) => {

@@ -456,14 +456,17 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
       )}
       {/* Property Selector Button */}
       {!selectedProperty && (
-        <Dialog open={showDialog} onOpenChange={setShowDialog}>
-          <DialogTrigger asChild>
-            <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90" data-testid="button-select-property">
-              <Home className="mr-2 h-4 w-4" />
-              Select Property from MLS
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[80vh] bg-white dark:bg-gray-900 border-2 border-golden-accent/30 shadow-2xl overflow-y-auto">
+        <Button 
+          className="w-full bg-primary text-primary-foreground hover:bg-primary/90" 
+          data-testid="button-select-property"
+          onClick={() => setShowDialog(true)}
+        >
+          <Home className="mr-2 h-4 w-4" />
+          Select Property from MLS
+        </Button>
+      )}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] bg-white dark:bg-gray-900 border-2 border-golden-accent/30 shadow-2xl overflow-y-auto">
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <DialogTitle>Select Property from MLS</DialogTitle>
@@ -696,7 +699,6 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
             </div>
           </DialogContent>
         </Dialog>
-      )}
     </div>
   );
 }

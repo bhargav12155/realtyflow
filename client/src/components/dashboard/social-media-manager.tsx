@@ -1446,7 +1446,7 @@ ${agentName} | ${brokerageName}
                       key={index}
                       type="button"
                       onClick={() => setSelectedPropertyPhotoUrl(selectedPropertyPhotoUrl === url ? null : url)}
-                      className={`relative flex-shrink-0 w-[60px] h-[60px] rounded-md overflow-hidden border-2 transition-all ${
+                      className={`relative flex-shrink-0 w-[100px] h-[100px] rounded-md overflow-hidden border-2 transition-all ${
                         selectedPropertyPhotoUrl === url
                           ? "border-blue-500 ring-2 ring-blue-500/30"
                           : "border-border hover:border-blue-300"

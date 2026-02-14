@@ -254,7 +254,7 @@ export function MediaLibrary({
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 w-full">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 w-full">
           {filteredAssets.map((asset) => (
             <Card
               key={asset.id}

@@ -26,6 +26,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Brain,
   Calendar,
+  Check,
   CheckCircle,
   CreditCard,
   Eye,
@@ -212,6 +213,7 @@ export function SocialMediaManager() {
     null,
   );
   const [showPostComposer, setShowPostComposer] = useState(false);
+  const [selectedPropertyPhotoUrl, setSelectedPropertyPhotoUrl] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Fetch company profile for dynamic content
@@ -227,6 +229,12 @@ export function SocialMediaManager() {
   const agentName = companyProfile?.agentName || "[Your Name]";
   const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
   const businessName = companyProfile?.businessName || "[Your Business]";
+
+  useEffect(() => {
+    if (!selectedProperty) {
+      setSelectedPropertyPhotoUrl(null);
+    }
+  }, [selectedProperty]);
 
   // OAuth-enabled platforms (only platforms with full OAuth backend support)
   const oauthPlatforms = [
@@ -550,7 +558,10 @@ export function SocialMediaManager() {
       content: string;
       platforms: string[];
       mediaIds?: string[];
+      propertyPhotoUrl?: string | null;
     }) => {
+      const usePropertyPhoto = data.propertyPhotoUrl && (!data.mediaIds || data.mediaIds.length === 0);
+
       // Check if YouTube is selected and handle on-demand authentication
       if (data.platforms.includes("youtube")) {
         return await handleYouTubePost(
@@ -574,6 +585,7 @@ export function SocialMediaManager() {
             content: data.content,
             pageId: selectedFacebookPage,
             mediaIds: data.mediaIds || [],
+            ...(usePropertyPhoto ? { mediaUrl: data.propertyPhotoUrl } : {}),
           },
         );
         return facebookResponse.json();
@@ -585,7 +597,7 @@ export function SocialMediaManager() {
           {
             content: data.content,
             mediaIds: data.mediaIds || [],
-            // Instagram User ID will be read from environment variables
+            ...(usePropertyPhoto ? { mediaUrl: data.propertyPhotoUrl } : {}),
           },
         );
         return instagramResponse.json();
@@ -600,6 +612,10 @@ export function SocialMediaManager() {
         // Add mediaIds if present
         if (data.mediaIds && data.mediaIds.length > 0) {
           formData.append("mediaIds", JSON.stringify(data.mediaIds));
+        }
+
+        if (usePropertyPhoto) {
+          formData.append("mediaUrl", data.propertyPhotoUrl!);
         }
 
         const response = await fetch("/api/twitter/post", {
@@ -618,6 +634,7 @@ export function SocialMediaManager() {
         const response = await apiRequest("POST", "/api/social/post", {
           ...data,
           mediaIds: data.mediaIds || [],
+          ...(usePropertyPhoto ? { propertyPhotoUrl: data.propertyPhotoUrl } : {}),
         });
         return response.json();
       }
@@ -632,6 +649,7 @@ export function SocialMediaManager() {
       });
       setPostContent("");
       setSelectedMediaIds([]);
+      setSelectedPropertyPhotoUrl(null);
     },
     onError: (error: any) => {
       toast({
@@ -1120,6 +1138,7 @@ ${agentName} | ${brokerageName}
       content,
       platforms: selectedPlatforms,
       mediaIds: selectedMediaIds,
+      propertyPhotoUrl: selectedPropertyPhotoUrl,
     });
   };
 
@@ -1418,6 +1437,39 @@ ${agentName} | ${brokerageName}
               onSelectProperty={setSelectedProperty}
               selectedProperty={selectedProperty}
             />
+            {selectedProperty && selectedProperty.photoUrls && selectedProperty.photoUrls.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <span className="text-xs font-medium text-muted-foreground">Select listing photo</span>
+                <div className="flex gap-2 overflow-x-auto pb-1" data-testid="property-photo-gallery">
+                  {selectedProperty.photoUrls.map((url, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => setSelectedPropertyPhotoUrl(selectedPropertyPhotoUrl === url ? null : url)}
+                      className={`relative flex-shrink-0 w-[60px] h-[60px] rounded-md overflow-hidden border-2 transition-all ${
+                        selectedPropertyPhotoUrl === url
+                          ? "border-blue-500 ring-2 ring-blue-500/30"
+                          : "border-border hover:border-blue-300"
+                      }`}
+                      data-testid={`property-photo-thumb-${index}`}
+                    >
+                      <img
+                        src={url}
+                        alt={`Listing photo ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      {selectedPropertyPhotoUrl === url && (
+                        <div className="absolute inset-0 bg-blue-500/20 flex items-center justify-center">
+                          <div className="bg-blue-500 rounded-full p-0.5">
+                            <Check className="h-3 w-3 text-white" />
+                          </div>
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Post Type Selection */}
@@ -1657,6 +1709,15 @@ ${agentName} | ${brokerageName}
                           <div className="text-sm text-foreground whitespace-pre-wrap">
                             {postContent}
                           </div>
+                          {selectedPropertyPhotoUrl && (
+                            <div className="mt-3 rounded-md overflow-hidden border" data-testid="preview-selected-photo">
+                              <img
+                                src={selectedPropertyPhotoUrl}
+                                alt="Selected listing photo"
+                                className="w-full h-40 object-cover"
+                              />
+                            </div>
+                          )}
                           {selectedProperty && (
                             <div className="mt-3 p-3 bg-background rounded-md border">
                               <div className="font-medium text-sm">

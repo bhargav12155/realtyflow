@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -97,9 +97,10 @@ export function ImagePicker({
   // AI Video state
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoAspectRatio, setVideoAspectRatio] = useState("16:9");
-  const [videoDuration, setVideoDuration] = useState<"5" | "10">("5");
+  const [videoDuration, setVideoDuration] = useState<"4" | "8">("8");
   const [generatedVideo, setGeneratedVideo] = useState<string | null>(null);
-  const [videoGenerationStep, setVideoGenerationStep] = useState<"idle" | "generating-image" | "generating-video" | "done">("idle");
+  const [videoGenerationStep, setVideoGenerationStep] = useState<"idle" | "generating-image" | "generating-video" | "polling" | "done">("idle");
+  const mountedRef = useRef(true);
   const [videoReferenceUrl, setVideoReferenceUrl] = useState<string | null>(null);
   const [videoReferenceUploading, setVideoReferenceUploading] = useState(false);
 
@@ -107,6 +108,11 @@ export function ImagePicker({
   const [stockQuery, setStockQuery] = useState("real estate");
   const [stockOrientation, setStockOrientation] = useState("landscape");
   const [debouncedQuery, setDebouncedQuery] = useState(stockQuery);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Update aspect ratio when platform changes
   useEffect(() => {
@@ -231,7 +237,7 @@ export function ImagePicker({
     }
   };
 
-  // AI Video generation (2-step: generate image, then animate with Kling)
+  // AI Video generation (2-step: generate image, then create video with VEO 3.1)
   const handleGenerateVideo = async () => {
     if (!videoPrompt.trim()) {
       toast({
@@ -261,21 +267,74 @@ export function ImagePicker({
 
       setVideoGenerationStep("generating-video");
 
-      // Step 2: Generate motion video from the image using Kling
-      const videoResponse = await apiRequest("POST", "/api/kling/generate-motion", {
-        imageUrl: imageData.imageUrl,
-        prompt: videoPrompt,
-        duration: videoDuration,
-        aspectRatio: videoAspectRatio === "9:16" ? "9:16" : "16:9",
-      });
-      const videoData = await videoResponse.json();
+      // Step 2: Start VEO 3.1 video generation
+      const presetMap: Record<string, string> = {
+        "9:16": "tiktok",
+        "16:9": "facebook-feed",
+        "1:1": "facebook-feed",
+      };
+      const preset = presetMap[videoAspectRatio] || "facebook-feed";
 
-      if (!videoData.videoUrl) {
-        throw new Error("Video is being generated. Check back in a few minutes.");
+      const veoResponse = await apiRequest("POST", "/api/ai/veo/start", {
+        imageUrl: imageData.imageUrl,
+        preset,
+        prompt: videoPrompt,
+        noSound: true,
+      });
+      const veoData = await veoResponse.json();
+
+      if (!veoData.operationId) {
+        throw new Error("Failed to start video generation");
       }
 
-      setGeneratedVideo(videoData.videoUrl);
-      setPreviewImage(videoData.videoUrl);
+      setVideoGenerationStep("polling");
+
+      // Step 3: Poll for completion
+      const videoUrl = await new Promise<string>((resolve, reject) => {
+        let pollCount = 0;
+        const maxPolls = 36;
+        const interval = setInterval(async () => {
+          if (!mountedRef.current) {
+            clearInterval(interval);
+            reject(new Error("Component unmounted"));
+            return;
+          }
+          pollCount++;
+          if (pollCount > maxPolls) {
+            clearInterval(interval);
+            reject(new Error("Video generation timed out. Please try again."));
+            return;
+          }
+          try {
+            const statusResponse = await fetch(`/api/ai/veo/status/${veoData.operationId}`, {
+              credentials: "include",
+            });
+            if (!statusResponse.ok) {
+              clearInterval(interval);
+              reject(new Error("Failed to check video status"));
+              return;
+            }
+            const statusData = await statusResponse.json();
+            if (statusData.error) {
+              clearInterval(interval);
+              reject(new Error(statusData.error));
+              return;
+            }
+            if (statusData.done && statusData.videoUrl) {
+              clearInterval(interval);
+              resolve(statusData.videoUrl);
+            }
+          } catch (err: any) {
+            clearInterval(interval);
+            reject(new Error(err.message || "Error checking video status"));
+          }
+        }, 5000);
+      });
+
+      if (!mountedRef.current) return;
+
+      setGeneratedVideo(videoUrl);
+      setPreviewImage(videoUrl);
       setVideoGenerationStep("done");
       
       toast({
@@ -283,12 +342,14 @@ export function ImagePicker({
         description: "Your AI video is ready. Click Confirm to attach it.",
       });
     } catch (error: any) {
-      setVideoGenerationStep("idle");
-      toast({
-        title: "Video Generation Failed",
-        description: error.message || "Failed to generate video. Please try again.",
-        variant: "destructive",
-      });
+      if (mountedRef.current) {
+        setVideoGenerationStep("idle");
+        toast({
+          title: "Video Generation Failed",
+          description: error.message || "Failed to generate video. Please try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -703,7 +764,7 @@ export function ImagePicker({
               data-testid="textarea-video-prompt"
             />
             <p className="text-xs text-muted-foreground">
-              We'll create an AI image from your description and animate it into a short video.
+              We'll create an AI image from your description and generate a cinematic video using VEO 3.1.
             </p>
           </div>
 
@@ -777,13 +838,13 @@ export function ImagePicker({
 
             <div className="space-y-2">
               <Label>Duration</Label>
-              <Select value={videoDuration} onValueChange={(v) => setVideoDuration(v as "5" | "10")}>
+              <Select value={videoDuration} onValueChange={(v) => setVideoDuration(v as "4" | "8")}>
                 <SelectTrigger data-testid="select-video-duration">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="5">5 seconds</SelectItem>
-                  <SelectItem value="10">10 seconds</SelectItem>
+                  <SelectItem value="4">4 seconds</SelectItem>
+                  <SelectItem value="8">8 seconds</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -803,7 +864,12 @@ export function ImagePicker({
             ) : videoGenerationStep === "generating-video" ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Animating video...
+                Starting video generation...
+              </>
+            ) : videoGenerationStep === "polling" ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Creating video... (may take 1-2 min)
               </>
             ) : (
               <>

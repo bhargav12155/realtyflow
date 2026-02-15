@@ -14,7 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Loader2, Phone, Bot, Clock, MessageCircle, CheckCircle, XCircle } from "lucide-react";
+import { Building2, Loader2, Phone, Bot, Clock, MessageCircle, CheckCircle, XCircle, MessageSquare } from "lucide-react";
+import { WhatsAppSettings } from "./WhatsAppSettings";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
@@ -705,6 +706,8 @@ export function CompanyProfile() {
         </Accordion>
       </CardContent>
     </Card>
+
+    <WhatsAppSettings />
     </>
   );
 }

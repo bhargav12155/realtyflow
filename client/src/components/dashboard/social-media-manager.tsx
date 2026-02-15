@@ -35,6 +35,7 @@ import {
   Image,
   Instagram,
   Linkedin,
+  MessageCircle,
   Music,
   Plug,
   PlugZap,
@@ -88,6 +89,7 @@ const platformIcons = {
   x: { icon: X, color: "text-black dark:text-white" },
   tiktok: { icon: Music, color: "text-red-500" },
   youtube: { icon: Video, color: "text-red-600" },
+  whatsapp: { icon: MessageCircle, color: "text-green-500" },
 };
 
 const postTypes = [
@@ -214,6 +216,7 @@ export function SocialMediaManager() {
   );
   const [showPostComposer, setShowPostComposer] = useState(false);
   const [selectedPropertyPhotoUrl, setSelectedPropertyPhotoUrl] = useState<string | null>(null);
+  const [whatsappTo, setWhatsappTo] = useState("");
   const { toast } = useToast();
 
   // Fetch company profile for dynamic content
@@ -562,6 +565,7 @@ export function SocialMediaManager() {
       platforms: string[];
       mediaIds?: string[];
       propertyPhotoUrl?: string | null;
+      whatsappTo?: string;
     }) => {
       const usePropertyPhoto = data.propertyPhotoUrl && (!data.mediaIds || data.mediaIds.length === 0);
 
@@ -636,6 +640,18 @@ export function SocialMediaManager() {
         }
 
         return response.json();
+      } else if (data.platforms.includes("whatsapp")) {
+        const whatsappResponse = await apiRequest(
+          "POST",
+          "/api/whatsapp/send",
+          {
+            to: data.whatsappTo || "",
+            message: data.content,
+            ...(usePropertyPhoto ? { imageUrl: data.propertyPhotoUrl } : {}),
+            ...(data.mediaIds?.length ? { imageUrl: data.mediaIds[0] } : {}),
+          },
+        );
+        return whatsappResponse.json();
       } else {
         // For other platforms, use the general endpoint
         const response = await apiRequest("POST", "/api/social/post", {
@@ -1146,6 +1162,7 @@ ${agentName} | ${brokerageName}
       platforms: selectedPlatforms,
       mediaIds: selectedMediaIds,
       propertyPhotoUrl: selectedPropertyPhotoUrl,
+      whatsappTo,
     });
   };
 
@@ -1669,6 +1686,23 @@ ${agentName} | ${brokerageName}
               {selectedPlatforms
                 .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
                 .join(", ")}
+            </div>
+          )}
+          {selectedPlatforms.includes("whatsapp") && (
+            <div className="space-y-1">
+              <Label htmlFor="whatsapp-to" className="text-xs">WhatsApp Recipient Phone Number</Label>
+              <Input
+                id="whatsapp-to"
+                data-testid="input-whatsapp-to"
+                placeholder="+1 (555) 123-4567"
+                value={whatsappTo}
+                onChange={(e) => setWhatsappTo(e.target.value)}
+                className="text-sm"
+                type="tel"
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter the recipient's phone number with country code
+              </p>
             </div>
           )}
           <div className="flex items-center justify-between">

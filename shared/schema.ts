@@ -1544,3 +1544,102 @@ export const insertAiAssistantMessageSchema = createInsertSchema(aiAssistantMess
 
 export type AiAssistantMessage = typeof aiAssistantMessages.$inferSelect;
 export type InsertAiAssistantMessage = z.infer<typeof insertAiAssistantMessageSchema>;
+
+// =====================================================
+// WHATSAPP SETTINGS TABLE (Per-user WhatsApp Business configuration)
+// =====================================================
+export const whatsappSettings = pgTable("whatsapp_settings", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  phoneNumberId: text("phone_number_id"), // WhatsApp Cloud API phone number ID
+  wabaId: text("waba_id"), // WhatsApp Business Account ID
+  displayPhoneNumber: text("display_phone_number"), // formatted phone number for display
+  accessToken: text("access_token"), // permanent token from Meta
+  webhookVerifyToken: text("webhook_verify_token"), // random token for webhook verification
+  isEnabled: boolean("is_enabled").default(false),
+  // AI Chatbot Settings
+  aiGreeting: text("ai_greeting").default("Hello! Thanks for reaching out. I'm an AI assistant for a local real estate agent. How can I help you today?"),
+  aiPersonality: text("ai_personality").default("friendly"), // 'friendly', 'professional', 'casual'
+  businessHoursStart: text("business_hours_start").default("09:00"),
+  businessHoursEnd: text("business_hours_end").default("17:00"),
+  afterHoursMessage: text("after_hours_message").default("Thanks for reaching out! Our office is currently closed. We'll get back to you during business hours."),
+  // Lead capture settings
+  captureLeadOnFirstMessage: boolean("capture_lead_on_first_message").default(true),
+  askForName: boolean("ask_for_name").default(true),
+  askForEmail: boolean("ask_for_email").default(true),
+  // Business info for AI context
+  agentName: text("agent_name"),
+  brokerageName: text("brokerage_name"),
+  serviceAreas: text("service_areas").array(), // Neighborhoods/areas served
+  specialties: text("specialties").array(), // 'luxury', 'first-time buyers', etc.
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// =====================================================
+// WHATSAPP CONVERSATIONS TABLE (Chat threads)
+// =====================================================
+export const whatsappConversations = pgTable("whatsapp_conversations", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  waId: text("wa_id").notNull(), // the contact's WhatsApp ID (phone number)
+  contactName: text("contact_name"),
+  status: text("status").notNull().default("active"), // 'active', 'closed', 'converted'
+  // Lead info captured during conversation
+  leadName: text("lead_name"),
+  leadEmail: text("lead_email"),
+  leadInterest: text("lead_interest"), // 'buying', 'selling', 'both', 'general'
+  leadQuality: text("lead_quality").default("warm"), // 'hot', 'warm', 'cold'
+  leadNotes: text("lead_notes"), // AI-generated summary of conversation
+  // Timestamps
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  convertedToLeadAt: timestamp("converted_to_lead_at"),
+});
+
+// =====================================================
+// WHATSAPP MESSAGES TABLE (Individual messages in conversations)
+// =====================================================
+export const whatsappMessages = pgTable("whatsapp_messages", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").notNull(),
+  whatsappMessageId: text("whatsapp_message_id"), // Meta's message ID
+  direction: text("direction").notNull(), // 'inbound' or 'outbound'
+  messageType: text("message_type").notNull().default("text"), // 'text', 'image', 'template'
+  body: text("body").notNull(),
+  mediaUrl: text("media_url"),
+  status: text("status").default("delivered"), // 'queued', 'sent', 'delivered', 'failed'
+  isAiGenerated: boolean("is_ai_generated").default(false),
+  aiModel: text("ai_model"), // 'gpt-4o', etc.
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// WhatsApp insert schemas and types
+export const insertWhatsappSettingsSchema = createInsertSchema(whatsappSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertWhatsappConversationSchema = createInsertSchema(whatsappConversations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertWhatsappMessageSchema = createInsertSchema(whatsappMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type WhatsappSettings = typeof whatsappSettings.$inferSelect;
+export type InsertWhatsappSettings = z.infer<typeof insertWhatsappSettingsSchema>;
+export type WhatsappConversation = typeof whatsappConversations.$inferSelect;
+export type InsertWhatsappConversation = z.infer<typeof insertWhatsappConversationSchema>;
+export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
+export type InsertWhatsappMessage = z.infer<typeof insertWhatsappMessageSchema>;

@@ -12,6 +12,7 @@ import {
   updateScheduledPostSchema,
   userPreferences,
   videoContent,
+  whatsappSettings as whatsappSettingsTable,
 } from "@shared/schema";
 import crypto from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -44,6 +45,7 @@ import { seoService } from "./services/seo";
 // S3 upload service instance for presigned URL uploads
 const s3UploadService = new S3UploadService();
 import { SocialMediaError, socialMediaService } from "./services/socialMedia";
+import { whatsappService } from "./services/whatsapp";
 import { seedVideoTemplates } from "./services/template-seeder";
 import { twilioService } from "./services/twilio";
 import { storage } from "./storage";
@@ -17751,6 +17753,306 @@ Be helpful, professional, and concise.`;
     } catch (error: any) {
       console.error("Error clearing AI assistant history:", error);
       res.status(500).json({ error: "Failed to clear chat history" });
+    }
+  });
+
+  // =====================================================
+  // WHATSAPP BUSINESS API ROUTES
+  // =====================================================
+
+  // Get WhatsApp settings for current user
+  app.get("/api/whatsapp/settings", async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      res.json(settings || { isEnabled: false });
+    } catch (error: any) {
+      console.error("Error getting WhatsApp settings:", error);
+      res.status(500).json({ error: "Failed to get WhatsApp settings" });
+    }
+  });
+
+  // Save/update WhatsApp settings
+  app.post("/api/whatsapp/settings", async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      
+      const settings = await storage.createOrUpdateWhatsappSettings({
+        ...req.body,
+        userId: String(userId),
+      });
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error saving WhatsApp settings:", error);
+      res.status(500).json({ error: "Failed to save WhatsApp settings" });
+    }
+  });
+
+  // Send WhatsApp message (for marketing/posting)
+  app.post("/api/whatsapp/send", async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      
+      const { to, message, imageUrl, templateName } = req.body;
+
+      if (!to || typeof to !== "string" || !to.trim()) {
+        return res.status(400).json({ error: "Missing required field: 'to' (recipient phone number)" });
+      }
+      if (!templateName && (!message || typeof message !== "string" || !message.trim())) {
+        return res.status(400).json({ error: "Missing required field: 'message' (message text)" });
+      }
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      
+      if (!settings?.accessToken) {
+        return res.status(400).json({ error: "WhatsApp not configured. Please add a valid access token in your WhatsApp Business settings." });
+      }
+      if (!settings?.phoneNumberId) {
+        return res.status(400).json({ error: "WhatsApp not configured. Please set up your WhatsApp Business settings." });
+      }
+
+      let result;
+      if (templateName) {
+        result = await whatsappService.sendTemplateMessage(
+          settings.phoneNumberId, settings.accessToken, to, templateName
+        );
+      } else if (imageUrl) {
+        result = await whatsappService.sendImageMessage(
+          settings.phoneNumberId, settings.accessToken, to, imageUrl, message
+        );
+      } else {
+        result = await whatsappService.sendTextMessage(
+          settings.phoneNumberId, settings.accessToken, to, message
+        );
+      }
+
+      // Save outbound message
+      let conversation = await storage.getWhatsappConversationByWaId(String(userId), to);
+      if (!conversation) {
+        conversation = await storage.createWhatsappConversation({
+          userId: String(userId),
+          waId: to,
+          status: "active",
+        });
+      }
+      
+      await storage.createWhatsappMessage({
+        conversationId: conversation.id,
+        whatsappMessageId: result.messages?.[0]?.id,
+        direction: "outbound",
+        messageType: imageUrl ? "image" : templateName ? "template" : "text",
+        body: message || `[Template: ${templateName}]`,
+      });
+
+      res.json({ success: true, messageId: result.messages?.[0]?.id });
+    } catch (error: any) {
+      console.error("Error sending WhatsApp message:", error);
+      res.status(500).json({ error: `Failed to send WhatsApp message: ${error.message}` });
+    }
+  });
+
+  // Get WhatsApp conversations
+  app.get("/api/whatsapp/conversations", async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      
+      const conversations = await storage.getWhatsappConversationsByUserId(String(userId));
+      res.json(conversations);
+    } catch (error: any) {
+      console.error("Error getting WhatsApp conversations:", error);
+      res.status(500).json({ error: "Failed to get conversations" });
+    }
+  });
+
+  // Get messages for a conversation
+  app.get("/api/whatsapp/conversations/:id/messages", async (req, res) => {
+    try {
+      const userId = (req as any).userId;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      
+      const messages = await storage.getWhatsappMessagesByConversationId(req.params.id);
+      res.json(messages);
+    } catch (error: any) {
+      console.error("Error getting WhatsApp messages:", error);
+      res.status(500).json({ error: "Failed to get messages" });
+    }
+  });
+
+  // WhatsApp Webhook Verification (Meta requires this)
+  app.get("/api/webhooks/whatsapp", async (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"] as string | undefined;
+    const challenge = req.query["hub.challenge"];
+    
+    console.log("📱 WhatsApp webhook verification:", { mode, token: token ? "provided" : "missing" });
+    
+    if (mode !== "subscribe" || !token) {
+      return res.sendStatus(403);
+    }
+
+    try {
+      const allSettings = await db.select().from(whatsappSettingsTable);
+      const matchingSettings = allSettings.find(
+        (s) => s.webhookVerifyToken === token
+      );
+
+      if (!matchingSettings) {
+        console.warn("📱 WhatsApp webhook verification failed: token does not match any user settings");
+        return res.sendStatus(403);
+      }
+
+      console.log("📱 WhatsApp webhook verified successfully for user:", matchingSettings.userId);
+      res.status(200).send(challenge);
+    } catch (error) {
+      console.error("📱 WhatsApp webhook verification error:", error);
+      res.sendStatus(500);
+    }
+  });
+
+  // WhatsApp Webhook for incoming messages
+  app.post("/api/webhooks/whatsapp", async (req, res) => {
+    try {
+      const appSecret = process.env.FACEBOOK_APP_SECRET;
+      if (appSecret) {
+        const signature = req.headers["x-hub-signature-256"] as string | undefined;
+        const rawBody = (req as any).rawBody;
+        if (!signature || !rawBody) {
+          console.warn("📱 WhatsApp webhook: Missing signature or raw body");
+          return res.sendStatus(403);
+        }
+        const expectedSignature = "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
+        if (signature !== expectedSignature) {
+          console.warn("📱 WhatsApp webhook: Invalid signature");
+          return res.sendStatus(403);
+        }
+      } else {
+        console.warn("⚠️ FACEBOOK_APP_SECRET not set - skipping webhook signature validation");
+      }
+
+      // Always respond 200 immediately to Meta
+      res.sendStatus(200);
+
+      const body = req.body;
+      if (body.object !== "whatsapp_business_account") return;
+
+      const entries = body.entry || [];
+      for (const entry of entries) {
+        const changes = entry.changes || [];
+        for (const change of changes) {
+          if (change.field !== "messages") continue;
+          
+          const value = change.value;
+          const phoneNumberId = value.metadata?.phone_number_id;
+          const messages = value.messages || [];
+
+          if (!phoneNumberId || messages.length === 0) continue;
+
+          // Find which user owns this phone number
+          const settings = await storage.getWhatsappSettingsByPhoneNumberId(phoneNumberId);
+          if (!settings) {
+            console.warn(`📱 WhatsApp: No settings found for phone number ID ${phoneNumberId}`);
+            continue;
+          }
+
+          for (const msg of messages) {
+            const waId = msg.from;
+            const messageText = msg.text?.body || msg.caption || "[media]";
+            const contactName = value.contacts?.[0]?.profile?.name;
+
+            console.log(`📱 WhatsApp incoming from ${waId}: ${messageText.substring(0, 50)}...`);
+
+            // Mark as read
+            await whatsappService.markAsRead(phoneNumberId, settings.accessToken!, msg.id);
+
+            // Get or create conversation
+            let conversation = await storage.getWhatsappConversationByWaId(settings.userId, waId);
+            if (!conversation) {
+              conversation = await storage.createWhatsappConversation({
+                userId: settings.userId,
+                waId,
+                contactName: contactName || null,
+                status: "active",
+              });
+            } else if (contactName && !conversation.contactName) {
+              await storage.updateWhatsappConversation(conversation.id, { contactName });
+            }
+
+            // Save inbound message
+            await storage.createWhatsappMessage({
+              conversationId: conversation.id,
+              whatsappMessageId: msg.id,
+              direction: "inbound",
+              messageType: msg.type || "text",
+              body: messageText,
+              mediaUrl: msg.image?.link || msg.video?.link || null,
+            });
+
+            // Update last message time
+            await storage.updateWhatsappConversation(conversation.id, {
+              lastMessageAt: new Date(),
+            });
+
+            // Generate AI response if enabled and properly configured
+            if (settings.isEnabled && settings.accessToken) {
+              // Get conversation history for context
+              const allMessages = await storage.getWhatsappMessagesByConversationId(conversation.id);
+              const history = allMessages.slice(-10).map(m => ({
+                role: m.direction === "inbound" ? "user" : "assistant",
+                content: m.body,
+              }));
+
+              const { response, extractedInfo } = await whatsappService.generateChatbotResponse(
+                messageText,
+                history,
+                {
+                  aiPersonality: settings.aiPersonality || "friendly",
+                  agentName: settings.agentName || undefined,
+                  brokerageName: settings.brokerageName || undefined,
+                  serviceAreas: settings.serviceAreas || undefined,
+                  specialties: settings.specialties || undefined,
+                },
+                {
+                  leadName: conversation.leadName,
+                  leadEmail: conversation.leadEmail,
+                  askForName: settings.askForName ?? true,
+                  askForEmail: settings.askForEmail ?? true,
+                }
+              );
+
+              // Update lead info if extracted
+              const updates: any = {};
+              if (extractedInfo.name && !conversation.leadName) updates.leadName = extractedInfo.name;
+              if (extractedInfo.email && !conversation.leadEmail) updates.leadEmail = extractedInfo.email;
+              if (extractedInfo.interest && !conversation.leadInterest) updates.leadInterest = extractedInfo.interest;
+              if (Object.keys(updates).length > 0) {
+                await storage.updateWhatsappConversation(conversation.id, updates);
+              }
+
+              // Send AI response
+              await whatsappService.sendTextMessage(
+                phoneNumberId, settings.accessToken!, waId, response
+              );
+
+              // Save outbound AI message
+              await storage.createWhatsappMessage({
+                conversationId: conversation.id,
+                direction: "outbound",
+                messageType: "text",
+                body: response,
+                isAiGenerated: true,
+                aiModel: "gpt-4o",
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("WhatsApp webhook error:", error);
     }
   });
 

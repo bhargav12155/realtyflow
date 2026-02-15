@@ -83,6 +83,15 @@ import {
   videoGenerationJobs as videoGenerationJobsTable,
   type VideoTemplate,
   videoTemplates as videoTemplatesTable,
+  type WhatsappSettings,
+  type InsertWhatsappSettings,
+  type WhatsappConversation,
+  type InsertWhatsappConversation,
+  type WhatsappMessage,
+  type InsertWhatsappMessage,
+  whatsappSettings as whatsappSettingsTable,
+  whatsappConversations as whatsappConversationsTable,
+  whatsappMessages as whatsappMessagesTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -371,6 +380,22 @@ export interface IStorage {
   // Twilio Messages
   createTwilioMessage(data: InsertTwilioMessage): Promise<TwilioMessage>;
   getTwilioMessagesByConversationId(conversationId: string): Promise<TwilioMessage[]>;
+
+  // WhatsApp Settings
+  getWhatsappSettingsByUserId(userId: string): Promise<WhatsappSettings | undefined>;
+  getWhatsappSettingsByPhoneNumberId(phoneNumberId: string): Promise<WhatsappSettings | undefined>;
+  createOrUpdateWhatsappSettings(settings: InsertWhatsappSettings): Promise<WhatsappSettings>;
+
+  // WhatsApp Conversations
+  getWhatsappConversationByWaId(userId: string, waId: string): Promise<WhatsappConversation | undefined>;
+  createWhatsappConversation(data: InsertWhatsappConversation): Promise<WhatsappConversation>;
+  updateWhatsappConversation(id: string, updates: Partial<WhatsappConversation>): Promise<WhatsappConversation | undefined>;
+  getWhatsappConversationsByUserId(userId: string): Promise<WhatsappConversation[]>;
+  getWhatsappConversationById(id: string): Promise<WhatsappConversation | undefined>;
+
+  // WhatsApp Messages
+  createWhatsappMessage(data: InsertWhatsappMessage): Promise<WhatsappMessage>;
+  getWhatsappMessagesByConversationId(conversationId: string): Promise<WhatsappMessage[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -2401,6 +2426,99 @@ export class MemStorage implements IStorage {
       .from(twilioMessagesTable)
       .where(eq(twilioMessagesTable.conversationId, conversationId))
       .orderBy(twilioMessagesTable.createdAt);
+  }
+
+  // WhatsApp Settings
+  async getWhatsappSettingsByUserId(userId: string): Promise<WhatsappSettings | undefined> {
+    const [settings] = await db
+      .select()
+      .from(whatsappSettingsTable)
+      .where(eq(whatsappSettingsTable.userId, userId));
+    return settings;
+  }
+
+  async getWhatsappSettingsByPhoneNumberId(phoneNumberId: string): Promise<WhatsappSettings | undefined> {
+    const [settings] = await db
+      .select()
+      .from(whatsappSettingsTable)
+      .where(eq(whatsappSettingsTable.phoneNumberId, phoneNumberId));
+    return settings;
+  }
+
+  async createOrUpdateWhatsappSettings(settings: InsertWhatsappSettings): Promise<WhatsappSettings> {
+    const [result] = await db
+      .insert(whatsappSettingsTable)
+      .values(settings)
+      .onConflictDoUpdate({
+        target: whatsappSettingsTable.userId,
+        set: { ...settings, updatedAt: new Date() },
+      })
+      .returning();
+    return result;
+  }
+
+  // WhatsApp Conversations
+  async getWhatsappConversationByWaId(userId: string, waId: string): Promise<WhatsappConversation | undefined> {
+    const [conversation] = await db
+      .select()
+      .from(whatsappConversationsTable)
+      .where(
+        and(
+          eq(whatsappConversationsTable.userId, userId),
+          eq(whatsappConversationsTable.waId, waId)
+        )
+      );
+    return conversation;
+  }
+
+  async createWhatsappConversation(data: InsertWhatsappConversation): Promise<WhatsappConversation> {
+    const [conversation] = await db
+      .insert(whatsappConversationsTable)
+      .values(data)
+      .returning();
+    return conversation;
+  }
+
+  async updateWhatsappConversation(id: string, updates: Partial<WhatsappConversation>): Promise<WhatsappConversation | undefined> {
+    const [updated] = await db
+      .update(whatsappConversationsTable)
+      .set(updates)
+      .where(eq(whatsappConversationsTable.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getWhatsappConversationsByUserId(userId: string): Promise<WhatsappConversation[]> {
+    return await db
+      .select()
+      .from(whatsappConversationsTable)
+      .where(eq(whatsappConversationsTable.userId, userId))
+      .orderBy(desc(whatsappConversationsTable.lastMessageAt));
+  }
+
+  async getWhatsappConversationById(id: string): Promise<WhatsappConversation | undefined> {
+    const [conversation] = await db
+      .select()
+      .from(whatsappConversationsTable)
+      .where(eq(whatsappConversationsTable.id, id));
+    return conversation;
+  }
+
+  // WhatsApp Messages
+  async createWhatsappMessage(data: InsertWhatsappMessage): Promise<WhatsappMessage> {
+    const [message] = await db
+      .insert(whatsappMessagesTable)
+      .values(data)
+      .returning();
+    return message;
+  }
+
+  async getWhatsappMessagesByConversationId(conversationId: string): Promise<WhatsappMessage[]> {
+    return await db
+      .select()
+      .from(whatsappMessagesTable)
+      .where(eq(whatsappMessagesTable.conversationId, conversationId))
+      .orderBy(whatsappMessagesTable.createdAt);
   }
 }
 

@@ -1,0 +1,90 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+1
+Notification count
+Facebook
+App ID
+774122798836725
+App secret
+App secret
+●●●●●●●●
+Display name
+Display name
+goldenbrickpublish
+Namespace
+Namespace
+App domains
+multi-users-realtyflow.replit.app
+imakepage.com
+596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev
+janeway.replit.dev
+Contact email
+​
+Contact email
+bhargav00s@yahoo.co.in
+Privacy policy URL
+Privacy policy URL
+https://www.imakepage.com/privacy-policy
+Terms of Service URL
+Terms of Service URL
+Terms of Service for Login dialog and app details
+User data deletion
+Data deletion instructions URL
+​
+User data deletion
+https://www.imakepage.com/data-deletion
+App icon (1024 x 1024)
+Category
+Business and pages
+​
+Threads app ID
+662703863091240
+Threads display name
+Threads display name
+goldenbrickpublish
+Threads app secret
+Threads app secret
+●●●●●●●●
+Data Use Checkup
+The annual Data Use Checkup requires an app admin to certify that you are following allowed usage and all applicable terms and policies. Learn more
+Checkup complete
+Data Use Checkup was completed by an app admin on . At this time, no further action is required.
+Data Protection Officer contact information
+The General Data Protection Regulation (GDPR) requires certain companies doing business in the European Union to designate a Data Protection Officer who people can contact for information about how their data is being processed.
+This contact information will be available to people on Facebook along with other information about your app or website. Learn More.
+Name
+∙
+Optional
+Name∙Optional
+michael bjork
+Email
+Email
+mike.bjork@bhhsamb.com
+Address
+Street Address
+Street Address
+17130 Valley Drive
+Apt/Suite/Other∙Optional
+City/District
+Omaha
+State/Province/Region
+NE
+ZIP/Postal Code
+68130
+Country
+United States
+​
+Website
+Site URL
+Site URL
+https://www.imakepage.com/
+Provide testing instructions
+Meta performs regular reviews of apps on the platform in order to verify that an app's access to permissions follows our terms and policies. Avoid unexpected restrictions by keeping this required testing information up to date.
+Save changesDiscard

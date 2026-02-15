@@ -399,22 +399,26 @@ export class SocialMediaService {
           ? mediaUrl
           : `${baseUrl}${mediaUrl}`;
 
-        // Instagram requires HTTPS URLs - convert HTTP to HTTPS
+        // Instagram requires HTTPS URLs - if source is HTTP, proxy through our HTTPS server
         if (resolvedUrl.startsWith("http://")) {
-          resolvedUrl = resolvedUrl.replace("http://", "https://");
-          console.log("📸 Converted HTTP to HTTPS for Instagram compatibility");
+          const proxyBaseUrl = process.env.REPLIT_DEPLOYMENT_URL || baseUrl;
+          const httpsBase = proxyBaseUrl.startsWith("https://") ? proxyBaseUrl : proxyBaseUrl.replace("http://", "https://");
+          resolvedUrl = `${httpsBase}/api/image-proxy?url=${encodeURIComponent(resolvedUrl)}`;
+          console.log("📸 Proxying HTTP image through HTTPS server for Instagram compatibility");
         }
 
         // Encode special characters in URL path (spaces, unicode) for Instagram compatibility
-        try {
-          const urlObj = new URL(resolvedUrl);
-          urlObj.pathname = urlObj.pathname
-            .split("/")
-            .map((segment) => encodeURIComponent(decodeURIComponent(segment)))
-            .join("/");
-          resolvedUrl = urlObj.toString();
-        } catch (e) {
-          console.warn("Failed to encode media URL, using as-is:", e);
+        if (!resolvedUrl.includes("/api/image-proxy")) {
+          try {
+            const urlObj = new URL(resolvedUrl);
+            urlObj.pathname = urlObj.pathname
+              .split("/")
+              .map((segment) => encodeURIComponent(decodeURIComponent(segment)))
+              .join("/");
+            resolvedUrl = urlObj.toString();
+          } catch (e) {
+            console.warn("Failed to encode media URL, using as-is:", e);
+          }
         }
         console.log(`📸 Instagram resolved media URL: ${resolvedUrl}`);
 

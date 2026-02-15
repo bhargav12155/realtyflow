@@ -7140,6 +7140,50 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  // Proxy endpoint for HTTP images - serves them via HTTPS for Instagram compatibility
+  app.get("/api/image-proxy", async (req, res) => {
+    try {
+      const imageUrl = req.query.url as string;
+
+      if (!imageUrl || !imageUrl.startsWith("http")) {
+        return res.status(400).json({ error: "Invalid image URL" });
+      }
+
+      console.log(`📸 Image proxy: fetching ${imageUrl.substring(0, 80)}...`);
+      const response = await fetch(imageUrl);
+
+      if (!response.ok) {
+        console.error(`📸 Image proxy: failed to fetch - ${response.status}`);
+        return res.status(404).json({ error: "Image not found" });
+      }
+
+      const contentType = response.headers.get("content-type") || "image/jpeg";
+      const contentLength = response.headers.get("content-length");
+      res.set("Content-Type", contentType);
+      if (contentLength) res.set("Content-Length", contentLength);
+      res.set("Cache-Control", "public, max-age=3600");
+
+      if (response.body) {
+        const reader = (response.body as any).getReader();
+        const pump = async () => {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(value);
+          }
+          res.end();
+        };
+        await pump();
+      } else {
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+      }
+    } catch (error) {
+      console.error("Image proxy error:", error);
+      res.status(500).json({ error: "Failed to proxy image" });
+    }
+  });
+
   // Proxy endpoint for HeyGen images to avoid CORS issues
   app.get("/api/proxy/heygen-image", async (req, res) => {
     try {

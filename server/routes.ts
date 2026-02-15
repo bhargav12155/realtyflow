@@ -12350,7 +12350,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const videoContentList = await storage.getVideoContent(String(userId), status);
       
       // Get videos from video_generation_jobs table (Avatar IV videos)
-      const videoJobs = await storage.getVideoGenerationJobs(String(userId));
+      const videoJobs = await storage.getVideoGenerationJobsByUser(String(userId));
 
       // Format video_content videos
       const formattedVideoContent = videoContentList.map((video) => ({

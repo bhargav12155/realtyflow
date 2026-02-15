@@ -466,7 +466,30 @@ export class SocialMediaService {
       const containerResult = await containerResponse.json();
       const containerId = containerResult.id;
 
-      // Step 2: Publish the media container (try user ID, then 'me')
+      // Step 2: Wait for container to be ready (Instagram needs time to process media)
+      const maxWaitTime = 60000;
+      const pollInterval = 3000;
+      let waited = 0;
+      while (waited < maxWaitTime) {
+        const statusRes = await fetch(
+          `https://graph.instagram.com/v22.0/${containerId}?fields=status_code&access_token=${token}`,
+        );
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          console.log(`Instagram container ${containerId} status: ${statusData.status_code}`);
+          if (statusData.status_code === "FINISHED") break;
+          if (statusData.status_code === "ERROR") {
+            throw new Error("Instagram media processing failed. Please try a different image.");
+          }
+        }
+        await new Promise((r) => setTimeout(r, pollInterval));
+        waited += pollInterval;
+      }
+      if (waited >= maxWaitTime) {
+        throw new Error("Instagram media processing timed out. Please try again.");
+      }
+
+      // Step 3: Publish the media container (try user ID, then 'me')
       let publishResponse = await fetch(
         `https://graph.instagram.com/v22.0/${userId}/media_publish`,
         {

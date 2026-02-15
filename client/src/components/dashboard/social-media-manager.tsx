@@ -1232,9 +1232,8 @@ ${agentName} | ${brokerageName}
             const PlatformIcon = platformInfo.icon;
 
             return (
-              <>
+              <div key={account.id} className="contents">
                 <div
-                  key={account.id}
                   className="flex items-center justify-between"
                 >
                   <div className="flex items-center space-x-3">
@@ -1370,7 +1369,7 @@ ${agentName} | ${brokerageName}
                     )}
                   </div>
                 )}
-              </>
+              </div>
             );
           })}
         </div>

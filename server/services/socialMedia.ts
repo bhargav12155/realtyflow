@@ -395,9 +395,22 @@ export class SocialMediaService {
           process.env.REPLIT_DEPLOYMENT_URL ||
           process.env.CLIENT_URL ||
           "http://localhost:5000";
-        const resolvedUrl = mediaUrl.startsWith("http")
+        let resolvedUrl = mediaUrl.startsWith("http")
           ? mediaUrl
           : `${baseUrl}${mediaUrl}`;
+
+        // Encode special characters in URL path (spaces, unicode) for Instagram compatibility
+        try {
+          const urlObj = new URL(resolvedUrl);
+          urlObj.pathname = urlObj.pathname
+            .split("/")
+            .map((segment) => encodeURIComponent(decodeURIComponent(segment)))
+            .join("/");
+          resolvedUrl = urlObj.toString();
+        } catch (e) {
+          console.warn("Failed to encode media URL, using as-is:", e);
+        }
+        console.log(`📸 Instagram resolved media URL: ${resolvedUrl}`);
 
         // Instagram supports both image_url and video_url
         if (options?.videoUrls?.[0]) {

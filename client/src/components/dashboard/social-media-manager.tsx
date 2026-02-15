@@ -593,6 +593,10 @@ export function SocialMediaManager() {
         );
         return facebookResponse.json();
       } else if (data.platforms.includes("instagram")) {
+        const hasMedia = (data.mediaIds && data.mediaIds.length > 0) || usePropertyPhoto;
+        if (!hasMedia) {
+          throw new Error("Instagram requires an image or video. Please attach media before posting.");
+        }
         // Use Instagram Graph API for Instagram posting
         const instagramResponse = await apiRequest(
           "POST",

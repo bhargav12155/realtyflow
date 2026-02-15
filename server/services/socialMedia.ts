@@ -375,17 +375,21 @@ export class SocialMediaService {
         throw new Error("Instagram user ID not available");
       }
 
+      // Priority: options.photoUrls/videoUrls > imageUrl param
+      const mediaUrl =
+        options?.photoUrls?.[0] || options?.videoUrls?.[0] || imageUrl;
+
+      if (!mediaUrl) {
+        throw new Error("Instagram requires an image or video. Text-only posts are not supported.");
+      }
+
       // Step 1: Create media container
       const containerData: any = {
         access_token: token,
         caption: content,
       };
 
-      // Priority: options.photoUrls/videoUrls > imageUrl param
-      const mediaUrl =
-        options?.photoUrls?.[0] || options?.videoUrls?.[0] || imageUrl;
-
-      // Add media URL if provided
+      // Add media URL
       if (mediaUrl) {
         const baseUrl =
           process.env.REPLIT_DEPLOYMENT_URL ||

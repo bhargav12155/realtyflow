@@ -4636,27 +4636,30 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         }
 
         const baseUrl = `${req.protocol}://${req.get("host")}`;
-        const mediaUrl = req.body.mediaUrl; // Image URL from S3 or external source
-        const useSampleImage = toBoolean(
-          req.body.useSampleImage ?? (!photo && !mediaUrl ? "true" : "false")
-        );
+        let mediaUrl = req.body.mediaUrl;
+        const mediaIds = req.body.mediaIds || [];
+
+        // Resolve mediaIds to URLs if no direct mediaUrl provided
+        if (!mediaUrl && !photo && Array.isArray(mediaIds) && mediaIds.length > 0) {
+          const mediaLibrary = await storage.getMediaAssets(userId);
+          const matched = mediaLibrary.find((m: any) => m.id === mediaIds[0]);
+          if (matched?.url) {
+            mediaUrl = matched.url;
+            console.log(`📸 Instagram Post Debug - Resolved mediaId ${mediaIds[0]} to URL: ${mediaUrl.substring(0, 50)}...`);
+          }
+        }
 
         let photoUrl: string | null = null;
-        let usedSampleImage = false;
 
         if (photo) {
           photoUrl = `${baseUrl}/uploads/${path.basename(photo.path)}`;
         } else if (mediaUrl && (mediaUrl.startsWith('https://') || mediaUrl.startsWith('http://'))) {
-          // Use the provided media URL (e.g., from S3 upload) - only if it's a valid HTTP(S) URL
           photoUrl = mediaUrl;
           console.log(`📸 Instagram Post Debug - Using mediaUrl: ${mediaUrl.substring(0, 50)}...`);
-        } else if (useSampleImage) {
-          photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
-          usedSampleImage = true;
         } else {
           return res.status(400).json({
             error:
-              "Instagram requires an image. Upload a photo or enable the sample image option.",
+              "Instagram requires an image. Please attach a photo from your media library.",
           });
         }
 

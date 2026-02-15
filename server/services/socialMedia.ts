@@ -399,6 +399,12 @@ export class SocialMediaService {
           ? mediaUrl
           : `${baseUrl}${mediaUrl}`;
 
+        // Instagram requires HTTPS URLs - convert HTTP to HTTPS
+        if (resolvedUrl.startsWith("http://")) {
+          resolvedUrl = resolvedUrl.replace("http://", "https://");
+          console.log("📸 Converted HTTP to HTTPS for Instagram compatibility");
+        }
+
         // Encode special characters in URL path (spaces, unicode) for Instagram compatibility
         try {
           const urlObj = new URL(resolvedUrl);

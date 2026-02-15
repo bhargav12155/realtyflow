@@ -4695,7 +4695,6 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           message: "Content posted successfully to Instagram",
           postId: postResult.postId,
           instagramBusinessAccountId,
-          usedSampleImage,
           scheduledPostId: scheduledPost.id,
           permalinkHint: "https://www.instagram.com",
           timestamp: new Date().toISOString(),

@@ -235,6 +235,7 @@ export function AvatarIVStudio() {
   const [uploadedAudioUrl, setUploadedAudioUrl] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const stylePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   const [generatingVideoId, setGeneratingVideoId] = useState<string | null>(null);
   const [videoStatus, setVideoStatus] = useState<VideoStatus | null>(null);
@@ -778,12 +779,40 @@ export function AvatarIVStudio() {
     onSuccess: () => {
       toast({
         title: "Generating New Look",
-        description: "Your new outfit is being generated. It will appear in your avatar group shortly (30-60 seconds).",
+        description: "Your new outfit is being generated. It will appear in your library shortly (30-60 seconds).",
         duration: 6000,
       });
       setChangeStyleDialogOpen(false);
       setChangeStylePrompt("");
       setSelectedPhotoForStyle(null);
+
+      if (stylePollRef.current) clearInterval(stylePollRef.current);
+      const initialIds = new Set(photoLibrary.map(p => p.id));
+      let pollAttempt = 0;
+      const maxPollAttempts = 12;
+      stylePollRef.current = setInterval(async () => {
+        pollAttempt++;
+        try {
+          const result = await refetchPhotos();
+          const newPhotos = result.data?.photos || [];
+          const hasNew = newPhotos.some(p => !initialIds.has(p.id));
+          if (hasNew) {
+            if (stylePollRef.current) clearInterval(stylePollRef.current);
+            stylePollRef.current = null;
+            toast({
+              title: "New Style Ready!",
+              description: "Your new avatar style has been saved to your photo library.",
+              duration: 5000,
+            });
+          }
+        } catch (e) {
+          console.error("Style poll error:", e);
+        }
+        if (pollAttempt >= maxPollAttempts) {
+          if (stylePollRef.current) clearInterval(stylePollRef.current);
+          stylePollRef.current = null;
+        }
+      }, 5000);
     },
     onError: (error: any) => {
       const msg = error.message || "Could not generate new look";
@@ -991,6 +1020,15 @@ export function AvatarIVStudio() {
       uploadMutation.mutate(uploadedImage);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (stylePollRef.current) {
+        clearInterval(stylePollRef.current);
+        stylePollRef.current = null;
+      }
+    };
+  }, []);
 
   const resetStudio = () => {
     setCurrentStep(1);

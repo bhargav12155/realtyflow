@@ -10815,7 +10815,103 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         referenceImages,
       });
 
-      res.json(result);
+      console.log("✏️ editLook result:", JSON.stringify(result, null, 2));
+
+      const generationId = result?.generation_id || result?.id;
+      
+      if (generationId) {
+        const bgUserId = userId;
+        const bgGroupId = groupId;
+        const bgPrompt = prompt;
+        
+        (async () => {
+          const maxAttempts = 12;
+          let attempt = 0;
+          
+          const pollStatus = async () => {
+            attempt++;
+            try {
+              console.log(`🔄 [BG] Polling look generation status (attempt ${attempt}/${maxAttempts}) for generation: ${generationId}`);
+              const statusResult = await photoAvatarService.getLookGenerationStatus(generationId);
+              console.log(`🔄 [BG] Generation status response:`, JSON.stringify(statusResult, null, 2));
+              
+              const status = statusResult?.status || statusResult?.generation_status;
+              
+              if (status === "completed" || status === "ready" || status === "success") {
+                const avatarList = statusResult?.avatar_list || statusResult?.avatars || [];
+                let imageUrl = statusResult?.image_url || statusResult?.url;
+                let newImageKey = statusResult?.image_key;
+                
+                if (avatarList.length > 0) {
+                  const latestAvatar = avatarList[avatarList.length - 1];
+                  imageUrl = imageUrl || latestAvatar?.image_url || latestAvatar?.preview_image_url || latestAvatar?.url;
+                  newImageKey = newImageKey || latestAvatar?.image_key || latestAvatar?.id;
+                }
+                
+                if (!imageUrl && statusResult?.data) {
+                  imageUrl = statusResult.data.image_url || statusResult.data.url || statusResult.data.preview_image_url;
+                  newImageKey = newImageKey || statusResult.data.image_key || statusResult.data.id;
+                }
+                
+                if (imageUrl) {
+                  const truncatedPrompt = bgPrompt.length > 50 ? bgPrompt.substring(0, 50) + "..." : bgPrompt;
+                  try {
+                    const existingAssets = await storage.getMediaAssets(bgUserId, "avatar-photo");
+                    const isDuplicate = existingAssets.some((a: any) => {
+                      const meta = a.metadata as any;
+                      return meta?.imageKey === (newImageKey || generationId) && meta?.groupId === bgGroupId;
+                    });
+                    if (isDuplicate) {
+                      console.log(`⏭️ [BG] Style look already exists in library, skipping duplicate`);
+                      return;
+                    }
+                    await storage.createMediaAsset({
+                      userId: bgUserId,
+                      type: "avatar-photo",
+                      source: "heygen-style",
+                      url: imageUrl,
+                      thumbnailUrl: imageUrl,
+                      title: `Style: ${truncatedPrompt}`,
+                      metadata: {
+                        imageKey: newImageKey || generationId,
+                        groupId: bgGroupId,
+                        isStyleVariant: true,
+                        originalPrompt: bgPrompt,
+                      },
+                    });
+                    console.log(`✅ [BG] New style look saved to photo library for user ${bgUserId}`);
+                  } catch (saveErr: any) {
+                    console.error(`❌ [BG] Failed to save style look to library:`, saveErr?.message);
+                  }
+                } else {
+                  console.warn(`⚠️ [BG] Generation completed but no image URL found in response`);
+                }
+                return;
+              }
+              
+              if (status === "failed" || status === "error") {
+                console.error(`❌ [BG] Look generation failed for ${generationId}`);
+                return;
+              }
+              
+              if (attempt < maxAttempts) {
+                setTimeout(pollStatus, 5000);
+              } else {
+                console.warn(`⚠️ [BG] Max polling attempts reached for generation ${generationId}`);
+              }
+            } catch (pollErr: any) {
+              console.error(`❌ [BG] Polling error (attempt ${attempt}):`, pollErr?.message);
+              if (attempt < maxAttempts) {
+                setTimeout(pollStatus, 5000);
+              }
+            }
+          };
+          
+          setTimeout(pollStatus, 5000);
+        })();
+      }
+
+      res.json({ ...result, lookSaveInProgress: !!generationId });
     } catch (error) {
       console.error("Failed to edit look:", error);
       const errorMessage =

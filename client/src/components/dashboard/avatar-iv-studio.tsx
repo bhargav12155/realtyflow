@@ -779,7 +779,7 @@ export function AvatarIVStudio() {
     onSuccess: () => {
       toast({
         title: "Generating New Look",
-        description: "Your new outfit is being generated. It will appear in your library shortly (30-60 seconds).",
+        description: "Your new outfit is being generated. It will appear in your library when ready (1-3 minutes).",
         duration: 6000,
       });
       setChangeStyleDialogOpen(false);
@@ -789,7 +789,7 @@ export function AvatarIVStudio() {
       if (stylePollRef.current) clearInterval(stylePollRef.current);
       const initialIds = new Set(photoLibrary.map(p => p.id));
       let pollAttempt = 0;
-      const maxPollAttempts = 12;
+      const maxPollAttempts = 36;
       stylePollRef.current = setInterval(async () => {
         pollAttempt++;
         try {

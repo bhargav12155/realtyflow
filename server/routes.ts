@@ -10825,7 +10825,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const bgPrompt = prompt;
         
         (async () => {
-          const maxAttempts = 12;
+          const maxAttempts = 36;
           let attempt = 0;
           
           const pollStatus = async () => {

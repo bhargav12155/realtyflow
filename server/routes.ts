@@ -1497,7 +1497,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
   app.post("/api/content/promote-app", async (req: Request, res: Response) => {
     try {
-      const { appId, appName, appUrl, appDescription, platform } = req.body;
+      const { appId, appName, appUrl, appDescription, appFeatures, platform } = req.body;
       
       if (!appName || !appUrl) {
         return res.status(400).json({ error: "App name and URL are required" });
@@ -1510,9 +1510,12 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         "Write an exciting announcement-style post about the app, creating urgency and excitement. Include a strong call-to-action.",
         "Write a problem-solution style post that identifies a common pain point the target audience faces, then presents the app as the perfect solution.",
         "Write a behind-the-scenes or founder's story style post that shares the mission and passion behind building the app.",
+        "Write a comparison-style post showing how things were before vs after using the app. Paint a vivid before/after picture.",
+        "Write a quick-tips style post sharing 3-5 actionable tips related to the app's domain, weaving in the app as the tool to accomplish them.",
       ];
       
       const randomAngle = angles[Math.floor(Math.random() * angles.length)];
+      const featuresText = appFeatures?.length ? `\nKey Features: ${appFeatures.join(", ")}` : "";
       
       const platformGuidelines: Record<string, string> = {
         facebook: "Optimize for Facebook: can be longer, use emojis, include a clear CTA. 200-400 words.",
@@ -1534,7 +1537,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         messages: [
           {
             role: "system",
-            content: `You are an expert social media marketer creating promotional content for tech products and apps. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value.`
+            content: `You are an expert social media marketer creating promotional content for real estate technology products. You understand the real estate industry and create content that resonates with agents, brokers, and real estate professionals. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska.`
           },
           {
             role: "user",
@@ -1542,7 +1545,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
 App Name: ${appName}
 Website: ${appUrl}
-Description: ${appDescription}
+Description: ${appDescription}${featuresText}
 
 Content Angle: ${randomAngle}
 
@@ -1551,8 +1554,9 @@ Platform Guidelines: ${platformGuide}
 Important:
 - Make it feel natural and engaging, not salesy
 - Include the website URL naturally in the post
+- Reference specific features and real benefits for real estate professionals
 - Generate 5-8 relevant hashtags separately
-- Do NOT use markdown formatting
+- Do NOT use markdown formatting (no asterisks, no bold, no headers)
 
 Return your response in this exact JSON format:
 {"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`

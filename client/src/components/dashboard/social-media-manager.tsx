@@ -199,9 +199,46 @@ const stockPhotos = [
 ];
 
 const promoApps = [
-  { id: "imakepage", name: "iMakePage", url: "imakepage.com", description: "AI-powered website builder that helps anyone create beautiful, professional websites in minutes" },
-  { id: "mygoldenbrick", name: "MyGoldenBrick", url: "mygoldenbrick.com", description: "Smart real estate investment platform connecting buyers with premium property opportunities" },
-  { id: "mygoldenbrickai", name: "MyGoldenBrick AI", url: "mygoldenbrick.ai", description: "AI-driven real estate analytics and market insights platform for smarter property decisions" },
+  {
+    id: "imakepage",
+    name: "iMakePage",
+    url: "imakepage.com",
+    image: "/images/promo/imakepage-mockup.png",
+    description: "Complete AI-powered real estate website platform with MLS/IDX integration, AI content generator, video studio with talking avatars, social media auto-posting, property tour videos, WhatsApp/SMS chatbots, event calendar, and SEO optimization. Used by 300+ agents. Plans from $79/mo.",
+    features: ["AI SEO", "AI Video Avatars", "Social Media Tools", "Lead Capture", "MLS Integration", "Property Tours"],
+  },
+  {
+    id: "mygoldenbrick",
+    name: "My Golden Brick",
+    url: "mygoldenbrick.com",
+    image: null,
+    description: "Custom software development, marketing automation, auto-posting, and advanced SEO optimization company. Builds projects that drive results — from real estate tools to enterprise solutions. 98% client satisfaction, 500+ active users, 70% time reduction through automation.",
+    features: ["Custom Development", "Marketing Automation", "Auto-Posting", "Advanced SEO", "AI Video", "Workflow Automation"],
+  },
+  {
+    id: "imakevideo",
+    name: "iMakeVideo",
+    url: "imakevideo.com",
+    image: "/images/promo/imakevideo-mockup.png",
+    description: "AI-powered video creation with realistic avatars, property showcases, and automated editing. No camera, crew, or editing skills needed. 200+ agents use it to create 5-10 videos per week. Credit packages from $0.99.",
+    features: ["AI Avatars", "Motion Videos", "Hand Gestures", "Batch Processing"],
+  },
+  {
+    id: "aiflow",
+    name: "AI Flow",
+    url: "mygoldenbrick.com",
+    image: "/images/promo/aiflow-mockup.png",
+    description: "Automated client management and task tracking that saves agents 15+ hours per week. Smart reminders, automated follow-ups, and pipeline management that learns from your workflow patterns.",
+    features: ["Automated Workflows", "Client Management", "Task Prioritization", "Performance Analytics"],
+  },
+  {
+    id: "simplecma",
+    name: "Simple CMA",
+    url: "gbcma.us-east-2.elasticbeanstalk.com",
+    image: "/images/promo/simplecma-mockup.png",
+    description: "Automated market analysis tool that pulls comparable properties, calculates valuations, and generates professional PDF reports instantly. Win more listings with impressive, data-driven presentations.",
+    features: ["Market Analysis", "Property Comparables", "Automated Reports", "Valuation Tools"],
+  },
 ];
 
 export function SocialMediaManager() {
@@ -1589,17 +1626,19 @@ ${agentName} | ${brokerageName}
               <div className="text-xs font-medium text-muted-foreground">Select App to Promote</div>
               <div className="grid grid-cols-1 gap-2">
                 {promoApps.map((app) => (
-                  <Button
+                  <button
                     key={app.id}
-                    variant={selectedPromoApp === app.id ? "default" : "outline"}
-                    size="sm"
-                    className={`h-auto py-3 px-4 justify-start text-left rounded-lg border-2 transition-all duration-200 ${
+                    type="button"
+                    className={`h-auto py-3 px-4 text-left rounded-lg border-2 transition-all duration-200 ${
                       selectedPromoApp === app.id
                         ? "bg-violet-600/10 text-violet-700 border-violet-400 shadow-md"
                         : "border-golden-muted/30 hover:border-violet-400/50 hover:bg-violet-500/5"
                     }`}
                     onClick={async () => {
                       setSelectedPromoApp(app.id);
+                      if (app.image) {
+                        setSelectedPropertyPhotoUrl(app.image);
+                      }
                       setIsGeneratingPromo(true);
                       try {
                         const response = await apiRequest("POST", "/api/content/promote-app", {
@@ -1607,6 +1646,7 @@ ${agentName} | ${brokerageName}
                           appName: app.name,
                           appUrl: app.url,
                           appDescription: app.description,
+                          appFeatures: app.features,
                           platform: selectedPlatforms[0] || "facebook",
                         });
                         const data = await response.json();
@@ -1620,11 +1660,21 @@ ${agentName} | ${brokerageName}
                     }}
                     data-testid={`promo-app-${app.id}`}
                   >
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm font-semibold">{app.name}</span>
-                      <span className="text-[10px] text-muted-foreground font-normal">{app.url} — {app.description}</span>
+                    <div className="flex gap-3 items-start">
+                      {app.image && (
+                        <img src={app.image} alt={app.name} className="w-16 h-16 rounded-md object-cover flex-shrink-0 border" />
+                      )}
+                      <div className="flex flex-col gap-1 min-w-0">
+                        <span className="text-sm font-semibold">{app.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-normal leading-tight">{app.url}</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {app.features.slice(0, 3).map((f) => (
+                            <span key={f} className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">{f}</span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </Button>
+                  </button>
                 ))}
               </div>
               {isGeneratingPromo && (
@@ -1632,6 +1682,39 @@ ${agentName} | ${brokerageName}
                   <RefreshCw className="h-3 w-3 animate-spin" />
                   Generating promotional content with AI...
                 </div>
+              )}
+              {selectedPromoApp && !isGeneratingPromo && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs border-violet-300 text-violet-600 hover:bg-violet-50"
+                  onClick={async () => {
+                    const app = promoApps.find(a => a.id === selectedPromoApp);
+                    if (!app) return;
+                    setIsGeneratingPromo(true);
+                    try {
+                      const response = await apiRequest("POST", "/api/content/promote-app", {
+                        appId: app.id,
+                        appName: app.name,
+                        appUrl: app.url,
+                        appDescription: app.description,
+                        appFeatures: app.features,
+                        platform: selectedPlatforms[0] || "facebook",
+                      });
+                      const data = await response.json();
+                      setPostContent(data.content + (data.hashtags ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ") : ""));
+                      toast({ title: "New Angle Generated!", description: "Created a fresh promotional post with a different angle" });
+                    } catch (error: any) {
+                      toast({ title: "Generation Failed", description: error.message || "Failed to generate content", variant: "destructive" });
+                    } finally {
+                      setIsGeneratingPromo(false);
+                    }
+                  }}
+                  data-testid="button-regenerate-promo"
+                >
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  Generate New Angle
+                </Button>
               )}
             </div>
           )}

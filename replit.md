@@ -1,7 +1,7 @@
-# Nebraska Home Hub - Real Estate Marketing Platform
+# iMakePage - AI-Powered Real Estate Marketing Platform
 
 ## Overview
-Nebraska Home Hub is an AI-powered real estate marketing platform for Omaha-area agents. It provides AI content generation, multi-platform social media management, and SEO analytics to enhance agents' market reach and engagement. The platform unifies content creation, social media posting, property management, and performance analytics into a single dashboard.
+iMakePage (imakepage.com) is an AI-powered real estate marketing platform for Omaha-area agents, built by My Golden Brick (mygoldenbrick.com). It provides AI content generation, multi-platform social media management, video studio with talking avatars, property tour videos, and SEO analytics to enhance agents' market reach and engagement. The platform unifies content creation, social media posting, property management, and performance analytics into a single dashboard. Also known internally as "AI-SEO" or "RealtyFlow".
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.

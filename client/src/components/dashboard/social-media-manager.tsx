@@ -254,6 +254,7 @@ export function SocialMediaManager() {
   const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [facebookPages, setFacebookPages] = useState<any[]>([]);
+  const [facebookPagesLoaded, setFacebookPagesLoaded] = useState(false);
   const [selectedFacebookPage, setSelectedFacebookPage] = useState<string>("");
   const [uploadedVideo, setUploadedVideo] = useState<File | null>(null);
   const [videoUploadUrl, setVideoUploadUrl] = useState<string | null>(null);
@@ -486,16 +487,17 @@ export function SocialMediaManager() {
     const loadFacebookPages = async () => {
       if (!facebookAccount?.isConnected) {
         setFacebookPages([]);
+        setFacebookPagesLoaded(true);
         return;
       }
       
+      setFacebookPagesLoaded(false);
       try {
         const response = await fetch("/api/facebook/pages");
         if (response.ok) {
           const pages = await response.json();
           setFacebookPages(pages);
           
-          // Restore saved page from localStorage or auto-select first page
           const savedPageId = localStorage.getItem("selectedFacebookPage");
           if (savedPageId && pages.some((p: any) => p.id === savedPageId)) {
             setSelectedFacebookPage(savedPageId);
@@ -506,6 +508,8 @@ export function SocialMediaManager() {
         }
       } catch (error) {
         console.log("No Facebook pages available");
+      } finally {
+        setFacebookPagesLoaded(true);
       }
     };
     loadFacebookPages();
@@ -1430,6 +1434,11 @@ ${agentName} | ${brokerageName}
                           </p>
                         )}
                       </>
+                    ) : facebookPagesLoaded ? (
+                      <div className="space-y-1">
+                        <p className="text-xs text-amber-600 font-medium">No Facebook Pages found</p>
+                        <p className="text-[10px] text-muted-foreground">Your Facebook account may not have any Pages linked, or the token may need the "pages_show_list" permission. Try disconnecting and reconnecting Facebook.</p>
+                      </div>
                     ) : (
                       <p className="text-xs text-muted-foreground">Loading your Pages...</p>
                     )}

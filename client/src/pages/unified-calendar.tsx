@@ -221,7 +221,9 @@ export default function UnifiedCalendarPage() {
   const [editContent, setEditContent] = useState<string>("");
   const [editImageUrl, setEditImageUrl] = useState<string>("");
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [mediaUploading, setMediaUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewFileInputRef = useRef<HTMLInputElement>(null);
   const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);
   const [autoFillPlatforms, setAutoFillPlatforms] = useState<string[]>(["facebook", "instagram", "linkedin", "x", "tiktok"]);
   const [autoFillFrequency, setAutoFillFrequency] = useState(3);
@@ -1565,29 +1567,28 @@ export default function UnifiedCalendarPage() {
                                     <input
                                       type="file"
                                       ref={fileInputRef}
-                                      accept="image/*"
+                                      accept="image/*,video/*"
                                       className="hidden"
                                       onChange={async (e) => {
                                         const file = e.target.files?.[0];
                                         if (file) {
                                           try {
                                             const formData = new FormData();
-                                            formData.append('image', file);
-                                            formData.append('postId', post.id);
-                                            const response = await fetch('/api/scheduled-posts/upload-image', {
+                                            formData.append('media', file);
+                                            const response = await fetch('/api/scheduled-posts/upload-media', {
                                               method: 'POST',
                                               credentials: 'include',
                                               body: formData,
                                             });
-                                            if (response.ok) {
-                                              const data = await response.json();
-                                              setEditImageUrl(data.imageUrl);
-                                              toast({ title: "Image Uploaded", description: "Image attached successfully" });
+                                            const data = await response.json();
+                                            if (response.ok && data.url) {
+                                              setEditImageUrl(data.url);
+                                              toast({ title: "Media Uploaded", description: "File attached successfully" });
                                             } else {
-                                              throw new Error('Upload failed');
+                                              toast({ title: "Upload Failed", description: data.error || "Could not upload media", variant: "destructive" });
                                             }
                                           } catch (err) {
-                                            toast({ title: "Upload Failed", description: "Could not upload image", variant: "destructive" });
+                                            toast({ title: "Upload Failed", description: "Could not upload media", variant: "destructive" });
                                           }
                                         }
                                       }}
@@ -1599,7 +1600,7 @@ export default function UnifiedCalendarPage() {
                                       data-testid="btn-upload-media"
                                     >
                                       <Upload className="w-4 h-4 mr-2" />
-                                      Add Image
+                                      Add Media
                                     </Button>
                                     {editImageUrl && (
                                       <div className="relative">
@@ -2324,15 +2325,82 @@ export default function UnifiedCalendarPage() {
                         className="min-h-[120px] text-sm"
                         data-testid="textarea-edit-preview"
                       />
-                      <div className="space-y-1">
-                        <Label htmlFor="media-url-input" className="text-sm font-medium">Media URL (image or video link)</Label>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Media</Label>
+                        <input
+                          type="file"
+                          accept="image/*,video/*"
+                          ref={previewFileInputRef}
+                          className="hidden"
+                          data-testid="input-media-file-preview"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setMediaUploading(true);
+                            try {
+                              const formData = new FormData();
+                              formData.append("media", file);
+                              const res = await fetch("/api/scheduled-posts/upload-media", {
+                                method: "POST",
+                                credentials: "include",
+                                body: formData,
+                              });
+                              const data = await res.json();
+                              if (data.url) {
+                                setEditImageUrl(data.url);
+                                toast({ title: "Media Uploaded", description: "File uploaded successfully." });
+                              } else {
+                                toast({ title: "Upload Failed", description: data.error || "Could not upload media", variant: "destructive" });
+                              }
+                            } catch {
+                              toast({ title: "Upload Failed", description: "Could not upload media", variant: "destructive" });
+                            } finally {
+                              setMediaUploading(false);
+                              if (previewFileInputRef.current) previewFileInputRef.current.value = "";
+                            }
+                          }}
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => previewFileInputRef.current?.click()}
+                            disabled={mediaUploading}
+                            data-testid="btn-upload-media-preview"
+                          >
+                            {mediaUploading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Upload className="w-4 h-4 mr-1" />}
+                            Upload from device
+                          </Button>
+                          <span className="text-xs text-muted-foreground">or paste URL below</span>
+                        </div>
                         <Input
                           id="media-url-input"
                           value={editImageUrl}
                           onChange={(e) => setEditImageUrl(e.target.value)}
-                          placeholder="https://example.com/media.mp4"
+                          placeholder="https://example.com/media.jpg"
                           data-testid="input-media-url"
                         />
+                        {editImageUrl && (
+                          <div className="flex items-center gap-2">
+                            {/\.(mp4|mov|webm)$/i.test(editImageUrl) ? (
+                              <div className="h-16 w-16 rounded bg-muted flex items-center justify-center" data-testid="preview-media-video">
+                                <Upload className="w-6 h-6 text-muted-foreground" />
+                              </div>
+                            ) : (
+                              <img src={editImageUrl} alt="Media preview" className="h-16 w-16 object-cover rounded" data-testid="preview-media-image" />
+                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditImageUrl("")}
+                              data-testid="btn-remove-media-preview"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                         <p className="text-xs text-muted-foreground" data-testid="text-media-hint">
                           {previewContent.platform?.toLowerCase() === "tiktok"
                             ? "TikTok requires a video URL to publish"

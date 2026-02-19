@@ -6566,6 +6566,28 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  app.post("/api/scheduled-posts/upload-media", requireAuth, upload.single("media"), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const ext = path.extname(req.file.originalname) || ".jpg";
+      const filename = `social-media/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+
+      const { persistImageBuffer } = await import("./objectStorage");
+      const url = await persistImageBuffer(fileBuffer, filename, req.file.mimetype);
+
+      fs.unlinkSync(req.file.path);
+
+      res.json({ success: true, url });
+    } catch (error) {
+      console.error("Media upload error:", error);
+      res.status(500).json({ error: "Failed to upload media" });
+    }
+  });
+
   app.delete("/api/scheduled-posts/:id", async (req, res) => {
     try {
       const { id } = req.params;

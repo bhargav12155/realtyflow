@@ -1899,7 +1899,7 @@ ${agentName} | ${brokerageName}
                     <Eye className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Post Preview</DialogTitle>
                   </DialogHeader>
@@ -1967,14 +1967,74 @@ ${agentName} | ${brokerageName}
                   </div>
                 </DialogContent>
               </Dialog>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-foreground"
-                data-testid="button-schedule"
-              >
-                <Calendar className="h-4 w-4" />
-              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-foreground"
+                    disabled={!postContent.trim()}
+                    data-testid="button-schedule"
+                  >
+                    <Calendar className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle>Schedule Post</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="schedule-date">Date & Time</Label>
+                      <input
+                        id="schedule-date"
+                        type="datetime-local"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        min={new Date().toISOString().slice(0, 16)}
+                        data-testid="input-schedule-date"
+                        onChange={(e) => {
+                          const dateVal = e.target.value;
+                          if (dateVal) {
+                            (window as any).__scheduleDate = dateVal;
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Posting to: {selectedPlatforms.length > 0
+                        ? selectedPlatforms.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ")
+                        : "No platforms selected"}
+                    </div>
+                    <Button
+                      className="w-full bg-golden-accent hover:bg-golden-accent/90 text-golden-foreground"
+                      data-testid="button-confirm-schedule"
+                      onClick={async () => {
+                        const schedDate = (window as any).__scheduleDate;
+                        if (!schedDate) {
+                          toast({ title: "Select a date", description: "Please pick a date and time to schedule", variant: "destructive" });
+                          return;
+                        }
+                        try {
+                          await apiRequest("POST", "/api/scheduled-posts", {
+                            content: postContent,
+                            platforms: selectedPlatforms,
+                            scheduledAt: new Date(schedDate).toISOString(),
+                            propertyId: selectedProperty?.id || null,
+                            imageUrl: selectedPropertyPhotoUrl || null,
+                          });
+                          queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+                          toast({ title: "Post Scheduled!", description: `Your post will be published on ${new Date(schedDate).toLocaleString()}` });
+                        } catch (error: any) {
+                          toast({ title: "Scheduling Failed", description: error.message || "Could not schedule post", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      <Calendar className="h-4 w-4 mr-2" />
+                      Schedule Post
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
             <div className="flex items-center space-x-2">
               <TooltipProvider>

@@ -1573,6 +1573,8 @@ Return your response in this exact JSON format:
       const result = JSON.parse(completion.choices[0].message.content || "{}");
       let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
       
+      content = content.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/`([^`]*)`/g, "$1");
+      
       const hasWebsiteUrl = content.includes(`https://www.${appUrl}`) || content.includes(`http://www.${appUrl}`) || content.includes(`www.${appUrl}`);
       const hasContactLink = content.includes("imakepage.com/#contact");
       

@@ -19,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { friendlyError, messages } from "@/lib/messages";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -35,6 +36,7 @@ import {
   Image,
   Instagram,
   Linkedin,
+  Megaphone,
   MessageCircle,
   Music,
   Plug,
@@ -196,7 +198,15 @@ const stockPhotos = [
   },
 ];
 
+const promoApps = [
+  { id: "imakepage", name: "iMakePage", url: "imakepage.com", description: "AI-powered website builder that helps anyone create beautiful, professional websites in minutes" },
+  { id: "mygoldenbrick", name: "MyGoldenBrick", url: "mygoldenbrick.com", description: "Smart real estate investment platform connecting buyers with premium property opportunities" },
+  { id: "mygoldenbrickai", name: "MyGoldenBrick AI", url: "mygoldenbrick.ai", description: "AI-driven real estate analytics and market insights platform for smarter property decisions" },
+];
+
 export function SocialMediaManager() {
+  const { user } = useAuth();
+  const isAppPromoUser = user?.email === "bhargav12155@gmail.com";
   const [postContent, setPostContent] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
@@ -217,6 +227,8 @@ export function SocialMediaManager() {
   const [showPostComposer, setShowPostComposer] = useState(false);
   const [selectedPropertyPhotoUrl, setSelectedPropertyPhotoUrl] = useState<string | null>(null);
   const [whatsappTo, setWhatsappTo] = useState("");
+  const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
+  const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
   const { toast } = useToast();
 
   // Fetch company profile for dynamic content
@@ -1547,7 +1559,82 @@ ${agentName} | ${brokerageName}
                 </Button>
               ))}
             </div>
+            {isAppPromoUser && (
+              <Button
+                variant={selectedPostType === "promote_app" ? "default" : "outline"}
+                size="sm"
+                className={`text-[10px] h-10 w-full justify-start gap-3 border-2 rounded-lg font-medium transition-all duration-200 ${
+                  selectedPostType === "promote_app"
+                    ? "bg-gradient-to-r from-violet-600/10 to-fuchsia-600/10 text-violet-600 border-violet-400 shadow-md"
+                    : "border-golden-muted/30 hover:border-violet-400/50 hover:bg-violet-500/5 hover:shadow-sm"
+                }`}
+                onClick={() => {
+                  setSelectedPostType(selectedPostType === "promote_app" ? null : "promote_app");
+                  if (selectedPostType !== "promote_app") {
+                    setSelectedPromoApp(null);
+                  }
+                }}
+                data-testid="post-type-promote_app"
+              >
+                <div className="p-1.5 rounded-md bg-[#2d4450]">
+                  <Megaphone className={`h-3.5 w-3.5 ${selectedPostType === "promote_app" ? "text-violet-600" : "text-muted-foreground"}`} />
+                </div>
+                Promote App
+              </Button>
+            )}
           </div>
+
+          {selectedPostType === "promote_app" && isAppPromoUser && (
+            <div className="space-y-3">
+              <div className="text-xs font-medium text-muted-foreground">Select App to Promote</div>
+              <div className="grid grid-cols-1 gap-2">
+                {promoApps.map((app) => (
+                  <Button
+                    key={app.id}
+                    variant={selectedPromoApp === app.id ? "default" : "outline"}
+                    size="sm"
+                    className={`h-auto py-3 px-4 justify-start text-left rounded-lg border-2 transition-all duration-200 ${
+                      selectedPromoApp === app.id
+                        ? "bg-violet-600/10 text-violet-700 border-violet-400 shadow-md"
+                        : "border-golden-muted/30 hover:border-violet-400/50 hover:bg-violet-500/5"
+                    }`}
+                    onClick={async () => {
+                      setSelectedPromoApp(app.id);
+                      setIsGeneratingPromo(true);
+                      try {
+                        const response = await apiRequest("POST", "/api/content/promote-app", {
+                          appId: app.id,
+                          appName: app.name,
+                          appUrl: app.url,
+                          appDescription: app.description,
+                          platform: selectedPlatforms[0] || "facebook",
+                        });
+                        const data = await response.json();
+                        setPostContent(data.content + (data.hashtags ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ") : ""));
+                        toast({ title: "Promo Content Generated!", description: `Created engaging promotional post for ${app.name}` });
+                      } catch (error: any) {
+                        toast({ title: "Generation Failed", description: error.message || "Failed to generate promotional content", variant: "destructive" });
+                      } finally {
+                        setIsGeneratingPromo(false);
+                      }
+                    }}
+                    data-testid={`promo-app-${app.id}`}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <span className="text-sm font-semibold">{app.name}</span>
+                      <span className="text-[10px] text-muted-foreground font-normal">{app.url} — {app.description}</span>
+                    </div>
+                  </Button>
+                ))}
+              </div>
+              {isGeneratingPromo && (
+                <div className="flex items-center gap-2 text-xs text-violet-600">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Generating promotional content with AI...
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Facebook Page Selector - Highlighted Card */}
           {selectedPlatforms.includes("facebook") &&

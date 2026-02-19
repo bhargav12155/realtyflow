@@ -1495,6 +1495,85 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
     }
   });
 
+  app.post("/api/content/promote-app", async (req: Request, res: Response) => {
+    try {
+      const { appId, appName, appUrl, appDescription, platform } = req.body;
+      
+      if (!appName || !appUrl) {
+        return res.status(400).json({ error: "App name and URL are required" });
+      }
+
+      const angles = [
+        "Write a compelling social media post highlighting the key features and benefits. Focus on what makes it unique and why someone should try it today.",
+        "Write a testimonial-style social media post as if a happy user is sharing their experience. Make it feel authentic and relatable.",
+        "Write an educational/tips-style social media post that teaches something valuable related to what the app does, then naturally mentions the app as the solution.",
+        "Write an exciting announcement-style post about the app, creating urgency and excitement. Include a strong call-to-action.",
+        "Write a problem-solution style post that identifies a common pain point the target audience faces, then presents the app as the perfect solution.",
+        "Write a behind-the-scenes or founder's story style post that shares the mission and passion behind building the app.",
+      ];
+      
+      const randomAngle = angles[Math.floor(Math.random() * angles.length)];
+      
+      const platformGuidelines: Record<string, string> = {
+        facebook: "Optimize for Facebook: can be longer, use emojis, include a clear CTA. 200-400 words.",
+        instagram: "Optimize for Instagram: visual language, use relevant emojis, include line breaks for readability. 150-300 words. Heavy on hashtags.",
+        x: "Optimize for X/Twitter: concise, punchy, under 280 characters. Use 1-2 hashtags max.",
+        linkedin: "Optimize for LinkedIn: professional tone, thought-leadership angle, include insights. 200-400 words.",
+        tiktok: "Optimize for TikTok: trendy, casual, Gen-Z friendly language. Short and catchy.",
+        youtube: "Optimize for YouTube: detailed description, include timestamps if relevant. 300-500 words.",
+        whatsapp: "Optimize for WhatsApp: conversational, personal, brief. 50-150 words.",
+      };
+
+      const platformGuide = platformGuidelines[platform] || platformGuidelines.facebook;
+
+      const { default: OpenAI } = await import("openai");
+      const openai = new OpenAI();
+      
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an expert social media marketer creating promotional content for tech products and apps. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value.`
+          },
+          {
+            role: "user",
+            content: `Create a promotional social media post for:
+
+App Name: ${appName}
+Website: ${appUrl}
+Description: ${appDescription}
+
+Content Angle: ${randomAngle}
+
+Platform Guidelines: ${platformGuide}
+
+Important:
+- Make it feel natural and engaging, not salesy
+- Include the website URL naturally in the post
+- Generate 5-8 relevant hashtags separately
+- Do NOT use markdown formatting
+
+Return your response in this exact JSON format:
+{"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.9,
+      });
+
+      const result = JSON.parse(completion.choices[0].message.content || "{}");
+      
+      res.json({
+        content: result.content || `Check out ${appName} at ${appUrl}!`,
+        hashtags: result.hashtags || [appName.replace(/\s+/g, ""), "TechStartup"],
+      });
+    } catch (error: any) {
+      console.error("Promote app content generation error:", error);
+      res.status(500).json({ error: "Failed to generate promotional content" });
+    }
+  });
+
   app.get("/api/content", async (req, res) => {
     try {
       const user = await storage.getUserByUsername("mikebjork");

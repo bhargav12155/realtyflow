@@ -445,10 +445,10 @@ export default function UnifiedCalendarPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
-      const weeks = data.weeks || (data.posts?.length ? Math.ceil(data.posts.length / 7) : 4);
+      const weeks = data.weeks || (data.posts?.length ? Math.ceil(data.posts.length / 35) : 4);
       toast({
         title: "Content Plan Generated!",
-        description: `Successfully created ${weeks}-week content calendar with ${data.posts?.length || 0} posts`,
+        description: `Created ${data.posts?.length || 0} posts across all platforms for the next ${weeks} week(s).`,
       });
     },
     onError: () => {

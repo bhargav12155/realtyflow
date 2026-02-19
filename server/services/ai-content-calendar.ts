@@ -69,9 +69,12 @@ export class AIContentCalendarGenerator {
 - Current Market Data: ${marketInsights || 'Strong Omaha market'}
 
 **Content Strategy:**
-Create exactly ${days} social media posts (one per day) that:
+Create posts for ALL 5 platforms (Facebook, Instagram, LinkedIn, X, TikTok) for EACH day.
+Each day should have a separate post for EACH platform, optimized for that platform's format.
+Total posts = ${days} days × 5 platforms = ${days * 5} posts.
+
 1. Mix content types: 40% local market updates, 30% neighborhood spotlights, 20% buyer/seller tips, 10% community engagement
-2. Rotate platforms: Facebook, Instagram, LinkedIn, X (Twitter)
+2. Every day must have one post for EACH platform: Facebook, Instagram, LinkedIn, X (Twitter), TikTok
 3. Vary posting times: mornings (9-10am), afternoons (2-3pm), evenings (6-7pm)
 4. Include relevant hashtags for Instagram posts only (1-2 hashtags max - 21% better engagement than 3+)
 5. Reference actual market data and neighborhoods from service areas
@@ -103,6 +106,13 @@ LINKEDIN:
 - ${liConfig.hashtagRecommendation}
 - Professional yet approachable tone, position as thought leader
 
+TIKTOK:
+- Optimal: 100-150 characters for video description
+- Short-form, vertical video style content
+- Reference trending sounds and challenges when relevant
+- Use casual, energetic tone with emoji
+- Focus on quick tips, property reveals, behind-the-scenes content
+
 **Post Types:**
 - "local_market": Market updates, price trends, inventory levels
 - "neighborhood_spotlight": Highlight specific neighborhoods with amenities, lifestyle
@@ -112,10 +122,10 @@ LINKEDIN:
 
 💡 KEY INSIGHT: Average attention span is 1.7 seconds on mobile - LEAD WITH A STRONG HOOK!
 
-Return ONLY a valid JSON array with exactly ${days} posts in this structure:
+Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
 [
   {
-    "platform": "facebook|instagram|linkedin|x",
+    "platform": "facebook|instagram|linkedin|x|tiktok",
     "postType": "local_market|neighborhood_spotlight|buyer_tips|seller_tips|community",
     "content": "engaging post text (OPTIMIZED for platform character count)",
     "hashtags": ["tag1", "tag2"] (only for Instagram, 1-2 max, empty array for others),
@@ -129,7 +139,7 @@ Return ONLY a valid JSON array with exactly ${days} posts in this structure:
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.8,
-        max_completion_tokens: 3000,
+        max_completion_tokens: 16000,
       });
 
       let responseText = completion.choices[0]?.message?.content?.trim();
@@ -151,8 +161,8 @@ Return ONLY a valid JSON array with exactly ${days} posts in this structure:
         throw new Error('Invalid response structure: expected array of posts');
       }
 
-      const expectedPosts = weeks * 7;
-      const minPosts = Math.max(5, Math.floor(expectedPosts * 0.6)); // At least 60% of expected posts
+      const expectedPosts = weeks * 7 * 5;
+      const minPosts = Math.max(5, Math.floor(expectedPosts * 0.6));
       
       if (posts.length < minPosts) {
         console.warn(`AI generated only ${posts.length} posts, expected ${expectedPosts}. Using fallback data.`);
@@ -168,7 +178,7 @@ Return ONLY a valid JSON array with exactly ${days} posts in this structure:
         }
 
         // Validate platform
-        const validPlatforms = ['facebook', 'instagram', 'linkedin', 'x'];
+        const validPlatforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
         if (!validPlatforms.includes(p.platform)) {
           p.platform = 'facebook'; // Default fallback
         }
@@ -243,7 +253,7 @@ Return ONLY a valid JSON array with exactly ${days} posts in this structure:
    */
   getFallbackContentPlan(serviceAreas: string[], marketData: MarketData[], weeks: number = 4): GeneratedContentPlan {
     const areas = serviceAreas.length > 0 ? serviceAreas : ['Omaha'];
-    const platforms = ['facebook', 'instagram', 'linkedin', 'x'];
+    const platforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
     const today = new Date();
 
     const contentTemplates = [
@@ -258,31 +268,31 @@ Return ONLY a valid JSON array with exactly ${days} posts in this structure:
     const days = weeks * 7;
 
     for (let day = 0; day < days; day++) {
-      const scheduleDate = new Date(today);
-      scheduleDate.setDate(today.getDate() + day + 1);
-      scheduleDate.setHours(9 + (day % 8), 0, 0, 0);
-
-      const template = contentTemplates[day % contentTemplates.length];
-      const platform = platforms[day % platforms.length];
-
-      fallbackPosts.push({
-        userId: this.userId,
-        platform,
-        postType: template.type,
-        content: template.content,
-        hashtags: platform === 'instagram' ? ['OmahaRealEstate', 'NebraskaHomes'] : [],
-        scheduledFor: scheduleDate,
-        status: 'pending',
-        isEdited: false,
-        isAiGenerated: false,
-        originalContent: template.content,
-        neighborhood: areas[day % areas.length],
-        seoScore: 70,
-        metadata: { 
-          aiGenerated: false,
-          fallback: true,
-        },
-      });
+      for (let pIdx = 0; pIdx < platforms.length; pIdx++) {
+        const scheduleDate = new Date(today);
+        scheduleDate.setDate(today.getDate() + day + 1);
+        scheduleDate.setHours(9 + (day % 8), pIdx * 3, 0, 0);
+        const template = contentTemplates[day % contentTemplates.length];
+        const platform = platforms[pIdx];
+        fallbackPosts.push({
+          userId: this.userId,
+          platform,
+          postType: template.type,
+          content: template.content,
+          hashtags: platform === 'instagram' ? ['OmahaRealEstate', 'NebraskaHomes'] : [],
+          scheduledFor: scheduleDate,
+          status: 'pending',
+          isEdited: false,
+          isAiGenerated: false,
+          originalContent: template.content,
+          neighborhood: areas[day % areas.length],
+          seoScore: 70,
+          metadata: {
+            aiGenerated: false,
+            fallback: true,
+          },
+        });
+      }
     }
 
     return {

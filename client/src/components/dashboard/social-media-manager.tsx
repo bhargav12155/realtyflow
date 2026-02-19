@@ -27,6 +27,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Brain,
+  AlertTriangle,
   Calendar,
   Check,
   CheckCircle,
@@ -1221,6 +1222,28 @@ ${agentName} | ${brokerageName}
       return;
     }
 
+    const hasMedia = (selectedMediaIds && selectedMediaIds.length > 0) || !!selectedPropertyPhotoUrl;
+
+    if (selectedPlatforms.includes("tiktok") && !hasMedia) {
+      toast({
+        title: "TikTok Requires Video",
+        description: "TikTok only supports video posts. Please upload a video from your device or paste a video URL using the media gallery above.",
+        variant: "destructive",
+        duration: 6000,
+      });
+      return;
+    }
+
+    if (selectedPlatforms.includes("instagram") && !hasMedia) {
+      toast({
+        title: "Instagram Requires Media",
+        description: "Instagram requires an image or video. Please upload media from your device or paste a URL using the media gallery above.",
+        variant: "destructive",
+        duration: 6000,
+      });
+      return;
+    }
+
     postMutation.mutate({
       content,
       platforms: selectedPlatforms,
@@ -2304,6 +2327,18 @@ ${agentName} | ${brokerageName}
                 </DialogContent>
               </Dialog>
             </div>
+            {selectedPlatforms.includes("tiktok") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-tiktok-video">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>TikTok requires a video. Upload or paste a video URL from the media gallery above.</span>
+              </div>
+            )}
+            {selectedPlatforms.includes("instagram") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-instagram-media">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>Instagram requires an image or video. Upload or paste a URL from the media gallery above.</span>
+              </div>
+            )}
             <div className="flex items-center space-x-2">
               <TooltipProvider>
                 <Tooltip>

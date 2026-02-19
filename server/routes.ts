@@ -1553,10 +1553,14 @@ Platform Guidelines: ${platformGuide}
 
 Important:
 - Make it feel natural and engaging, not salesy
-- Include the website URL naturally in the post
+- ALWAYS include the full website URL https://www.${appUrl} prominently in the post (with https://www. prefix)
+- MUST end every post with a call-to-action that includes the contact link. Example endings: "Get started at https://www.${appUrl} or contact us at https://www.imakepage.com/#contact" or "Visit https://www.${appUrl} | Questions? https://www.imakepage.com/#contact"
 - Reference specific features and real benefits for real estate professionals
 - Generate 5-8 relevant hashtags separately
 - Do NOT use markdown formatting (no asterisks, no bold, no headers)
+
+The LAST LINE of the content MUST be a call-to-action with both links, like:
+"Visit https://www.${appUrl} | Contact us: https://www.imakepage.com/#contact"
 
 Return your response in this exact JSON format:
 {"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`
@@ -1567,9 +1571,20 @@ Return your response in this exact JSON format:
       });
 
       const result = JSON.parse(completion.choices[0].message.content || "{}");
+      let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
+      
+      const hasWebsiteUrl = content.includes(`https://www.${appUrl}`) || content.includes(`http://www.${appUrl}`) || content.includes(`www.${appUrl}`);
+      const hasContactLink = content.includes("imakepage.com/#contact");
+      
+      if (!hasWebsiteUrl) {
+        content += `\n\nVisit https://www.${appUrl}`;
+      }
+      if (!hasContactLink) {
+        content += ` | Contact us: https://www.imakepage.com/#contact`;
+      }
       
       res.json({
-        content: result.content || `Check out ${appName} at ${appUrl}!`,
+        content,
         hashtags: result.hashtags || [appName.replace(/\s+/g, ""), "TechStartup"],
       });
     } catch (error: any) {

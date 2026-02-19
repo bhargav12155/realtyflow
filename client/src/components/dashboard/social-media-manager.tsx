@@ -1629,11 +1629,12 @@ ${agentName} | ${brokerageName}
                   <button
                     key={app.id}
                     type="button"
+                    disabled={isGeneratingPromo}
                     className={`h-auto py-3 px-4 text-left rounded-lg border-2 transition-all duration-200 ${
                       selectedPromoApp === app.id
                         ? "bg-violet-600/10 text-violet-700 border-violet-400 shadow-md"
                         : "border-golden-muted/30 hover:border-violet-400/50 hover:bg-violet-500/5"
-                    }`}
+                    } ${isGeneratingPromo ? "opacity-50 cursor-not-allowed" : ""}`}
                     onClick={async () => {
                       setSelectedPromoApp(app.id);
                       if (app.image) {

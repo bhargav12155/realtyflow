@@ -1515,7 +1515,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       ];
       
       const randomAngle = angles[Math.floor(Math.random() * angles.length)];
-      const featuresText = appFeatures?.length ? `\nKey Features: ${appFeatures.join(", ")}` : "";
+      const featuresText = Array.isArray(appFeatures) && appFeatures.length ? `\nKey Features: ${appFeatures.join(", ")}` : "";
       
       const platformGuidelines: Record<string, string> = {
         facebook: "Optimize for Facebook: can be longer, use emojis, include a clear CTA. 200-400 words.",

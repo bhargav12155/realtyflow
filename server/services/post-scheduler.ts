@@ -56,8 +56,13 @@ export class PostScheduler {
             user.id,
             "scheduled"
           );
+          const approvedPosts = await this.storage.getScheduledPosts(
+            user.id,
+            "approved"
+          );
+          const allReady = [...scheduledPosts, ...approvedPosts];
 
-          const duePosts = scheduledPosts.filter((post) => {
+          const duePosts = allReady.filter((post) => {
             if (!post.scheduledFor) return false;
             const scheduledTime = new Date(post.scheduledFor);
             const isPastDue = scheduledTime <= now;
@@ -104,7 +109,7 @@ export class PostScheduler {
           );
 
           await this.storage.updateScheduledPost(post.id, {
-            status: "published",
+            status: "posted",
             metadata: {
               ...post.metadata,
               publishedAt: new Date().toISOString(),

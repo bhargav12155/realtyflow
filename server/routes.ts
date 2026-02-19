@@ -6726,6 +6726,178 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  app.post("/api/scheduled-posts/generate-monthly", requireAuth, async (req: any, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+      const userId = String(user.id);
+
+      const {
+        platforms = ["facebook", "instagram", "linkedin", "x"],
+        postsPerWeek = 3,
+        month,
+        year,
+        categories: userCategories,
+        agentName,
+      } = req.body;
+
+      if (month === undefined || year === undefined) {
+        return res.status(400).json({ error: "month and year are required" });
+      }
+
+      const clampedPostsPerWeek = Math.min(Math.max(1, postsPerWeek), 7);
+
+      const allCategories = [
+        "market_update",
+        "buyer_tips",
+        "seller_tips",
+        "neighborhood_spotlight",
+        "home_improvement",
+        "investment_tips",
+        "community_events",
+        "success_stories",
+        "open_houses",
+        "just_listed",
+      ];
+
+      const categories =
+        userCategories && userCategories.length > 0
+          ? userCategories
+          : allCategories;
+
+      const neighborhoods = [
+        "Dundee",
+        "Aksarben",
+        "Old Market",
+        "Blackstone",
+        "Benson",
+        "Midtown",
+        "West Omaha",
+        "Elkhorn",
+        "Papillion",
+        "Bellevue",
+      ];
+
+      const postingHours = [9, 11, 13, 15, 17];
+
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const daysInMonth = lastDay.getDate();
+      const totalWeeks = Math.ceil(daysInMonth / 7);
+      const totalPosts = totalWeeks * clampedPostsPerWeek;
+
+      const categoryKeywordsMap: Record<string, string[]> = {
+        market_update: ["market trends", "home prices", "real estate market"],
+        buyer_tips: ["home buying tips", "first time buyer", "mortgage advice"],
+        seller_tips: ["home selling", "listing tips", "staging advice"],
+        neighborhood_spotlight: ["neighborhood guide", "community living", "local amenities"],
+        home_improvement: ["home renovation", "property value", "home upgrades"],
+        investment_tips: ["real estate investment", "rental property", "ROI"],
+        community_events: ["local events", "community activities", "neighborhood fun"],
+        success_stories: ["client testimonial", "home sold", "happy homeowners"],
+        open_houses: ["open house", "home tour", "property viewing"],
+        just_listed: ["new listing", "homes for sale", "just listed"],
+      };
+
+      const scheduleDates: Date[] = [];
+      for (let week = 0; week < totalWeeks; week++) {
+        const weekStart = week * 7;
+        const availableDays: number[] = [];
+        for (let d = weekStart; d < Math.min(weekStart + 7, daysInMonth); d++) {
+          availableDays.push(d + 1);
+        }
+        const step = Math.max(1, Math.floor(availableDays.length / clampedPostsPerWeek));
+        for (let p = 0; p < clampedPostsPerWeek && p < availableDays.length; p++) {
+          const dayIndex = Math.min(p * step, availableDays.length - 1);
+          const day = availableDays[dayIndex];
+          const hour = postingHours[(week * clampedPostsPerWeek + p) % postingHours.length];
+          const date = new Date(year, month, day, hour, 0, 0, 0);
+          scheduleDates.push(date);
+        }
+      }
+
+      const generatedPosts: any[] = [];
+      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      for (let i = 0; i < scheduleDates.length; i++) {
+        const scheduleDate = scheduleDates[i];
+        const platform = platforms[i % platforms.length];
+        const category = categories[i % categories.length];
+        const neighborhood = neighborhoods[i % neighborhoods.length];
+        const keywords = categoryKeywordsMap[category] || ["Omaha real estate", "homes for sale"];
+
+        let content = "";
+        let hashtags: string[] = [];
+        let seoScore = 80;
+        let isAiGenerated = true;
+
+        try {
+          if (i > 0) {
+            await delay(500);
+          }
+
+          const aiContent = await openaiService.generateContent({
+            type: "social",
+            neighborhood,
+            keywords: [...keywords, `${neighborhood} real estate`, "Omaha homes"],
+            ...(agentName ? { companyProfile: { agentName } } : {}),
+          });
+
+          content = aiContent.content;
+          hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
+          seoScore = aiContent.seoScore || 80;
+        } catch (aiError) {
+          console.error(`Failed to generate AI content for post ${i + 1}:`, aiError);
+          isAiGenerated = false;
+          const fallbackTemplates: Record<string, string> = {
+            market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}. #OmahaRealEstate`,
+            buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this amazing Omaha neighborhood! #HomeBuyingTips`,
+            seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat! #HomeSelling`,
+            neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it! #${neighborhood.replace(/\s/g, "")}`,
+            home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns! #HomeImprovement`,
+            investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment in the Omaha market. Let me show you the numbers! #RealEstateInvesting`,
+            community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities. #CommunityLife`,
+            success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home. #ClientSuccess`,
+            open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today. #OpenHouse #${neighborhood.replace(/\s/g, "")}`,
+            just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone! #JustListed`,
+          };
+          content = fallbackTemplates[category] || `Discover what makes ${neighborhood} special! Contact ${agentName || "your local agent"} for insights.`;
+          hashtags = ["OmahaRealEstate", neighborhood.replace(/\s/g, ""), "NebraskaHomes", category.replace(/_/g, "")];
+          seoScore = 70;
+        }
+
+        const scheduledPost = await storage.createScheduledPost({
+          userId,
+          platform,
+          postType: category,
+          content,
+          hashtags,
+          scheduledFor: scheduleDate,
+          status: "pending",
+          isEdited: false,
+          isAiGenerated,
+          originalContent: content,
+          neighborhood,
+          seoScore,
+          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated },
+        });
+
+        generatedPosts.push(scheduledPost);
+      }
+
+      res.json({
+        success: true,
+        posts: generatedPosts,
+        count: generatedPosts.length,
+      });
+    } catch (error) {
+      console.error("Generate monthly content error:", error);
+      res.status(500).json({ error: "Failed to generate monthly content" });
+    }
+  });
+
   // Avatar Management endpoints
   app.get("/api/avatars", requireAuth, async (req, res) => {
     try {

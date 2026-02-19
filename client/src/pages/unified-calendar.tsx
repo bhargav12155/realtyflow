@@ -222,6 +222,14 @@ export default function UnifiedCalendarPage() {
   const [editImageUrl, setEditImageUrl] = useState<string>("");
   const [showEditDialog, setShowEditDialog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);
+  const [autoFillPlatforms, setAutoFillPlatforms] = useState<string[]>(["facebook", "instagram", "linkedin", "x"]);
+  const [autoFillFrequency, setAutoFillFrequency] = useState(3);
+  const [autoFillCategories, setAutoFillCategories] = useState<string[]>([
+    "market_update", "buyer_tips", "seller_tips", "neighborhood_spotlight",
+    "home_improvement", "investment_tips", "community_events", "success_stories"
+  ]);
+  const [autoFillProgress, setAutoFillProgress] = useState(0);
 
   const rawName = user?.name || user?.email?.split('@')[0];
   const userName = rawName 
@@ -447,6 +455,43 @@ export default function UnifiedCalendarPage() {
       toast({
         title: "Generation Failed",
         description: "Could not generate content plan. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateMonthlyMutation = useMutation({
+    mutationFn: async () => {
+      setAutoFillProgress(10);
+      const month = selectedDate.getMonth();
+      const year = selectedDate.getFullYear();
+      const res = await apiRequest("POST", "/api/scheduled-posts/generate-monthly", {
+        platforms: autoFillPlatforms,
+        postsPerWeek: autoFillFrequency,
+        month,
+        year,
+        categories: autoFillCategories,
+      });
+      setAutoFillProgress(90);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setAutoFillProgress(100);
+      setTimeout(() => {
+        setAutoFillProgress(0);
+        setShowAutoFillPanel(false);
+      }, 1000);
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      toast({
+        title: "Month Auto-Filled!",
+        description: `Created ${data.count} AI-generated posts across ${autoFillPlatforms.length} platforms for ${format(selectedDate, "MMMM yyyy")}`,
+      });
+    },
+    onError: (error: Error) => {
+      setAutoFillProgress(0);
+      toast({
+        title: "Auto-Fill Failed",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -1018,29 +1063,192 @@ export default function UnifiedCalendarPage() {
                       )}
                     </SelectContent>
                   </Select>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" data-testid="btn-ai-generate">
-                        <Sparkles className="w-4 h-4 mr-2" />
-                        AI Generate
-                        <ChevronDown className="w-4 h-4 ml-2" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem onClick={() => generateContentPlanMutation.mutate(1)}>
-                        Generate 1 Week
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => generateContentPlanMutation.mutate(2)}>
-                        Generate 2 Weeks
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => generateContentPlanMutation.mutate(4)}>
-                        Generate 4 Weeks
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <Button 
+                    onClick={() => setShowAutoFillPanel(!showAutoFillPanel)}
+                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                    data-testid="btn-auto-fill-month"
+                  >
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Auto-Fill Month
+                  </Button>
+                  {apiScheduledPosts.filter(p => p.status === "pending").length > 0 && (
+                    <Button 
+                      variant="outline"
+                      className="border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400"
+                      onClick={async () => {
+                        const pendingPosts = apiScheduledPosts.filter(p => p.status === "pending");
+                        let approved = 0;
+                        let failed = 0;
+                        for (const post of pendingPosts) {
+                          try {
+                            await apiRequest("PUT", `/api/scheduled-posts/${post.id}`, { status: "approved" });
+                            approved++;
+                          } catch {
+                            failed++;
+                          }
+                        }
+                        queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+                        if (failed > 0) {
+                          toast({ title: "Partially Approved", description: `${approved} approved, ${failed} failed.`, variant: "destructive" });
+                        } else {
+                          toast({ title: "All Posts Approved", description: `${approved} posts approved and will be published at their scheduled times.` });
+                        }
+                      }}
+                      data-testid="btn-approve-all"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      Approve All ({apiScheduledPosts.filter(p => p.status === "pending").length})
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
+            {showAutoFillPanel && (
+              <div className="mx-6 mb-4 p-4 border-2 border-amber-200 dark:border-amber-800 rounded-lg bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
+                    Auto-Fill {format(selectedDate, "MMMM yyyy")}
+                  </h3>
+                  <Button variant="ghost" size="sm" onClick={() => setShowAutoFillPanel(false)}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label className="text-xs font-medium mb-2 block">Platforms</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: "facebook", label: "Facebook", icon: FaFacebook, color: "text-blue-600" },
+                        { id: "instagram", label: "Instagram", icon: FaInstagram, color: "text-pink-500" },
+                        { id: "linkedin", label: "LinkedIn", icon: FaLinkedin, color: "text-blue-700" },
+                        { id: "x", label: "X", icon: FaXTwitter, color: "text-black dark:text-white" },
+                        { id: "tiktok", label: "TikTok", icon: FaTiktok, color: "text-black dark:text-white" },
+                        { id: "youtube", label: "YouTube", icon: FaYoutube, color: "text-red-600" },
+                      ].map((p) => {
+                        const isSelected = autoFillPlatforms.includes(p.id);
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => {
+                              setAutoFillPlatforms(prev => 
+                                isSelected 
+                                  ? prev.filter(x => x !== p.id)
+                                  : [...prev, p.id]
+                              );
+                            }}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all ${
+                              isSelected 
+                                ? "border-amber-400 bg-white dark:bg-gray-800 shadow-sm" 
+                                : "border-gray-200 dark:border-gray-700 opacity-50"
+                            }`}
+                            data-testid={`toggle-platform-${p.id}`}
+                          >
+                            <p.icon className={`w-3 h-3 ${p.color}`} />
+                            {p.label}
+                            {isSelected && <Check className="w-3 h-3 text-green-500" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-medium mb-2 block">Posts per Week</Label>
+                    <div className="flex gap-1">
+                      {[2, 3, 4, 5, 7].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setAutoFillFrequency(n)}
+                          className={`px-3 py-1.5 rounded text-xs font-medium border transition-all ${
+                            autoFillFrequency === n
+                              ? "border-amber-400 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                              : "border-gray-200 dark:border-gray-700 hover:border-amber-300"
+                          }`}
+                          data-testid={`freq-${n}`}
+                        >
+                          {n === 7 ? "Daily" : `${n}x`}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      ~{Math.round(autoFillFrequency * 4.3)} posts this month
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-medium mb-2 block">Content Mix</Label>
+                    <div className="flex flex-wrap gap-1">
+                      {[
+                        { id: "market_update", label: "Market" },
+                        { id: "buyer_tips", label: "Buyers" },
+                        { id: "seller_tips", label: "Sellers" },
+                        { id: "neighborhood_spotlight", label: "Neighborhoods" },
+                        { id: "home_improvement", label: "Home Tips" },
+                        { id: "investment_tips", label: "Investing" },
+                        { id: "community_events", label: "Community" },
+                        { id: "success_stories", label: "Stories" },
+                      ].map((cat) => {
+                        const isSelected = autoFillCategories.includes(cat.id);
+                        return (
+                          <button
+                            key={cat.id}
+                            onClick={() => {
+                              setAutoFillCategories(prev =>
+                                isSelected
+                                  ? prev.filter(x => x !== cat.id)
+                                  : [...prev, cat.id]
+                              );
+                            }}
+                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${
+                              isSelected
+                                ? "border-amber-400 bg-white dark:bg-gray-800"
+                                : "border-gray-200 dark:border-gray-700 opacity-50"
+                            }`}
+                            data-testid={`toggle-cat-${cat.id}`}
+                          >
+                            {cat.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center gap-3">
+                  <Button
+                    onClick={() => generateMonthlyMutation.mutate()}
+                    disabled={generateMonthlyMutation.isPending || autoFillPlatforms.length === 0 || autoFillCategories.length === 0}
+                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                    data-testid="btn-generate-month"
+                  >
+                    {generateMonthlyMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Generating {format(selectedDate, "MMMM")} Posts...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 className="w-4 h-4 mr-2" />
+                        Generate {format(selectedDate, "MMMM")} Posts
+                      </>
+                    )}
+                  </Button>
+                  {generateMonthlyMutation.isPending && (
+                    <div className="flex-1">
+                      <Progress value={autoFillProgress} className="h-2" />
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        AI is creating unique content for each post... This may take a minute.
+                      </p>
+                    </div>
+                  )}
+                  <span className="text-xs text-muted-foreground">
+                    {autoFillPlatforms.length} platforms, {autoFillFrequency}x/week, {autoFillCategories.length} categories
+                  </span>
+                </div>
+              </div>
+            )}
             <CardContent>
               <div className="grid grid-cols-7 gap-1 text-center mb-2">
                 {calendarDays.map((day) => (
@@ -2083,29 +2291,107 @@ export default function UnifiedCalendarPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className={`w-3 h-3 rounded-full ${previewContent.color}`} />
+                      {getPlatformIcon(previewContent.platform?.toLowerCase() || "")}
                       <span className="font-medium">{previewContent.platform}</span>
                     </div>
-                    {previewContent.isAiGenerated && <AiGeneratedBadge size="sm" />}
+                    <div className="flex items-center gap-2">
+                      {previewContent.isAiGenerated && <AiGeneratedBadge size="sm" />}
+                      <Badge variant={previewContent.status === "approved" ? "default" : previewContent.status === "posted" ? "secondary" : "outline"} className="text-[10px]">
+                        {previewContent.status || "pending"}
+                      </Badge>
+                    </div>
                   </div>
                   <p className="text-sm text-muted-foreground">
                     Scheduled for {format(previewContent.date, "MMMM d, yyyy")} at {previewContent.time}
                   </p>
-                  <div className="p-3 bg-muted rounded-lg">
-                    <p className="text-sm whitespace-pre-wrap">{previewContent.content}</p>
-                  </div>
+                  {editingPost?.id === previewContent.originalId ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="min-h-[120px] text-sm"
+                        data-testid="textarea-edit-preview"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            updatePostMutation.mutate({ id: previewContent.originalId, content: editContent });
+                            setEditingPost(null);
+                            if (previewContent) {
+                              setPreviewContent({ ...previewContent, content: editContent });
+                            }
+                          }}
+                          disabled={updatePostMutation.isPending}
+                          className="flex-1"
+                          data-testid="btn-save-edit-preview"
+                        >
+                          {updatePostMutation.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Check className="w-3 h-3 mr-1" />}
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setEditingPost(null)}
+                          data-testid="btn-cancel-edit-preview"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-muted rounded-lg">
+                      <p className="text-sm whitespace-pre-wrap">{previewContent.content}</p>
+                    </div>
+                  )}
+                  {previewContent.photoUrl && (
+                    <img src={previewContent.photoUrl} alt="Post media" className="w-full rounded-lg" />
+                  )}
                   <div className="flex gap-2">
+                    {previewContent.status !== "approved" && previewContent.status !== "posted" && (
+                      <Button
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => {
+                          updatePostMutation.mutate({ id: previewContent.originalId, content: previewContent.content, metadata: { approved: true } });
+                          apiRequest("PUT", `/api/scheduled-posts/${previewContent.originalId}`, { status: "approved" }).then(() => {
+                            queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+                            setPreviewContent({ ...previewContent, status: "approved" });
+                            toast({ title: "Post Approved", description: "This post will be published at its scheduled time." });
+                          });
+                        }}
+                        data-testid="btn-approve-post"
+                      >
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Approve
+                      </Button>
+                    )}
+                    {editingPost?.id !== previewContent.originalId && (
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => {
+                          const post = apiScheduledPosts.find(p => p.id === previewContent.originalId);
+                          if (post) {
+                            setEditingPost(post);
+                            setEditContent(post.content);
+                          }
+                        }}
+                        data-testid="btn-edit-post-preview"
+                      >
+                        <Edit2 className="w-4 h-4 mr-2" />
+                        Edit
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
-                      className="flex-1"
+                      className="text-red-500 hover:text-red-600"
                       onClick={() => {
                         deletePostMutation.mutate(previewContent.originalId);
                       }}
                       disabled={deletePostMutation.isPending}
                       data-testid="btn-delete-post-preview"
                     >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>

@@ -204,7 +204,7 @@ const promoApps = [
     name: "iMakePage",
     url: "imakepage.com",
     image: "/images/promo/imakepage-mockup.png",
-    description: "Complete AI-powered real estate website platform with MLS/IDX integration, AI content generator, video studio with talking avatars, social media auto-posting, property tour videos, WhatsApp/SMS chatbots, event calendar, and SEO optimization. Used by 300+ agents. Plans from $79/mo.",
+    description: "Complete AI-powered real estate website platform with MLS/IDX integration, AI content generator, video studio with talking avatars, social media auto-posting, property tour videos, WhatsApp/SMS chatbots, event calendar, and SEO optimization. Used by 300+ agents. Plans: Basic $99/mo, Elite $249/mo (most popular), VIP $499/mo.",
     features: ["AI SEO", "AI Video Avatars", "Social Media Tools", "Lead Capture", "MLS Integration", "Property Tours"],
   },
   {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,8 @@ import {
   ChevronDown,
   Square,
   CheckSquare,
-  Trash
+  Trash,
+  Video
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths, startOfWeek, endOfWeek, isSameMonth } from "date-fns";
@@ -184,6 +185,9 @@ export function ScheduledPostsManager() {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [postToDelete, setPostToDelete] = useState<string | null>(null);
+  const [editVideoUrl, setEditVideoUrl] = useState("");
+  const [editVideoUploading, setEditVideoUploading] = useState(false);
+  const editVideoFileRef = useRef<HTMLInputElement>(null);
 
   // Recalculate aiPrompt when selected post changes to ensure platform-specific word count is current
   useEffect(() => {
@@ -238,10 +242,11 @@ export function ScheduledPostsManager() {
   const { toast } = useToast();
 
   const updatePostMutation = useMutation({
-    mutationFn: async ({ id, content, scheduledFor }: { id: string; content: string; scheduledFor: string }) => {
+    mutationFn: async ({ id, content, scheduledFor, metadata }: { id: string; content: string; scheduledFor: string; metadata?: Record<string, any> }) => {
       const response = await apiRequest("PUT", `/api/scheduled-posts/${id}`, {
         content,
         scheduledFor,
+        ...(metadata ? { metadata } : {}),
       });
       return response.json();
     },
@@ -356,15 +361,26 @@ export function ScheduledPostsManager() {
     setEditScheduledFor(format(new Date(post.scheduledFor), "yyyy-MM-dd'T'HH:mm"));
     setEditMode("manual");
     setAiEditContent(post.content);
+    setEditVideoUrl(post.metadata?.videoUrl || post.metadata?.imageUrl || "");
     setShowEditDialog(true);
   };
 
   const handleSave = () => {
     if (!selectedPost) return;
+    if (selectedPost.platform === 'tiktok' && !editVideoUrl) {
+      toast({ title: "Video Required", description: "TikTok posts require a video. Please upload or paste a video URL.", variant: "destructive" });
+      return;
+    }
+    const metadata: Record<string, any> = { ...(selectedPost.metadata || {}) };
+    if (selectedPost.platform === 'tiktok') {
+      metadata.videoUrl = editVideoUrl;
+      metadata.imageUrl = editVideoUrl;
+    }
     updatePostMutation.mutate({
       id: selectedPost.id,
       content: editContent,
       scheduledFor: new Date(editScheduledFor).toISOString(),
+      metadata,
     });
   };
 
@@ -930,6 +946,88 @@ export function ScheduledPostsManager() {
                 />
               )}
 
+              {selectedPost?.platform === 'tiktok' && (
+                <div className="space-y-3 p-3 border border-red-200 dark:border-red-800 rounded-lg bg-red-50/50 dark:bg-red-950/20">
+                  <div className="flex items-center gap-2">
+                    <Video className="h-5 w-5 text-red-500" />
+                    <span className="text-sm font-semibold">TikTok Video (Required)</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">TikTok only supports video posts. Upload a video or paste a video URL.</p>
+                  <input
+                    type="file"
+                    ref={editVideoFileRef}
+                    accept="video/*"
+                    className="hidden"
+                    data-testid="input-edit-tiktok-video-file"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setEditVideoUploading(true);
+                      try {
+                        const formData = new FormData();
+                        formData.append("media", file);
+                        const res = await fetch("/api/scheduled-posts/upload-media", {
+                          method: "POST",
+                          credentials: "include",
+                          body: formData,
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.url) {
+                          setEditVideoUrl(data.url);
+                          toast({ title: "Video Uploaded", description: "Video ready for TikTok posting." });
+                        } else {
+                          toast({ title: "Upload Failed", description: data.error || "Could not upload video", variant: "destructive" });
+                        }
+                      } catch {
+                        toast({ title: "Upload Failed", description: "Could not upload video", variant: "destructive" });
+                      } finally {
+                        setEditVideoUploading(false);
+                        if (editVideoFileRef.current) editVideoFileRef.current.value = "";
+                      }
+                    }}
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => editVideoFileRef.current?.click()}
+                      disabled={editVideoUploading}
+                      data-testid="btn-edit-upload-tiktok-video"
+                      className="border-red-300 hover:bg-red-50 dark:hover:bg-red-950"
+                    >
+                      {editVideoUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                      {editVideoUploading ? "Uploading..." : "Upload Video"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">or</span>
+                  </div>
+                  <Input
+                    placeholder="Paste video URL here..."
+                    value={editVideoUrl}
+                    onChange={(e) => setEditVideoUrl(e.target.value)}
+                    className="text-sm"
+                    data-testid="input-edit-tiktok-video-url"
+                  />
+                  {editVideoUrl && (
+                    <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 rounded-md border border-green-200 dark:border-green-800">
+                      <Check className="w-4 h-4 text-green-600" />
+                      <span className="text-xs text-green-700 dark:text-green-300 truncate flex-1">Video ready: {editVideoUrl.length > 50 ? editVideoUrl.slice(0, 50) + "..." : editVideoUrl}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                        onClick={() => setEditVideoUrl("")}
+                        data-testid="btn-edit-remove-tiktok-video"
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+                  {!editVideoUrl && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">A video is required for TikTok posts to publish successfully.</p>
+                  )}
+                </div>
+              )}
+
               {/* Schedule Date/Time */}
               <div>
                 <Label htmlFor="edit-scheduled" className="text-sm font-medium">
@@ -970,13 +1068,19 @@ export function ScheduledPostsManager() {
                   Preview
                 </Button>
                 <Button
-                  onClick={() => handleUploadPhoto(selectedPost)}
+                  onClick={() => {
+                    if (selectedPost?.platform === 'tiktok') {
+                      editVideoFileRef.current?.click();
+                    } else {
+                      handleUploadPhoto(selectedPost);
+                    }
+                  }}
                   variant="outline"
                   className="flex-1"
                   data-testid="button-upload-photo"
                 >
                   <Upload className="h-4 w-4 mr-2" />
-                  Upload Photo
+                  {selectedPost?.platform === 'tiktok' ? 'Upload Video' : 'Upload Photo'}
                 </Button>
                 <Button
                   onClick={() => {

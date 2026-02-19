@@ -6,7 +6,7 @@ export class PostScheduler {
   private socialMediaService: SocialMediaService;
   private intervalId: NodeJS.Timeout | null = null;
   private isProcessing: boolean = false;
-  private supportedPlatforms = ["x", "twitter"];
+  private supportedPlatforms = ["x", "twitter", "facebook", "linkedin", "tiktok", "instagram"];
 
   constructor(storage: IStorage, socialMediaService: SocialMediaService) {
     this.storage = storage;
@@ -130,6 +130,159 @@ export class PostScheduler {
             },
           });
         }
+      } else if (platform === "facebook") {
+        try {
+          const accounts = await this.storage.getSocialMediaAccounts(userId);
+          const fbAccount = accounts.find(a => a.platform.toLowerCase() === "facebook");
+
+          if (!fbAccount) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "No Facebook Page configured",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: No Facebook Page configured`);
+            return;
+          }
+
+          const fbMetadata = (fbAccount as any).metadata || {};
+          const pageId = fbMetadata.pageId || (fbAccount as any).accountId || process.env.FACEBOOK_PAGE_ID;
+
+          if (!pageId) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "No Facebook Page configured",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: No Facebook Page configured`);
+            return;
+          }
+
+          const fbToken = fbMetadata.pageAccessToken || fbAccount.accessToken || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_USER_TOKEN;
+
+          const result = await this.socialMediaService.postToFacebookPage(pageId, post.content, post.imageUrl, fbToken);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "posted",
+            metadata: {
+              ...post.metadata,
+              publishedAt: new Date().toISOString(),
+              platformPostId: result.postId,
+            },
+          });
+
+          console.log(`✅ Successfully published post ${post.id} to Facebook`);
+        } catch (error: any) {
+          console.error(`❌ Failed to publish post ${post.id} to Facebook:`, error);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } else if (platform === "linkedin") {
+        try {
+          const accounts = await this.storage.getSocialMediaAccounts(userId);
+          const liAccount = accounts.find(a => a.platform.toLowerCase() === "linkedin");
+
+          if (!liAccount || !liAccount.accessToken) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "No LinkedIn account connected",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: No LinkedIn account connected`);
+            return;
+          }
+
+          const result = await this.socialMediaService.postToLinkedIn(post.content, liAccount.accessToken);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "posted",
+            metadata: {
+              ...post.metadata,
+              publishedAt: new Date().toISOString(),
+              platformPostId: result.postId,
+            },
+          });
+
+          console.log(`✅ Successfully published post ${post.id} to LinkedIn`);
+        } catch (error: any) {
+          console.error(`❌ Failed to publish post ${post.id} to LinkedIn:`, error);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } else if (platform === "tiktok") {
+        try {
+          const videoUrl = post.imageUrl || (post.metadata as any)?.videoUrl;
+
+          if (!videoUrl) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "TikTok requires a video - text-only posts cannot be published to TikTok",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: TikTok requires a video`);
+            return;
+          }
+
+          const result = await this.socialMediaService.postToTikTok(userId, post.content, videoUrl);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "posted",
+            metadata: {
+              ...post.metadata,
+              publishedAt: new Date().toISOString(),
+              platformPostId: result.publishId,
+            },
+          });
+
+          console.log(`✅ Successfully published post ${post.id} to TikTok`);
+        } catch (error: any) {
+          console.error(`❌ Failed to publish post ${post.id} to TikTok:`, error);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } else if (platform === "instagram") {
+        await this.storage.updateScheduledPost(post.id, {
+          status: "failed",
+          metadata: {
+            ...post.metadata,
+            error: "Instagram API posting requires Business Account setup",
+            failedAt: new Date().toISOString(),
+          },
+        });
+        console.log(`❌ Post ${post.id} failed: Instagram API posting requires Business Account setup`);
       } else {
         console.log(`⚠️ Platform ${platform} posting not yet supported, skipping post ${post.id}`);
       }

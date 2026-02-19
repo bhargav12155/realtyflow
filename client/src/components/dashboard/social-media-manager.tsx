@@ -1333,6 +1333,9 @@ ${agentName} | ${brokerageName}
                     <PlatformIcon className={`h-4 w-4 ${platformInfo.color}`} />
                     <span className="text-sm font-medium capitalize">
                       {account.platform}
+                      {(account.platform === "x" || account.platform === "twitter") && (
+                        <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Temporarily down</span>
+                      )}
                     </span>
                   </div>
                   <div
@@ -2117,7 +2120,12 @@ ${agentName} | ${brokerageName}
                                 }}
                               />
                               {IconComp && <IconComp className={`h-4 w-4 ${meta.color}`} />}
-                              <span className="text-sm capitalize">{account.platform}</span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-sm capitalize">{account.platform}</span>
+                                {(account.platform === "x" || account.platform === "twitter") && (
+                                  <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full font-medium">Temporarily down</span>
+                                )}
+                              </div>
                             </label>
                           );
                         })}

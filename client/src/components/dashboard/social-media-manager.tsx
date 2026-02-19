@@ -1944,6 +1944,18 @@ ${agentName} | ${brokerageName}
               )}
             </div>
           )}
+          {selectedPlatforms.includes("tiktok") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-tiktok-video">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>TikTok requires a video. Upload or paste a video URL from the media gallery above before posting.</span>
+            </div>
+          )}
+          {selectedPlatforms.includes("instagram") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-instagram-media">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>Instagram requires an image or video. Upload or paste a URL from the media gallery above before posting.</span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <Dialog open={showPreview} onOpenChange={setShowPreview}>
@@ -2327,18 +2339,6 @@ ${agentName} | ${brokerageName}
                 </DialogContent>
               </Dialog>
             </div>
-            {selectedPlatforms.includes("tiktok") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-tiktok-video">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>TikTok requires a video. Upload or paste a video URL from the media gallery above.</span>
-              </div>
-            )}
-            {selectedPlatforms.includes("instagram") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
-              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-instagram-media">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>Instagram requires an image or video. Upload or paste a URL from the media gallery above.</span>
-              </div>
-            )}
             <div className="flex items-center space-x-2">
               <TooltipProvider>
                 <Tooltip>

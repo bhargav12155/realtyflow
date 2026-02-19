@@ -6548,7 +6548,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(400).json({ error: "No valid fields to update" });
       }
 
-      const updatedPost = await storage.updateScheduledPost(id, result.data);
+      const updateData = result.data;
+      if (req.body.metadata?.imageUrl) {
+        updateData.imageUrl = req.body.metadata.imageUrl;
+      }
+
+      const updatedPost = await storage.updateScheduledPost(id, updateData);
 
       if (!updatedPost) {
         return res.status(404).json({ error: "Scheduled post not found" });

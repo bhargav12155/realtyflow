@@ -166,7 +166,9 @@ export class PostScheduler {
 
           const fbToken = fbMetadata.pageAccessToken || fbAccount.accessToken || process.env.FACEBOOK_PAGE_ACCESS_TOKEN || process.env.FACEBOOK_USER_TOKEN;
 
-          const result = await this.socialMediaService.postToFacebookPage(pageId, post.content, post.imageUrl, fbToken);
+          const imageUrl = post.imageUrl || (post.metadata as any)?.imageUrl;
+
+          const result = await this.socialMediaService.postToFacebookPage(pageId, post.content, imageUrl, fbToken);
 
           await this.storage.updateScheduledPost(post.id, {
             status: "posted",
@@ -208,7 +210,9 @@ export class PostScheduler {
             return;
           }
 
-          const result = await this.socialMediaService.postToLinkedIn(post.content, liAccount.accessToken);
+          const photoUrls = (post.imageUrl || (post.metadata as any)?.imageUrl) ? [post.imageUrl || (post.metadata as any)?.imageUrl] : undefined;
+
+          const result = await this.socialMediaService.postToLinkedIn(post.content, liAccount.accessToken, { photoUrls });
 
           await this.storage.updateScheduledPost(post.id, {
             status: "posted",
@@ -234,7 +238,7 @@ export class PostScheduler {
         }
       } else if (platform === "tiktok") {
         try {
-          const videoUrl = post.imageUrl || (post.metadata as any)?.videoUrl;
+          const videoUrl = post.imageUrl || (post.metadata as any)?.videoUrl || (post.metadata as any)?.imageUrl;
 
           if (!videoUrl) {
             await this.storage.updateScheduledPost(post.id, {

@@ -1287,6 +1287,7 @@ export default function UnifiedCalendarPage() {
                             className={`text-xs p-1 rounded ${item.color} text-white cursor-pointer hover:opacity-80 mb-1 overflow-hidden`}
                             onClick={() => handlePreview(item)}
                             title={item.title}
+                            data-testid={`calendar-item-${item.id}`}
                           >
                             <div className="flex items-center gap-1">
                               {item.type === "event" ? (
@@ -1294,6 +1295,16 @@ export default function UnifiedCalendarPage() {
                               ) : null}
                               <span className="truncate text-[10px]">{item.title}</span>
                             </div>
+                            {item.type === "post" && item.platform?.toLowerCase() === "tiktok" && !item.photoUrl && !(apiScheduledPosts.find(p => p.id === item.originalId)?.metadata as any)?.imageUrl && (
+                              <div className="mt-0.5 bg-red-600 text-white text-[9px] px-1 rounded font-medium" data-testid={`badge-needs-video-${item.id}`}>
+                                📹 Needs video
+                              </div>
+                            )}
+                            {item.type === "post" && item.platform?.toLowerCase() === "instagram" && !item.photoUrl && !(apiScheduledPosts.find(p => p.id === item.originalId)?.metadata as any)?.imageUrl && (
+                              <div className="mt-0.5 bg-red-600 text-white text-[9px] px-1 rounded font-medium" data-testid={`badge-needs-image-${item.id}`}>
+                                📷 Needs image
+                              </div>
+                            )}
                           </div>
                         ))}
                         {dayItems.length > 3 && (
@@ -1685,7 +1696,7 @@ export default function UnifiedCalendarPage() {
                                     onClick={() => {
                                       setEditingPost(post);
                                       setEditContent(post.content);
-                                      setEditImageUrl(post.metadata?.imageUrl || "");
+                                      setEditImageUrl((post.metadata as any)?.imageUrl || "");
                                     }}
                                     data-testid={`btn-edit-post-${post.id}`}
                                   >
@@ -2313,14 +2324,43 @@ export default function UnifiedCalendarPage() {
                         className="min-h-[120px] text-sm"
                         data-testid="textarea-edit-preview"
                       />
+                      <div className="space-y-1">
+                        <Label htmlFor="media-url-input" className="text-sm font-medium">Media URL (image or video link)</Label>
+                        <Input
+                          id="media-url-input"
+                          value={editImageUrl}
+                          onChange={(e) => setEditImageUrl(e.target.value)}
+                          placeholder="https://example.com/media.mp4"
+                          data-testid="input-media-url"
+                        />
+                        <p className="text-xs text-muted-foreground" data-testid="text-media-hint">
+                          {previewContent.platform?.toLowerCase() === "tiktok"
+                            ? "TikTok requires a video URL to publish"
+                            : previewContent.platform?.toLowerCase() === "instagram"
+                            ? "Instagram requires an image or video to publish"
+                            : "Optional: attach an image to your post"}
+                        </p>
+                      </div>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
                           onClick={() => {
-                            updatePostMutation.mutate({ id: previewContent.originalId, content: editContent });
+                            const updatedMetadata = {
+                              ...previewContent.metadata,
+                              imageUrl: editImageUrl || undefined
+                            };
+                            updatePostMutation.mutate({
+                              id: previewContent.originalId,
+                              content: editContent,
+                              metadata: updatedMetadata,
+                            });
                             setEditingPost(null);
                             if (previewContent) {
-                              setPreviewContent({ ...previewContent, content: editContent });
+                              setPreviewContent({
+                                ...previewContent,
+                                content: editContent,
+                                photoUrl: editImageUrl || previewContent.photoUrl,
+                              });
                             }
                           }}
                           disabled={updatePostMutation.isPending}
@@ -2346,7 +2386,27 @@ export default function UnifiedCalendarPage() {
                     </div>
                   )}
                   {previewContent.photoUrl && (
-                    <img src={previewContent.photoUrl} alt="Post media" className="w-full rounded-lg" />
+                    <img src={previewContent.photoUrl} alt="Post media" className="w-full rounded-lg" data-testid="img-post-media" />
+                  )}
+                  {previewContent.platform?.toLowerCase() === "tiktok" && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="info-tiktok-note">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-sm text-amber-800 dark:text-amber-200">
+                          TikTok only supports video posts. Add a video URL above to enable auto-publishing. Without a video, this post will need to be published manually.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {previewContent.platform?.toLowerCase() === "instagram" && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="info-instagram-note">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                        <p className="text-sm text-amber-800 dark:text-amber-200">
+                          Instagram requires a Business/Creator Account and an image or video. Add media above to enable auto-publishing.
+                        </p>
+                      </div>
+                    </div>
                   )}
                   <div className="flex gap-2">
                     {previewContent.status !== "approved" && previewContent.status !== "posted" && (
@@ -2375,6 +2435,7 @@ export default function UnifiedCalendarPage() {
                           if (post) {
                             setEditingPost(post);
                             setEditContent(post.content);
+                            setEditImageUrl((post.metadata as any)?.imageUrl || "");
                           }
                         }}
                         data-testid="btn-edit-post-preview"

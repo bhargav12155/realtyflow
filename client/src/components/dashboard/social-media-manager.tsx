@@ -2156,7 +2156,7 @@ ${agentName} | ${brokerageName}
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground hover:text-foreground"
-                    disabled={!postContent.trim()}
+                    disabled={isTikTokOnly ? !tiktokVideoUrl : !postContent.trim()}
                     data-testid="button-schedule"
                   >
                     <Calendar className="h-4 w-4" />
@@ -2367,7 +2367,13 @@ ${agentName} | ${brokerageName}
                           toast({ title: "No platforms", description: "Select at least one platform to schedule", variant: "destructive" });
                           return;
                         }
+                        if (isTikTokOnly && !tiktokVideoUrl) {
+                          toast({ title: "Video required", description: "TikTok requires a video. Upload or paste a video URL first.", variant: "destructive" });
+                          return;
+                        }
                         try {
+                          const scheduleContent = isTikTokOnly ? (postContent.trim() || "Check out this video!") : postContent;
+                          const scheduleImageUrl = isTikTokOnly ? (tiktokVideoUrl || null) : (selectedPropertyPhotoUrl || null);
                           let effectiveEndDate = scheduleEndDate || null;
                           if (scheduleRecurring !== "one-time" && !effectiveEndDate) {
                             const defaultEnd = new Date(new Date(scheduleDate).getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -2377,13 +2383,13 @@ ${agentName} | ${brokerageName}
                           if (useSmartSchedule) {
                             setScheduleLoading(true);
                             await apiRequest("POST", "/api/scheduled-posts/schedule-smart", {
-                              content: postContent,
+                              content: scheduleContent,
                               platforms,
                               scheduledAt: new Date(scheduleDate).toISOString(),
                               recurring: scheduleRecurring,
                               endDate: effectiveEndDate,
                               propertyId: selectedProperty?.id || null,
-                              imageUrl: selectedPropertyPhotoUrl || null,
+                              imageUrl: scheduleImageUrl,
                               generateUniqueContent: scheduleGenerateUnique,
                             });
                           } else {
@@ -2394,12 +2400,15 @@ ${agentName} | ${brokerageName}
                                 metadata.recurringEndDate = scheduleEndDate;
                               }
                             }
+                            if (isTikTokOnly && tiktokVideoUrl) {
+                              metadata.videoUrl = tiktokVideoUrl;
+                            }
                             await apiRequest("POST", "/api/scheduled-posts", {
-                              content: postContent,
+                              content: scheduleContent,
                               platforms,
                               scheduledAt: new Date(scheduleDate).toISOString(),
                               propertyId: selectedProperty?.id || null,
-                              imageUrl: selectedPropertyPhotoUrl || null,
+                              imageUrl: scheduleImageUrl,
                               ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
                             });
                           }

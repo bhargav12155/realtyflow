@@ -5,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -29,11 +30,13 @@ import {
   Calendar,
   Check,
   CheckCircle,
+  Clock,
   CreditCard,
   Eye,
   Facebook,
   Home,
   Image,
+  Info,
   Instagram,
   Linkedin,
   Megaphone,
@@ -42,6 +45,7 @@ import {
   Plug,
   PlugZap,
   RefreshCw,
+  Repeat,
   Settings,
   Sparkles,
   Tag,
@@ -264,6 +268,10 @@ export function SocialMediaManager() {
   );
   const [showPostComposer, setShowPostComposer] = useState(false);
   const [selectedPropertyPhotoUrl, setSelectedPropertyPhotoUrl] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleRecurring, setScheduleRecurring] = useState("one-time");
+  const [scheduleEndDate, setScheduleEndDate] = useState("");
+  const [schedulePlatformOverrides, setSchedulePlatformOverrides] = useState<string[]>([]);
   const [whatsappTo, setWhatsappTo] = useState("");
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
@@ -2001,51 +2009,187 @@ ${agentName} | ${brokerageName}
                     <Calendar className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-sm">
+                <DialogContent className="max-w-md" data-testid="dialog-schedule-post">
                   <DialogHeader>
                     <DialogTitle>Schedule Post</DialogTitle>
+                    <DialogDescription>Choose when and where to publish your post</DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
+                  <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                    {postContent.trim() && (
+                      <div className="rounded-md border p-3 bg-muted/50">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">Post Preview</p>
+                        <p className="text-sm" data-testid="text-schedule-preview">
+                          {postContent.length > 140 ? postContent.slice(0, 140) + "…" : postContent}
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {(schedulePlatformOverrides.length > 0 ? schedulePlatformOverrides : selectedPlatforms).map((p) => {
+                            const charLimits: Record<string, number> = { x: 280, twitter: 280, facebook: 63206, instagram: 2200, linkedin: 3000, tiktok: 2200, youtube: 5000, whatsapp: 65536 };
+                            const limit = charLimits[p] || 5000;
+                            const over = postContent.length > limit;
+                            return (
+                              <span key={p} className={`text-xs px-2 py-0.5 rounded-full ${over ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" : "bg-muted text-muted-foreground"}`} data-testid={`text-charcount-${p}`}>
+                                {p.charAt(0).toUpperCase() + p.slice(1)}: {postContent.length}/{limit}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="space-y-2">
-                      <Label htmlFor="schedule-date">Date & Time</Label>
+                      <Label className="flex items-center gap-1.5 text-sm font-medium">
+                        <Clock className="h-3.5 w-3.5" />
+                        Quick Presets
+                      </Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { label: "Today at Noon", getDate: () => { const d = new Date(); d.setHours(12, 0, 0, 0); return d; } },
+                          { label: "Today at 5 PM", getDate: () => { const d = new Date(); d.setHours(17, 0, 0, 0); return d; } },
+                          { label: "Tomorrow 9 AM", getDate: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; } },
+                          { label: "This Weekend", getDate: () => { const d = new Date(); const day = d.getDay(); const diff = day === 0 ? 6 : 6 - day; d.setDate(d.getDate() + diff); d.setHours(10, 0, 0, 0); return d; } },
+                          { label: "Next Monday", getDate: () => { const d = new Date(); const day = d.getDay(); const diff = day === 0 ? 1 : 8 - day; d.setDate(d.getDate() + diff); d.setHours(8, 0, 0, 0); return d; } },
+                        ].map((preset) => (
+                          <Button
+                            key={preset.label}
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7"
+                            data-testid={`button-preset-${preset.label.toLowerCase().replace(/\s+/g, "-")}`}
+                            onClick={() => {
+                              const d = preset.getDate();
+                              const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                              setScheduleDate(local);
+                            }}
+                          >
+                            {preset.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="schedule-date">Custom Date & Time</Label>
                       <input
                         id="schedule-date"
                         type="datetime-local"
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         min={new Date().toISOString().slice(0, 16)}
+                        value={scheduleDate}
                         data-testid="input-schedule-date"
-                        onChange={(e) => {
-                          const dateVal = e.target.value;
-                          if (dateVal) {
-                            (window as any).__scheduleDate = dateVal;
-                          }
-                        }}
+                        onChange={(e) => setScheduleDate(e.target.value)}
                       />
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      Posting to: {selectedPlatforms.length > 0
-                        ? selectedPlatforms.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ")
-                        : "No platforms selected"}
+
+                    <div className="flex items-start gap-2 rounded-md bg-blue-50 dark:bg-blue-950/30 p-2.5">
+                      <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                      <p className="text-xs text-blue-700 dark:text-blue-300" data-testid="text-best-times">
+                        Best times to post: Tue/Thu 9-11 AM, Wed 12 PM
+                      </p>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Platforms</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {accounts?.filter((a) => a.isConnected).map((account) => {
+                          const meta = platformIcons[account.platform as keyof typeof platformIcons];
+                          const IconComp = meta?.icon;
+                          const overrides = schedulePlatformOverrides.length > 0 ? schedulePlatformOverrides : selectedPlatforms;
+                          const isChecked = overrides.includes(account.platform);
+                          return (
+                            <label
+                              key={account.platform}
+                              className="flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                              data-testid={`label-platform-override-${account.platform}`}
+                            >
+                              <Checkbox
+                                checked={isChecked}
+                                data-testid={`checkbox-platform-${account.platform}`}
+                                onCheckedChange={(checked) => {
+                                  const current = schedulePlatformOverrides.length > 0 ? schedulePlatformOverrides : [...selectedPlatforms];
+                                  if (checked) {
+                                    setSchedulePlatformOverrides([...current.filter((p) => p !== account.platform), account.platform]);
+                                  } else {
+                                    setSchedulePlatformOverrides(current.filter((p) => p !== account.platform));
+                                  }
+                                }}
+                              />
+                              {IconComp && <IconComp className={`h-4 w-4 ${meta.color}`} />}
+                              <span className="text-sm capitalize">{account.platform}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1.5 text-sm font-medium">
+                        <Repeat className="h-3.5 w-3.5" />
+                        Recurring Schedule
+                      </Label>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={scheduleRecurring}
+                        data-testid="select-recurring"
+                        onChange={(e) => setScheduleRecurring(e.target.value)}
+                      >
+                        <option value="one-time">One-time</option>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="bi-weekly">Bi-weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                      {scheduleRecurring !== "one-time" && (
+                        <div className="space-y-1">
+                          <Label htmlFor="schedule-end-date" className="text-xs">End Date</Label>
+                          <input
+                            id="schedule-end-date"
+                            type="date"
+                            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            min={new Date().toISOString().slice(0, 10)}
+                            value={scheduleEndDate}
+                            data-testid="input-schedule-end-date"
+                            onChange={(e) => setScheduleEndDate(e.target.value)}
+                          />
+                        </div>
+                      )}
+                    </div>
+
                     <Button
                       className="w-full bg-golden-accent hover:bg-golden-accent/90 text-golden-foreground"
                       data-testid="button-confirm-schedule"
+                      disabled={!scheduleDate}
                       onClick={async () => {
-                        const schedDate = (window as any).__scheduleDate;
-                        if (!schedDate) {
+                        if (!scheduleDate) {
                           toast({ title: "Select a date", description: "Please pick a date and time to schedule", variant: "destructive" });
                           return;
                         }
+                        const platforms = schedulePlatformOverrides.length > 0 ? schedulePlatformOverrides : selectedPlatforms;
+                        if (platforms.length === 0) {
+                          toast({ title: "No platforms", description: "Select at least one platform to schedule", variant: "destructive" });
+                          return;
+                        }
                         try {
+                          const metadata: Record<string, any> = {};
+                          if (scheduleRecurring !== "one-time") {
+                            metadata.recurring = scheduleRecurring;
+                            if (scheduleEndDate) {
+                              metadata.recurringEndDate = scheduleEndDate;
+                            }
+                          }
                           await apiRequest("POST", "/api/scheduled-posts", {
                             content: postContent,
-                            platforms: selectedPlatforms,
-                            scheduledAt: new Date(schedDate).toISOString(),
+                            platforms,
+                            scheduledAt: new Date(scheduleDate).toISOString(),
                             propertyId: selectedProperty?.id || null,
                             imageUrl: selectedPropertyPhotoUrl || null,
+                            ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
                           });
                           queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
-                          toast({ title: "Post Scheduled!", description: `Your post will be published on ${new Date(schedDate).toLocaleString()}` });
+                          toast({ title: "Post Scheduled!", description: `Your post will be published on ${new Date(scheduleDate).toLocaleString()}${scheduleRecurring !== "one-time" ? ` (${scheduleRecurring})` : ""}` });
+                          setScheduleDate("");
+                          setScheduleRecurring("one-time");
+                          setScheduleEndDate("");
+                          setSchedulePlatformOverrides([]);
                         } catch (error: any) {
                           toast({ title: "Scheduling Failed", description: error.message || "Could not schedule post", variant: "destructive" });
                         }

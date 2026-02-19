@@ -39,6 +39,7 @@ import {
   Info,
   Instagram,
   Linkedin,
+  Loader2,
   Megaphone,
   MessageCircle,
   Music,
@@ -272,6 +273,8 @@ export function SocialMediaManager() {
   const [scheduleRecurring, setScheduleRecurring] = useState("one-time");
   const [scheduleEndDate, setScheduleEndDate] = useState("");
   const [schedulePlatformOverrides, setSchedulePlatformOverrides] = useState<string[]>([]);
+  const [scheduleGenerateUnique, setScheduleGenerateUnique] = useState(true);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
   const [whatsappTo, setWhatsappTo] = useState("");
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
@@ -2140,7 +2143,7 @@ ${agentName} | ${brokerageName}
                       </select>
                       {scheduleRecurring !== "one-time" && (
                         <div className="space-y-1">
-                          <Label htmlFor="schedule-end-date" className="text-xs">End Date</Label>
+                          <Label htmlFor="schedule-end-date" className="text-xs">End Date{!scheduleEndDate && <span className="text-muted-foreground ml-1">(Defaults to 30 days)</span>}</Label>
                           <input
                             id="schedule-end-date"
                             type="date"
@@ -2154,10 +2157,51 @@ ${agentName} | ${brokerageName}
                       )}
                     </div>
 
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer" data-testid="label-generate-unique">
+                        <Checkbox
+                          checked={scheduleGenerateUnique}
+                          data-testid="checkbox-generate-unique"
+                          onCheckedChange={(checked) => setScheduleGenerateUnique(!!checked)}
+                        />
+                        <span className="text-sm font-medium">Generate unique AI content for each platform & date</span>
+                      </label>
+                      {scheduleGenerateUnique && (
+                        <div className="flex items-start gap-2 rounded-md bg-purple-50 dark:bg-purple-950/30 p-2.5">
+                          <Sparkles className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
+                          <p className="text-xs text-purple-700 dark:text-purple-300" data-testid="text-unique-content-info">
+                            AI will create unique, platform-optimized content for each post to maximize engagement and avoid duplicate content penalties
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {scheduleLoading && (
+                      <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 p-3" data-testid="status-schedule-loading">
+                        <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                        <p className="text-sm text-amber-700 dark:text-amber-300">
+                          Generating unique content for {(() => {
+                            const platforms = schedulePlatformOverrides.length > 0 ? schedulePlatformOverrides : selectedPlatforms;
+                            let dateSlots = 1;
+                            if (scheduleRecurring !== "one-time" && scheduleDate) {
+                              const start = new Date(scheduleDate);
+                              const end = scheduleEndDate ? new Date(scheduleEndDate) : new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+                              const diffDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                              if (scheduleRecurring === "daily") dateSlots = diffDays;
+                              else if (scheduleRecurring === "weekly") dateSlots = Math.ceil(diffDays / 7);
+                              else if (scheduleRecurring === "bi-weekly") dateSlots = Math.ceil(diffDays / 14);
+                              else if (scheduleRecurring === "monthly") dateSlots = Math.ceil(diffDays / 30);
+                            }
+                            return dateSlots * platforms.length;
+                          })()} posts...
+                        </p>
+                      </div>
+                    )}
+
                     <Button
                       className="w-full bg-golden-accent hover:bg-golden-accent/90 text-golden-foreground"
                       data-testid="button-confirm-schedule"
-                      disabled={!scheduleDate}
+                      disabled={!scheduleDate || scheduleLoading}
                       onClick={async () => {
                         if (!scheduleDate) {
                           toast({ title: "Select a date", description: "Please pick a date and time to schedule", variant: "destructive" });
@@ -2169,35 +2213,85 @@ ${agentName} | ${brokerageName}
                           return;
                         }
                         try {
-                          const metadata: Record<string, any> = {};
-                          if (scheduleRecurring !== "one-time") {
-                            metadata.recurring = scheduleRecurring;
-                            if (scheduleEndDate) {
-                              metadata.recurringEndDate = scheduleEndDate;
-                            }
+                          let effectiveEndDate = scheduleEndDate || null;
+                          if (scheduleRecurring !== "one-time" && !effectiveEndDate) {
+                            const defaultEnd = new Date(new Date(scheduleDate).getTime() + 30 * 24 * 60 * 60 * 1000);
+                            effectiveEndDate = defaultEnd.toISOString().slice(0, 10);
                           }
-                          await apiRequest("POST", "/api/scheduled-posts", {
-                            content: postContent,
-                            platforms,
-                            scheduledAt: new Date(scheduleDate).toISOString(),
-                            propertyId: selectedProperty?.id || null,
-                            imageUrl: selectedPropertyPhotoUrl || null,
-                            ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-                          });
+                          const useSmartSchedule = scheduleRecurring !== "one-time" || scheduleGenerateUnique;
+                          if (useSmartSchedule) {
+                            setScheduleLoading(true);
+                            await apiRequest("POST", "/api/scheduled-posts/schedule-smart", {
+                              content: postContent,
+                              platforms,
+                              scheduledAt: new Date(scheduleDate).toISOString(),
+                              recurring: scheduleRecurring,
+                              endDate: effectiveEndDate,
+                              propertyId: selectedProperty?.id || null,
+                              imageUrl: selectedPropertyPhotoUrl || null,
+                              generateUniqueContent: scheduleGenerateUnique,
+                            });
+                          } else {
+                            const metadata: Record<string, any> = {};
+                            if (scheduleRecurring !== "one-time") {
+                              metadata.recurring = scheduleRecurring;
+                              if (scheduleEndDate) {
+                                metadata.recurringEndDate = scheduleEndDate;
+                              }
+                            }
+                            await apiRequest("POST", "/api/scheduled-posts", {
+                              content: postContent,
+                              platforms,
+                              scheduledAt: new Date(scheduleDate).toISOString(),
+                              propertyId: selectedProperty?.id || null,
+                              imageUrl: selectedPropertyPhotoUrl || null,
+                              ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+                            });
+                          }
                           queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
-                          toast({ title: "Post Scheduled!", description: `Your post will be published on ${new Date(scheduleDate).toLocaleString()}${scheduleRecurring !== "one-time" ? ` (${scheduleRecurring})` : ""}` });
+                          toast({ title: "Post Scheduled!", description: `Your post will be published on ${new Date(scheduleDate).toLocaleString()}${scheduleRecurring !== "one-time" ? ` (${scheduleRecurring})` : ""}${scheduleGenerateUnique ? " with unique AI content" : ""}` });
                           setScheduleDate("");
                           setScheduleRecurring("one-time");
                           setScheduleEndDate("");
                           setSchedulePlatformOverrides([]);
+                          setScheduleGenerateUnique(true);
                         } catch (error: any) {
                           toast({ title: "Scheduling Failed", description: error.message || "Could not schedule post", variant: "destructive" });
+                        } finally {
+                          setScheduleLoading(false);
                         }
                       }}
                     >
-                      <Calendar className="h-4 w-4 mr-2" />
-                      Schedule Post
+                      {scheduleLoading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Calendar className="h-4 w-4 mr-2" />
+                      )}
+                      {scheduleLoading ? "Scheduling..." : "Schedule Post"}
                     </Button>
+
+                    {(() => {
+                      const platforms = schedulePlatformOverrides.length > 0 ? schedulePlatformOverrides : selectedPlatforms;
+                      let dateSlots = 1;
+                      if (scheduleRecurring !== "one-time" && scheduleDate) {
+                        const start = new Date(scheduleDate);
+                        const end = scheduleEndDate ? new Date(scheduleEndDate) : new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
+                        const diffDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                        if (scheduleRecurring === "daily") dateSlots = diffDays;
+                        else if (scheduleRecurring === "weekly") dateSlots = Math.ceil(diffDays / 7);
+                        else if (scheduleRecurring === "bi-weekly") dateSlots = Math.ceil(diffDays / 14);
+                        else if (scheduleRecurring === "monthly") dateSlots = Math.ceil(diffDays / 30);
+                      }
+                      const totalPosts = dateSlots * platforms.length;
+                      if (totalPosts > 1 || (scheduleGenerateUnique && platforms.length > 0)) {
+                        return (
+                          <p className="text-xs text-center text-muted-foreground" data-testid="text-schedule-summary">
+                            This will create {totalPosts} post{totalPosts !== 1 ? "s" : ""}{dateSlots > 1 ? ` (${dateSlots} date${dateSlots !== 1 ? "s" : ""} × ${platforms.length} platform${platforms.length !== 1 ? "s" : ""})` : ""}{scheduleGenerateUnique ? " with unique AI content for each" : ""}
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </DialogContent>
               </Dialog>

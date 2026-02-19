@@ -6367,6 +6367,144 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  app.post("/api/scheduled-posts/schedule-smart", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { content, platforms, scheduledAt, recurring, endDate, propertyId, imageUrl, generateUniqueContent } = req.body;
+
+      if (!content || !platforms || !Array.isArray(platforms) || platforms.length === 0) {
+        return res.status(400).json({ error: "content and platforms are required" });
+      }
+
+      if (!scheduledAt) {
+        return res.status(400).json({ error: "scheduledAt is required" });
+      }
+
+      if (!recurring || !["one-time", "daily", "weekly", "bi-weekly", "monthly"].includes(recurring)) {
+        return res.status(400).json({ error: "recurring must be one-time, daily, weekly, bi-weekly, or monthly" });
+      }
+
+      const normalizedPlatforms = [...new Set(platforms.map((p: string) => p === "twitter" ? "x" : p))];
+
+      const startDate = new Date(scheduledAt);
+      const end = endDate ? new Date(endDate) : (recurring !== "one-time" ? new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000) : null);
+
+      const dates: Date[] = [];
+      let current = new Date(startDate);
+      let safety = 0;
+
+      const addDate = (date: Date) => {
+        if (!end || date <= end) {
+          dates.push(new Date(date));
+        }
+      };
+
+      switch (recurring) {
+        case "one-time":
+          dates.push(new Date(startDate));
+          break;
+        case "daily":
+          while (!end || current <= end) {
+            addDate(current);
+            current.setDate(current.getDate() + 1);
+            safety++;
+            if (dates.length >= 60 || safety >= 100) break;
+          }
+          break;
+        case "weekly":
+          while (!end || current <= end) {
+            addDate(current);
+            current.setDate(current.getDate() + 7);
+            safety++;
+            if (dates.length >= 60 || safety >= 100) break;
+          }
+          break;
+        case "bi-weekly":
+          while (!end || current <= end) {
+            addDate(current);
+            current.setDate(current.getDate() + 14);
+            safety++;
+            if (dates.length >= 60 || safety >= 100) break;
+          }
+          break;
+        case "monthly":
+          while (!end || current <= end) {
+            addDate(current);
+            current.setDate(current.getDate() + 30);
+            safety++;
+            if (dates.length >= 60 || safety >= 100) break;
+          }
+          break;
+      }
+
+      if (dates.length > 60) {
+        return res.status(400).json({ error: "Schedule would create more than 60 posts. Please adjust the date range or recurring frequency." });
+      }
+
+      const createdPosts = [];
+
+      for (const date of dates) {
+        for (const platform of normalizedPlatforms) {
+          let postContent = content;
+
+          if (generateUniqueContent) {
+            try {
+              const optimized = await openaiService.generatePlatformSpecificContent({
+                platform: platform.toLowerCase(),
+                originalContent: content,
+                contentType: "social",
+                topic: "real estate",
+                neighborhood: "Omaha",
+                seoOptimized: true,
+                longTailKeywords: true,
+              });
+              postContent = optimized.content || content;
+            } catch (error) {
+              console.error(`Failed to generate content for ${platform}, using original:`, error);
+              postContent = content;
+            }
+          }
+
+          const postData: InsertScheduledPost = {
+            userId,
+            platform: platform.toLowerCase(),
+            content: postContent,
+            scheduledFor: date,
+            status: "pending",
+            metadata: {
+              propertyId,
+              imageUrl,
+              recurring,
+              originalContent: content,
+              generatedAt: new Date().toISOString(),
+            },
+          };
+
+          const createdPost = await storage.createScheduledPost(postData);
+          createdPosts.push(createdPost);
+        }
+      }
+
+      res.json({
+        success: true,
+        posts: createdPosts,
+        totalPosts: createdPosts.length,
+        dateSlots: dates.length,
+        platforms: normalizedPlatforms.length,
+      });
+    } catch (error) {
+      console.error("Smart schedule error:", error);
+      res.status(500).json({
+        error: "Failed to create smart scheduled posts",
+        message: (error as Error).message,
+      });
+    }
+  });
+
   app.put("/api/scheduled-posts/:id", async (req, res) => {
     try {
       const { id } = req.params;

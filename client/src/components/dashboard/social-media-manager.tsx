@@ -56,7 +56,7 @@ import {
   Video,
   Twitter as X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MediaLibrary } from "./media-library";
 import { PropertySelector } from "./property-selector";
 import { PostComposer } from "./post-composer";
@@ -270,6 +270,9 @@ export function SocialMediaManager() {
   );
   const [showPostComposer, setShowPostComposer] = useState(false);
   const [selectedPropertyPhotoUrl, setSelectedPropertyPhotoUrl] = useState<string | null>(null);
+  const [tiktokVideoUploading, setTiktokVideoUploading] = useState(false);
+  const [tiktokVideoUrl, setTiktokVideoUrl] = useState("");
+  const tiktokFileRef = useRef<HTMLInputElement>(null);
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleRecurring, setScheduleRecurring] = useState("one-time");
   const [scheduleEndDate, setScheduleEndDate] = useState("");
@@ -291,6 +294,7 @@ export function SocialMediaManager() {
   });
 
   // Get agent name and brokerage with smart defaults
+  const isTikTokOnly = selectedPlatforms.length === 1 && selectedPlatforms[0] === "tiktok";
   const agentName = companyProfile?.agentName || "[Your Name]";
   const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
   const businessName = companyProfile?.businessName || "[Your Business]";
@@ -1203,7 +1207,7 @@ ${agentName} | ${brokerageName}
       );
     }
 
-    if (!content) {
+    if (!content && !isTikTokOnly) {
       toast({
         title: "Content Required",
         description:
@@ -1211,6 +1215,19 @@ ${agentName} | ${brokerageName}
         variant: "destructive",
       });
       return;
+    }
+
+    if (isTikTokOnly && !tiktokVideoUrl) {
+      toast({
+        title: "Video Required",
+        description: "Please upload a video or paste a video URL for TikTok.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isTikTokOnly) {
+      content = content || "Check out this video!";
     }
 
     if (selectedPlatforms.length === 0) {
@@ -1546,8 +1563,7 @@ ${agentName} | ${brokerageName}
             <h3 className="text-sm font-medium text-foreground">Quick Post</h3>
           </div>
 
-          {/* Property Selector */}
-          <div className="space-y-2">
+          {!isTikTokOnly && <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Property Listing (Optional)
             </div>
@@ -1588,10 +1604,9 @@ ${agentName} | ${brokerageName}
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
-          {/* Post Type Selection */}
-          <div className="space-y-2">
+          {!isTikTokOnly && <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Post Type (Optional)
             </div>
@@ -1665,9 +1680,9 @@ ${agentName} | ${brokerageName}
                 Promote App
               </Button>
             )}
-          </div>
+          </div>}
 
-          {selectedPostType === "promote_app" && isAppPromoUser && (
+          {!isTikTokOnly && selectedPostType === "promote_app" && isAppPromoUser && (
             <div className="space-y-3">
               <div className="text-xs font-medium text-muted-foreground">Select App to Promote</div>
               <div className="grid grid-cols-1 gap-2">
@@ -1809,8 +1824,7 @@ ${agentName} | ${brokerageName}
               </div>
             )}
 
-          {/* Media Library */}
-          <div className="space-y-3">
+          {!isTikTokOnly && <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Image className="h-4 w-4 text-primary" />
@@ -1849,52 +1863,150 @@ ${agentName} | ${brokerageName}
                 Click media items to attach them to your post
               </p>
             )}
-          </div>
+          </div>}
 
-          <Textarea
-            placeholder={
-              selectedPostType
-                ? `Enter details for ${postTypes
-                    .find((t) => t.id === selectedPostType)
-                    ?.label.toLowerCase()} post (address, price, features, etc.)...`
-                : "Share market insights, property highlights, or select a post type above and click AI Optimize..."
-            }
-            value={postContent}
-            onChange={(e) => setPostContent(e.target.value)}
-            className="min-h-[100px]"
-            data-testid="textarea-social-post"
-          />
-
-          {/* Optional AI Prompt Enhancement */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                <Brain className="h-3 w-3" />
-                AI Prompt (Optional)
-              </label>
+          {isTikTokOnly ? (
+            <div className="space-y-4 rounded-lg border-2 border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 p-4">
+              <div className="flex items-center gap-2">
+                <Video className="h-5 w-5 text-red-500" />
+                <span className="text-sm font-semibold">Upload Video for TikTok</span>
+              </div>
+              <p className="text-xs text-muted-foreground">TikTok only supports video posts. Upload a video or paste a video URL below.</p>
+              <input
+                type="file"
+                ref={tiktokFileRef}
+                accept="video/*"
+                className="hidden"
+                data-testid="input-tiktok-video-file"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setTiktokVideoUploading(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append("media", file);
+                    const res = await fetch("/api/scheduled-posts/upload-media", {
+                      method: "POST",
+                      credentials: "include",
+                      body: formData,
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.url) {
+                      setTiktokVideoUrl(data.url);
+                      setSelectedMediaIds([data.url]);
+                      toast({ title: "Video Uploaded", description: "Video ready for TikTok posting." });
+                    } else {
+                      toast({ title: "Upload Failed", description: data.error || "Could not upload video", variant: "destructive" });
+                    }
+                  } catch {
+                    toast({ title: "Upload Failed", description: "Could not upload video", variant: "destructive" });
+                  } finally {
+                    setTiktokVideoUploading(false);
+                    if (tiktokFileRef.current) tiktokFileRef.current.value = "";
+                  }
+                }}
+              />
+              <div className="flex items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => tiktokFileRef.current?.click()}
+                  disabled={tiktokVideoUploading}
+                  data-testid="btn-upload-tiktok-video"
+                  className="border-red-300 hover:bg-red-50 dark:hover:bg-red-950"
+                >
+                  {tiktokVideoUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                  {tiktokVideoUploading ? "Uploading..." : "Upload Video"}
+                </Button>
+                <span className="text-xs text-muted-foreground">or</span>
+              </div>
+              <Input
+                placeholder="Paste video URL here..."
+                value={tiktokVideoUrl}
+                onChange={(e) => {
+                  setTiktokVideoUrl(e.target.value);
+                  if (e.target.value.trim()) {
+                    setSelectedMediaIds([e.target.value.trim()]);
+                  } else {
+                    setSelectedMediaIds([]);
+                  }
+                }}
+                className="text-sm"
+                data-testid="input-tiktok-video-url"
+              />
+              {tiktokVideoUrl && (
+                <div className="flex items-center gap-2 p-2 bg-green-50 dark:bg-green-950/30 rounded-md border border-green-200 dark:border-green-800">
+                  <Check className="w-4 h-4 text-green-600" />
+                  <span className="text-xs text-green-700 dark:text-green-300 truncate flex-1">Video ready: {tiktokVideoUrl.length > 50 ? tiktokVideoUrl.slice(0, 50) + "..." : tiktokVideoUrl}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                    onClick={() => { setTiktokVideoUrl(""); setSelectedMediaIds([]); }}
+                    data-testid="btn-remove-tiktok-video"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Video Description (Optional)</label>
+                <Textarea
+                  placeholder="Add a description for your TikTok video..."
+                  value={postContent}
+                  onChange={(e) => setPostContent(e.target.value)}
+                  className="min-h-[60px]"
+                  data-testid="textarea-tiktok-description"
+                />
+              </div>
             </div>
-            <Input
-              placeholder="Add specific instructions for AI enhancement (e.g., 'Make it more engaging', 'Add call-to-action', 'Include market stats')..."
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              className="text-sm"
-              data-testid="input-ai-prompt"
-            />
-            <p className="text-xs text-muted-foreground">
-              💡 Use this to guide AI optimization with specific instructions or
-              tone preferences
-            </p>
-          </div>
+          ) : (
+            <>
+              <Textarea
+                placeholder={
+                  selectedPostType
+                    ? `Enter details for ${postTypes
+                        .find((t) => t.id === selectedPostType)
+                        ?.label.toLowerCase()} post (address, price, features, etc.)...`
+                    : "Share market insights, property highlights, or select a post type above and click AI Optimize..."
+                }
+                value={postContent}
+                onChange={(e) => setPostContent(e.target.value)}
+                className="min-h-[100px]"
+                data-testid="textarea-social-post"
+              />
 
-          {postContent.trim().length > 10 && (
-            <ComplianceChecker
-              content={postContent}
-              platform={selectedPlatforms[0] || "general"}
-              hasMedia={selectedMediaIds.length > 0}
-              hasVideo={false}
-              onContentFix={(fixedContent) => setPostContent(fixedContent)}
-              showGuidelines={true}
-            />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Brain className="h-3 w-3" />
+                    AI Prompt (Optional)
+                  </label>
+                </div>
+                <Input
+                  placeholder="Add specific instructions for AI enhancement (e.g., 'Make it more engaging', 'Add call-to-action', 'Include market stats')..."
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  className="text-sm"
+                  data-testid="input-ai-prompt"
+                />
+                <p className="text-xs text-muted-foreground">
+                  💡 Use this to guide AI optimization with specific instructions or
+                  tone preferences
+                </p>
+              </div>
+
+              {postContent.trim().length > 10 && (
+                <ComplianceChecker
+                  content={postContent}
+                  platform={selectedPlatforms[0] || "general"}
+                  hasMedia={selectedMediaIds.length > 0}
+                  hasVideo={false}
+                  onContentFix={(fixedContent) => setPostContent(fixedContent)}
+                  showGuidelines={true}
+                />
+              )}
+            </>
           )}
 
           {selectedPlatforms.length > 0 && (
@@ -1944,7 +2056,7 @@ ${agentName} | ${brokerageName}
               )}
             </div>
           )}
-          {selectedPlatforms.includes("tiktok") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
+          {!isTikTokOnly && selectedPlatforms.includes("tiktok") && selectedMediaIds.length === 0 && !selectedPropertyPhotoUrl && (
             <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-md text-orange-700 dark:text-orange-300 text-xs" data-testid="warning-tiktok-video">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               <span>TikTok requires a video. Upload or paste a video URL from the media gallery above before posting.</span>
@@ -2340,34 +2452,36 @@ ${agentName} | ${brokerageName}
               </Dialog>
             </div>
             <div className="flex items-center space-x-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={handleOptimizeContent}
-                      disabled={
-                        optimizeContentMutation.isPending || !postContent.trim()
-                      }
-                      variant="ghost"
-                      size="sm"
-                      className="text-primary hover:text-primary/80"
-                      data-testid="button-optimize-content"
-                    >
-                      <Sparkles className="mr-1 h-3 w-3" />
-                      {optimizeContentMutation.isPending
-                        ? "Optimizing..."
-                        : "AI Optimize"}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-xs">
-                    <p>AI Optimize enhances your post content with better engagement and professional messaging. It analyzes your text and suggests improvements for clarity, tone, and real estate marketing best practices to help get more visibility and responses from your audience.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              {!isTikTokOnly && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={handleOptimizeContent}
+                        disabled={
+                          optimizeContentMutation.isPending || !postContent.trim()
+                        }
+                        variant="ghost"
+                        size="sm"
+                        className="text-primary hover:text-primary/80"
+                        data-testid="button-optimize-content"
+                      >
+                        <Sparkles className="mr-1 h-3 w-3" />
+                        {optimizeContentMutation.isPending
+                          ? "Optimizing..."
+                          : "AI Optimize"}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p>AI Optimize enhances your post content with better engagement and professional messaging. It analyzes your text and suggests improvements for clarity, tone, and real estate marketing best practices to help get more visibility and responses from your audience.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               <Button
                 onClick={handlePost}
                 disabled={
-                  postMutation.isPending || selectedPlatforms.length === 0
+                  postMutation.isPending || selectedPlatforms.length === 0 || (isTikTokOnly && !tiktokVideoUrl)
                 }
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
                 data-testid="button-post-now"

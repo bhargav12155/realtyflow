@@ -1885,6 +1885,28 @@ ${agentName} | ${brokerageName}
               </p>
             </div>
           )}
+          {selectedPlatforms.length > 0 && (
+            <div className="flex items-center gap-2 px-1 py-1.5 rounded-md bg-muted/40 border border-border/50">
+              <span className="text-[10px] text-muted-foreground font-medium ml-1">Posting to:</span>
+              {selectedPlatforms.map((p) => {
+                const pInfo = platformIcons[p as keyof typeof platformIcons];
+                if (!pInfo) return null;
+                const Icon = pInfo.icon;
+                return (
+                  <span key={p} className={`inline-flex items-center gap-1 text-[10px] font-medium ${pInfo.color}`}>
+                    <Icon className="h-3 w-3" />
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </span>
+                );
+              })}
+              {postMutation.isPending && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-medium ml-auto mr-1">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Sending...
+                </span>
+              )}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <Dialog open={showPreview} onOpenChange={setShowPreview}>

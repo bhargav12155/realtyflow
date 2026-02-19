@@ -6924,7 +6924,6 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       const lastDay = new Date(year, month + 1, 0);
       const daysInMonth = lastDay.getDate();
       const totalWeeks = Math.ceil(daysInMonth / 7);
-      const totalPosts = totalWeeks * clampedPostsPerWeek;
 
       const categoryKeywordsMap: Record<string, string[]> = {
         market_update: ["market trends", "home prices", "real estate market"],

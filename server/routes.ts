@@ -6959,76 +6959,84 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       const generatedPosts: any[] = [];
       const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+      let postCounter = 0;
       for (let i = 0; i < scheduleDates.length; i++) {
         const scheduleDate = scheduleDates[i];
-        const platform = platforms[i % platforms.length];
         const category = categories[i % categories.length];
         const neighborhood = neighborhoods[i % neighborhoods.length];
         const keywords = categoryKeywordsMap[category] || ["Omaha real estate", "homes for sale"];
 
-        let content = "";
-        let hashtags: string[] = [];
-        let seoScore = 80;
-        let isAiGenerated = true;
+        for (let pi = 0; pi < platforms.length; pi++) {
+          const platform = platforms[pi];
+          const staggeredDate = new Date(scheduleDate.getTime());
+          staggeredDate.setMinutes(staggeredDate.getMinutes() + pi * 3);
 
-        try {
-          if (i > 0) {
-            await delay(500);
+          let content = "";
+          let hashtags: string[] = [];
+          let seoScore = 80;
+          let isAiGenerated = true;
+
+          try {
+            if (postCounter > 0) {
+              await delay(500);
+            }
+
+            const aiContent = await openaiService.generateContent({
+              type: "social",
+              neighborhood,
+              keywords: [...keywords, `${neighborhood} real estate`, "Omaha homes"],
+              ...(agentName ? { companyProfile: { agentName } } : {}),
+            });
+
+            content = aiContent.content;
+            hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
+            seoScore = aiContent.seoScore || 80;
+          } catch (aiError) {
+            console.error(`Failed to generate AI content for post ${postCounter + 1}:`, aiError);
+            isAiGenerated = false;
+            const fallbackTemplates: Record<string, string> = {
+              market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}. #OmahaRealEstate`,
+              buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this amazing Omaha neighborhood! #HomeBuyingTips`,
+              seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat! #HomeSelling`,
+              neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it! #${neighborhood.replace(/\s/g, "")}`,
+              home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns! #HomeImprovement`,
+              investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment in the Omaha market. Let me show you the numbers! #RealEstateInvesting`,
+              community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities. #CommunityLife`,
+              success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home. #ClientSuccess`,
+              open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today. #OpenHouse #${neighborhood.replace(/\s/g, "")}`,
+              just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone! #JustListed`,
+            };
+            content = fallbackTemplates[category] || `Discover what makes ${neighborhood} special! Contact ${agentName || "your local agent"} for insights.`;
+            hashtags = ["OmahaRealEstate", neighborhood.replace(/\s/g, ""), "NebraskaHomes", category.replace(/_/g, "")];
+            seoScore = 70;
           }
 
-          const aiContent = await openaiService.generateContent({
-            type: "social",
+          const scheduledPost = await storage.createScheduledPost({
+            userId,
+            platform,
+            postType: category,
+            content,
+            hashtags,
+            scheduledFor: staggeredDate,
+            status: "pending",
+            isEdited: false,
+            isAiGenerated,
+            originalContent: content,
             neighborhood,
-            keywords: [...keywords, `${neighborhood} real estate`, "Omaha homes"],
-            ...(agentName ? { companyProfile: { agentName } } : {}),
+            seoScore,
+            metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated },
           });
 
-          content = aiContent.content;
-          hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
-          seoScore = aiContent.seoScore || 80;
-        } catch (aiError) {
-          console.error(`Failed to generate AI content for post ${i + 1}:`, aiError);
-          isAiGenerated = false;
-          const fallbackTemplates: Record<string, string> = {
-            market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}. #OmahaRealEstate`,
-            buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this amazing Omaha neighborhood! #HomeBuyingTips`,
-            seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat! #HomeSelling`,
-            neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it! #${neighborhood.replace(/\s/g, "")}`,
-            home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns! #HomeImprovement`,
-            investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment in the Omaha market. Let me show you the numbers! #RealEstateInvesting`,
-            community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities. #CommunityLife`,
-            success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home. #ClientSuccess`,
-            open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today. #OpenHouse #${neighborhood.replace(/\s/g, "")}`,
-            just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone! #JustListed`,
-          };
-          content = fallbackTemplates[category] || `Discover what makes ${neighborhood} special! Contact ${agentName || "your local agent"} for insights.`;
-          hashtags = ["OmahaRealEstate", neighborhood.replace(/\s/g, ""), "NebraskaHomes", category.replace(/_/g, "")];
-          seoScore = 70;
+          generatedPosts.push(scheduledPost);
+          postCounter++;
         }
-
-        const scheduledPost = await storage.createScheduledPost({
-          userId,
-          platform,
-          postType: category,
-          content,
-          hashtags,
-          scheduledFor: scheduleDate,
-          status: "pending",
-          isEdited: false,
-          isAiGenerated,
-          originalContent: content,
-          neighborhood,
-          seoScore,
-          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated },
-        });
-
-        generatedPosts.push(scheduledPost);
       }
 
+      const totalPosts = scheduleDates.length * platforms.length;
       res.json({
         success: true,
         posts: generatedPosts,
-        count: generatedPosts.length,
+        count: totalPosts,
       });
     } catch (error) {
       console.error("Generate monthly content error:", error);

@@ -223,7 +223,7 @@ export default function UnifiedCalendarPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);
-  const [autoFillPlatforms, setAutoFillPlatforms] = useState<string[]>(["facebook", "instagram", "linkedin", "x"]);
+  const [autoFillPlatforms, setAutoFillPlatforms] = useState<string[]>(["facebook", "instagram", "linkedin", "x", "tiktok"]);
   const [autoFillFrequency, setAutoFillFrequency] = useState(3);
   const [autoFillCategories, setAutoFillCategories] = useState<string[]>([
     "market_update", "buyer_tips", "seller_tips", "neighborhood_spotlight",
@@ -1147,6 +1147,7 @@ export default function UnifiedCalendarPage() {
                           >
                             <p.icon className={`w-3 h-3 ${p.color}`} />
                             {p.label}
+                            {p.id === "x" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full">Down</span>}
                             {isSelected && <Check className="w-3 h-3 text-green-500" />}
                           </button>
                         );

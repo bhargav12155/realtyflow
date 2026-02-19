@@ -2275,9 +2275,6 @@ Return your response in this exact JSON format:
         if (!facebookClientId) return null;
         const redirectUri = encodeURIComponent(baseUrl + redirectPath);
         const stateParam = encodeURIComponent(state);
-        if (configId) {
-          return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&state=${stateParam}&config_id=${configId}`;
-        }
         return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${fallbackScope}&state=${stateParam}`;
       };
 
@@ -2289,7 +2286,7 @@ Return your response in this exact JSON format:
         facebook: buildFacebookOAuthUrl(
           "/api/social/callback/facebook",
           facebookConfigId,
-          "pages_show_list,pages_manage_posts,pages_read_engagement"
+          "pages_show_list,pages_manage_posts,pages_read_engagement,pages_manage_metadata"
         ),
         instagram: instagramClientId
           ? `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${instagramClientId}&redirect_uri=${instagramRedirectUri}&response_type=code&scope=instagram_business_basic,instagram_business_content_publish&state=${instagramStateParam}`

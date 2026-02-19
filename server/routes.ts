@@ -2275,7 +2275,7 @@ Return your response in this exact JSON format:
         if (!facebookClientId) return null;
         const redirectUri = encodeURIComponent(baseUrl + redirectPath);
         const stateParam = encodeURIComponent(state);
-        return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${fallbackScope}&state=${stateParam}`;
+        return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${fallbackScope}&state=${stateParam}&auth_type=rerequest`;
       };
 
       const instagramClientId = process.env.INSTAGRAM_CLIENT_ID;

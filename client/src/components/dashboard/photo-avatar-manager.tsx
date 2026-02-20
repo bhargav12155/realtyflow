@@ -297,6 +297,19 @@ export function PhotoAvatarManager() {
       "Professional real estate agent, well-groomed, confident smile, business attire",
   });
 
+  const [aiLookDialogOpen, setAiLookDialogOpen] = useState(false);
+  const [aiLookSource, setAiLookSource] = useState<"upload" | "existing">("upload");
+  const [aiLookFile, setAiLookFile] = useState<File | null>(null);
+  const [aiLookFilePreview, setAiLookFilePreview] = useState<string | null>(null);
+  const [aiLookName, setAiLookName] = useState("");
+  const [aiLookPrompt, setAiLookPrompt] = useState("");
+  const [aiLookOrientation, setAiLookOrientation] = useState<"square" | "horizontal" | "vertical">("square");
+  const [aiLookPose, setAiLookPose] = useState<"half_body" | "close_up" | "full_body">("half_body");
+  const [aiLookStyle, setAiLookStyle] = useState("Realistic");
+  const [aiLookSelectedGroup, setAiLookSelectedGroup] = useState<string>("");
+  const [aiLookGenerating, setAiLookGenerating] = useState(false);
+  const aiLookFileRef = useRef<HTMLInputElement>(null);
+
   // Query avatar groups
   const { data: avatarGroupsResponse, isLoading: isLoadingGroups } = useQuery({
     queryKey: ["/api/photo-avatars/groups"],
@@ -656,6 +669,78 @@ export function PhotoAvatarManager() {
       prevStatusesRef.current[groupId] = currentTrainStatus;
     });
   }, [avatarGroups, toast]);
+
+  const handleAiLookGenerate = async () => {
+    setAiLookGenerating(true);
+    try {
+      if (aiLookSource === "existing" && aiLookSelectedGroup) {
+        const res = await apiRequest("POST", `/api/photo-avatars/groups/${aiLookSelectedGroup}/generate-looks`, {
+          prompt: aiLookPrompt.trim() || undefined,
+          orientation: aiLookOrientation,
+          pose: aiLookPose,
+          style: aiLookStyle,
+          numLooks: 4,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          toast({
+            title: "Look Generation Started",
+            description: "Generating 4 AI-enhanced looks. This takes 2-3 minutes.",
+            duration: 8000,
+          });
+          setAiLookDialogOpen(false);
+          setAiLookSelectedGroup("");
+          setAiLookPrompt("");
+          queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+        } else {
+          toast({ title: "Generation Failed", description: data.error || "Could not start look generation", variant: "destructive" });
+        }
+      } else if (aiLookSource === "upload" && aiLookFile) {
+        const formData = new FormData();
+        formData.append("image", aiLookFile);
+        if (aiLookName.trim()) formData.append("name", aiLookName.trim());
+        if (aiLookPrompt.trim()) formData.append("prompt", aiLookPrompt.trim());
+        formData.append("orientation", aiLookOrientation);
+        formData.append("pose", aiLookPose);
+        formData.append("style", aiLookStyle);
+
+        const res = await fetch("/api/photo-avatars/create-with-looks", {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.group_id) {
+          toast({
+            title: "Avatar Processing Started",
+            description: `${data.message || "Training and look generation will complete in ~6-8 minutes."}`,
+            duration: 8000,
+          });
+          setAiLookDialogOpen(false);
+          setAiLookFile(null);
+          setAiLookFilePreview(null);
+          setAiLookName("");
+          setAiLookPrompt("");
+          setAiLookOrientation("square");
+          setAiLookPose("half_body");
+          setAiLookStyle("Realistic");
+          queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+        } else {
+          toast({ title: "Generation Failed", description: data.error || "Could not start avatar generation", variant: "destructive" });
+        }
+      }
+    } catch (error: any) {
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Could not connect to avatar service",
+        variant: "destructive",
+      });
+    } finally {
+      setAiLookGenerating(false);
+    }
+  };
 
   // Generate AI photos
   const generatePhotosMutation = useMutation({
@@ -2409,6 +2494,26 @@ export function PhotoAvatarManager() {
                   </div>
                 )}
 
+                {/* Generate AI Enhanced Look Banner */}
+                <div 
+                  className="mb-6 cursor-pointer"
+                  onClick={() => setAiLookDialogOpen(true)}
+                  data-testid="banner-ai-enhanced-look"
+                >
+                  <div className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] rounded-xl p-4 flex items-center justify-between hover:brightness-110 transition-all shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <Sparkles className="h-6 w-6 text-black" />
+                      <div>
+                        <p className="font-semibold text-black text-base">Generate AI Enhanced Look</p>
+                        <p className="text-black/70 text-sm">2-3 min processing • {avatarGroups.length}/∞ used</p>
+                      </div>
+                    </div>
+                    <div className="text-black">
+                      <ChevronDown className="h-5 w-5 rotate-[-90deg]" />
+                    </div>
+                  </div>
+                </div>
+
                 {Array.isArray(avatarGroups) &&
                   avatarGroups.map((group: AvatarGroup) => (
                     <Card
@@ -2849,6 +2954,202 @@ export function PhotoAvatarManager() {
                   <Wand2 className="w-4 h-4 mr-2" />
                   Generate Outfit
                 </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generate AI Enhanced Look Dialog */}
+      <Dialog open={aiLookDialogOpen} onOpenChange={(open) => {
+        setAiLookDialogOpen(open);
+        if (!open) {
+          setAiLookFile(null);
+          setAiLookFilePreview(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[550px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#D4AF37]" />
+              Generate New Look
+            </DialogTitle>
+            <DialogDescription>
+              Create a new appearance for your selected avatar with different outfits and styles
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded-lg p-3 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-[#D4AF37]" />
+            <span className="text-sm"><strong>Processing time:</strong> 2-3 minutes. You can close this modal and continue working.</span>
+          </div>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="font-semibold">Source</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={aiLookSource === "upload" ? "default" : "outline"}
+                  onClick={() => setAiLookSource("upload")}
+                  className={aiLookSource === "upload" ? "bg-[#D4AF37] hover:bg-[#B8860B] text-black" : ""}
+                  data-testid="button-source-upload"
+                >
+                  Use staged photo
+                </Button>
+                <Button
+                  type="button"
+                  variant={aiLookSource === "existing" ? "default" : "outline"}
+                  onClick={() => setAiLookSource("existing")}
+                  className={aiLookSource === "existing" ? "bg-[#D4AF37] hover:bg-[#B8860B] text-black" : ""}
+                  data-testid="button-source-existing"
+                >
+                  Use existing avatar
+                </Button>
+              </div>
+            </div>
+
+            {aiLookSource === "upload" ? (
+              <div className="space-y-2">
+                <input
+                  type="file"
+                  ref={aiLookFileRef}
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  data-testid="input-ai-look-file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setAiLookFile(file);
+                      const reader = new FileReader();
+                      reader.onload = () => setAiLookFilePreview(reader.result as string);
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+                {aiLookFilePreview ? (
+                  <div className="relative">
+                    <img src={aiLookFilePreview} alt="Preview" className="w-full h-40 object-cover rounded-lg border" />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-2 right-2 h-6 w-6 p-0 bg-black/50 hover:bg-black/70 text-white rounded-full"
+                      onClick={() => { setAiLookFile(null); setAiLookFilePreview(null); }}
+                      data-testid="button-remove-ai-look-file"
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center cursor-pointer hover:border-[#D4AF37] transition-colors"
+                    onClick={() => aiLookFileRef.current?.click()}
+                    data-testid="dropzone-ai-look"
+                  >
+                    <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                    <p className="text-sm text-muted-foreground">Click to upload a photo</p>
+                    <p className="text-xs text-muted-foreground mt-1">JPEG, PNG, WebP • Max 50MB</p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">Using your latest staged photo by default.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Select Avatar Group</Label>
+                <Select value={aiLookSelectedGroup} onValueChange={setAiLookSelectedGroup}>
+                  <SelectTrigger data-testid="select-ai-look-group">
+                    <SelectValue placeholder="Choose an avatar..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {avatarGroups.map((group: AvatarGroup) => (
+                      <SelectItem key={group.group_id} value={group.group_id}>
+                        {group.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Describe the Look</Label>
+              <Input
+                placeholder="e.g., White shirt front-facing, Professional attire, Casual outfit"
+                value={aiLookPrompt}
+                onChange={(e) => setAiLookPrompt(e.target.value)}
+                data-testid="input-ai-look-prompt"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Orientation</Label>
+              <Select value={aiLookOrientation} onValueChange={(v: any) => setAiLookOrientation(v)}>
+                <SelectTrigger data-testid="select-ai-look-orientation">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="square">Square</SelectItem>
+                  <SelectItem value="horizontal">Horizontal</SelectItem>
+                  <SelectItem value="vertical">Vertical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Pose</Label>
+              <Select value={aiLookPose} onValueChange={(v: any) => setAiLookPose(v)}>
+                <SelectTrigger data-testid="select-ai-look-pose">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="half_body">Half Body</SelectItem>
+                  <SelectItem value="close_up">Close Up</SelectItem>
+                  <SelectItem value="full_body">Full Body</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="font-semibold">Style</Label>
+              <Select value={aiLookStyle} onValueChange={setAiLookStyle}>
+                <SelectTrigger data-testid="select-ai-look-style">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Realistic">Realistic</SelectItem>
+                  <SelectItem value="Cinematic">Cinematic</SelectItem>
+                  <SelectItem value="Pixar">Pixar</SelectItem>
+                  <SelectItem value="Vintage">Vintage</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAiLookDialogOpen(false);
+                setAiLookFile(null);
+                setAiLookFilePreview(null);
+              }}
+              data-testid="button-cancel-ai-look"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAiLookGenerate}
+              disabled={aiLookGenerating || (aiLookSource === "upload" && !aiLookFile) || (aiLookSource === "existing" && !aiLookSelectedGroup)}
+              className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 text-black"
+              data-testid="button-ok-ai-look"
+            >
+              {aiLookGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "OK"
               )}
             </Button>
           </div>

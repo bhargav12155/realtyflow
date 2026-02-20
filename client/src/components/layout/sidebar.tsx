@@ -81,13 +81,6 @@ const navigationItems = [
         isPageLink: true,
       },
       {
-        icon: Video,
-        label: "Video Avatars",
-        href: "/dashboard#video-avatars",
-        key: "video-avatars",
-        isPageLink: true,
-      },
-      {
         icon: Sparkles,
         label: "Template Studio",
         href: "/templates",

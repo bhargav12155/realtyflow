@@ -1,0 +1,424 @@
+# Automated Workflow APIs
+
+## API 1: Create Avatar with Looks
+
+**Endpoint:** `POST /api/photo-avatars/create-with-looks`
+
+Upload an image and automatically get a trained avatar with 4 professional looks.
+
+### Request
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/create-with-looks \
+  --form 'image=@/path/to/photo.jpg' \
+  --form 'name=John Doe' \
+  --form 'prompt=professional business attire, confident smile' \
+  --form 'orientation=square' \
+  --form 'pose=half_body' \
+  --form 'style=Realistic'
+```
+
+### Parameters
+
+- `image` (required): Image file (JPEG, PNG, WebP)
+- `name` (optional): Avatar name (default: "Avatar {timestamp}")
+- `prompt` (optional): Base look description. If omitted, the server will use safe default prompts for the 4 generated looks.
+- `orientation` (optional): "square", "horizontal", or "vertical" (default: "square")
+- `pose` (optional): "half_body", "close_up", or "full_body" (default: "half_body")
+- `style` (optional): "Realistic", "Pixar", "Cinematic", etc. (default: "Realistic")
+
+### Response (Immediate)
+
+**The API returns immediately** - processing happens in background.
+
+```json
+{
+  "success": true,
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "avatar_name": "John Doe",
+  "status": "processing",
+  "message": "Avatar created. Training and look generation will complete in ~6-8 minutes.",
+  "check_status_url": "/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333",
+  "estimated_completion": "2025-12-12T23:05:00.000Z"
+}
+```
+
+### Notes on Look Generation
+
+Internally, this workflow calls HeyGen's look generation API:
+
+- `POST https://api.heygen.com/v2/photo_avatar/look/generate`
+- HeyGen requires both `group_id` and `prompt` for each look generation request.
+
+If you want to call HeyGen directly (for debugging), the minimal valid payload looks like:
+
+```bash
+curl --request POST \
+  --url https://api.heygen.com/v2/photo_avatar/look/generate \
+  --header 'accept: application/json' \
+  --header 'content-type: application/json' \
+  --header 'x-api-key: <your-api-key>' \
+  --data '{
+    "group_id": "<avatar-group-id>",
+    "prompt": "Professional headshot, studio lighting, business attire, clean background",
+    "orientation": "square",
+    "pose": "half_body",
+    "style": "Realistic"
+  }'
+```
+
+### Timeline
+
+- **API returns immediately** (~2 seconds)
+- Background processing:
+  - Image processing: 30 seconds
+  - Training: 2-5 minutes
+  - Look generation: 1-2 minutes
+
+**Total background time:** ~6-8 minutes
+
+### Polling for Completion
+
+```bash
+# Poll every 30 seconds
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333
+
+# When workflow_status.percent_complete reaches 100%, all looks are ready
+```
+
+---
+
+## API 2: Generate Video from Image
+
+**Endpoint:** `POST /api/photo-avatars/generate-video-from-image`
+
+Upload an image, provide a script, and get a complete video link.
+
+### Request
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/generate-video-from-image \
+  --form 'image=@/path/to/photo.jpg' \
+  --form 'name=Sarah Johnson' \
+  --form 'script=Welcome to our company! We are excited to help you find your dream home.' \
+  --form 'voice_id=1c7c897eeb2d4b5fb17d3c6c70250b24'
+```
+
+### Parameters
+
+- `image` (required): Image file (JPEG, PNG, WebP)
+- `script` (required): Text for the avatar to speak
+- `name` (optional): Avatar name (default: "Video Avatar {timestamp}")
+- `voice_id` (optional): HeyGen voice ID (default: professional female voice)
+
+### Response (Immediate)
+
+**The API returns immediately** - video generation happens in background.
+
+```json
+{
+  "success": true,
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "status": "processing",
+  "message": "Avatar created. Video will be ready in ~8-13 minutes.",
+  "check_status_url": "/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333",
+  "estimated_completion": "2025-12-12T23:10:00.000Z"
+}
+```
+
+### Check Video Status
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+### Video Ready Response
+
+```json
+{
+  "status": "completed",
+  "video_url": "https://heygen.ai/videos/abc123.mp4",
+  "duration": 15.5,
+  "thumbnail_url": "https://heygen.ai/thumbnails/abc123.jpg"
+}
+```
+
+### Timeline
+
+- **API returns immediately** (~2 seconds)
+- Background processing:
+  - Image processing: 30 seconds
+  - Training: 2-5 minutes
+  - Motion processing: 30 seconds
+  - Video generation: 2-5 minutes
+
+**Total background time:** ~8-13 minutes
+
+### Polling for Video
+
+First check the avatar training status, then check video status once training is complete:
+
+```bash
+# Step 1: Check avatar training status
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333
+
+# When workflow_status.percent_complete reaches 100%, video should be generating
+
+# Step 2: Get video_id from the avatar's video history and check video status
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos
+
+# Find your video and check its status
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/video-status/{video_id}
+```
+
+---
+
+## API 3: Check Avatar Workflow Status
+
+**Endpoint:** `GET /api/photo-avatars/status/:groupId`
+
+Check the complete status of avatar training, looks, and motion.
+
+### Request
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333
+```
+
+### Response
+
+```json
+{
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "training": {
+    "status": "ready",
+    "error": null,
+    "is_complete": true,
+    "is_processing": false,
+    "is_failed": false
+  },
+  "avatar": {
+    "name": "John Doe",
+    "status": "completed",
+    "created_at": 1765060920.816059
+  },
+  "motion": {
+    "enabled": true,
+    "preview_url": "https://heygen.ai/motion/preview.mp4"
+  },
+  "looks": {
+    "count": 4,
+    "list": [
+      {
+        "id": "abc123",
+        "name": "Professional Look 1",
+        "image_url": "https://heygen.ai/looks/1.jpg",
+        "status": "completed"
+      },
+      {
+        "id": "def456",
+        "name": "Casual Look 2",
+        "image_url": "https://heygen.ai/looks/2.jpg",
+        "status": "completed"
+      }
+    ]
+  },
+  "workflow_status": {
+    "ready_for_video": true,
+    "ready_for_looks": true,
+    "ready_for_motion": true,
+    "percent_complete": 100
+  }
+}
+```
+
+### Status Codes
+
+- **Training status:** `pending`, `processing`, `ready`, `failed`
+- **Avatar status:** `pending`, `completed`
+- **Workflow percent:** 0-100%
+  - 0-40%: Training
+  - 40-70%: Looks generation
+  - 70-100%: Motion enabled
+
+---
+
+## API 4: Check Video Generation Status
+
+**Endpoint:** `GET /api/photo-avatars/video-status/:videoId`
+
+Check if a video is ready and get the download URL.
+
+### Request
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/video-status/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+### Response (Processing)
+
+```json
+{
+  "video_id": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "status": "processing",
+  "is_complete": false,
+  "is_processing": true,
+  "is_failed": false,
+  "video_url": null,
+  "thumbnail_url": null,
+  "duration": null,
+  "error": null,
+  "percent_complete": 50
+}
+```
+
+### Response (Completed)
+
+```json
+{
+  "video_id": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "status": "completed",
+  "is_complete": true,
+  "is_processing": false,
+  "is_failed": false,
+  "video_url": "https://heygen.ai/videos/abc123.mp4",
+  "thumbnail_url": "https://heygen.ai/thumbnails/abc123.jpg",
+  "duration": 15.5,
+  "error": null,
+  "percent_complete": 100
+}
+```
+
+---
+
+## Production URLs
+
+Replace `localhost:3001` with your production domain:
+
+### Elastic Beanstalk
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/create-with-looks \
+  --form 'image=@/path/to/photo.jpg'
+```
+
+### Custom Domain (if configured)
+
+```bash
+curl --request POST \
+  --url https://api.imakevideo.com/api/photo-avatars/create-with-looks \
+  --form 'image=@/path/to/photo.jpg'
+```
+
+---
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Image file is required"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "email_not_verified",
+  "message": "Please verify your email address..."
+}
+```
+
+### 500 Server Error
+
+```json
+{
+  "error": "Training timeout - avatar not ready after 5 minutes"
+}
+```
+
+---
+
+## Notes
+
+1. **Authentication:** Currently DISABLED for external API access (no auth required)
+2. **File size limit:** 50MB max
+3. **Supported formats:** JPEG, PNG, WebP, GIF
+4. **Background processing:** Both APIs return immediately with a `group_id` - all processing happens asynchronously
+5. **Polling recommended:** Check status every 30 seconds using the provided `check_status_url`
+6. **Concurrent requests:** Safe to make multiple requests - each gets a unique `group_id`
+7. **No timeouts:** The API returns quickly, background processing can take 6-13 minutes
+
+---
+
+## Common Voice IDs
+
+```
+92c93dc0dff2428ab0bea258ba68f173 - Professional Male - Confident
+f577da968446491289b53bceb77e5092 - Professional Male - Warm
+73c0b6a2e29d4d38aca41454bf58c955 - Professional Female - Clear
+1c7c897eeb2d4b5fb17d3c6c70250b24 - Professional Female - Friendly (default)
+119caed25533477ba63822d5d1552d25 - Neutral - Balanced
+```
+
+---
+
+## Complete Workflow Example
+
+### Scenario 1: Avatar with Looks Only
+
+```bash
+# Step 1: Create avatar with looks (returns immediately)
+curl -X POST http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/create-with-looks \
+  -F "image=@photo.jpg" \
+  -F "name=John Smith"
+
+# Response (immediate, ~2 seconds):
+# {"group_id": "abc123", "status": "processing", "estimated_completion": "2025-12-12T23:05:00Z"}
+
+# Step 2: Poll status every 30 seconds
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/abc123
+
+# Response while processing:
+# {"workflow_status": {"percent_complete": 45, "ready_for_looks": false}}
+
+# Response when complete (after ~6-8 minutes):
+# {"workflow_status": {"percent_complete": 100, "ready_for_looks": true}, "looks": {"count": 4, ...}}
+```
+
+### Scenario 2: Direct Video Generation
+
+```bash
+# Step 1: Generate video from image (returns immediately)
+curl -X POST http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/generate-video-from-image \
+  -F "image=@photo.jpg" \
+  -F "script=Welcome to our platform!" \
+  -F "name=Sarah"
+
+# Response (immediate, ~2 seconds):
+# {"group_id": "xyz789", "status": "processing", "estimated_completion": "2025-12-12T23:10:00Z"}
+
+# Step 2: Poll avatar status every 30 seconds
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/xyz789
+
+# Step 3: Once avatar is ready, check for videos
+# The video_id will be available in your video list after ~8-13 minutes
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos
+
+# Step 4: Check specific video status
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/video-status/{video_id}
+
+# When is_complete: true, download from video_url
+```

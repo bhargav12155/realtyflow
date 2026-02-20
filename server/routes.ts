@@ -12122,6 +12122,63 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     }
   );
 
+  // Generate video from image - Proxies to external service
+  app.post(
+    "/api/photo-avatars/generate-video-from-image",
+    requireAuth,
+    upload.single("image"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ error: "No image uploaded" });
+        }
+
+        console.log("🎬 Proxying generate-video-from-image to external service");
+
+        const fileBuffer = fs.readFileSync(req.file.path);
+        fs.unlinkSync(req.file.path);
+
+        const formData = new FormData();
+        const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+        formData.append("image", blob, req.file.originalname);
+
+        if (req.body.script) formData.append("script", req.body.script);
+        if (req.body.name) formData.append("name", req.body.name);
+        if (req.body.voice_id) formData.append("voice_id", req.body.voice_id);
+
+        const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
+        console.log("📤 Forwarding to:", externalServiceUrl);
+
+        const response = await fetch(`${externalServiceUrl}/api/photo-avatars/generate-video-from-image`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("❌ External service error:", response.status, errorText);
+          return res.status(response.status).json({
+            error: "External service error",
+            details: errorText,
+          });
+        }
+
+        const data = await response.json();
+        console.log("✅ Video generation started via external service:", data.group_id);
+        res.json(data);
+      } catch (error: any) {
+        console.error("❌ Failed to proxy generate-video-from-image:", error);
+        if (req.file?.path && fs.existsSync(req.file.path)) {
+          fs.unlinkSync(req.file.path);
+        }
+        res.status(500).json({
+          error: "Failed to generate video from image",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
   // Get avatar group workflow status (for polling) - Proxies to external service on port 3001
   app.get("/api/photo-avatars/status/:groupId", requireAuth, async (req, res) => {
     try {

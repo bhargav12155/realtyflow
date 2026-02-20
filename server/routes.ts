@@ -11,6 +11,7 @@ import {
   tutorialVideos,
   updateScheduledPostSchema,
   userPreferences,
+  lookGenerationJobs,
   videoContent,
   whatsappSettings as whatsappSettingsTable,
 } from "@shared/schema";
@@ -9858,6 +9859,37 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       } catch (error) {
         console.error("Failed to get all looks:", error);
         res.status(500).json({ error: "Failed to get all looks" });
+      }
+    }
+  );
+
+  // Delete a generated look
+  app.delete(
+    "/api/photo-avatars/looks/:lookId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+        const { lookId } = req.params;
+        const result = await db
+          .delete(lookGenerationJobs)
+          .where(
+            and(
+              eq(lookGenerationJobs.id, lookId),
+              eq(lookGenerationJobs.userId, userId)
+            )
+          )
+          .returning();
+        if (result.length === 0) {
+          return res.status(404).json({ error: "Look not found" });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Failed to delete look:", error);
+        res.status(500).json({ error: "Failed to delete look" });
       }
     }
   );

@@ -743,6 +743,20 @@ export function AvatarIVStudio() {
     },
   });
 
+  const deleteLookMutation = useMutation({
+    mutationFn: async (lookId: string) => {
+      await apiRequest("DELETE", `/api/photo-avatars/looks/${lookId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/all-looks"] });
+      setPreviewLook(null);
+      toast({ title: "Look deleted", description: "Generated look removed successfully." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Delete failed", description: error.message || "Could not delete look", variant: "destructive" });
+    },
+  });
+
   const createGroupMutation = useMutation({
     mutationFn: async (photoId: string) => {
       const response = await apiRequest("POST", `/api/avatar-iv/photos/${photoId}/create-group`);
@@ -1973,23 +1987,39 @@ export function AvatarIVStudio() {
                     </Badge>
                   )}
                 </div>
-                {previewLook.photoUrl && (
+                <div className="flex items-center gap-2">
                   <Button
-                    variant="outline"
+                    variant="destructive"
                     size="sm"
                     onClick={() => {
-                      const a = document.createElement("a");
-                      a.href = previewLook.photoUrl;
-                      a.target = "_blank";
-                      a.rel = "noopener noreferrer";
-                      a.click();
+                      if (confirm("Are you sure you want to delete this generated look?")) {
+                        deleteLookMutation.mutate(previewLook.id);
+                      }
                     }}
-                    data-testid="button-open-full-size"
+                    disabled={deleteLookMutation.isPending}
+                    data-testid="button-delete-look"
                   >
-                    <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                    Full Size
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    {deleteLookMutation.isPending ? "Deleting..." : "Delete"}
                   </Button>
-                )}
+                  {previewLook.photoUrl && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const a = document.createElement("a");
+                        a.href = previewLook.photoUrl;
+                        a.target = "_blank";
+                        a.rel = "noopener noreferrer";
+                        a.click();
+                      }}
+                      data-testid="button-open-full-size"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                      Full Size
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           </DialogContent>

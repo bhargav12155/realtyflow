@@ -9843,6 +9843,25 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     }
   );
 
+  // Get all avatar looks across all groups for the current user
+  app.get(
+    "/api/photo-avatars/all-looks",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+        const looks = await storage.listPhotoAvatarsByUser(userId);
+        res.json({ looks, count: looks.length });
+      } catch (error) {
+        console.error("Failed to get all looks:", error);
+        res.status(500).json({ error: "Failed to get all looks" });
+      }
+    }
+  );
+
   // Get avatar group photos (generated images) (WITH OWNERSHIP CHECK)
   app.get(
     "/api/photo-avatars/groups/:groupId/photos",

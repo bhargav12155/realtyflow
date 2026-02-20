@@ -251,6 +251,7 @@ export interface IStorage {
   // Individual Photo Avatars (training photos within groups)
   createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar>;
   listPhotoAvatarsByGroup(groupId: string): Promise<PhotoAvatar[]>;
+  listPhotoAvatarsByUser(userId: string): Promise<(PhotoAvatar & { groupName: string })[]>;
   
   // Avatar Looks (trained avatars from HeyGen - uses avatars table)
   getPhotoAvatarByHeygenIdAndUser(
@@ -1633,6 +1634,25 @@ export class MemStorage implements IStorage {
       .select()
       .from(photoAvatars)
       .where(eq(photoAvatars.groupId, groupId));
+  }
+
+  async listPhotoAvatarsByUser(userId: string): Promise<(PhotoAvatar & { groupName: string })[]> {
+    const results = await db
+      .select({
+        id: photoAvatars.id,
+        groupId: photoAvatars.groupId,
+        photoUrl: photoAvatars.photoUrl,
+        heygenPhotoId: photoAvatars.heygenPhotoId,
+        poseType: photoAvatars.poseType,
+        processingStatus: photoAvatars.processingStatus,
+        createdAt: photoAvatars.createdAt,
+        groupName: photoAvatarGroups.groupName,
+      })
+      .from(photoAvatars)
+      .innerJoin(photoAvatarGroups, eq(photoAvatars.groupId, photoAvatarGroups.heygenGroupId))
+      .where(eq(photoAvatarGroups.userId, userId))
+      .orderBy(photoAvatars.createdAt);
+    return results as (PhotoAvatar & { groupName: string })[];
   }
 
   async getPhotoAvatarByHeygenIdAndUser(

@@ -243,6 +243,7 @@ export function AvatarIVStudio() {
   const [changeStyleDialogOpen, setChangeStyleDialogOpen] = useState(false);
   const [changeStylePrompt, setChangeStylePrompt] = useState("");
   const [selectedPhotoForStyle, setSelectedPhotoForStyle] = useState<PhotoAsset | null>(null);
+  const [autoStyleGenerating, setAutoStyleGenerating] = useState(false);
 
   // Multi-upload state
   const [multiUploadProgress, setMultiUploadProgress] = useState<{ current: number; total: number } | null>(null);
@@ -1903,83 +1904,44 @@ export function AvatarIVStudio() {
                 </div>
               </div>
             )}
-            {!selectedPhotoForStyle?.metadata?.groupId ? (
-              <div className="text-center py-4 border rounded-lg bg-amber-50 border-amber-200 space-y-2">
-                <p className="text-sm text-amber-800 font-medium mb-1">Style changes not yet available</p>
-                <p className="text-xs text-amber-600">
-                  This photo needs to be prepared for style changes.
-                </p>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (selectedPhotoForStyle?.id) {
-                      createGroupMutation.mutate(selectedPhotoForStyle.id);
-                    }
-                  }}
-                  disabled={createGroupMutation.isPending}
-                  className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
-                  data-testid="button-prepare-style"
-                >
-                  {createGroupMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Preparing...
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 className="w-4 h-4 mr-2" />
-                      Prepare for Style Changes
-                    </>
-                  )}
-                </Button>
-                {createGroupMutation.isPending && (
-                  <p className="text-xs text-amber-600 italic">
-                    Preparing your avatar for style changes... This may take a minute.
-                  </p>
-                )}
+            <div className="space-y-2">
+              <Label>Quick Outfit Presets</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {OUTFIT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setChangeStylePrompt(preset.prompt)}
+                    className={`p-2 rounded-lg border text-left transition-all hover:border-[#D4AF37] hover:bg-[#D4AF37]/5 ${
+                      changeStylePrompt === preset.prompt ? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-200 dark:border-gray-700'
+                    }`}
+                    data-testid={`button-style-preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <span className="text-lg">{preset.icon}</span>
+                    <p className="text-xs font-medium mt-1">{preset.label}</p>
+                  </button>
+                ))}
               </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label>Quick Outfit Presets</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {OUTFIT_PRESETS.map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => setChangeStylePrompt(preset.prompt)}
-                        className={`p-2 rounded-lg border text-left transition-all hover:border-[#D4AF37] hover:bg-[#D4AF37]/5 ${
-                          changeStylePrompt === preset.prompt ? 'border-[#D4AF37] bg-[#D4AF37]/10' : 'border-gray-200 dark:border-gray-700'
-                        }`}
-                        data-testid={`button-style-preset-${preset.label.toLowerCase().replace(/\s+/g, '-')}`}
-                      >
-                        <span className="text-lg">{preset.icon}</span>
-                        <p className="text-xs font-medium mt-1">{preset.label}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            </div>
 
-                <div className="flex items-center gap-2 my-2">
-                  <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
-                  <span className="text-xs text-gray-400">or describe your own</span>
-                  <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
-                </div>
+            <div className="flex items-center gap-2 my-2">
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+              <span className="text-xs text-gray-400">or describe your own</span>
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700" />
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="style-prompt">Describe the outfit</Label>
-                  <Textarea
-                    id="style-prompt"
-                    placeholder="e.g., navy blazer with white shirt, or casual polo with khakis..."
-                    value={changeStylePrompt}
-                    onChange={(e) => setChangeStylePrompt(e.target.value)}
-                    rows={3}
-                    className="resize-none"
-                    data-testid="textarea-style-prompt"
-                  />
-                </div>
-              </>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="style-prompt">Describe the outfit</Label>
+              <Textarea
+                id="style-prompt"
+                placeholder="e.g., navy blazer with white shirt, or casual polo with khakis..."
+                value={changeStylePrompt}
+                onChange={(e) => setChangeStylePrompt(e.target.value)}
+                rows={3}
+                className="resize-none"
+                data-testid="textarea-style-prompt"
+              />
+            </div>
           </div>
 
           <div className="flex justify-end gap-2">
@@ -1994,34 +1956,68 @@ export function AvatarIVStudio() {
             >
               Cancel
             </Button>
-            {selectedPhotoForStyle?.metadata?.groupId && (
-              <Button
-                onClick={() => {
-                  const groupId = selectedPhotoForStyle?.metadata?.groupId;
-                  if (groupId && changeStylePrompt.trim()) {
-                    changeStyleMutation.mutate({
-                      groupId,
-                      prompt: changeStylePrompt.trim(),
+            <Button
+              onClick={async () => {
+                const groupId = selectedPhotoForStyle?.metadata?.groupId;
+                if (groupId && changeStylePrompt.trim()) {
+                  changeStyleMutation.mutate({
+                    groupId,
+                    prompt: changeStylePrompt.trim(),
+                  });
+                } else if (selectedPhotoForStyle?.url && changeStylePrompt.trim()) {
+                  setAutoStyleGenerating(true);
+                  try {
+                    const imageRes = await fetch(selectedPhotoForStyle.url);
+                    const imageBlob = await imageRes.blob();
+                    const formData = new FormData();
+                    formData.append("image", imageBlob, selectedPhotoForStyle.title || "photo.jpg");
+                    formData.append("prompt", changeStylePrompt.trim());
+                    formData.append("name", selectedPhotoForStyle.title || "Avatar");
+                    formData.append("orientation", "square");
+                    formData.append("pose", "half_body");
+                    formData.append("style", "Realistic");
+                    const res = await fetch("/api/photo-avatars/create-with-looks", {
+                      method: "POST",
+                      credentials: "include",
+                      body: formData,
                     });
+                    const data = await res.json();
+                    if (res.ok && data.group_id) {
+                      toast({
+                        title: "Style Generation Started",
+                        description: "Training and generating 4 looks in the background. This takes 6-8 minutes.",
+                        duration: 8000,
+                      });
+                      setChangeStyleDialogOpen(false);
+                      setChangeStylePrompt("");
+                      setSelectedPhotoForStyle(null);
+                      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+                    } else {
+                      toast({ title: "Generation Failed", description: data.error || "Could not start style generation", variant: "destructive" });
+                    }
+                  } catch (error: any) {
+                    toast({ title: "Generation Failed", description: error.message || "Could not connect to avatar service", variant: "destructive" });
+                  } finally {
+                    setAutoStyleGenerating(false);
                   }
-                }}
-                disabled={!selectedPhotoForStyle?.metadata?.groupId || !changeStylePrompt.trim() || changeStyleMutation.isPending}
-                className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
-                data-testid="button-generate-style"
-              >
-                {changeStyleMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="w-4 h-4 mr-2" />
-                    Generate Outfit
-                  </>
-                )}
-              </Button>
-            )}
+                }
+              }}
+              disabled={!changeStylePrompt.trim() || changeStyleMutation.isPending || autoStyleGenerating}
+              className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
+              data-testid="button-generate-style"
+            >
+              {changeStyleMutation.isPending || autoStyleGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  Generate Outfit
+                </>
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

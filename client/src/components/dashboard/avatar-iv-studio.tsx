@@ -312,6 +312,11 @@ export function AvatarIVStudio() {
     queryKey: ["/api/avatar-iv/voices"],
   });
 
+  const { data: allLooksResponse, isLoading: isLoadingAllLooks } = useQuery({
+    queryKey: ["/api/photo-avatars/all-looks"],
+  });
+  const allLooks = allLooksResponse?.looks || [];
+
   const voices = voicesData?.voices || FALLBACK_VOICES;
 
   
@@ -2016,6 +2021,64 @@ export function AvatarIVStudio() {
         </DialogContent>
       </Dialog>
       </Card>
+
+      {allLooks.length > 0 && (
+        <Card data-testid="card-generated-looks">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Image className="w-5 h-5 text-[#D4AF37]" />
+              Generated Looks
+            </CardTitle>
+            <CardDescription>
+              All AI-generated avatar looks across your groups
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAllLooks ? (
+              <div className="text-center py-8">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto" />
+                <p className="text-sm text-gray-500 mt-2">Loading looks...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {allLooks.map((look: any) => (
+                  <div
+                    key={look.id}
+                    className="group relative rounded-lg overflow-hidden border border-gray-200 hover:border-[#D4AF37] transition-colors"
+                    data-testid={`card-look-${look.id}`}
+                  >
+                    <div className="aspect-square bg-gray-100">
+                      <img
+                        src={look.photoUrl}
+                        alt={look.poseType || "Avatar look"}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
+                    <div className="p-2">
+                      <p className="text-xs font-medium text-gray-800 truncate">
+                        {look.poseType || "Look"}
+                      </p>
+                      <p className="text-[10px] text-gray-500 truncate">
+                        {look.groupName || look.groupId}
+                      </p>
+                      {look.processingStatus && (
+                        <Badge
+                          variant={look.processingStatus === "completed" ? "default" : "secondary"}
+                          className="mt-1 text-[10px] px-1 py-0"
+                          data-testid={`badge-status-${look.id}`}
+                        >
+                          {look.processingStatus}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

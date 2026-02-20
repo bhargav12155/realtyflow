@@ -1288,12 +1288,22 @@ export function AvatarIVStudio() {
                     </div>
                   )}
 
-                  {allLooks.length > 0 && (
-                    <div className="mt-6 pt-4 border-t border-gray-200">
-                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
-                        <Sparkles className="w-4 h-4 text-[#D4AF37]" />
-                        AI Generated Looks ({allLooks.length})
-                      </h4>
+                  <div className="mt-6 pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
+                      <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                      AI Generated Looks {allLooks.length > 0 && `(${allLooks.length})`}
+                    </h4>
+                    {isLoadingAllLooks ? (
+                      <div className="flex justify-center py-6">
+                        <Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />
+                      </div>
+                    ) : allLooks.length === 0 ? (
+                      <div className="text-center py-6 border-2 border-dashed rounded-xl">
+                        <Sparkles className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                        <p className="text-gray-500 text-sm mb-1">No AI-generated looks yet</p>
+                        <p className="text-gray-400 text-xs">Use "Change Style" on a photo above to generate new AI looks</p>
+                      </div>
+                    ) : (
                       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                         {allLooks.map((look: any) => (
                           <div
@@ -1324,8 +1334,8 @@ export function AvatarIVStudio() {
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">

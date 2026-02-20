@@ -12078,12 +12078,12 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const fileBuffer = fs.readFileSync(req.file.path);
         fs.unlinkSync(req.file.path);
 
-        // Step 1: Upload image to external service
+        // Step 1: Upload image to external service (kind must be "image" not "photo")
         console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
         const uploadFormData = new FormData();
         const blob = new Blob([fileBuffer], { type: req.file.mimetype });
         uploadFormData.append("file", blob, req.file.originalname);
-        uploadFormData.append("kind", "photo");
+        uploadFormData.append("kind", "image");
 
         const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
           method: "POST",
@@ -12100,7 +12100,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         }
 
         const uploadData = await uploadResponse.json();
-        const imageKey = uploadData.image_key || uploadData.asset_key || uploadData.key;
+        console.log("📦 [PROXY] Upload response:", JSON.stringify(uploadData));
+        const imageKey = uploadData.image_key || uploadData.asset_id || uploadData.key;
         console.log("✅ [PROXY] Step 1 complete: image_key =", imageKey);
 
         if (!imageKey) {
@@ -12277,7 +12278,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const uploadFormData = new FormData();
         const blob = new Blob([fileBuffer], { type: req.file.mimetype });
         uploadFormData.append("file", blob, req.file.originalname);
-        uploadFormData.append("kind", "photo");
+        uploadFormData.append("kind", "image");
 
         const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
           method: "POST",
@@ -12294,7 +12295,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         }
 
         const uploadData = await uploadResponse.json();
-        const imageKey = uploadData.image_key || uploadData.asset_key || uploadData.key;
+        console.log("📦 [PROXY] Upload response:", JSON.stringify(uploadData));
+        const imageKey = uploadData.image_key || uploadData.asset_id || uploadData.key;
         console.log("✅ [PROXY] Image uploaded, image_key =", imageKey);
 
         // Step 2: Create avatar group

@@ -251,7 +251,7 @@ export interface IStorage {
   // Individual Photo Avatars (training photos within groups)
   createPhotoAvatar(avatar: InsertPhotoAvatar): Promise<PhotoAvatar>;
   listPhotoAvatarsByGroup(groupId: string): Promise<PhotoAvatar[]>;
-  listPhotoAvatarsByUser(userId: string): Promise<(PhotoAvatar & { groupName: string })[]>;
+  listPhotoAvatarsByUser(userId: string): Promise<any[]>;
   
   // Avatar Looks (trained avatars from HeyGen - uses avatars table)
   getPhotoAvatarByHeygenIdAndUser(
@@ -1636,23 +1636,24 @@ export class MemStorage implements IStorage {
       .where(eq(photoAvatars.groupId, groupId));
   }
 
-  async listPhotoAvatarsByUser(userId: string): Promise<(PhotoAvatar & { groupName: string })[]> {
+  async listPhotoAvatarsByUser(userId: string): Promise<any[]> {
     const results = await db
       .select({
-        id: photoAvatars.id,
-        groupId: photoAvatars.groupId,
-        photoUrl: photoAvatars.photoUrl,
-        heygenPhotoId: photoAvatars.heygenPhotoId,
-        poseType: photoAvatars.poseType,
-        processingStatus: photoAvatars.processingStatus,
-        createdAt: photoAvatars.createdAt,
+        id: lookGenerationJobs.id,
+        groupId: lookGenerationJobs.groupId,
+        photoUrl: lookGenerationJobs.resultImageUrl,
+        lookLabel: lookGenerationJobs.lookLabel,
+        lookName: lookGenerationJobs.lookName,
+        prompt: lookGenerationJobs.prompt,
+        status: lookGenerationJobs.status,
+        createdAt: lookGenerationJobs.createdAt,
         groupName: photoAvatarGroups.groupName,
       })
-      .from(photoAvatars)
-      .innerJoin(photoAvatarGroups, eq(photoAvatars.groupId, photoAvatarGroups.heygenGroupId))
-      .where(eq(photoAvatarGroups.userId, userId))
-      .orderBy(photoAvatars.createdAt);
-    return results as (PhotoAvatar & { groupName: string })[];
+      .from(lookGenerationJobs)
+      .leftJoin(photoAvatarGroups, eq(lookGenerationJobs.groupId, photoAvatarGroups.heygenGroupId))
+      .where(eq(lookGenerationJobs.userId, userId))
+      .orderBy(lookGenerationJobs.createdAt);
+    return results;
   }
 
   async getPhotoAvatarByHeygenIdAndUser(

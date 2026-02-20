@@ -1311,15 +1311,21 @@ export function AvatarIVStudio() {
                             className="relative rounded-lg overflow-hidden border-2 border-gray-200 hover:border-[#D4AF37] transition-all hover:shadow-lg cursor-pointer"
                             data-testid={`card-look-${look.id}`}
                           >
-                            <img
-                              src={look.photoUrl}
-                              alt={look.poseType || "Avatar look"}
-                              className="w-full aspect-square object-cover"
-                              loading="lazy"
-                            />
+                            {look.photoUrl ? (
+                              <img
+                                src={look.photoUrl}
+                                alt={look.lookName || "Avatar look"}
+                                className="w-full aspect-square object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                              </div>
+                            )}
                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
                               <p className="text-[10px] font-medium text-white truncate">
-                                {look.poseType || "Look"}
+                                {look.lookName || look.lookLabel || "Look"}
                               </p>
                               <p className="text-[9px] text-white/70 truncate">
                                 {look.groupName || ""}

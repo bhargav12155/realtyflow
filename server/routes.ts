@@ -12256,11 +12256,12 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             console.log(`✅ [PROXY BG] Training complete for group ${groupId}. Generating 4 looks...`);
 
             // Step 5: Generate 4 looks with different prompts
+            const facePreservation = "maintain the exact same face, facial features, and likeness of the person";
             const lookPrompts = [
-              { prompt: backgroundPrompt || "Professional executive in a navy business suit, confident and approachable", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
-              { prompt: "Friendly real estate agent in smart casual blazer, warm and welcoming smile", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
-              { prompt: "Outdoor property tour guide in clean casual attire, natural setting", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
-              { prompt: "Modern professional in contemporary business wear, sleek and polished", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: backgroundPrompt ? `${backgroundPrompt}, ${facePreservation}` : `Professional executive in a navy business suit, confident and approachable, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: `Friendly real estate agent in smart casual blazer, warm and welcoming smile, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: `Outdoor property tour guide in clean casual attire, natural setting, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: `Modern professional in contemporary business wear, sleek and polished, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
             ];
 
             for (let i = 0; i < lookPrompts.length; i++) {
@@ -12526,15 +12527,62 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log(`🎨 [PROXY] Generating look for group ${groupId} via external service`);
         console.log(`🎨 [PROXY] Prompt: "${prompt}", orientation: ${orientation}, pose: ${pose}, style: ${style}`);
 
+        // Verify training is complete before generating looks
+        console.log(`📊 [PROXY] Checking training status before generating looks for group ${groupId}`);
+        let trained = false;
+        let pollAttempts = 0;
+        const maxPollAttempts = 90; // 15 minutes max (90 * 10s)
+
+        while (!trained && pollAttempts < maxPollAttempts) {
+          try {
+            const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json();
+              console.log(`📊 [PROXY] Training status for ${groupId} (attempt ${pollAttempts + 1}):`, statusData.status, "trained:", statusData.trained);
+              if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
+                trained = true;
+                break;
+              }
+              if (statusData.status === "failed" || statusData.status === "error") {
+                console.error(`❌ [PROXY] Training failed for group ${groupId}:`, statusData.status);
+                return res.status(400).json({
+                  error: "Training failed for this avatar group",
+                  details: `Training status: ${statusData.status}`,
+                });
+              }
+            }
+          } catch (pollError) {
+            console.error(`⚠️ [PROXY] Poll error for ${groupId}:`, pollError);
+          }
+
+          pollAttempts++;
+          if (!trained && pollAttempts < maxPollAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s between polls
+          }
+        }
+
+        if (!trained) {
+          console.error(`❌ [PROXY] Training timed out for group ${groupId} after ${maxPollAttempts} attempts`);
+          return res.status(408).json({
+            error: "Training timed out",
+            details: `Training did not complete within ${maxPollAttempts * 10} seconds for group ${groupId}`,
+          });
+        }
+
+        console.log(`✅ [PROXY] Training verified complete for group ${groupId}. Proceeding with look generation.`);
+
         const numToGenerate = numLooks || 1;
         const results = [];
+
+        const facePreservation = "maintain the exact same face, facial features, and likeness of the person";
+        const enhancedPrompt = prompt ? `${prompt}, ${facePreservation}` : `Professional headshot, ${facePreservation}`;
 
         for (let i = 0; i < numToGenerate; i++) {
           const lookResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/generate-look`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              prompt: prompt || "Professional headshot",
+              prompt: enhancedPrompt,
               orientation: orientation || "square",
               pose: pose || "half_body",
               style: style || "Realistic",

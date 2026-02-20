@@ -12055,9 +12055,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   );
 
   // ==================== PHOTO AVATAR PROXY ENDPOINTS ====================
-  // Proxies to external photo avatar service on port 3001
-  
-  // Create avatar with looks - Proxies to external service
+  // Proxies to external photo avatar service (AWS Elastic Beanstalk)
+  // External service API base: /api/heygen/*
+
+  const getExternalServiceUrl = () =>
+    process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
+
+  // Create avatar with looks - multi-step proxy through external service
   app.post(
     "/api/photo-avatars/create-with-looks",
     requireAuth,
@@ -12068,49 +12072,178 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           return res.status(400).json({ error: "No image uploaded" });
         }
 
-        console.log("🚀 Proxying create-with-looks to external service");
+        const externalServiceUrl = getExternalServiceUrl();
+        console.log("🚀 [PROXY] create-with-looks: Starting multi-step flow via", externalServiceUrl);
 
-        // Read file buffer
         const fileBuffer = fs.readFileSync(req.file.path);
-        
-        // Clean up temp file early
         fs.unlinkSync(req.file.path);
 
-        // Use Node.js native FormData with Blob for proper multipart handling
-        const formData = new FormData();
+        // Step 1: Upload image to external service
+        console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
+        const uploadFormData = new FormData();
         const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-        formData.append("image", blob, req.file.originalname);
-        
-        // Forward all body fields
-        if (req.body.name) formData.append("name", req.body.name);
-        if (req.body.prompt) formData.append("prompt", req.body.prompt);
-        if (req.body.orientation) formData.append("orientation", req.body.orientation);
-        if (req.body.pose) formData.append("pose", req.body.pose);
-        if (req.body.style) formData.append("style", req.body.style);
+        uploadFormData.append("file", blob, req.file.originalname);
+        uploadFormData.append("kind", "photo");
 
-        // Proxy to external service (AWS Elastic Beanstalk)
-        const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
-        console.log("📤 Forwarding to:", externalServiceUrl);
-        
-        const response = await fetch(`${externalServiceUrl}/api/photo-avatars/create-with-looks`, {
+        const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
           method: "POST",
-          body: formData,
+          body: uploadFormData,
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("❌ External service error:", response.status, errorText);
-          return res.status(response.status).json({
-            error: "External service error",
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          console.error("❌ [PROXY] Asset upload failed:", uploadResponse.status, errorText);
+          return res.status(uploadResponse.status).json({
+            error: "Failed to upload image to external service",
             details: errorText,
           });
         }
 
-        const data = await response.json();
-        console.log("✅ Avatar created via external service:", data.group_id);
-        res.json(data);
+        const uploadData = await uploadResponse.json();
+        const imageKey = uploadData.image_key || uploadData.asset_key || uploadData.key;
+        console.log("✅ [PROXY] Step 1 complete: image_key =", imageKey);
+
+        if (!imageKey) {
+          return res.status(500).json({
+            error: "External service did not return an image_key",
+            details: JSON.stringify(uploadData),
+          });
+        }
+
+        // Step 2: Create avatar group
+        console.log("📤 [PROXY] Step 2: Creating avatar group via /api/heygen/avatars/create-group");
+        const createGroupResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/create-group`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_key: imageKey }),
+        });
+
+        if (!createGroupResponse.ok) {
+          const errorText = await createGroupResponse.text();
+          console.error("❌ [PROXY] Create group failed:", createGroupResponse.status, errorText);
+          return res.status(createGroupResponse.status).json({
+            error: "Failed to create avatar group on external service",
+            details: errorText,
+          });
+        }
+
+        const createGroupData = await createGroupResponse.json();
+        const groupId = createGroupData.group_id || createGroupData.groupId;
+        console.log("✅ [PROXY] Step 2 complete: group_id =", groupId);
+
+        if (!groupId) {
+          return res.status(500).json({
+            error: "External service did not return a group_id",
+            details: JSON.stringify(createGroupData),
+          });
+        }
+
+        // Return immediately with group_id
+        res.json({
+          success: true,
+          group_id: groupId,
+          status: "processing",
+          message: "Avatar group created. Training and look generation will happen in the background.",
+        });
+
+        // Step 3+: Background async process - train, poll, generate looks
+        const backgroundPrompt = req.body.prompt || "";
+        const backgroundOrientation = req.body.orientation || "square";
+        const backgroundPose = req.body.pose || "half_body";
+        const backgroundStyle = req.body.style || "Realistic";
+
+        (async () => {
+          try {
+            // Wait 30 seconds for HeyGen to process the image
+            console.log(`⏳ [PROXY BG] Waiting 30s before training group ${groupId}...`);
+            await new Promise(resolve => setTimeout(resolve, 30000));
+
+            // Step 3: Start training
+            console.log(`🎓 [PROXY BG] Step 3: Starting training for group ${groupId}`);
+            const trainResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/train`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            });
+
+            if (!trainResponse.ok) {
+              const errorText = await trainResponse.text();
+              console.error(`❌ [PROXY BG] Training start failed for ${groupId}:`, errorText);
+              return;
+            }
+            console.log(`✅ [PROXY BG] Training started for group ${groupId}`);
+
+            // Step 4: Poll training status until trained
+            let trained = false;
+            let pollAttempts = 0;
+            const maxPollAttempts = 90; // 15 minutes max (90 * 10s)
+
+            while (!trained && pollAttempts < maxPollAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s between polls
+              pollAttempts++;
+
+              try {
+                const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
+                if (statusResponse.ok) {
+                  const statusData = await statusResponse.json();
+                  console.log(`📊 [PROXY BG] Training status for ${groupId} (attempt ${pollAttempts}):`, statusData.status, "trained:", statusData.trained);
+                  if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
+                    trained = true;
+                  }
+                }
+              } catch (pollError) {
+                console.error(`⚠️ [PROXY BG] Poll error for ${groupId}:`, pollError);
+              }
+            }
+
+            if (!trained) {
+              console.error(`❌ [PROXY BG] Training timed out for group ${groupId} after ${maxPollAttempts} attempts`);
+              return;
+            }
+
+            console.log(`✅ [PROXY BG] Training complete for group ${groupId}. Generating 4 looks...`);
+
+            // Step 5: Generate 4 looks with different prompts
+            const lookPrompts = [
+              { prompt: backgroundPrompt || "Professional executive in a navy business suit, confident and approachable", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: "Friendly real estate agent in smart casual blazer, warm and welcoming smile", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: "Outdoor property tour guide in clean casual attire, natural setting", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+              { prompt: "Modern professional in contemporary business wear, sleek and polished", orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
+            ];
+
+            for (let i = 0; i < lookPrompts.length; i++) {
+              try {
+                console.log(`🎨 [PROXY BG] Generating look ${i + 1}/4 for group ${groupId}`);
+                const lookResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/generate-look`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(lookPrompts[i]),
+                });
+
+                if (lookResponse.ok) {
+                  const lookData = await lookResponse.json();
+                  console.log(`✅ [PROXY BG] Look ${i + 1} generation started:`, lookData);
+                } else {
+                  const errorText = await lookResponse.text();
+                  console.error(`❌ [PROXY BG] Look ${i + 1} generation failed:`, errorText);
+                }
+
+                // Small delay between look generation requests
+                if (i < lookPrompts.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+              } catch (lookError) {
+                console.error(`❌ [PROXY BG] Look ${i + 1} generation error:`, lookError);
+              }
+            }
+
+            console.log(`🎉 [PROXY BG] All look generation requests sent for group ${groupId}`);
+          } catch (bgError) {
+            console.error(`❌ [PROXY BG] Background process failed for group ${groupId}:`, bgError);
+          }
+        })();
       } catch (error: any) {
-        console.error("❌ Failed to proxy create-with-looks:", error);
+        console.error("❌ [PROXY] Failed to proxy create-with-looks:", error);
         if (req.file?.path && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
@@ -12122,7 +12255,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     }
   );
 
-  // Generate video from image - Proxies to external service
+  // Generate video from image - multi-step proxy through external service
   app.post(
     "/api/photo-avatars/generate-video-from-image",
     requireAuth,
@@ -12133,41 +12266,146 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           return res.status(400).json({ error: "No image uploaded" });
         }
 
-        console.log("🎬 Proxying generate-video-from-image to external service");
+        const externalServiceUrl = getExternalServiceUrl();
+        console.log("🎬 [PROXY] generate-video-from-image: Starting multi-step flow via", externalServiceUrl);
 
         const fileBuffer = fs.readFileSync(req.file.path);
         fs.unlinkSync(req.file.path);
 
-        const formData = new FormData();
+        // Step 1: Upload image
+        console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
+        const uploadFormData = new FormData();
         const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-        formData.append("image", blob, req.file.originalname);
+        uploadFormData.append("file", blob, req.file.originalname);
+        uploadFormData.append("kind", "photo");
 
-        if (req.body.script) formData.append("script", req.body.script);
-        if (req.body.name) formData.append("name", req.body.name);
-        if (req.body.voice_id) formData.append("voice_id", req.body.voice_id);
-
-        const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
-        console.log("📤 Forwarding to:", externalServiceUrl);
-
-        const response = await fetch(`${externalServiceUrl}/api/photo-avatars/generate-video-from-image`, {
+        const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
           method: "POST",
-          body: formData,
+          body: uploadFormData,
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("❌ External service error:", response.status, errorText);
-          return res.status(response.status).json({
-            error: "External service error",
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text();
+          console.error("❌ [PROXY] Asset upload failed:", errorText);
+          return res.status(uploadResponse.status).json({
+            error: "Failed to upload image",
             details: errorText,
           });
         }
 
-        const data = await response.json();
-        console.log("✅ Video generation started via external service:", data.group_id);
-        res.json(data);
+        const uploadData = await uploadResponse.json();
+        const imageKey = uploadData.image_key || uploadData.asset_key || uploadData.key;
+        console.log("✅ [PROXY] Image uploaded, image_key =", imageKey);
+
+        // Step 2: Create avatar group
+        console.log("📤 [PROXY] Step 2: Creating avatar group");
+        const createGroupResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/create-group`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_key: imageKey }),
+        });
+
+        if (!createGroupResponse.ok) {
+          const errorText = await createGroupResponse.text();
+          console.error("❌ [PROXY] Create group failed:", errorText);
+          return res.status(createGroupResponse.status).json({
+            error: "Failed to create avatar group",
+            details: errorText,
+          });
+        }
+
+        const createGroupData = await createGroupResponse.json();
+        const groupId = createGroupData.group_id || createGroupData.groupId;
+        console.log("✅ [PROXY] Group created, group_id =", groupId);
+
+        // Return immediately
+        res.json({
+          success: true,
+          group_id: groupId,
+          status: "processing",
+          message: "Avatar group created. Training and video generation will happen in the background.",
+        });
+
+        // Background: train -> poll -> create video
+        const scriptText = req.body.script || "";
+        const voiceId = req.body.voice_id || "";
+        const avatarName = req.body.name || "";
+
+        (async () => {
+          try {
+            // Wait 30s for image processing
+            console.log(`⏳ [PROXY BG VIDEO] Waiting 30s before training group ${groupId}...`);
+            await new Promise(resolve => setTimeout(resolve, 30000));
+
+            // Train
+            console.log(`🎓 [PROXY BG VIDEO] Starting training for group ${groupId}`);
+            const trainResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/train`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            });
+
+            if (!trainResponse.ok) {
+              console.error(`❌ [PROXY BG VIDEO] Training failed for ${groupId}`);
+              return;
+            }
+
+            // Poll training status
+            let trained = false;
+            let pollAttempts = 0;
+            const maxPollAttempts = 90;
+
+            while (!trained && pollAttempts < maxPollAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 10000));
+              pollAttempts++;
+
+              try {
+                const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
+                if (statusResponse.ok) {
+                  const statusData = await statusResponse.json();
+                  console.log(`📊 [PROXY BG VIDEO] Training status ${groupId} (${pollAttempts}):`, statusData.status);
+                  if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
+                    trained = true;
+                  }
+                }
+              } catch (pollError) {
+                console.error(`⚠️ [PROXY BG VIDEO] Poll error:`, pollError);
+              }
+            }
+
+            if (!trained) {
+              console.error(`❌ [PROXY BG VIDEO] Training timed out for ${groupId}`);
+              return;
+            }
+
+            // Create video if script is provided
+            if (scriptText) {
+              console.log(`🎬 [PROXY BG VIDEO] Creating video for group ${groupId}`);
+              const videoResponse = await fetch(`${externalServiceUrl}/api/heygen/videos`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  group_id: groupId,
+                  script: scriptText,
+                  voice_id: voiceId,
+                  name: avatarName,
+                }),
+              });
+
+              if (videoResponse.ok) {
+                const videoData = await videoResponse.json();
+                console.log(`✅ [PROXY BG VIDEO] Video creation started:`, videoData);
+              } else {
+                const errorText = await videoResponse.text();
+                console.error(`❌ [PROXY BG VIDEO] Video creation failed:`, errorText);
+              }
+            }
+          } catch (bgError) {
+            console.error(`❌ [PROXY BG VIDEO] Background process failed:`, bgError);
+          }
+        })();
       } catch (error: any) {
-        console.error("❌ Failed to proxy generate-video-from-image:", error);
+        console.error("❌ [PROXY] Failed to proxy generate-video-from-image:", error);
         if (req.file?.path && fs.existsSync(req.file.path)) {
           fs.unlinkSync(req.file.path);
         }
@@ -12179,19 +12417,18 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     }
   );
 
-  // Get avatar group workflow status (for polling) - Proxies to external service on port 3001
+  // Get avatar group workflow status - Proxies to external service training status
   app.get("/api/photo-avatars/status/:groupId", requireAuth, async (req, res) => {
     try {
       const { groupId } = req.params;
-      console.log("📊 Proxying workflow status request to port 3001 for group:", groupId);
+      const externalServiceUrl = getExternalServiceUrl();
+      console.log("📊 [PROXY] Checking training status for group:", groupId);
 
-      // Proxy to external photo avatar service (AWS Elastic Beanstalk)
-      const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
-      const response = await fetch(`${externalServiceUrl}/api/photo-avatars/status/${groupId}`);
-      
+      const response = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
+
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("❌ External service error:", response.status, errorText);
+        console.error("❌ [PROXY] Training status error:", response.status, errorText);
         return res.status(response.status).json({
           error: "External service error",
           details: errorText,
@@ -12199,16 +12436,129 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       }
 
       const data = await response.json();
-      console.log("✅ Status received from external service:", data.workflow_status?.percent_complete || 0, "%");
-      res.json(data);
+      const isTrained = data.trained === true || data.status === "completed" || data.status === "ready";
+      const percentComplete = isTrained ? 100 : (data.status === "processing" ? 50 : 10);
+
+      console.log("✅ [PROXY] Training status:", data.status, "trained:", data.trained, "percent:", percentComplete);
+
+      res.json({
+        group_id: groupId,
+        status: isTrained ? "completed" : (data.status || "processing"),
+        trained: isTrained,
+        workflow_status: {
+          percent_complete: percentComplete,
+          status: isTrained ? "completed" : (data.status || "processing"),
+        },
+        ...data,
+      });
     } catch (error: any) {
-      console.error("❌ Failed to get workflow status from external service:", error);
+      console.error("❌ [PROXY] Failed to get workflow status:", error);
       res.status(500).json({
         error: "Failed to get workflow status",
         details: error?.message || String(error),
       });
     }
   });
+
+  // Proxy generate-look endpoint - forwards to external service instead of direct HeyGen API
+  app.post(
+    "/api/photo-avatars/groups/:groupId/proxy-generate-look",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { groupId } = req.params;
+        const { prompt, orientation, pose, style, numLooks } = req.body;
+        const externalServiceUrl = getExternalServiceUrl();
+
+        console.log(`🎨 [PROXY] Generating look for group ${groupId} via external service`);
+        console.log(`🎨 [PROXY] Prompt: "${prompt}", orientation: ${orientation}, pose: ${pose}, style: ${style}`);
+
+        const numToGenerate = numLooks || 1;
+        const results = [];
+
+        for (let i = 0; i < numToGenerate; i++) {
+          const lookResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/generate-look`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: prompt || "Professional headshot",
+              orientation: orientation || "square",
+              pose: pose || "half_body",
+              style: style || "Realistic",
+            }),
+          });
+
+          if (!lookResponse.ok) {
+            const errorText = await lookResponse.text();
+            console.error(`❌ [PROXY] Generate look ${i + 1} failed:`, lookResponse.status, errorText);
+            if (i === 0) {
+              return res.status(lookResponse.status).json({
+                error: "Failed to generate look via external service",
+                details: errorText,
+              });
+            }
+            continue;
+          }
+
+          const lookData = await lookResponse.json();
+          console.log(`✅ [PROXY] Look ${i + 1}/${numToGenerate} generation started:`, lookData);
+          results.push(lookData);
+
+          if (i < numToGenerate - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+
+        res.json({
+          success: true,
+          group_id: groupId,
+          looks: results,
+          message: `${results.length} look generation(s) started via external service`,
+        });
+      } catch (error: any) {
+        console.error("❌ [PROXY] Failed to generate look:", error);
+        res.status(500).json({
+          error: "Failed to generate look",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
+
+  // Proxy check generation status - forwards to external service
+  app.get(
+    "/api/photo-avatars/proxy/generation-status/:generationId",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const { generationId } = req.params;
+        const externalServiceUrl = getExternalServiceUrl();
+
+        console.log(`📊 [PROXY] Checking generation status for ${generationId}`);
+
+        const response = await fetch(`${externalServiceUrl}/api/heygen/avatars/generation/${generationId}`);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("❌ [PROXY] Generation status error:", response.status, errorText);
+          return res.status(response.status).json({
+            error: "Failed to check generation status",
+            details: errorText,
+          });
+        }
+
+        const data = await response.json();
+        console.log(`✅ [PROXY] Generation status for ${generationId}:`, data.status);
+        res.json(data);
+      } catch (error: any) {
+        console.error("❌ [PROXY] Failed to check generation status:", error);
+        res.status(500).json({
+          error: "Failed to check generation status",
+          details: error?.message || String(error),
+        });
+      }
+    }
+  );
 
   // Get video generation status
   app.get("/api/photo-avatars/video-status/:videoId", requireAuth, async (req, res) => {

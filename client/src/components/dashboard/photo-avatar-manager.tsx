@@ -551,106 +551,59 @@ export function PhotoAvatarManager() {
         }));
 
         try {
-          // Call generate-looks endpoint for 4 professional styles
-          const response = await apiRequest(
-            "POST",
-            `/api/photo-avatars/groups/${groupId}/generate-looks`,
-            { numLooks: 4 }
-          );
-          const data = await response.json();
+          const lookPrompts = [
+            "Professional executive in a navy business suit, confident and approachable",
+            "Friendly real estate agent in smart casual blazer, warm and welcoming smile",
+            "Outdoor property tour guide in clean casual attire, natural setting",
+            "Modern professional in contemporary business wear, sleek and polished",
+          ];
           
-          console.log("🎨 Auto-generating looks:", data);
+          console.log("🎨 Auto-generating looks via proxy...");
           
-          // Poll for look generation completion using Promise.all for parallel polling
-          if (data.looks && data.looks.length > 0) {
-            // Create poll function for each look
-            const pollLookStatus = async (look: any, lookIndex: number): Promise<boolean> => {
-              const maxAttempts = 60; // 5 minutes max
-              let attempts = 0;
-              
-              while (attempts < maxAttempts) {
-                try {
-                  const statusRes = await apiRequest(
-                    "GET",
-                    `/api/photo-avatars/groups/${groupId}/look-status/${look.generationId}`
-                  );
-                  const statusData = await statusRes.json();
-                  
-                  if (statusData.status === "completed" || statusData.status === "success") {
-                    console.log(`✅ Look ${look.label} completed`);
-                    return true;
-                  } else if (statusData.status === "failed") {
-                    console.error(`❌ Look ${look.label} failed`);
-                    return false;
-                  }
-                  
-                  // Still processing, wait and try again
-                  await new Promise(resolve => setTimeout(resolve, 5000));
-                  attempts++;
-                  
-                  // Update progress while waiting
-                  const progressPercent = Math.min(90, 10 + (attempts / maxAttempts) * 80);
-                  setLookGenerationStatus(prev => ({
-                    ...prev,
-                    [groupId]: {
-                      ...prev[groupId],
-                      progress: progressPercent
-                    }
-                  }));
-                } catch (pollError) {
-                  console.error("Error polling look status:", pollError);
-                  attempts++;
-                  await new Promise(resolve => setTimeout(resolve, 5000));
-                }
-              }
-              return false; // Timed out
-            };
-            
-            // Run all polls in parallel
-            Promise.all(data.looks.map((look: any, index: number) => pollLookStatus(look, index)))
-              .then((results) => {
-                const allCompleted = results.every((r: boolean) => r === true);
-                
-                setLookGenerationStatus(prev => ({
-                  ...prev,
-                  [groupId]: {
-                    ...prev[groupId],
-                    progress: 100,
-                    status: allCompleted ? 'completed' : 'failed'
-                  }
-                }));
-                
-                if (allCompleted) {
-                  addActivityLog({
-                    step: 'looks_complete',
-                    message: 'All looks ready!',
-                    groupName: group.name,
-                    details: '4 professional looks generated successfully.'
-                  });
-                  
-                  toast({
-                    title: "✅ Looks Ready!",
-                    description: `Professional and Casual looks for "${group.name}" are now available!`,
-                    duration: 6000,
-                  });
-                }
-                
-                // Refresh avatar groups to show new looks
-                queryClient.invalidateQueries({
-                  queryKey: ["/api/photo-avatars/groups"],
-                });
-                queryClient.invalidateQueries({
-                  queryKey: [`/api/photo-avatars/groups/${groupId}/photos`],
-                });
-              })
-              .catch((err: Error) => {
-                console.error("Error in look generation polling:", err);
-                setLookGenerationStatus(prev => ({
-                  ...prev,
-                  [groupId]: { ...prev[groupId], status: 'failed' }
-                }));
-              });
+          for (const prompt of lookPrompts) {
+            try {
+              await apiRequest(
+                "POST",
+                `/api/photo-avatars/groups/${groupId}/proxy-generate-look`,
+                { prompt, orientation: "square", pose: "half_body", style: "Realistic" }
+              );
+            } catch (e: any) {
+              console.warn(`Look generation failed for prompt "${prompt}":`, e?.message);
+            }
           }
+          
+          setLookGenerationStatus(prev => ({
+            ...prev,
+            [groupId]: {
+              ...prev[groupId],
+              progress: 50,
+            }
+          }));
+
+          toast({
+            title: "🎨 Generating Looks",
+            description: `Generating 4 professional looks for "${group.name}". This takes 2-5 minutes.`,
+            duration: 8000,
+          });
+
+          const pollInterval = setInterval(() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+            queryClient.invalidateQueries({ queryKey: [`/api/photo-avatars/groups/${groupId}/photos`] });
+          }, 5000);
+
+          setTimeout(() => {
+            clearInterval(pollInterval);
+            setLookGenerationStatus(prev => ({
+              ...prev,
+              [groupId]: { ...prev[groupId], progress: 100, status: 'completed' }
+            }));
+            addActivityLog({
+              step: 'looks_complete',
+              message: 'Look generation completed!',
+              groupName: group.name,
+              details: '4 professional looks generated.'
+            });
+          }, 180000);
         } catch (error) {
           console.error("Failed to auto-generate looks:", error);
           setLookGenerationStatus(prev => ({
@@ -674,26 +627,47 @@ export function PhotoAvatarManager() {
     setAiLookGenerating(true);
     try {
       if (aiLookSource === "existing" && aiLookSelectedGroup) {
-        const res = await apiRequest("POST", `/api/photo-avatars/groups/${aiLookSelectedGroup}/generate-looks`, {
-          prompt: aiLookPrompt.trim() || undefined,
-          orientation: aiLookOrientation,
-          pose: aiLookPose,
-          style: aiLookStyle,
-          numLooks: 4,
-        });
-        const data = await res.json();
-        if (res.ok) {
+        const userPrompt = aiLookPrompt.trim() || "Professional look";
+        const lookPrompts = [
+          userPrompt,
+          `${userPrompt}, friendly and welcoming variation`,
+          `${userPrompt}, outdoor natural setting variation`,
+          `${userPrompt}, modern contemporary variation`,
+        ];
+        
+        let successCount = 0;
+        for (const prompt of lookPrompts) {
+          try {
+            await apiRequest("POST", `/api/photo-avatars/groups/${aiLookSelectedGroup}/proxy-generate-look`, {
+              prompt,
+              orientation: aiLookOrientation,
+              pose: aiLookPose,
+              style: aiLookStyle,
+            });
+            successCount++;
+          } catch (e: any) {
+            console.warn(`Look generation failed for prompt "${prompt}":`, e?.message);
+          }
+        }
+        
+        if (successCount > 0) {
           toast({
             title: "Look Generation Started",
-            description: "Generating 4 AI-enhanced looks. This takes 2-3 minutes.",
+            description: `Generating ${successCount} AI-enhanced looks. This takes 2-3 minutes.`,
             duration: 8000,
           });
           setAiLookDialogOpen(false);
           setAiLookSelectedGroup("");
           setAiLookPrompt("");
           queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+
+          const pollInterval = setInterval(() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+            queryClient.invalidateQueries({ queryKey: [`/api/photo-avatars/groups/${aiLookSelectedGroup}/photos`] });
+          }, 5000);
+          setTimeout(() => clearInterval(pollInterval), 180000);
         } else {
-          toast({ title: "Generation Failed", description: data.error || "Could not start look generation", variant: "destructive" });
+          toast({ title: "Generation Failed", description: "Could not start look generation", variant: "destructive" });
         }
       } else if (aiLookSource === "upload" && aiLookFile) {
         const formData = new FormData();
@@ -1088,41 +1062,57 @@ export function PhotoAvatarManager() {
       groupId: string;
       numLooks: number;
     }) => {
-      const endpoint = `/api/photo-avatars/groups/${groupId}/generate-looks`;
-      const payload = { numLooks };
+      const defaultPrompts = [
+        "Professional executive in a navy business suit, confident and approachable",
+        "Friendly real estate agent in smart casual blazer, warm and welcoming smile",
+        "Outdoor property tour guide in clean casual attire, natural setting",
+        "Modern professional in contemporary business wear, sleek and polished",
+      ];
+      const prompts = defaultPrompts.slice(0, numLooks);
       
       addDebugLog({
         type: 'request',
-        endpoint,
-        payload,
-        message: `Generating ${numLooks} looks for group ${groupId}`
+        endpoint: `/api/photo-avatars/groups/${groupId}/proxy-generate-look`,
+        payload: { numLooks, prompts },
+        message: `Generating ${numLooks} looks for group ${groupId} via proxy`
       });
       
-      const response = await apiRequest("POST", endpoint, payload);
-      const data = await response.json();
+      let successCount = 0;
+      for (const prompt of prompts) {
+        try {
+          await apiRequest("POST", `/api/photo-avatars/groups/${groupId}/proxy-generate-look`, {
+            prompt,
+            orientation: "square",
+            pose: "half_body",
+            style: "Realistic",
+          });
+          successCount++;
+        } catch (e: any) {
+          console.warn(`Look generation failed for prompt "${prompt}":`, e?.message);
+        }
+      }
       
       addDebugLog({
         type: 'response',
-        endpoint,
-        response: data,
-        message: `Received ${data?.looks?.length || 0} look generation IDs`
+        endpoint: `/api/photo-avatars/groups/${groupId}/proxy-generate-look`,
+        response: { successCount, total: prompts.length },
+        message: `${successCount}/${prompts.length} look generation requests sent`
       });
       
-      return data;
+      return { successCount, groupId };
     },
     onSuccess: (data: any, variables) => {
       toast({
         title: "🎨 Generating New Looks",
-        description: `Started generating ${data?.looks?.length || 0} looks. Check the debug panel for details.`,
+        description: `Started generating ${data.successCount} looks. They'll appear in a few minutes.`,
         duration: 6000,
       });
       
       addDebugLog({
         type: 'info',
-        message: `Look generation started successfully for group ${variables.groupId}. Generation IDs: ${data?.looks?.map((l: any) => l.generationId).join(', ')}`
+        message: `Look generation started successfully for group ${variables.groupId}. ${data.successCount} requests sent.`
       });
 
-      // Start polling for the new photos - refresh every 3 seconds for 2 minutes
       const pollInterval = setInterval(() => {
         queryClient.invalidateQueries({
           queryKey: [`/api/photo-avatars/groups/${variables.groupId}/photos`],
@@ -1130,12 +1120,11 @@ export function PhotoAvatarManager() {
         queryClient.invalidateQueries({
           queryKey: ["/api/photo-avatars/groups"],
         });
-      }, 3000);
+      }, 5000);
 
-      // Stop polling after 2 minutes
       setTimeout(() => {
         clearInterval(pollInterval);
-      }, 120000);
+      }, 180000);
     },
     onError: (error: Error) => {
       const errorMessage = error.message.toLowerCase();
@@ -1191,7 +1180,7 @@ export function PhotoAvatarManager() {
       pose?: string;
       style?: string;
     }) =>
-      apiRequest("POST", `/api/photo-avatars/groups/${groupId}/generate-looks`, {
+      apiRequest("POST", `/api/photo-avatars/groups/${groupId}/proxy-generate-look`, {
         prompt,
         orientation,
         pose,

@@ -770,7 +770,7 @@ export function AvatarIVStudio() {
 
   const changeStyleMutation = useMutation({
     mutationFn: async ({ groupId, prompt }: { groupId: string; prompt: string }) => {
-      return await apiRequest("POST", `/api/photo-avatars/groups/${groupId}/generate-looks`, {
+      return await apiRequest("POST", `/api/photo-avatars/groups/${groupId}/proxy-generate-look`, {
         prompt,
         orientation: "square",
         pose: "half_body",

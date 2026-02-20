@@ -508,11 +508,23 @@ export function AvatarStudio() {
       
       try {
         console.log(`🎨 Auto-triggering look generation for group ${groupId}`);
-        await apiRequest(
-          "POST",
-          `/api/photo-avatars/groups/${groupId}/generate-looks`,
-          {}
-        );
+        const lookPrompts = [
+          "Professional executive in a navy business suit, confident and approachable",
+          "Friendly real estate agent in smart casual blazer, warm and welcoming smile",
+          "Outdoor property tour guide in clean casual attire, natural setting",
+          "Modern professional in contemporary business wear, sleek and polished",
+        ];
+        for (const prompt of lookPrompts) {
+          try {
+            await apiRequest(
+              "POST",
+              `/api/photo-avatars/groups/${groupId}/proxy-generate-look`,
+              { prompt, orientation: "square", pose: "half_body", style: "Realistic" }
+            );
+          } catch (e: any) {
+            console.warn(`Look generation failed for prompt "${prompt}":`, e?.message);
+          }
+        }
         
         toast({
           title: "Generating Looks",
@@ -521,9 +533,14 @@ export function AvatarStudio() {
         
         queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
         queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups", groupId, "looks"] });
+
+        const pollInterval = setInterval(() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups", groupId, "looks"] });
+        }, 5000);
+        setTimeout(() => clearInterval(pollInterval), 180000);
       } catch (error: any) {
         console.error("Look generation failed:", error);
-        // Remove from triggered set so it can be retried
         looksTriggeredRef.current.delete(groupId);
         
         addActivityLog({
@@ -770,14 +787,26 @@ export function AvatarStudio() {
         previewImage: previewImage
       });
       
-      const response = await apiRequest(
-        "POST",
-        `/api/photo-avatars/groups/${groupId}/generate-looks`,
-        {}
-      );
-      return { response: await response.json(), groupName, previewImage };
+      const lookPrompts = [
+        "Professional executive in a navy business suit, confident and approachable",
+        "Friendly real estate agent in smart casual blazer, warm and welcoming smile",
+        "Outdoor property tour guide in clean casual attire, natural setting",
+        "Modern professional in contemporary business wear, sleek and polished",
+      ];
+      for (const prompt of lookPrompts) {
+        try {
+          await apiRequest(
+            "POST",
+            `/api/photo-avatars/groups/${groupId}/proxy-generate-look`,
+            { prompt, orientation: "square", pose: "half_body", style: "Realistic" }
+          );
+        } catch (e: any) {
+          console.warn(`Look generation failed for prompt "${prompt}":`, e?.message);
+        }
+      }
+      return { groupName, previewImage, groupId };
     },
-    onSuccess: ({ groupName, previewImage }) => {
+    onSuccess: ({ groupName, previewImage, groupId }) => {
       addActivityLog({
         step: 'looks_complete',
         message: 'New looks generation started!',
@@ -796,6 +825,12 @@ export function AvatarStudio() {
       if (selectedAvatarGroup) {
         queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups", selectedAvatarGroup, "looks"] });
       }
+
+      const pollInterval = setInterval(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups", groupId, "looks"] });
+      }, 5000);
+      setTimeout(() => clearInterval(pollInterval), 180000);
     },
     onError: (error: any, variables) => {
       addActivityLog({
@@ -818,7 +853,7 @@ export function AvatarStudio() {
     mutationFn: async ({ groupId, prompt, orientation, pose, style }: { groupId: string; prompt: string; orientation?: string; pose?: string; style?: string }) => {
       const response = await apiRequest(
         "POST",
-        `/api/photo-avatars/groups/${groupId}/generate-looks`,
+        `/api/photo-avatars/groups/${groupId}/proxy-generate-look`,
         { prompt, orientation, pose, style, numLooks: 1 }
       );
       return response.json();

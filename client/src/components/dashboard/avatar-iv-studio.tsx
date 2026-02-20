@@ -244,6 +244,7 @@ export function AvatarIVStudio() {
   const [changeStylePrompt, setChangeStylePrompt] = useState("");
   const [selectedPhotoForStyle, setSelectedPhotoForStyle] = useState<PhotoAsset | null>(null);
   const [autoStyleGenerating, setAutoStyleGenerating] = useState(false);
+  const [previewLook, setPreviewLook] = useState<any | null>(null);
 
   // Multi-upload state
   const [multiUploadProgress, setMultiUploadProgress] = useState<{ current: number; total: number } | null>(null);
@@ -1308,6 +1309,7 @@ export function AvatarIVStudio() {
                         {allLooks.map((look: any) => (
                           <div
                             key={look.id}
+                            onClick={() => setPreviewLook(look)}
                             className="relative rounded-lg overflow-hidden border-2 border-gray-200 hover:border-[#D4AF37] transition-all hover:shadow-lg cursor-pointer"
                             data-testid={`card-look-${look.id}`}
                           >
@@ -1938,6 +1940,61 @@ export function AvatarIVStudio() {
             </div>
           )}
         </CardContent>
+
+      {previewLook && (
+        <Dialog open={!!previewLook} onOpenChange={(open) => !open && setPreviewLook(null)}>
+          <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden">
+            <DialogHeader className="p-4 pb-2">
+              <DialogTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-[#D4AF37]" />
+                {previewLook.lookName || previewLook.lookLabel || "AI Generated Look"}
+              </DialogTitle>
+              <DialogDescription>
+                {previewLook.groupName ? `Group: ${previewLook.groupName}` : previewLook.prompt ? previewLook.prompt.substring(0, 100) + "..." : "AI-generated avatar look"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-4 pb-4">
+              {previewLook.photoUrl && (
+                <img
+                  src={previewLook.photoUrl}
+                  alt={previewLook.lookName || "Avatar look"}
+                  className="w-full rounded-lg object-contain max-h-[70vh]"
+                  data-testid="img-preview-look"
+                />
+              )}
+              <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-[#D4AF37]/90 text-white border-0" data-testid="badge-preview-status">
+                    {previewLook.status || "completed"}
+                  </Badge>
+                  {previewLook.lookLabel && (
+                    <Badge variant="outline" className="text-xs">
+                      {previewLook.lookLabel}
+                    </Badge>
+                  )}
+                </div>
+                {previewLook.photoUrl && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const a = document.createElement("a");
+                      a.href = previewLook.photoUrl;
+                      a.target = "_blank";
+                      a.rel = "noopener noreferrer";
+                      a.click();
+                    }}
+                    data-testid="button-open-full-size"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                    Full Size
+                  </Button>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={changeStyleDialogOpen} onOpenChange={setChangeStyleDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">

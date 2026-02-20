@@ -1287,6 +1287,45 @@ export function AvatarIVStudio() {
                       ))}
                     </div>
                   )}
+
+                  {allLooks.length > 0 && (
+                    <div className="mt-6 pt-4 border-t border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
+                        <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                        AI Generated Looks ({allLooks.length})
+                      </h4>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                        {allLooks.map((look: any) => (
+                          <div
+                            key={look.id}
+                            className="relative rounded-lg overflow-hidden border-2 border-gray-200 hover:border-[#D4AF37] transition-all hover:shadow-lg cursor-pointer"
+                            data-testid={`card-look-${look.id}`}
+                          >
+                            <img
+                              src={look.photoUrl}
+                              alt={look.poseType || "Avatar look"}
+                              className="w-full aspect-square object-cover"
+                              loading="lazy"
+                            />
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-1.5">
+                              <p className="text-[10px] font-medium text-white truncate">
+                                {look.poseType || "Look"}
+                              </p>
+                              <p className="text-[9px] text-white/70 truncate">
+                                {look.groupName || ""}
+                              </p>
+                            </div>
+                            <Badge
+                              className="absolute top-1 left-1 text-[9px] px-1 py-0 bg-[#D4AF37]/90 text-white border-0"
+                              data-testid={`badge-look-${look.id}`}
+                            >
+                              AI
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">

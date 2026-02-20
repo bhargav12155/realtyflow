@@ -818,8 +818,8 @@ export function AvatarStudio() {
     mutationFn: async ({ groupId, prompt, orientation, pose, style }: { groupId: string; prompt: string; orientation?: string; pose?: string; style?: string }) => {
       const response = await apiRequest(
         "POST",
-        `/api/heygen/avatars/${groupId}/generate-look`,
-        { prompt, orientation, pose, style }
+        `/api/photo-avatars/groups/${groupId}/generate-looks`,
+        { prompt, orientation, pose, style, numLooks: 1 }
       );
       return response.json();
     },

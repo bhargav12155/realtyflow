@@ -770,11 +770,12 @@ export function AvatarIVStudio() {
 
   const changeStyleMutation = useMutation({
     mutationFn: async ({ groupId, prompt }: { groupId: string; prompt: string }) => {
-      return await apiRequest("POST", `/api/heygen/avatars/${groupId}/generate-look`, {
+      return await apiRequest("POST", `/api/photo-avatars/groups/${groupId}/generate-looks`, {
         prompt,
         orientation: "square",
         pose: "half_body",
         style: "Realistic",
+        numLooks: 1,
       });
     },
     onSuccess: () => {
@@ -1958,55 +1959,48 @@ export function AvatarIVStudio() {
             </Button>
             <Button
               onClick={async () => {
-                const groupId = selectedPhotoForStyle?.metadata?.groupId;
-                if (groupId && changeStylePrompt.trim()) {
-                  changeStyleMutation.mutate({
-                    groupId,
-                    prompt: changeStylePrompt.trim(),
+                if (!selectedPhotoForStyle?.url || !changeStylePrompt.trim()) return;
+                setAutoStyleGenerating(true);
+                try {
+                  const imageRes = await fetch(selectedPhotoForStyle.url);
+                  const imageBlob = await imageRes.blob();
+                  const formData = new FormData();
+                  formData.append("image", imageBlob, selectedPhotoForStyle.title || "photo.jpg");
+                  formData.append("prompt", changeStylePrompt.trim());
+                  formData.append("name", selectedPhotoForStyle.title || "Avatar");
+                  formData.append("orientation", "square");
+                  formData.append("pose", "half_body");
+                  formData.append("style", "Realistic");
+                  const res = await fetch("/api/photo-avatars/create-with-looks", {
+                    method: "POST",
+                    credentials: "include",
+                    body: formData,
                   });
-                } else if (selectedPhotoForStyle?.url && changeStylePrompt.trim()) {
-                  setAutoStyleGenerating(true);
-                  try {
-                    const imageRes = await fetch(selectedPhotoForStyle.url);
-                    const imageBlob = await imageRes.blob();
-                    const formData = new FormData();
-                    formData.append("image", imageBlob, selectedPhotoForStyle.title || "photo.jpg");
-                    formData.append("prompt", changeStylePrompt.trim());
-                    formData.append("name", selectedPhotoForStyle.title || "Avatar");
-                    formData.append("orientation", "square");
-                    formData.append("pose", "half_body");
-                    formData.append("style", "Realistic");
-                    const res = await fetch("/api/photo-avatars/create-with-looks", {
-                      method: "POST",
-                      credentials: "include",
-                      body: formData,
+                  const data = await res.json();
+                  if (res.ok && data.group_id) {
+                    toast({
+                      title: "Style Generation Started",
+                      description: "Training and generating 4 looks in the background. This takes 6-8 minutes.",
+                      duration: 8000,
                     });
-                    const data = await res.json();
-                    if (res.ok && data.group_id) {
-                      toast({
-                        title: "Style Generation Started",
-                        description: "Training and generating 4 looks in the background. This takes 6-8 minutes.",
-                        duration: 8000,
-                      });
-                      setChangeStyleDialogOpen(false);
-                      setChangeStylePrompt("");
-                      setSelectedPhotoForStyle(null);
-                      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
-                    } else {
-                      toast({ title: "Generation Failed", description: data.error || "Could not start style generation", variant: "destructive" });
-                    }
-                  } catch (error: any) {
-                    toast({ title: "Generation Failed", description: error.message || "Could not connect to avatar service", variant: "destructive" });
-                  } finally {
-                    setAutoStyleGenerating(false);
+                    setChangeStyleDialogOpen(false);
+                    setChangeStylePrompt("");
+                    setSelectedPhotoForStyle(null);
+                    queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+                  } else {
+                    toast({ title: "Generation Failed", description: data.error || "Could not start style generation", variant: "destructive" });
                   }
+                } catch (error: any) {
+                  toast({ title: "Generation Failed", description: error.message || "Could not connect to avatar service", variant: "destructive" });
+                } finally {
+                  setAutoStyleGenerating(false);
                 }
               }}
-              disabled={!changeStylePrompt.trim() || changeStyleMutation.isPending || autoStyleGenerating}
+              disabled={!changeStylePrompt.trim() || autoStyleGenerating}
               className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110"
               data-testid="button-generate-style"
             >
-              {changeStyleMutation.isPending || autoStyleGenerating ? (
+              {autoStyleGenerating ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Generating...

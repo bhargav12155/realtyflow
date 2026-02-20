@@ -1176,7 +1176,7 @@ export function PhotoAvatarManager() {
     },
   });
 
-  // Edit look mutation
+  // Edit look mutation - uses external service proxy
   const editLookMutation = useMutation({
     mutationFn: ({
       groupId,
@@ -1191,17 +1191,18 @@ export function PhotoAvatarManager() {
       pose?: string;
       style?: string;
     }) =>
-      apiRequest("POST", `/api/heygen/avatars/${groupId}/generate-look`, {
+      apiRequest("POST", `/api/photo-avatars/groups/${groupId}/generate-looks`, {
         prompt,
         orientation,
         pose,
         style,
+        numLooks: 1,
       }),
     onSuccess: (data: any, variables) => {
       toast({
-        title: "🎨 Generating New Look",
+        title: "Generating New Look",
         description:
-          "Your custom look is being generated. It will appear automatically when ready (usually 30-60 seconds).",
+          "Your custom look is being generated in the background. It will appear when ready (2-3 minutes).",
         duration: 6000,
       });
       setEditDialogOpen(false);
@@ -1210,7 +1211,6 @@ export function PhotoAvatarManager() {
       setEditPose("half_body");
       setEditStyle("Realistic");
 
-      // Start polling for the new photo - refresh every 3 seconds for 2 minutes
       const pollInterval = setInterval(() => {
         queryClient.invalidateQueries({
           queryKey: [`/api/photo-avatars/groups/${variables.groupId}/photos`],
@@ -1218,24 +1218,16 @@ export function PhotoAvatarManager() {
         queryClient.invalidateQueries({
           queryKey: ["/api/photo-avatars/groups"],
         });
-      }, 3000);
+      }, 5000);
 
-      // Stop polling after 2 minutes
       setTimeout(() => {
         clearInterval(pollInterval);
-      }, 120000);
+      }, 180000);
     },
     onError: (error: Error) => {
-      const errorMessage = error.message.toLowerCase();
-      const isModelNotFound =
-        errorMessage.includes("model not found") ||
-        errorMessage.includes("400");
-
       toast({
-        title: "Training Required",
-        description: isModelNotFound
-          ? "⚠️ This avatar group must be TRAINED before you can generate new looks. Click the 'Start Training' button first, wait for training to complete (status changes to 'ready'), then try again."
-          : error.message,
+        title: "Generation Failed",
+        description: error.message || "Could not generate new look. Please try again.",
         variant: "destructive",
         duration: 8000,
       });

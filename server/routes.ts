@@ -12567,7 +12567,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       console.log("🎬 Checking video status:", videoId);
 
       const heygenService = new HeyGenService();
-      const videoStatus = await heygenService.checkVideoStatus(videoId);
+      const videoStatus = await heygenService.getVideoStatus(videoId);
 
       const status = (videoStatus.status || "unknown").toLowerCase();
       const isComplete = status === "completed" || status === "complete";

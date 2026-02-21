@@ -290,6 +290,31 @@ export function MediaLibrary({
                         </div>
                       </div>
                     </div>
+                  ) : asset.url ? (
+                    <div className="relative w-full h-full">
+                      <video
+                        src={asset.url}
+                        className="w-full h-full object-cover"
+                        muted
+                        preload="metadata"
+                        playsInline
+                        onMouseEnter={(e) => {
+                          const video = e.currentTarget;
+                          video.currentTime = 0;
+                          video.play().catch(() => {});
+                        }}
+                        onMouseLeave={(e) => {
+                          const video = e.currentTarget;
+                          video.pause();
+                          video.currentTime = 0;
+                        }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none group-hover:bg-black/10 transition-colors">
+                        <div className="bg-white/90 rounded-full p-2">
+                          <FileVideo className="h-4 w-4 text-primary" />
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-500/10 to-pink-500/10">
                       <FileVideo className="h-6 w-6 text-primary" />

@@ -6868,15 +6868,18 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const fileBuffer = fs.readFileSync(req.file.path);
       const ext = path.extname(req.file.originalname) || ".jpg";
-      const filename = `social-media/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+      const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
 
-      const { persistImageBuffer } = await import("./objectStorage");
-      const url = await persistImageBuffer(fileBuffer, filename, req.file.mimetype);
-
+      const uploadsDir = path.join(process.cwd(), "uploads", "social-media");
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      const localPath = path.join(uploadsDir, uniqueName);
+      fs.copyFileSync(req.file.path, localPath);
       fs.unlinkSync(req.file.path);
-
+      const url = `/uploads/social-media/${uniqueName}`;
+      console.log(`✅ Media uploaded: ${url}`);
       res.json({ success: true, url });
     } catch (error) {
       console.error("Media upload error:", error);

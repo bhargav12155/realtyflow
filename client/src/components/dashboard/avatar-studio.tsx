@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useDemo } from "@/contexts/DemoContext";
 import demoMotionVideo from "@assets/preview_video_target_(1)_1765290240595.mp4";
 import demoFinalVideo from "@assets/preview_video_target_(1)_1765291235450.mp4";
@@ -164,6 +165,7 @@ const OUTFIT_PRESETS = [
 
 export function AvatarStudio() {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const { isDemo } = useDemo();
   
@@ -2040,9 +2042,15 @@ export function AvatarStudio() {
                               Generate New Looks
                             </DropdownMenuItem>
                             <DropdownMenuItem 
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.stopPropagation();
-                                if (confirm(`Delete "${group.name}"? This cannot be undone.`)) {
+                                const confirmed = await confirm({
+                                  title: "Delete Group",
+                                  description: `Delete "${group.name}"? This cannot be undone.`,
+                                  confirmText: "Delete",
+                                  variant: "destructive",
+                                });
+                                if (confirmed) {
                                   deleteGroupMutation.mutate({
                                     groupId: group.group_id,
                                     groupName: group.name
@@ -2232,9 +2240,15 @@ export function AvatarStudio() {
                                 Change Style
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (confirm("Delete this avatar look? This cannot be undone.")) {
+                                  const confirmed = await confirm({
+                                    title: "Delete Avatar Look",
+                                    description: "Delete this avatar look? This cannot be undone.",
+                                    confirmText: "Delete",
+                                    variant: "destructive",
+                                  });
+                                  if (confirmed) {
                                     deleteAvatarLookMutation.mutate(lookId);
                                   }
                                 }}
@@ -2424,9 +2438,15 @@ export function AvatarStudio() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (confirm(`Delete "${voice.name}"? This cannot be undone.`)) {
+                                  const confirmed = await confirm({
+                                    title: "Delete Voice",
+                                    description: `Delete "${voice.name}"? This cannot be undone.`,
+                                    confirmText: "Delete",
+                                    variant: "destructive",
+                                  });
+                                  if (confirmed) {
                                     deleteVoiceMutation.mutate(voice.id);
                                   }
                                 }}

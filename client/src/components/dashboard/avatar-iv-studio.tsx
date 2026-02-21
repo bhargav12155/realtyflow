@@ -57,6 +57,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface Voice {
   voice_id: string;
@@ -200,6 +201,7 @@ interface VideoJob {
 
 export function AvatarIVStudio() {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { user, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1346,9 +1348,15 @@ export function AvatarIVStudio() {
                                 Change Style
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (confirm("Delete this photo? This cannot be undone.")) {
+                                  const confirmed = await confirm({
+                                    title: "Delete Photo",
+                                    description: "Delete this photo? This cannot be undone.",
+                                    confirmText: "Delete",
+                                    variant: "destructive",
+                                  });
+                                  if (confirmed) {
                                     deletePhotoMutation.mutate(photo.id);
                                   }
                                 }}
@@ -1428,8 +1436,14 @@ export function AvatarIVStudio() {
                             <Button
                               variant="destructive"
                               size="sm"
-                              onClick={() => {
-                                if (confirm(`Delete ${selectedLookIds.size} selected look(s)?`)) {
+                              onClick={async () => {
+                                const confirmed = await confirm({
+                                  title: "Delete Selected Looks",
+                                  description: `Delete ${selectedLookIds.size} selected look(s)? This cannot be undone.`,
+                                  confirmText: "Delete All",
+                                  variant: "destructive",
+                                });
+                                if (confirmed) {
                                   bulkDeleteLooksMutation.mutate(Array.from(selectedLookIds));
                                 }
                               }}
@@ -1544,9 +1558,15 @@ export function AvatarIVStudio() {
                             )}
                             {!isLookSelectMode && (
                               <button
-                                onClick={(e) => {
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (confirm("Delete this generated look?")) {
+                                  const confirmed = await confirm({
+                                    title: "Delete Look",
+                                    description: "Delete this generated look? This cannot be undone.",
+                                    confirmText: "Delete",
+                                    variant: "destructive",
+                                  });
+                                  if (confirmed) {
                                     deleteLookMutation.mutate(look.id);
                                   }
                                 }}
@@ -2194,8 +2214,14 @@ export function AvatarIVStudio() {
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => {
-                      if (confirm("Are you sure you want to delete this generated look?")) {
+                    onClick={async () => {
+                      const confirmed = await confirm({
+                        title: "Delete Look",
+                        description: "Are you sure you want to delete this generated look? This cannot be undone.",
+                        confirmText: "Delete",
+                        variant: "destructive",
+                      });
+                      if (confirmed) {
                         deleteLookMutation.mutate(previewLook.id);
                       }
                     }}

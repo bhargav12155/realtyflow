@@ -21,6 +21,7 @@ import TemplateStudioPage from "@/pages/template-studio";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import { DemoModeBanner } from "@/components/shared/demo-mode-banner";
+import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
 
 function TemplateDataImporter() {
   useTemplateDataImport();
@@ -95,9 +96,11 @@ function App() {
         <TemplateDataImporter />
         <DemoProvider>
           <TooltipProvider>
-            <DemoModeBanner />
-            <Toaster />
-            <Router />
+            <ConfirmDialogProvider>
+              <DemoModeBanner />
+              <Toaster />
+              <Router />
+            </ConfirmDialogProvider>
           </TooltipProvider>
         </DemoProvider>
       </AuthProvider>

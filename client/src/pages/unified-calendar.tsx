@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -203,6 +204,7 @@ const postTypeLabels: Record<string, string> = {
 
 export default function UnifiedCalendarPage() {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("calendar");
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -1410,8 +1412,14 @@ export default function UnifiedCalendarPage() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => {
-                        if (confirm(`Delete ${selectedPostIds.size} selected post${selectedPostIds.size !== 1 ? 's' : ''}? This cannot be undone.`)) {
+                      onClick={async () => {
+                        const confirmed = await confirm({
+                          title: "Delete Selected Posts",
+                          description: `Delete ${selectedPostIds.size} selected post${selectedPostIds.size !== 1 ? 's' : ''}? This cannot be undone.`,
+                          confirmText: "Delete",
+                          variant: "destructive",
+                        });
+                        if (confirmed) {
                           bulkDeleteSelectedMutation.mutate(Array.from(selectedPostIds));
                         }
                       }}
@@ -1431,8 +1439,14 @@ export default function UnifiedCalendarPage() {
                       variant="outline"
                       size="sm"
                       className="text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground"
-                      onClick={() => {
-                        if (confirm('Delete all scheduled posts? This cannot be undone.')) {
+                      onClick={async () => {
+                        const confirmed = await confirm({
+                          title: "Delete All Posts",
+                          description: "Delete all scheduled posts? This cannot be undone.",
+                          confirmText: "Delete All",
+                          variant: "destructive",
+                        });
+                        if (confirmed) {
                           deleteAllPostsMutation.mutate();
                         }
                       }}

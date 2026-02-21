@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -117,6 +118,7 @@ interface VideoAvatar {
 
 export default function VideoAvatarManager() {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
 
   // Form state
@@ -1033,9 +1035,15 @@ export default function VideoAvatarManager() {
                       {/* Delete button on hover */}
                       {isHovered && (
                         <button
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-                            if (confirm("Delete this video avatar? This cannot be undone.")) {
+                            const confirmed = await confirm({
+                              title: "Delete Video Avatar",
+                              description: "Delete this video avatar? This cannot be undone.",
+                              confirmText: "Delete",
+                              variant: "destructive",
+                            });
+                            if (confirmed) {
                               deleteMutation.mutate(avatar.heygenAvatarId);
                             }
                           }}

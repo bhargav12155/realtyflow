@@ -72,6 +72,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useEffect, useRef, useState } from "react";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AvatarPhotoGallery } from "./avatar-photo-gallery";
 import { VoiceLibraryManager } from "./voice-library-manager";
 
@@ -89,6 +90,7 @@ function LargeAvatarCard({
   onChangeOutfit: () => void;
   onDelete: () => void;
 }) {
+  const confirm = useConfirm();
   const { data: photoData } = useQuery<any>({
     queryKey: [`/api/photo-avatars/groups/${groupId}/photos`],
     enabled: !!groupId,
@@ -139,9 +141,15 @@ function LargeAvatarCard({
             Change Outfit
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={(e) => {
+            onClick={async (e) => {
               e.stopPropagation();
-              if (confirm("Delete this avatar group? This cannot be undone.")) {
+              const confirmed = await confirm({
+                title: "Delete Avatar Group",
+                description: "Delete this avatar group? This cannot be undone.",
+                confirmText: "Delete",
+                variant: "destructive",
+              });
+              if (confirmed) {
                 onDelete();
               }
             }}
@@ -248,6 +256,7 @@ interface PhotoGenerationRequest {
 
 export function PhotoAvatarManager() {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [selectedTab, setSelectedTab] = useState("generate");
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -2603,8 +2612,14 @@ export function PhotoAvatarManager() {
                                   Change Outfit
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onClick={() => {
-                                    if (confirm("Delete this avatar group? This cannot be undone.")) {
+                                  onClick={async () => {
+                                    const confirmed = await confirm({
+                                      title: "Delete Avatar Group",
+                                      description: "Delete this avatar group? This cannot be undone.",
+                                      confirmText: "Delete",
+                                      variant: "destructive",
+                                    });
+                                    if (confirmed) {
                                       deleteGroupMutation.mutate(group.group_id);
                                     }
                                   }}

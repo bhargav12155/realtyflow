@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Loader2, Image as ImageIcon, ZoomIn, Download, Play, Wand2, Volume2, Trash2, Video } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
 interface Photo {
@@ -32,6 +33,7 @@ export function AvatarPhotoGallery({ groupId }: AvatarPhotoGalleryProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [pendingMotion, setPendingMotion] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+  const confirm = useConfirm();
 
   // Track if any photos have pending motion animations
   const hasPendingMotion = pendingMotion.size > 0;
@@ -372,9 +374,17 @@ export function AvatarPhotoGallery({ groupId }: AvatarPhotoGalleryProps) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        if (selectedPhoto.id && confirm('Are you sure you want to delete this avatar? This action cannot be undone.')) {
-                          deleteAvatarMutation.mutate(selectedPhoto.id);
+                      onClick={async () => {
+                        if (selectedPhoto.id) {
+                          const confirmed = await confirm({
+                            title: "Delete Avatar",
+                            description: "Are you sure you want to delete this avatar? This action cannot be undone.",
+                            confirmText: "Delete",
+                            variant: "destructive",
+                          });
+                          if (confirmed) {
+                            deleteAvatarMutation.mutate(selectedPhoto.id);
+                          }
                         }
                       }}
                       disabled={deleteAvatarMutation.isPending}

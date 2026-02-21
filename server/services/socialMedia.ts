@@ -1231,7 +1231,68 @@ export class SocialMediaService {
         }
       }
 
-      console.log("🔍 Facebook Debug - No pages found via any API method");
+      const clientId = process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+      const clientSecret = process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+      
+      if (clientId && clientSecret) {
+        console.log("🔍 Facebook Debug - Trying Debug Token fallback to discover pages...");
+        try {
+          const appAccessToken = `${clientId}|${clientSecret}`;
+          const debugResp = await fetch(
+            `https://graph.facebook.com/v22.0/debug_token?input_token=${token}&access_token=${encodeURIComponent(appAccessToken)}`
+          );
+          if (debugResp.ok) {
+            const debugData = await debugResp.json();
+            const granularScopes = debugData.data?.granular_scopes || [];
+            console.log("🔍 Facebook Debug Token - granular_scopes:", JSON.stringify(granularScopes));
+            
+            const pageRelatedScopes = ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement', 'pages_manage_metadata'];
+            const pageIds = new Set<string>();
+            for (const scope of granularScopes) {
+              if (pageRelatedScopes.includes(scope.scope) && scope.target_ids && Array.isArray(scope.target_ids)) {
+                for (const id of scope.target_ids) {
+                  pageIds.add(String(id));
+                }
+              }
+            }
+            
+            if (pageIds.size > 0) {
+              console.log(`✅ Facebook Debug Token - Found ${pageIds.size} authorized page IDs:`, [...pageIds]);
+              const resolvedPages: { id: string; name: string; category: string; access_token?: string }[] = [];
+              
+              for (const pageId of pageIds) {
+                try {
+                  const pageResp = await fetch(
+                    `https://graph.facebook.com/v22.0/${pageId}?fields=id,name,category,access_token&access_token=${token}`
+                  );
+                  if (pageResp.ok) {
+                    const pageData = await pageResp.json();
+                    if (pageData.id) {
+                      resolvedPages.push({
+                        id: pageData.id,
+                        name: pageData.name || `Page ${pageData.id}`,
+                        category: pageData.category || 'Unknown',
+                        access_token: pageData.access_token || token,
+                      });
+                      console.log(`✅ Resolved page via Debug Token: ${pageData.name} (${pageData.id})`);
+                    }
+                  }
+                } catch (pageErr) {
+                  console.warn(`⚠️ Could not fetch page ${pageId}:`, pageErr);
+                }
+              }
+              
+              if (resolvedPages.length > 0) {
+                return resolvedPages;
+              }
+            }
+          }
+        } catch (debugError) {
+          console.warn("⚠️ Facebook Debug Token fallback error:", debugError);
+        }
+      }
+
+      console.log("🔍 Facebook Debug - No pages found via any method (including Debug Token)");
       return [];
     } catch (error) {
       console.error("Error fetching Facebook pages:", error);

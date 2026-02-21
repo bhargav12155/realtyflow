@@ -2676,13 +2676,79 @@ Return your response in this exact JSON format:
             if (pagesResp.ok) {
               const pagesData = await pagesResp.json();
               fetchedPages = pagesData.data || [];
-              console.log(`📄 Facebook OAuth - Found ${fetchedPages.length} pages:`, fetchedPages.map((p: any) => p.name));
+              console.log(`📄 Facebook OAuth - Found ${fetchedPages.length} pages via me/accounts:`, fetchedPages.map((p: any) => p.name));
             } else {
               const pagesError = await pagesResp.text();
               console.warn(`⚠️ Facebook OAuth - Pages fetch failed:`, pagesError);
             }
           } catch (pagesError) {
             console.warn("⚠️ Facebook OAuth - Pages fetch error:", pagesError);
+          }
+
+          if (fetchedPages.length === 0 && clientId && clientSecret) {
+            console.log(`🔍 Facebook OAuth - me/accounts returned 0 pages, trying Debug Token fallback...`);
+            try {
+              const appAccessToken = `${clientId}|${clientSecret}`;
+              const debugResp = await fetch(
+                `https://graph.facebook.com/v22.0/debug_token?input_token=${longLivedToken}&access_token=${encodeURIComponent(appAccessToken)}`
+              );
+              if (debugResp.ok) {
+                const debugData = await debugResp.json();
+                const granularScopes = debugData.data?.granular_scopes || [];
+                console.log(`🔍 Facebook Debug Token - granular_scopes:`, JSON.stringify(granularScopes));
+                
+                const pageRelatedScopes = ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement', 'pages_manage_metadata'];
+                const pageIds = new Set<string>();
+                for (const scope of granularScopes) {
+                  if (pageRelatedScopes.includes(scope.scope) && scope.target_ids && Array.isArray(scope.target_ids)) {
+                    for (const id of scope.target_ids) {
+                      pageIds.add(String(id));
+                    }
+                  }
+                }
+                
+                if (pageIds.size > 0) {
+                  console.log(`✅ Facebook Debug Token - Found ${pageIds.size} authorized page IDs:`, [...pageIds]);
+                  
+                  for (const pageId of pageIds) {
+                    try {
+                      const pageResp = await fetch(
+                        `https://graph.facebook.com/v22.0/${pageId}?fields=id,name,category,access_token&access_token=${longLivedToken}`
+                      );
+                      if (pageResp.ok) {
+                        const pageData = await pageResp.json();
+                        if (pageData.id) {
+                          const hasPageToken = !!pageData.access_token;
+                          fetchedPages.push({
+                            id: pageData.id,
+                            name: pageData.name || `Page ${pageData.id}`,
+                            category: pageData.category || 'Unknown',
+                            access_token: pageData.access_token || longLivedToken,
+                            isDebugTokenResolved: true,
+                            hasPageToken,
+                          });
+                          console.log(`✅ Facebook Debug Token - Resolved page: ${pageData.name} (${pageData.id}), hasPageToken: ${hasPageToken}`);
+                        }
+                      } else {
+                        const errText = await pageResp.text();
+                        console.warn(`⚠️ Facebook Debug Token - Could not fetch page ${pageId}:`, errText);
+                      }
+                    } catch (pageErr) {
+                      console.warn(`⚠️ Facebook Debug Token - Error fetching page ${pageId}:`, pageErr);
+                    }
+                  }
+                  
+                  console.log(`📄 Facebook OAuth - After Debug Token fallback, found ${fetchedPages.length} pages`);
+                } else {
+                  console.warn(`⚠️ Facebook Debug Token - No page IDs found in granular_scopes`);
+                }
+              } else {
+                const debugErr = await debugResp.text();
+                console.warn(`⚠️ Facebook Debug Token - API call failed:`, debugErr);
+              }
+            } catch (debugError) {
+              console.warn(`⚠️ Facebook Debug Token fallback error:`, debugError);
+            }
           }
 
           let grantedPermissions: string[] = [];

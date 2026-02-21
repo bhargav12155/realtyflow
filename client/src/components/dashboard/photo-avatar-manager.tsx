@@ -61,6 +61,7 @@ import {
   Users,
   MoreVertical,
   Trash2,
+  Video,
   Wand2,
   X,
   ZoomIn,
@@ -72,6 +73,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AvatarPhotoGallery } from "./avatar-photo-gallery";
 import { VoiceLibraryManager } from "./voice-library-manager";
@@ -1231,6 +1233,36 @@ export function PhotoAvatarManager() {
         description: error.message || "Could not generate new look. Please try again.",
         variant: "destructive",
         duration: 8000,
+      });
+    },
+  });
+
+  const [, setLocation] = useLocation();
+  const [useLookPendingId, setUseLookPendingId] = useState<string | null>(null);
+
+  const useLookForVideoMutation = useMutation({
+    mutationFn: async (look: any) => {
+      setUseLookPendingId(look.id);
+      const response = await apiRequest("POST", "/api/avatar-iv/use-look-image", {
+        imageUrl: look.photoUrl,
+        lookName: look.poseType || "AI Generated Look",
+      });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      setUseLookPendingId(null);
+      toast({
+        title: "Look Ready for Video!",
+        description: "Redirecting to Video Studio. Your look is selected — write your script and generate!",
+      });
+      window.location.hash = "photo-avatars";
+    },
+    onError: (error: any) => {
+      setUseLookPendingId(null);
+      toast({
+        title: "Failed to prepare look",
+        description: error?.message || "Could not prepare this look for video. Please try again.",
+        variant: "destructive",
       });
     },
   });
@@ -3504,6 +3536,30 @@ export function PhotoAvatarManager() {
                       >
                         {look.processingStatus}
                       </Badge>
+                    )}
+                    {look.photoUrl && look.processingStatus === "completed" && (
+                      <Button
+                        size="sm"
+                        className="w-full mt-2 bg-[#D4AF37] hover:bg-[#C4A030] text-white text-[10px] h-7"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          useLookForVideoMutation.mutate(look);
+                        }}
+                        disabled={useLookForVideoMutation.isPending && useLookPendingId === look.id}
+                        data-testid={`button-use-look-video-${look.id}`}
+                      >
+                        {useLookForVideoMutation.isPending && useLookPendingId === look.id ? (
+                          <>
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            Preparing...
+                          </>
+                        ) : (
+                          <>
+                            <Video className="h-3 w-3 mr-1" />
+                            Use for Video
+                          </>
+                        )}
+                      </Button>
                     )}
                   </div>
                 </div>

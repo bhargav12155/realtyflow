@@ -23,7 +23,9 @@ import fs from "fs";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import { nanoid } from "nanoid";
+import os from "os";
 import path from "path";
+import { execSync } from "child_process";
 import { db } from "./db";
 import { requireAuth, createRequireAdmin, optionalAuth } from "./middleware/auth";
 // S3 is now the primary storage - ObjectStorageService kept only for legacy PDF analysis
@@ -11016,23 +11018,22 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
       console.log(`📤 Uploading look image via external service: ${externalServiceUrl}`);
 
-      const uploadFormData = new FormData();
-      const blob = new Blob([imageBuffer], { type: contentType });
-      uploadFormData.append("file", blob, `look-${Date.now()}.jpg`);
-      uploadFormData.append("kind", "image");
+      const tmpFilePath = path.join(os.tmpdir(), `look-upload-${Date.now()}.jpg`);
+      fs.writeFileSync(tmpFilePath, imageBuffer);
+      console.log(`📁 Wrote temp file: ${tmpFilePath} (${imageBuffer.length} bytes)`);
 
-      const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
-        method: "POST",
-        body: uploadFormData,
-      });
-
-      if (!uploadResponse.ok) {
-        const errorText = await uploadResponse.text();
-        console.error("❌ External service upload failed:", uploadResponse.status, errorText);
-        throw new Error(`Failed to upload photo: ${uploadResponse.status}`);
+      let uploadResult: any;
+      try {
+        const curlCmd = `curl -s --max-time 60 -X POST "${externalServiceUrl}/api/heygen/assets" -F "file=@${tmpFilePath};type=image/jpeg" -F "kind=image"`;
+        const curlOutput = execSync(curlCmd, { timeout: 65000 }).toString();
+        console.log("📦 External service raw response:", curlOutput.substring(0, 500));
+        uploadResult = JSON.parse(curlOutput);
+      } catch (curlError: any) {
+        console.error("❌ External service upload failed:", curlError.message);
+        throw new Error(`Failed to upload photo to external service`);
+      } finally {
+        try { fs.unlinkSync(tmpFilePath); } catch(e) {}
       }
-
-      const uploadResult: any = await uploadResponse.json();
       console.log("📦 External service upload result:", JSON.stringify(uploadResult));
 
       const imageKey = uploadResult.image_key || uploadResult.data?.image_key;

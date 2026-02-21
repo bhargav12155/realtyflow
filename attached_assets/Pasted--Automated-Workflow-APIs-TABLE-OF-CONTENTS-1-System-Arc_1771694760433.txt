@@ -1,0 +1,1661 @@
+# Automated Workflow APIs
+
+## � TABLE OF CONTENTS
+1. [System Architecture](#-system-architecture)
+2. [Complete Flow Explanation](#-complete-flow-explanation)
+3. [API Endpoints](#api-1-create-avatar-with-looks)
+4. [Database Schema](#️-database-schema-overview)
+5. [Code Examples](#-complete-end-to-end-example)
+
+---
+
+## 🏗️ SYSTEM ARCHITECTURE
+
+x┌─────────────────────────────────────────────────────────────────┐
+│                    CLIENT / FRONTEND                            │
+│                                                                 │
+│  1. Upload Photo (image file)                                  │
+│  2. Poll Status (check progress)                               │
+│  3. View Generated Looks (display images)                      │
+│  4. Select Look + Generate Video                               │
+│  5. Download Video                                             │
+└────────────┬────────────────────────────────────────────────────┘
+             │
+             │ HTTP/REST
+             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    EXPRESS BACKEND (server/index.ts)            │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ POST /api/photo-avatars/create-with-looks                │ │
+│  │   • Upload to HeyGen CDN                                 │ │
+│  │   • Create Avatar Group                                  │ │
+│  │   • Return group_id immediately                          │ │
+│  │   • Trigger background process (fire-and-forget)         │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ POST /api/photo-avatars/background-process               │ │
+│  │   • Wait 30s for HeyGen image processing                 │ │
+│  │   • Start avatar training                                │ │
+│  │   • Poll training status (every 5s)                      │ │
+│  │   • Generate 4 looks (parallel)                          │ │
+│  │   • Poll look generation status                          │ │
+│  │   • Save to database (gallery_items table)               │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ GET /api/photo-avatars/status/:groupId                   │ │
+│  │   • Query training status from HeyGen                    │ │
+│  │   • Query avatar details (motion, looks)                 │ │
+│  │   • Fetch looks from database                            │ │
+│  │   • Return combined status                               │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ POST /api/heygen/videos/motion                           │ │
+│  │   • Use groupId + lookId + motionId                      │ │
+│  │   • Call HeyGen video generation API                     │ │
+│  │   • Return video_id for polling                          │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │ GET /api/avatars/library                                 │ │
+│  │   • Query avatars table                                  │ │
+│  │   • Query gallery_items (looks)                          │ │
+│  │   • Combine into unified library                         │ │
+│  └──────────────────────────────────────────────────────────┘ │
+└────────┬─────────────────────────────────┬────────────────────┘
+         │                                 │
+         │ HTTP/REST                       │ SQL
+         ▼                                 ▼
+┌────────────────────────────┐   ┌─────────────────────────────┐
+│    HEYGEN API              │   │   POSTGRES DATABASE         │
+│                            │   │                             │
+│  • Upload CDN              │   │  ┌──────────────────────┐  │
+│  • Create Avatar Group     │   │  │ avatars              │  │
+│  • Train Avatar            │   │  │  - id                │  │
+│  • Generate Looks          │   │  │  - heygen_avatar_id  │  │
+│  • Add Motion              │   │  │  - group_id          │  │
+│  • Generate Video          │   │  │  - is_trained        │  │
+│                            │   │  │  - has_motion        │  │
+│  APIs:                     │   │  └──────────────────────┘  │
+│  /v1/asset (upload)        │   │                             │
+│  /v2/photo_avatar/...      │   │  ┌──────────────────────┐  │
+│  /v1/video/generate        │   │  │ gallery_items        │  │
+│                            │   │  │  - id                │  │
+│                            │   │  │  - media_type (look) │  │
+│                            │   │  │  - source_id         │  │
+│                            │   │  │  - preview_url       │  │
+│                            │   │  │  - metadata (json)   │  │
+│                            │   │  └──────────────────────┘  │
+│                            │   │                             │
+│                            │   │  ┌──────────────────────┐  │
+│                            │   │  │ video_generations    │  │
+│                            │   │  │  - id                │  │
+│                            │   │  │  - request_id        │  │
+│                            │   │  │  - avatar_id         │  │
+│                            │   │  │  - video_url         │  │
+│                            │   │  └──────────────────────┘  │
+└────────────────────────────┘   └─────────────────────────────┘
+```
+
+---
+
+## �🔄 COMPLETE FLOW EXPLANATION
+### ⏱️ TIMELINE DIAGRAM
+
+```
+TIME        ACTION                                          STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=0s        📸 Client: Upload photo                        
+            → Backend: Receive file via POST               
+            → HeyGen: Upload to CDN                        
+            ✅ Response: group_id returned                  IMMEDIATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=0-30s     ⏳ HeyGen: Processing uploaded image           BACKGROUND
+            (Client can close browser - processing continues)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=30s       🎓 Backend: POST /photo_avatar/train           
+            → HeyGen: Start AI training                   
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=30s-5m    🔄 Backend: Poll training status (every 5s)    PROCESSING
+            → HeyGen: GET /train/status/{group_id}        
+            Status: "processing" → "processing" → ...     
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=5m        ✅ Training Complete                            READY
+            Status: "ready"                                
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=5m        🎨 Backend: Generate 4 looks (parallel)        
+            → POST /look/generate (Look 1)                
+            → POST /look/generate (Look 2)                
+            → POST /look/generate (Look 3)                
+            → POST /look/generate (Look 4)                
+            Each returns generation_id                    
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=5-8m      🔄 Backend: Poll each look (every 5s)          PROCESSING
+            → GET /generation/{generation_id}             
+            Status: "processing" → "success"              
+            When complete:                                
+            ✅ Save to database (gallery_items)            SAVED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+t=8m        ✅ ALL LOOKS READY                              100% COMPLETE
+            4 looks saved in database                     
+            Ready for video generation                    
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CLIENT POLLING:
+├─ t=0s      → GET /status/{group_id}  → 0% complete (training)
+├─ t=30s     → GET /status/{group_id}  → 20% complete (training)
+├─ t=60s     → GET /status/{group_id}  → 40% complete (training)
+├─ t=5m      → GET /status/{group_id}  → 50% complete (looks gen)
+├─ t=6m      → GET /status/{group_id}  → 75% complete (2 looks done)
+└─ t=8m      → GET /status/{group_id}  → 100% complete ✅
+```
+
+---
+This document explains the **end-to-end flow** of the photo avatar system: uploading photos, generating looks, storing in the database, retrieving them, and using them to generate videos.
+
+---
+
+### 📸 FLOW 1: PHOTO UPLOAD → LOOKS GENERATION → DATABASE STORAGE → RETRIEVAL
+
+#### **Step 1: Upload Photo & Create Avatar**
+
+**Endpoint:** `POST /api/photo-avatars/create-with-looks`
+
+**What Happens:**
+1. Client uploads image file (JPEG/PNG/WebP, max 50MB)
+2. Backend receives the file via multer middleware
+3. Image is uploaded to HeyGen's CDN: `POST https://upload.heygen.com/v1/asset`
+4. HeyGen returns an `image_key` (e.g., `image/abc123/original`)
+5. Backend creates avatar group: `POST /v2/photo_avatar/avatar_group/create`
+6. HeyGen returns a `group_id` (e.g., `5b5566c8bba64376b154abdb565e0333`)
+7. **API returns immediately** with `group_id` and status `"processing"`
+
+**Response (Immediate ~2 seconds):**
+```json
+{
+  "success": true,
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "status": "processing",
+  "message": "Avatar created. Training and look generation will complete in ~6-8 minutes."
+}
+```
+
+#### **Step 2: Background Processing (Fire-and-Forget)**
+
+The backend **immediately** triggers a background workflow via self-HTTP-call to `/api/photo-avatars/background-process`:
+
+**Timeline:**
+1. **Wait 30 seconds** - HeyGen processes the uploaded image
+2. **Start Training** - `POST /v2/photo_avatar/train` with `group_id`
+3. **Poll Training Status** - Every 5 seconds check `GET /v2/photo_avatar/train/status/{group_id}`
+4. **Training Complete** - Status changes from `"processing"` → `"ready"` (takes 2-5 minutes)
+5. **Generate 4 Looks** - Make 4 parallel calls to `POST /v2/photo_avatar/look/generate`
+6. **Poll Look Generation** - Check each `generation_id` until status is `"success"`
+7. **Save to Database** - Each completed look is saved via `storage.upsertGalleryItemBySource()`
+
+**Total Time:** ~6-8 minutes for all 4 looks to be ready
+
+#### **Step 3: Database Storage**
+
+Each generated look is stored in the `gallery_items` table:
+
+**Table:** `heygen_app.gallery_items`
+
+**Schema:**
+```typescript
+{
+  id: number;              // Auto-increment primary key
+  userId: number | null;   // Null for anonymous workflows
+  sessionId: string;       // "automated-workflow" for API calls
+  mediaType: string;       // "look"
+  sourceType: string;      // "look_generation"
+  sourceId: string;        // "{generation_id}:{index}"
+  previewUrl: string;      // HeyGen CDN URL for the look image
+  title: string;           // "Avatar Name Look #1"
+  status: string;          // "ready"
+  metadata: {
+    generationId: string;  // HeyGen generation ID
+    groupId: string;       // Avatar group ID
+    lookIndex: number;     // 0, 1, 2, 3
+    prompt: string;        // Look generation prompt
+    avatarName: string;    // Avatar name
+  }
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+**Storage Method:**
+```typescript
+await storage.upsertGalleryItemBySource({
+  userId: null,
+  sessionId: 'automated-workflow',
+  mediaType: 'look',
+  sourceType: 'look_generation',
+  sourceId: `${generationId}:${index}`,
+  previewUrl: lookImageUrl,
+  title: `${avatarName} Look #${index + 1}`,
+  status: 'ready',
+  metadata: {
+    generationId,
+    groupId,
+    lookIndex: index,
+    prompt: lookPrompts[index],
+    avatarName
+  }
+});
+```
+
+**Database Operation:** Uses `INSERT ... ON CONFLICT DO UPDATE` to prevent duplicates
+
+#### **Step 4: Retrieving Looks from Database**
+
+**Endpoint:** `GET /api/photo-avatars/status/:groupId`
+
+**What Happens:**
+1. Backend calls `storage.getGalleryItems('automated-workflow', undefined, 'look')`
+2. SQL Query:
+```sql
+SELECT * FROM heygen_app.gallery_items
+WHERE session_id = 'automated-workflow'
+  AND media_type = 'look'
+ORDER BY created_at DESC;
+```
+3. Filter results by `metadata.groupId` to match the requested avatar
+4. Return looks array with `image_url`, `generation_id`, `prompt`, etc.
+
+**Response:**
+```json
+{
+  "groupId": "5b5566c8bba64376b154abdb565e0333",
+  "training": {
+    "status": "ready"
+  },
+  "looksCount": 4,
+  "looks": [
+    {
+      "id": "gen123:0",
+      "name": "John Doe Look #1",
+      "image_url": "https://files2.heygen.ai/...",
+      "status": "ready",
+      "generation_id": "gen123",
+      "prompt": "professional business attire, confident smile"
+    },
+    ...
+  ]
+}
+```
+
+**Frontend Retrieval:**
+- Frontend poll `GET /api/photo-avatars/status/{groupId}` every 30 seconds
+- When `looksCount > 0`, display the looks
+- User can select a look for video generation
+
+---
+
+### 🎬 FLOW 2: USING LOOKS TO GENERATE VIDEOS
+
+There are **3 ways** to generate videos with avatars:
+
+#### **Option A: Avatar IV (Direct Photo → Video)**
+
+**Endpoint:** `POST /api/heygen/videos`
+
+**What Happens:**
+1. Client uploads photo directly or uses existing `image_key`
+2. Backend calls HeyGen: `POST /v2/video/av4/generate`
+3. Payload includes:
+```json
+{
+  "image_key": "image/abc123/original",
+  "script": "Hello, welcome to our platform!",
+  "voice_id": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+  "video_orientation": "landscape"
+}
+```
+4. HeyGen returns `video_id` immediately
+5. Video generation happens in background (2-5 min)
+6. Poll `GET /api/heygen/videos/{video_id}` until status is `"completed"`
+
+**Storage:**
+- Creates `video_generations` record with `request_id`, `avatar_id`, `script_text`
+- Creates `gallery_items` record with `mediaType: "video"`, `sourceType: "video_generation"`
+
+#### **Option B: Motion Video (Trained Avatar + Look + Motion)**
+
+**Endpoint:** `POST /api/heygen/videos/motion`
+
+**What Happens:**
+1. Client provides:
+   - `groupId` - Trained avatar group
+   - `lookId` - Selected look from generated looks
+   - `motionId` - Motion style ID (from HeyGen motion list)
+   - `script` - Text to speak
+   - `voiceId` - Voice selection
+2. Backend calls HeyGen: `POST /v1/video/generate`
+3. Payload:
+```json
+{
+  "video_type": "motion",
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "look_id": "look_abc123",
+  "motion_id": "motion_xyz789",
+  "audio": {
+    "type": "text",
+    "text": "Hello!",
+    "voice_id": "voice123"
+  },
+  "ratio": "16:9"
+}
+```
+4. Video generates with **realistic hand gestures and body movement**
+5. Poll status until complete
+
+**Requirements:**
+- Avatar must be trained (`training.status === "ready"`)
+- Need at least 1 generated look
+- Need to select a motion style
+
+#### **Option C: Avatar Library (Reuse Existing Avatars)**
+
+**Endpoint:** `GET /api/avatars/library`
+
+**What Happens:**
+1. Backend retrieves:
+   - Trained avatars from `avatars` table
+   - Generated looks from `gallery_items` table where `mediaType = "look"`
+2. Combines both into unified library:
+```typescript
+const looksAsAvatars = generatedLooks.map(look => ({
+  id: look.id,
+  heygenAvatarId: `look_${look.sourceId}`,
+  avatarName: look.title,
+  imageUrl: look.previewUrl,
+  avatarGroupId: look.metadata?.groupId,
+  isGeneratedLook: true,
+  hasMotion: false
+}));
+
+const allItems = [...validAvatars, ...looksAsAvatars];
+```
+3. Frontend displays unified avatar library
+4. User selects avatar/look for video generation
+
+---
+
+### 🗄️ DATABASE SCHEMA OVERVIEW
+
+#### **Table 1: `avatars`**
+Stores trained avatar metadata
+```sql
+CREATE TABLE avatars (
+  id SERIAL PRIMARY KEY,
+  heygen_avatar_id VARCHAR(255) UNIQUE,
+  avatar_group_id VARCHAR(255),
+  avatar_name VARCHAR(255),
+  image_url TEXT,
+  image_key VARCHAR(255),
+  is_trained BOOLEAN DEFAULT false,
+  has_motion BOOLEAN DEFAULT false,
+  session_id VARCHAR(255),
+  user_id INTEGER REFERENCES users(id)
+);
+```
+
+#### **Table 2: `gallery_items`**
+Stores looks, videos, and other media
+```sql
+CREATE TABLE gallery_items (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  session_id VARCHAR(255),
+  media_type VARCHAR(50), -- "look", "video", "image"
+  source_type VARCHAR(50), -- "look_generation", "video_generation"
+  source_id VARCHAR(255), -- Unique identifier from HeyGen
+  preview_url TEXT,
+  title VARCHAR(255),
+  status VARCHAR(50), -- "ready", "processing", "failed"
+  metadata JSONB, -- Flexible storage for any extra data
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(source_type, source_id) -- Prevent duplicates
+);
+```
+
+#### **Table 3: `video_generations`**
+Tracks all video generation requests
+```sql
+CREATE TABLE video_generations (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(255),
+  user_id INTEGER REFERENCES users(id),
+  request_id VARCHAR(255) UNIQUE, -- HeyGen video_id
+  avatar_id INTEGER REFERENCES avatars(id),
+  script_text TEXT,
+  video_url TEXT,
+  duration INTEGER, -- Estimated duration in seconds
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+### 🔄 COMPLETE END-TO-END EXAMPLE
+
+**Scenario:** User uploads photo → Gets 4 looks → Selects look → Generates motion video
+
+```bash
+# STEP 1: Upload photo & trigger automated workflow
+curl -X POST http://localhost:3001/api/photo-avatars/create-with-looks \
+  -F 'image=@photo.jpg' \
+  -F 'name=John Smith'
+
+# Response (immediate):
+# {"group_id": "abc123", "status": "processing"}
+
+# STEP 2: Poll status every 30 seconds (wait ~6-8 min)
+curl http://localhost:3001/api/photo-avatars/status/abc123
+
+# Response after completion:
+# {
+#   "groupId": "abc123",
+#   "training": {"status": "ready"},
+#   "looksCount": 4,
+#   "looks": [
+#     {"id": "look1", "image_url": "https://..."},
+#     {"id": "look2", "image_url": "https://..."},
+#     {"id": "look3", "image_url": "https://..."},
+#     {"id": "look4", "image_url": "https://..."}
+#   ]
+# }
+
+# STEP 3: Get motion styles list
+curl http://localhost:3001/api/heygen/motions
+
+# STEP 4: Generate motion video with selected look
+curl -X POST http://localhost:3001/api/heygen/videos/motion \
+  -H "Content-Type: application/json" \
+  -d '{
+    "groupId": "abc123",
+    "lookId": "look1",
+    "motionId": "motion_natural_gestures",
+    "script": "Welcome to our platform!",
+    "voiceId": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    "ratio": "16:9"
+  }'
+
+# Response (immediate):
+# {"request_id": "video123", "status": "processing"}
+
+# STEP 5: Poll video status (wait ~3-5 min)
+curl http://localhost:3001/api/heygen/videos/video123
+
+# Response when complete:
+# {
+#   "status": "completed",
+#   "video_url": "https://heygen.ai/videos/video123.mp4",
+#   "thumbnail_url": "https://heygen.ai/thumbnails/video123.jpg"
+# }
+
+# STEP 6: Download video
+wget https://heygen.ai/videos/video123.mp4
+```
+
+---
+
+## API 1: Create Avatar with Looks
+
+**Endpoint:** `POST /api/photo-avatars/create-with-looks`
+
+Upload an image and automatically get a trained avatar with 4 professional looks.
+
+### Request
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/create-with-looks \
+  --form 'image=@/path/to/photo.jpg' \
+  --form 'name=John Doe' \
+  --form 'prompt=professional business attire, confident smile' \
+  --form 'orientation=square' \
+  --form 'pose=half_body' \
+  --form 'style=Realistic'
+```
+
+### Parameters
+
+- `image` (required): Image file (JPEG, PNG, WebP)
+- `name` (optional): Avatar name (default: "Avatar {timestamp}")
+- `prompt` (optional): Base look description. If omitted, the server will use safe default prompts for the 4 generated looks.
+- `orientation` (optional): "square", "horizontal", or "vertical" (default: "square")
+- `pose` (optional): "half_body", "close_up", or "full_body" (default: "half_body")
+- `style` (optional): "Realistic", "Pixar", "Cinematic", etc. (default: "Realistic")
+
+### Response (Immediate)
+
+**The API returns immediately** - processing happens in background.
+
+```json
+{
+  "success": true,
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "avatar_name": "John Doe",
+  "status": "processing",
+  "message": "Avatar created. Training and look generation will complete in ~6-8 minutes.",
+  "check_status_url": "/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333",
+  "estimated_completion": "2025-12-12T23:05:00.000Z"
+}
+```
+
+### Notes on Look Generation
+
+Internally, this workflow calls HeyGen's look generation API:
+
+- `POST https://api.heygen.com/v2/photo_avatar/look/generate`
+- HeyGen requires both `group_id` and `prompt` for each look generation request.
+
+If you want to call HeyGen directly (for debugging), the minimal valid payload looks like:
+
+```bash
+curl --request POST \
+  --url https://api.heygen.com/v2/photo_avatar/look/generate \
+  --header 'accept: application/json' \
+  --header 'content-type: application/json' \
+  --header 'x-api-key: <your-api-key>' \
+  --data '{
+    "group_id": "<avatar-group-id>",
+    "prompt": "Professional headshot, studio lighting, business attire, clean background",
+    "orientation": "square",
+    "pose": "half_body",
+    "style": "Realistic"
+  }'
+```
+
+### Timeline
+
+- **API returns immediately** (~2 seconds)
+- Background processing:
+  - Image processing: 30 seconds
+  - Training: 2-5 minutes
+  - Look generation: 1-2 minutes
+
+**Total background time:** ~6-8 minutes
+
+### Polling for Completion
+
+```bash
+# Poll every 30 seconds
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333
+
+# When workflow_status.percent_complete reaches 100%, all looks are ready
+```
+
+---
+
+## API 2: Generate Video from Image
+
+**Endpoint:** `POST /api/photo-avatars/generate-video-from-image`
+
+Upload an image, provide a script, and get a complete video link.
+
+### Request
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/generate-video-from-image \
+  --form 'image=@/path/to/photo.jpg' \
+  --form 'name=Sarah Johnson' \
+  --form 'script=Welcome to our company! We are excited to help you find your dream home.' \
+  --form 'voice_id=1c7c897eeb2d4b5fb17d3c6c70250b24'
+```
+
+### Parameters
+
+- `image` (required): Image file (JPEG, PNG, WebP)
+- `script` (required): Text for the avatar to speak
+- `name` (optional): Avatar name (default: "Video Avatar {timestamp}")
+- `voice_id` (optional): HeyGen voice ID (default: professional female voice)
+
+### Response (Immediate)
+
+**The API returns immediately** - video generation happens in background.
+
+```json
+{
+  "success": true,
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "status": "processing",
+  "message": "Avatar created. Video will be ready in ~8-13 minutes.",
+  "check_status_url": "/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333",
+  "estimated_completion": "2025-12-12T23:10:00.000Z"
+}
+```
+
+### Check Video Status
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+### Video Ready Response
+
+```json
+{
+  "status": "completed",
+  "video_url": "https://heygen.ai/videos/abc123.mp4",
+  "duration": 15.5,
+  "thumbnail_url": "https://heygen.ai/thumbnails/abc123.jpg"
+}
+```
+
+### Timeline
+
+- **API returns immediately** (~2 seconds)
+- Background processing:
+  - Image processing: 30 seconds
+  - Training: 2-5 minutes
+  - Motion processing: 30 seconds
+  - Video generation: 2-5 minutes
+
+**Total background time:** ~8-13 minutes
+
+### Polling for Video
+
+First check the avatar training status, then check video status once training is complete:
+
+```bash
+# Step 1: Check avatar training status
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333
+
+# When workflow_status.percent_complete reaches 100%, video should be generating
+
+# Step 2: Get video_id from the avatar's video history and check video status
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos
+
+# Find your video and check its status
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/video-status/{video_id}
+```
+
+---
+
+## API 3: Check Avatar Workflow Status
+
+**Endpoint:** `GET /api/photo-avatars/status/:groupId`
+
+Check the complete status of avatar training, looks, and motion.
+
+### Request
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333
+```
+
+### Response
+
+```json
+{
+  "group_id": "5b5566c8bba64376b154abdb565e0333",
+  "training": {
+    "status": "ready",
+    "error": null,
+    "is_complete": true,
+    "is_processing": false,
+    "is_failed": false
+  },
+  "avatar": {
+    "name": "John Doe",
+    "status": "completed",
+    "created_at": 1765060920.816059
+  },
+  "motion": {
+    "enabled": true,
+    "preview_url": "https://heygen.ai/motion/preview.mp4"
+  },
+  "looks": {
+    "count": 4,
+    "list": [
+      {
+        "id": "abc123",
+        "name": "Professional Look 1",
+        "image_url": "https://heygen.ai/looks/1.jpg",
+        "status": "completed"
+      },
+      {
+        "id": "def456",
+        "name": "Casual Look 2",
+        "image_url": "https://heygen.ai/looks/2.jpg",
+        "status": "completed"
+      }
+    ]
+  },
+  "workflow_status": {
+    "ready_for_video": true,
+    "ready_for_looks": true,
+    "ready_for_motion": true,
+    "percent_complete": 100
+  }
+}
+```
+
+### Status Codes
+
+- **Training status:** `pending`, `processing`, `ready`, `failed`
+- **Avatar status:** `pending`, `completed`
+- **Workflow percent:** 0-100%
+  - 0-40%: Training
+  - 40-70%: Looks generation
+  - 70-100%: Motion enabled
+
+---
+
+## API 4: Check Video Generation Status
+
+**Endpoint:** `GET /api/photo-avatars/video-status/:videoId`
+
+Check if a video is ready and get the download URL.
+
+### Request
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/video-status/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+### Response (Processing)
+
+```json
+{
+  "video_id": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "status": "processing",
+  "is_complete": false,
+  "is_processing": true,
+  "is_failed": false,
+  "video_url": null,
+  "thumbnail_url": null,
+  "duration": null,
+  "error": null,
+  "percent_complete": 50
+}
+```
+
+### Response (Completed)
+
+```json
+{
+  "video_id": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "status": "completed",
+  "is_complete": true,
+  "is_processing": false,
+  "is_failed": false,
+  "video_url": "https://heygen.ai/videos/abc123.mp4",
+  "thumbnail_url": "https://heygen.ai/thumbnails/abc123.jpg",
+  "duration": 15.5,
+  "error": null,
+  "percent_complete": 100
+}
+```
+
+---
+
+## Production URLs
+
+Replace `localhost:3001` with your production domain:
+
+### Elastic Beanstalk
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/create-with-looks \
+  --form 'image=@/path/to/photo.jpg'
+```
+
+### Custom Domain (if configured)
+
+```bash
+curl --request POST \
+  --url https://api.imakevideo.com/api/photo-avatars/create-with-looks \
+  --form 'image=@/path/to/photo.jpg'
+```
+
+---
+
+## Error Responses
+
+### 400 Bad Request
+
+```json
+{
+  "error": "Image file is required"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "email_not_verified",
+  "message": "Please verify your email address..."
+}
+```
+
+### 500 Server Error
+
+```json
+{
+  "error": "Training timeout - avatar not ready after 5 minutes"
+}
+```
+
+---
+
+## Notes
+
+1. **Authentication:** Currently DISABLED for external API access (no auth required)
+2. **File size limit:** 50MB max
+3. **Supported formats:** JPEG, PNG, WebP, GIF
+4. **Background processing:** Both APIs return immediately with a `group_id` - all processing happens asynchronously
+5. **Polling recommended:** Check status every 30 seconds using the provided `check_status_url`
+6. **Concurrent requests:** Safe to make multiple requests - each gets a unique `group_id`
+7. **No timeouts:** The API returns quickly, background processing can take 6-13 minutes
+
+---
+
+## API 5: Get Avatar Library (List All Avatars)
+
+**Endpoint:** `GET /api/avatars/library`
+
+Retrieve all available avatars including trained avatars and generated looks that can be used for video generation.
+
+### Request
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/avatars/library \
+  --header 'Content-Type: application/json'
+```
+
+### Query Parameters (Optional)
+
+- `userId` (optional): Filter avatars by user ID
+- `sessionId` (optional): Filter by session ID
+- `includeUntrained` (optional): Include avatars that haven't completed training (default: false)
+
+### Response
+
+```json
+{
+  "success": true,
+  "count": 12,
+  "avatars": [
+    {
+      "id": 456,
+      "heygenAvatarId": "photo_avatar_xyz123",
+      "avatarName": "John Smith Professional",
+      "imageUrl": "https://files2.heygen.ai/avatar/abc123.jpg",
+      "avatarGroupId": "5b5566c8bba64376b154abdb565e0333",
+      "isTrained": true,
+      "hasMotion": true,
+      "isGeneratedLook": false,
+      "createdAt": "2025-12-12T22:30:00.000Z",
+      "sourceType": "photo_avatar"
+    },
+    {
+      "id": 789,
+      "heygenAvatarId": "look_gen456:0",
+      "avatarName": "John Smith Look #1",
+      "imageUrl": "https://files2.heygen.ai/look/def456.jpg",
+      "avatarGroupId": "5b5566c8bba64376b154abdb565e0333",
+      "isTrained": true,
+      "hasMotion": false,
+      "isGeneratedLook": true,
+      "generationId": "gen456",
+      "lookIndex": 0,
+      "prompt": "professional business attire, confident smile",
+      "createdAt": "2025-12-12T22:38:00.000Z",
+      "sourceType": "look_generation"
+    }
+  ]
+}
+```
+
+### Response Fields Explained
+
+- `id`: Database primary key (use this for video generation)
+- `heygenAvatarId`: HeyGen's internal avatar ID
+- `avatarName`: Display name for the avatar
+- `imageUrl`: Preview image URL
+- `avatarGroupId`: Group ID for trained avatars (used for motion videos)
+- `isTrained`: Whether avatar training is complete
+- `hasMotion`: Whether motion capabilities are enabled
+- `isGeneratedLook`: True if this is a look variation, false if original avatar
+- `generationId`: (Looks only) HeyGen generation ID
+- `lookIndex`: (Looks only) Index of the look (0-3)
+- `prompt`: (Looks only) Prompt used to generate the look
+
+### Database Query
+
+This endpoint combines data from two tables:
+
+```sql
+-- Get trained avatars
+SELECT 
+  id,
+  heygen_avatar_id,
+  avatar_name,
+  image_url,
+  avatar_group_id,
+  is_trained,
+  has_motion,
+  created_at
+FROM heygen_app.avatars
+WHERE is_trained = true
+ORDER BY created_at DESC;
+
+-- Get generated looks
+SELECT 
+  id,
+  source_id,
+  title,
+  preview_url,
+  metadata,
+  created_at
+FROM heygen_app.gallery_items
+WHERE media_type = 'look'
+  AND status = 'ready'
+ORDER BY created_at DESC;
+```
+
+---
+
+## API 6: Generate Video from Existing Avatar
+
+**Endpoint:** `POST /api/heygen/videos/from-avatar`
+
+Generate a video using an existing avatar from your library (no image upload needed).
+
+### Request
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/from-avatar \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "avatarId": 456,
+    "script": "Hello! Welcome to our platform. I am excited to help you today.",
+    "voiceId": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    "videoOrientation": "landscape"
+  }'
+```
+
+### Parameters
+
+- `avatarId` (required): Database ID from `/api/avatars/library`
+- `script` (required): Text for the avatar to speak (max 5000 characters)
+- `voiceId` (optional): HeyGen voice ID (default: professional female voice)
+- `videoOrientation` (optional): "landscape" (16:9), "portrait" (9:16), or "square" (1:1) - default: "landscape"
+
+### Response (Immediate)
+
+```json
+{
+  "success": true,
+  "video_id": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "request_id": "req_xyz789",
+  "status": "processing",
+  "message": "Video generation started. Will be ready in ~3-5 minutes.",
+  "check_status_url": "/api/heygen/videos/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+  "estimated_completion": "2025-12-12T23:15:00.000Z",
+  "avatar_info": {
+    "id": 456,
+    "name": "John Smith Professional",
+    "has_motion": true
+  }
+}
+```
+
+### Technical Implementation
+
+**Backend Flow:**
+
+1. Validate `avatarId` exists in database
+2. Query avatar details:
+```sql
+SELECT 
+  id,
+  heygen_avatar_id,
+  avatar_group_id,
+  avatar_name,
+  image_key,
+  is_trained,
+  has_motion
+FROM heygen_app.avatars
+WHERE id = $1;
+```
+3. If avatar is not trained, return error
+4. Call HeyGen API based on avatar type:
+   - If `has_motion = true`: Use motion video API
+   - If `has_motion = false`: Use Avatar IV API
+
+**HeyGen API Call (Avatar IV):**
+```bash
+curl --request POST \
+  --url https://api.heygen.com/v2/video/av4/generate \
+  --header 'x-api-key: YOUR_API_KEY' \
+  --header 'content-type: application/json' \
+  --data '{
+    "image_key": "image/abc123/original",
+    "script": "Hello! Welcome to our platform.",
+    "voice_id": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    "video_orientation": "landscape"
+  }'
+```
+
+5. Store video generation request in database:
+```sql
+INSERT INTO heygen_app.video_generations (
+  session_id,
+  user_id,
+  request_id,
+  avatar_id,
+  script_text,
+  duration,
+  created_at
+) VALUES (
+  'automated-workflow',
+  NULL,
+  'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6',
+  456,
+  'Hello! Welcome...',
+  15,
+  NOW()
+);
+```
+
+6. Store in gallery:
+```sql
+INSERT INTO heygen_app.gallery_items (
+  user_id,
+  session_id,
+  media_type,
+  source_type,
+  source_id,
+  preview_url,
+  title,
+  status,
+  metadata,
+  created_at
+) VALUES (
+  NULL,
+  'automated-workflow',
+  'video',
+  'video_generation',
+  'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6',
+  NULL,
+  'John Smith Professional - Video',
+  'processing',
+  '{"avatarId": 456, "videoId": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"}'::jsonb,
+  NOW()
+)
+ON CONFLICT (source_type, source_id) DO UPDATE
+SET status = 'processing', updated_at = NOW();
+```
+
+### Error Responses
+
+**Avatar Not Found:**
+```json
+{
+  "error": "Avatar not found",
+  "message": "No avatar exists with ID: 456"
+}
+```
+
+**Avatar Not Trained:**
+```json
+{
+  "error": "Avatar not ready",
+  "message": "Avatar is still training. Please wait until training is complete.",
+  "training_status": "processing",
+  "check_status_url": "/api/photo-avatars/status/5b5566c8bba64376b154abdb565e0333"
+}
+```
+
+**Script Too Long:**
+```json
+{
+  "error": "Script too long",
+  "message": "Script must be 5000 characters or less. Current length: 6543"
+}
+```
+
+---
+
+## API 7: Generate Motion Video from Existing Avatar
+
+**Endpoint:** `POST /api/heygen/videos/motion-from-avatar`
+
+Generate a video with realistic motion and gestures using an existing trained avatar.
+
+### Request
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/motion-from-avatar \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "avatarId": 456,
+    "lookId": 789,
+    "motionId": "motion_natural_gestures_01",
+    "script": "Welcome to our platform! Let me show you around.",
+    "voiceId": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    "ratio": "16:9"
+  }'
+```
+
+### Parameters
+
+- `avatarId` (required): Database ID of the trained avatar
+- `lookId` (optional): Database ID of a generated look (if you want a specific look)
+- `motionId` (required): Motion style ID from `/api/heygen/motions` endpoint
+- `script` (required): Text for the avatar to speak
+- `voiceId` (optional): HeyGen voice ID
+- `ratio` (optional): "16:9", "9:16", or "1:1" (default: "16:9")
+
+### Response (Immediate)
+
+```json
+{
+  "success": true,
+  "video_id": "motion_video_abc123",
+  "request_id": "req_motion_xyz789",
+  "status": "processing",
+  "message": "Motion video generation started. Will be ready in ~4-6 minutes.",
+  "check_status_url": "/api/heygen/videos/motion_video_abc123",
+  "estimated_completion": "2025-12-12T23:20:00.000Z",
+  "avatar_info": {
+    "id": 456,
+    "name": "John Smith Professional",
+    "group_id": "5b5566c8bba64376b154abdb565e0333",
+    "has_motion": true
+  },
+  "look_info": {
+    "id": 789,
+    "name": "Professional Look #1"
+  }
+}
+```
+
+### Technical Implementation
+
+**Backend Flow:**
+
+1. Query avatar details:
+```sql
+SELECT 
+  a.id,
+  a.heygen_avatar_id,
+  a.avatar_group_id,
+  a.avatar_name,
+  a.is_trained,
+  a.has_motion
+FROM heygen_app.avatars a
+WHERE a.id = $1;
+```
+
+2. If `lookId` is provided, query look details:
+```sql
+SELECT 
+  id,
+  source_id,
+  title,
+  preview_url,
+  metadata
+FROM heygen_app.gallery_items
+WHERE id = $2
+  AND media_type = 'look';
+```
+
+3. Validate motion is enabled:
+```typescript
+if (!avatar.has_motion) {
+  return res.status(400).json({
+    error: "Motion not enabled",
+    message: "This avatar does not have motion capabilities. Please add motion first.",
+    add_motion_url: `/api/photo-avatars/add-motion/${avatar.avatar_group_id}`
+  });
+}
+```
+
+4. Call HeyGen Motion Video API:
+```bash
+curl --request POST \
+  --url https://api.heygen.com/v1/video/generate \
+  --header 'x-api-key: YOUR_API_KEY' \
+  --header 'content-type: application/json' \
+  --data '{
+    "video_type": "motion",
+    "group_id": "5b5566c8bba64376b154abdb565e0333",
+    "look_id": "look_abc123",
+    "motion_id": "motion_natural_gestures_01",
+    "audio": {
+      "type": "text",
+      "text": "Welcome to our platform!",
+      "voice_id": "1c7c897eeb2d4b5fb17d3c6c70250b24"
+    },
+    "ratio": "16:9"
+  }'
+```
+
+5. Store video generation request:
+```sql
+INSERT INTO heygen_app.video_generations (
+  session_id,
+  request_id,
+  avatar_id,
+  script_text,
+  created_at
+) VALUES (
+  'automated-workflow',
+  'motion_video_abc123',
+  456,
+  'Welcome to our platform!',
+  NOW()
+);
+```
+
+6. Store in gallery with motion metadata:
+```sql
+INSERT INTO heygen_app.gallery_items (
+  session_id,
+  media_type,
+  source_type,
+  source_id,
+  title,
+  status,
+  metadata
+) VALUES (
+  'automated-workflow',
+  'video',
+  'motion_video_generation',
+  'motion_video_abc123',
+  'John Smith - Motion Video',
+  'processing',
+  '{
+    "avatarId": 456,
+    "lookId": 789,
+    "motionId": "motion_natural_gestures_01",
+    "videoId": "motion_video_abc123",
+    "hasMotion": true
+  }'::jsonb
+);
+```
+
+### Get Available Motion Styles
+
+```bash
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/motions
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "motions": [
+    {
+      "id": "motion_natural_gestures_01",
+      "name": "Natural Gestures",
+      "description": "Subtle hand and body movements",
+      "preview_url": "https://heygen.ai/motions/preview1.mp4"
+    },
+    {
+      "id": "motion_professional_presenter_01",
+      "name": "Professional Presenter",
+      "description": "Confident presenting gestures",
+      "preview_url": "https://heygen.ai/motions/preview2.mp4"
+    }
+  ]
+}
+```
+
+---
+
+## 🎯 COMPLETE WORKFLOW: Select Avatar → Generate Video
+
+### Scenario: User wants to create a video using an existing avatar
+
+**Step 1: Get Available Avatars**
+
+```bash
+# Retrieve all avatars in your library
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/avatars/library
+
+# Response includes both trained avatars and looks
+```
+
+**Step 2: Choose Avatar Type**
+
+You have 3 options:
+
+**Option A: Simple Video (No Motion)**
+- Use any trained avatar
+- Fast generation (~3-5 min)
+- No hand/body movements
+
+**Option B: Motion Video (Realistic Gestures)**
+- Use trained avatar with `has_motion: true`
+- Can select a specific look
+- Slower generation (~4-6 min)
+- Realistic movements
+
+**Option C: Use Generated Look**
+- Use a look variation from the gallery
+- Inherits parent avatar's capabilities
+
+**Step 3A: Generate Simple Video**
+
+```bash
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/from-avatar \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "avatarId": 456,
+    "script": "Hi there! Let me tell you about our services.",
+    "voiceId": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    "videoOrientation": "landscape"
+  }'
+
+# Returns video_id immediately
+# {"video_id": "abc123", "status": "processing"}
+```
+
+**Step 3B: Generate Motion Video**
+
+```bash
+# First, get motion styles
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/motions
+
+# Then generate video with motion
+curl --request POST \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/motion-from-avatar \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "avatarId": 456,
+    "lookId": 789,
+    "motionId": "motion_natural_gestures_01",
+    "script": "Welcome! Let me show you our features.",
+    "voiceId": "1c7c897eeb2d4b5fb17d3c6c70250b24",
+    "ratio": "16:9"
+  }'
+```
+
+**Step 4: Poll Video Status**
+
+```bash
+# Check video generation progress every 10 seconds
+curl --request GET \
+  --url http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos/abc123
+
+# Response while processing:
+# {"status": "processing", "percent_complete": 45}
+
+# Response when complete:
+# {"status": "completed", "video_url": "https://...", "thumbnail_url": "https://..."}
+```
+
+**Step 5: Download Video**
+
+```bash
+# Download the completed video
+wget "https://heygen.ai/videos/abc123.mp4"
+```
+
+---
+
+## 🗄️ DATABASE SCHEMA FOR AVATAR LIBRARY
+
+### Table: `avatars`
+
+Stores all trained avatars.
+
+```sql
+CREATE TABLE heygen_app.avatars (
+  id SERIAL PRIMARY KEY,
+  heygen_avatar_id VARCHAR(255) UNIQUE NOT NULL,
+  avatar_group_id VARCHAR(255) NOT NULL,
+  avatar_name VARCHAR(255) NOT NULL,
+  image_url TEXT,
+  image_key VARCHAR(255),
+  is_trained BOOLEAN DEFAULT false,
+  has_motion BOOLEAN DEFAULT false,
+  session_id VARCHAR(255),
+  user_id INTEGER REFERENCES heygen_app.users(id),
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for fast queries
+CREATE INDEX idx_avatars_user_id ON heygen_app.avatars(user_id);
+CREATE INDEX idx_avatars_session_id ON heygen_app.avatars(session_id);
+CREATE INDEX idx_avatars_group_id ON heygen_app.avatars(avatar_group_id);
+CREATE INDEX idx_avatars_trained ON heygen_app.avatars(is_trained) WHERE is_trained = true;
+```
+
+### Table: `gallery_items`
+
+Stores looks, videos, and other generated media.
+
+```sql
+CREATE TABLE heygen_app.gallery_items (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES heygen_app.users(id),
+  session_id VARCHAR(255) NOT NULL,
+  media_type VARCHAR(50) NOT NULL, -- 'look', 'video', 'image'
+  source_type VARCHAR(50) NOT NULL, -- 'look_generation', 'video_generation', 'motion_video_generation'
+  source_id VARCHAR(255) NOT NULL, -- Unique identifier (e.g., generation_id:index)
+  preview_url TEXT,
+  title VARCHAR(255),
+  status VARCHAR(50) DEFAULT 'processing', -- 'processing', 'ready', 'failed'
+  metadata JSONB, -- Flexible JSON storage
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(source_type, source_id) -- Prevent duplicates
+);
+
+-- Indexes for fast queries
+CREATE INDEX idx_gallery_user_id ON heygen_app.gallery_items(user_id);
+CREATE INDEX idx_gallery_session_id ON heygen_app.gallery_items(session_id);
+CREATE INDEX idx_gallery_media_type ON heygen_app.gallery_items(media_type);
+CREATE INDEX idx_gallery_status ON heygen_app.gallery_items(status);
+CREATE INDEX idx_gallery_metadata ON heygen_app.gallery_items USING gin(metadata);
+```
+
+### Table: `video_generations`
+
+Tracks all video generation requests and their status.
+
+```sql
+CREATE TABLE heygen_app.video_generations (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(255) NOT NULL,
+  user_id INTEGER REFERENCES heygen_app.users(id),
+  request_id VARCHAR(255) UNIQUE NOT NULL, -- HeyGen video_id
+  avatar_id INTEGER REFERENCES heygen_app.avatars(id),
+  script_text TEXT,
+  video_url TEXT,
+  thumbnail_url TEXT,
+  duration INTEGER, -- Video length in seconds
+  status VARCHAR(50) DEFAULT 'processing', -- 'processing', 'completed', 'failed'
+  error TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX idx_video_gen_user_id ON heygen_app.video_generations(user_id);
+CREATE INDEX idx_video_gen_session_id ON heygen_app.video_generations(session_id);
+CREATE INDEX idx_video_gen_avatar_id ON heygen_app.video_generations(avatar_id);
+CREATE INDEX idx_video_gen_status ON heygen_app.video_generations(status);
+```
+
+### Query Examples
+
+**Get All Avatars for a User:**
+```sql
+SELECT 
+  a.id,
+  a.heygen_avatar_id,
+  a.avatar_name,
+  a.image_url,
+  a.avatar_group_id,
+  a.is_trained,
+  a.has_motion,
+  a.created_at
+FROM heygen_app.avatars a
+WHERE a.user_id = $1
+  AND a.is_trained = true
+ORDER BY a.created_at DESC;
+```
+
+**Get All Looks for an Avatar:**
+```sql
+SELECT 
+  gi.id,
+  gi.source_id,
+  gi.title,
+  gi.preview_url,
+  gi.metadata,
+  gi.created_at
+FROM heygen_app.gallery_items gi
+WHERE gi.media_type = 'look'
+  AND gi.status = 'ready'
+  AND gi.metadata->>'groupId' = $1
+ORDER BY gi.created_at ASC;
+```
+
+**Get Video History for an Avatar:**
+```sql
+SELECT 
+  vg.id,
+  vg.request_id,
+  vg.script_text,
+  vg.video_url,
+  vg.thumbnail_url,
+  vg.duration,
+  vg.status,
+  vg.created_at,
+  vg.completed_at
+FROM heygen_app.video_generations vg
+WHERE vg.avatar_id = $1
+ORDER BY vg.created_at DESC;
+```
+
+**Get Combined Library (Avatars + Looks):**
+```sql
+-- Trained avatars
+SELECT 
+  a.id,
+  a.heygen_avatar_id as heygen_id,
+  a.avatar_name as name,
+  a.image_url,
+  a.avatar_group_id,
+  a.is_trained,
+  a.has_motion,
+  false as is_generated_look,
+  null as look_metadata,
+  a.created_at
+FROM heygen_app.avatars a
+WHERE a.is_trained = true
+
+UNION ALL
+
+-- Generated looks
+SELECT 
+  gi.id,
+  gi.source_id as heygen_id,
+  gi.title as name,
+  gi.preview_url as image_url,
+  gi.metadata->>'groupId' as avatar_group_id,
+  true as is_trained,
+  false as has_motion,
+  true as is_generated_look,
+  gi.metadata as look_metadata,
+  gi.created_at
+FROM heygen_app.gallery_items gi
+WHERE gi.media_type = 'look'
+  AND gi.status = 'ready'
+
+ORDER BY created_at DESC;
+```
+
+---
+
+## Common Voice IDs
+
+```
+92c93dc0dff2428ab0bea258ba68f173 - Professional Male - Confident
+f577da968446491289b53bceb77e5092 - Professional Male - Warm
+73c0b6a2e29d4d38aca41454bf58c955 - Professional Female - Clear
+1c7c897eeb2d4b5fb17d3c6c70250b24 - Professional Female - Friendly (default)
+119caed25533477ba63822d5d1552d25 - Neutral - Balanced
+```
+
+---
+
+## Complete Workflow Example
+
+### Scenario 1: Avatar with Looks Only
+
+```bash
+# Step 1: Create avatar with looks (returns immediately)
+curl -X POST http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/create-with-looks \
+  -F "image=@photo.jpg" \
+  -F "name=John Smith"
+
+# Response (immediate, ~2 seconds):
+# {"group_id": "abc123", "status": "processing", "estimated_completion": "2025-12-12T23:05:00Z"}
+
+# Step 2: Poll status every 30 seconds
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/abc123
+
+# Response while processing:
+# {"workflow_status": {"percent_complete": 45, "ready_for_looks": false}}
+
+# Response when complete (after ~6-8 minutes):
+# {"workflow_status": {"percent_complete": 100, "ready_for_looks": true}, "looks": {"count": 4, ...}}
+```
+
+### Scenario 2: Direct Video Generation
+
+```bash
+# Step 1: Generate video from image (returns immediately)
+curl -X POST http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/generate-video-from-image \
+  -F "image=@photo.jpg" \
+  -F "script=Welcome to our platform!" \
+  -F "name=Sarah"
+
+# Response (immediate, ~2 seconds):
+# {"group_id": "xyz789", "status": "processing", "estimated_completion": "2025-12-12T23:10:00Z"}
+
+# Step 2: Poll avatar status every 30 seconds
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/status/xyz789
+
+# Step 3: Once avatar is ready, check for videos
+# The video_id will be available in your video list after ~8-13 minutes
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/heygen/videos
+
+# Step 4: Check specific video status
+curl http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com/api/photo-avatars/video-status/{video_id}
+
+# When is_complete: true, download from video_url
+```

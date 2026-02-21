@@ -777,6 +777,33 @@ export function AvatarIVStudio() {
     },
   });
 
+  const useLookForVideoMutation = useMutation({
+    mutationFn: async (look: any) => {
+      const response = await apiRequest("POST", "/api/avatar-iv/use-look-image", {
+        imageUrl: look.photoUrl,
+        lookName: look.lookName || look.lookLabel || "AI Generated Look",
+      });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      setImageKey(data.imageKey);
+      setImagePreview(data.imageUrl);
+      setPreviewLook(null);
+      toast({
+        title: "Look Selected",
+        description: "AI-generated look is ready. Now write your script.",
+      });
+      setCurrentStep(2);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to use look",
+        description: error?.message || "Could not prepare this look for video. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const bulkDeleteLooksMutation = useMutation({
     mutationFn: async (lookIds: string[]) => {
       await Promise.all(lookIds.map(id => apiRequest("DELETE", `/api/photo-avatars/looks/${id}`)));
@@ -2197,6 +2224,27 @@ export function AvatarIVStudio() {
                   )}
                 </div>
               </div>
+              {previewLook.photoUrl && (
+                <Button
+                  className="w-full mt-3 bg-[#D4AF37] hover:bg-[#C4A030] text-white"
+                  size="lg"
+                  onClick={() => useLookForVideoMutation.mutate(previewLook)}
+                  disabled={useLookForVideoMutation.isPending}
+                  data-testid="button-use-look-for-video"
+                >
+                  {useLookForVideoMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Preparing look...
+                    </>
+                  ) : (
+                    <>
+                      <Video className="h-4 w-4 mr-2" />
+                      Use This Look for Video
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </DialogContent>
         </Dialog>

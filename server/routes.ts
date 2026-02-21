@@ -10987,6 +10987,65 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     }
   });
 
+  // Convert a HeyGen-hosted image URL to an image_key for video generation
+  app.post("/api/avatar-iv/use-look-image", requireAuth, async (req, res) => {
+    try {
+      const userId = String(req.user?.id);
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+
+      const { imageUrl, lookName } = req.body;
+      if (!imageUrl) {
+        return res.status(400).json({ error: "imageUrl is required" });
+      }
+
+      console.log(`🎨 Converting look image to imageKey for user ${userId}`);
+      console.log(`🎨 Image URL: ${imageUrl}`);
+
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to download image: ${imageResponse.status}`);
+      }
+      const imageArrayBuffer = await imageResponse.arrayBuffer();
+      const imageBuffer = Buffer.from(imageArrayBuffer);
+      const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+
+      console.log(`📥 Downloaded image: ${imageBuffer.length} bytes, type: ${contentType}`);
+
+      const photoAvatarService = new HeyGenPhotoAvatarService();
+      const imageKey = await photoAvatarService.uploadCustomPhoto(imageBuffer, contentType);
+
+      if (!imageKey) {
+        throw new Error("Failed to upload image to HeyGen - no image_key returned");
+      }
+
+      console.log(`✅ Look image uploaded: image_key = ${imageKey}`);
+
+      const photoTitle = lookName || "AI Generated Look";
+      await storage.createPhotoAvatar({
+        groupId: "ai-generated-looks",
+        photoUrl: imageUrl,
+        poseType: photoTitle,
+        heygenPhotoId: imageKey,
+        processingStatus: "completed",
+      });
+
+      res.json({
+        success: true,
+        imageKey: imageKey,
+        imageUrl: imageUrl,
+        message: "Look ready for video generation",
+      });
+    } catch (error: any) {
+      console.error("❌ Failed to convert look image:", error);
+      res.status(500).json({
+        error: "Failed to prepare look for video",
+        details: error?.message || String(error),
+      });
+    }
+  });
+
   // Generate Avatar IV video (with background job support)
   app.post("/api/avatar-iv/generate", requireAuth, async (req, res) => {
     try {

@@ -431,49 +431,61 @@ export class SocialMediaService {
         }
       }
 
-      // Try with user ID first, fall back to 'me' endpoint for Instagram Business Login tokens
-      let containerResponse = await fetch(
+      // Try multiple endpoint combinations for Instagram Content Publishing API
+      // Instagram Business Login tokens work with graph.instagram.com
+      // Facebook Login tokens work with graph.facebook.com
+      const endpoints = [
         `https://graph.instagram.com/v22.0/${userId}/media`,
-        {
+        `https://graph.instagram.com/v22.0/me/media`,
+        `https://graph.facebook.com/v22.0/${userId}/media`,
+        `https://graph.facebook.com/v22.0/me/media`,
+      ];
+
+      let containerResponse: Response | null = null;
+      let lastError: any = null;
+
+      for (const endpoint of endpoints) {
+        console.log(`📸 Instagram: Trying container creation at ${endpoint}`);
+        containerResponse = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams(containerData).toString(),
-        },
-      );
+        });
 
-      // If user ID doesn't work (common with Instagram Business Login tokens), try 'me' endpoint
-      if (!containerResponse.ok) {
+        if (containerResponse.ok) {
+          console.log(`📸 Instagram: Container created successfully via ${endpoint}`);
+          break;
+        }
+
         const errorData = await containerResponse.json();
-        console.error("Instagram Container API Error (user ID):", errorData);
+        lastError = errorData;
+        console.error(`📸 Instagram Container Error (${endpoint}):`, JSON.stringify(errorData));
 
-        if (errorData.error?.code === 100) {
-          console.log("Retrying Instagram media creation with 'me' endpoint...");
-          containerResponse = await fetch(
-            `https://graph.instagram.com/v22.0/me/media`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: new URLSearchParams(containerData).toString(),
-            },
-          );
+        if (errorData.error?.code === 190) {
+          break;
         }
       }
 
-      if (!containerResponse.ok) {
-        const errorData = await containerResponse.json();
-        console.error("Instagram Container API Error:", errorData);
+      if (!containerResponse || !containerResponse.ok) {
+        const errorData = lastError;
+        console.error("📸 Instagram: All container creation endpoints failed. Last error:", JSON.stringify(errorData));
 
-        if (errorData.error?.code === 190) {
+        if (errorData?.error?.code === 190) {
           throw new Error(
             "Instagram session expired. Please reconnect your Instagram account.",
           );
         }
-        if (errorData.error?.code === 100 && errorData.error?.error_subcode === 33) {
+        if (errorData?.error?.code === 100 && errorData?.error?.error_subcode === 33) {
           throw new Error(
-            "Instagram content publishing permission not granted. Please add 'instagram_business_content_publish' permission in your Meta Developer dashboard.",
+            "Instagram content publishing permission not granted. Please ensure your Meta app has 'instagram_business_content_publish' approved through App Review.",
           );
         }
-        if (errorData.error?.code === 100) {
+        if (errorData?.error?.message?.includes("Unsupported request")) {
+          throw new Error(
+            "Instagram Content Publishing API not available. Please ensure: 1) Your Instagram account is a Business or Creator account, 2) Your Meta app has 'instagram_business_content_publish' approved through App Review, 3) The app is in Live mode.",
+          );
+        }
+        if (errorData?.error?.code === 100) {
           throw new Error(
             `Instagram API error: ${errorData.error?.message || "Invalid parameters. Please check your content and image."}`,
           );
@@ -481,7 +493,7 @@ export class SocialMediaService {
 
         throw new Error(
           `Instagram container creation failed: ${
-            errorData.error?.message || "Unknown error"
+            errorData?.error?.message || "Unknown error"
           }`,
         );
       }
@@ -512,45 +524,48 @@ export class SocialMediaService {
         throw new Error("Instagram media processing timed out. Please try again.");
       }
 
-      // Step 3: Publish the media container (try user ID, then 'me')
-      let publishResponse = await fetch(
+      // Step 3: Publish the media container (try multiple endpoints)
+      const publishEndpoints = [
         `https://graph.instagram.com/v22.0/${userId}/media_publish`,
-        {
+        `https://graph.instagram.com/v22.0/me/media_publish`,
+        `https://graph.facebook.com/v22.0/${userId}/media_publish`,
+        `https://graph.facebook.com/v22.0/me/media_publish`,
+      ];
+
+      let publishResponse: Response | null = null;
+      let lastPublishError: any = null;
+
+      for (const endpoint of publishEndpoints) {
+        console.log(`📸 Instagram: Trying publish at ${endpoint}`);
+        publishResponse = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
             access_token: token,
             creation_id: containerId,
           }).toString(),
-        },
-      );
+        });
 
-      if (!publishResponse.ok) {
-        const pubError = await publishResponse.json();
-        if (pubError.error?.code === 100) {
-          console.log("Retrying Instagram publish with 'me' endpoint...");
-          publishResponse = await fetch(
-            `https://graph.instagram.com/v22.0/me/media_publish`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/x-www-form-urlencoded" },
-              body: new URLSearchParams({
-                access_token: token,
-                creation_id: containerId,
-              }).toString(),
-            },
-          );
+        if (publishResponse.ok) {
+          console.log(`📸 Instagram: Published successfully via ${endpoint}`);
+          break;
         }
+
+        const pubError = await publishResponse.json();
+        lastPublishError = pubError;
+        console.error(`📸 Instagram Publish Error (${endpoint}):`, JSON.stringify(pubError));
+
+        if (pubError.error?.code === 190) break;
       }
 
-      if (!publishResponse.ok) {
-        const errorData = await publishResponse.json();
-        console.error("Instagram Publish API Error:", errorData);
+      if (!publishResponse || !publishResponse.ok) {
+        const errorData = lastPublishError;
+        console.error("📸 Instagram: All publish endpoints failed. Last error:", JSON.stringify(errorData));
 
-        if (errorData.error?.code === 190) {
+        if (errorData?.error?.code === 190) {
           throw new Error("Instagram session expired during publishing.");
         }
-        if (errorData.error?.code === 100) {
+        if (errorData?.error?.code === 100) {
           throw new Error(
             "Failed to publish Instagram content. Please try again.",
           );
@@ -558,12 +573,12 @@ export class SocialMediaService {
 
         throw new Error(
           `Instagram publishing failed: ${
-            errorData.error?.message || "Unknown error"
+            errorData?.error?.message || "Unknown error"
           }`,
         );
       }
 
-      const publishResult = await publishResponse.json();
+      const publishResult = await publishResponse!.json();
       console.log("Instagram post successful:", publishResult.id);
 
       return { postId: publishResult.id || `ig_${Date.now()}` };

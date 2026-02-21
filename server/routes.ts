@@ -12203,6 +12203,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const backgroundOrientation = req.body.orientation || "square";
         const backgroundPose = req.body.pose || "half_body";
         const backgroundStyle = req.body.style || "Realistic";
+        const capturedUserId = (req as any).user?.id;
 
         (async () => {
           try {
@@ -12228,7 +12229,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             // Step 4: Poll training status until trained
             let trained = false;
             let pollAttempts = 0;
-            const maxPollAttempts = 90; // 15 minutes max (90 * 10s)
+            const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
 
             while (!trained && pollAttempts < maxPollAttempts) {
               await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s between polls
@@ -12257,12 +12258,16 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
             // Step 5: Generate 4 looks with different prompts
             const facePreservation = "maintain the exact same face, facial features, and likeness of the person";
+            const lookLabels = ["executive", "friendly-agent", "outdoor-guide", "modern-professional"];
+            const lookNames = ["Executive", "Friendly Agent", "Outdoor Guide", "Modern Professional"];
             const lookPrompts = [
               { prompt: backgroundPrompt ? `${backgroundPrompt}, ${facePreservation}` : `Professional executive in a navy business suit, confident and approachable, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
               { prompt: `Friendly real estate agent in smart casual blazer, warm and welcoming smile, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
               { prompt: `Outdoor property tour guide in clean casual attire, natural setting, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
               { prompt: `Modern professional in contemporary business wear, sleek and polished, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
             ];
+
+            const generationJobs: Array<{ generationId: string; lookLabel: string; lookName: string; prompt: string }> = [];
 
             for (let i = 0; i < lookPrompts.length; i++) {
               try {
@@ -12276,6 +12281,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                 if (lookResponse.ok) {
                   const lookData = await lookResponse.json();
                   console.log(`✅ [PROXY BG] Look ${i + 1} generation started:`, lookData);
+                  if (lookData.generation_id) {
+                    generationJobs.push({
+                      generationId: lookData.generation_id,
+                      lookLabel: lookLabels[i],
+                      lookName: lookNames[i],
+                      prompt: lookPrompts[i].prompt,
+                    });
+                  }
                 } else {
                   const errorText = await lookResponse.text();
                   console.error(`❌ [PROXY BG] Look ${i + 1} generation failed:`, errorText);
@@ -12290,7 +12303,97 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               }
             }
 
-            console.log(`🎉 [PROXY BG] All look generation requests sent for group ${groupId}`);
+            console.log(`🎉 [PROXY BG] All look generation requests sent for group ${groupId}. Polling ${generationJobs.length} generation jobs...`);
+
+            // Step 6: Poll each generation job for completion and save results
+            const maxGenPollAttempts = 60; // 10 minutes max (60 * 10s)
+            for (const job of generationJobs) {
+              try {
+                let genComplete = false;
+                let genPollAttempts = 0;
+
+                while (!genComplete && genPollAttempts < maxGenPollAttempts) {
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  genPollAttempts++;
+
+                  try {
+                    const genStatusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/generation/${job.generationId}`);
+                    if (genStatusResponse.ok) {
+                      const genStatusData = await genStatusResponse.json();
+                      console.log(`📊 [PROXY BG] Generation status for ${job.generationId} (attempt ${genPollAttempts}): ${genStatusData.status}`);
+
+                      if (genStatusData.status === "success") {
+                        genComplete = true;
+                        const imageUrls: string[] = genStatusData.image_url_list || (genStatusData.image_url ? [genStatusData.image_url] : []);
+                        console.log(`✅ [PROXY BG] Generation ${job.generationId} complete with ${imageUrls.length} images`);
+
+                        for (const imageUrl of imageUrls) {
+                          try {
+                            await db.insert(lookGenerationJobs).values({
+                              userId: capturedUserId || "unknown",
+                              groupId: groupId,
+                              heygenGenerationId: job.generationId,
+                              lookLabel: job.lookLabel,
+                              lookName: job.lookName,
+                              prompt: job.prompt,
+                              status: "completed",
+                              resultImageUrl: imageUrl,
+                              completedAt: new Date(),
+                            });
+                            console.log(`💾 [PROXY BG] Saved look result for ${job.lookLabel}: ${imageUrl.substring(0, 80)}...`);
+                          } catch (dbError) {
+                            console.error(`❌ [PROXY BG] Failed to save look result to DB:`, dbError);
+                          }
+                        }
+                      } else if (genStatusData.status === "failed") {
+                        genComplete = true;
+                        console.error(`❌ [PROXY BG] Generation ${job.generationId} failed`);
+                        try {
+                          await db.insert(lookGenerationJobs).values({
+                            userId: capturedUserId || "unknown",
+                            groupId: groupId,
+                            heygenGenerationId: job.generationId,
+                            lookLabel: job.lookLabel,
+                            lookName: job.lookName,
+                            prompt: job.prompt,
+                            status: "failed",
+                            errorMessage: "Generation failed on HeyGen",
+                            completedAt: new Date(),
+                          });
+                        } catch (dbError) {
+                          console.error(`❌ [PROXY BG] Failed to save failed status to DB:`, dbError);
+                        }
+                      }
+                    }
+                  } catch (pollError) {
+                    console.error(`⚠️ [PROXY BG] Generation poll error for ${job.generationId}:`, pollError);
+                  }
+                }
+
+                if (!genComplete) {
+                  console.error(`❌ [PROXY BG] Generation ${job.generationId} timed out after ${maxGenPollAttempts} attempts`);
+                  try {
+                    await db.insert(lookGenerationJobs).values({
+                      userId: capturedUserId || "unknown",
+                      groupId: groupId,
+                      heygenGenerationId: job.generationId,
+                      lookLabel: job.lookLabel,
+                      lookName: job.lookName,
+                      prompt: job.prompt,
+                      status: "failed",
+                      errorMessage: "Generation polling timed out",
+                      completedAt: new Date(),
+                    });
+                  } catch (dbError) {
+                    console.error(`❌ [PROXY BG] Failed to save timeout status to DB:`, dbError);
+                  }
+                }
+              } catch (jobError) {
+                console.error(`❌ [PROXY BG] Error processing generation job ${job.generationId}:`, jobError);
+              }
+            }
+
+            console.log(`🎉 [PROXY BG] All generation jobs processed for group ${groupId}`);
           } catch (bgError) {
             console.error(`❌ [PROXY BG] Background process failed for group ${groupId}:`, bgError);
           }
@@ -12407,7 +12510,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             // Poll training status
             let trained = false;
             let pollAttempts = 0;
-            const maxPollAttempts = 90;
+            const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
 
             while (!trained && pollAttempts < maxPollAttempts) {
               await new Promise(resolve => setTimeout(resolve, 10000));
@@ -12531,7 +12634,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log(`📊 [PROXY] Checking training status before generating looks for group ${groupId}`);
         let trained = false;
         let pollAttempts = 0;
-        const maxPollAttempts = 90; // 15 minutes max (90 * 10s)
+        const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
 
         while (!trained && pollAttempts < maxPollAttempts) {
           try {
@@ -12573,6 +12676,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
         const numToGenerate = numLooks || 1;
         const results = [];
+        const capturedUserId = (req as any).user?.id;
 
         const facePreservation = "maintain the exact same face, facial features, and likeness of the person";
         const enhancedPrompt = prompt ? `${prompt}, ${facePreservation}` : `Professional headshot, ${facePreservation}`;
@@ -12616,6 +12720,106 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           looks: results,
           message: `${results.length} look generation(s) started via external service`,
         });
+
+        // Background: Poll each generation for completion and save results to DB
+        (async () => {
+          const maxGenPollAttempts = 60; // 10 minutes max (60 * 10s)
+          const lookLabel = (prompt || "custom-look").toLowerCase().replace(/[^a-z0-9]+/g, "-").substring(0, 50);
+          const lookName = prompt || "Custom Look";
+
+          for (const lookResult of results) {
+            const generationId = lookResult.generation_id;
+            if (!generationId) {
+              console.warn(`⚠️ [PROXY BG] No generation_id in look result, skipping polling`);
+              continue;
+            }
+
+            try {
+              let genComplete = false;
+              let genPollAttempts = 0;
+
+              while (!genComplete && genPollAttempts < maxGenPollAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                genPollAttempts++;
+
+                try {
+                  const genStatusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/generation/${generationId}`);
+                  if (genStatusResponse.ok) {
+                    const genStatusData = await genStatusResponse.json();
+                    console.log(`📊 [PROXY BG] Generation status for ${generationId} (attempt ${genPollAttempts}): ${genStatusData.status}`);
+
+                    if (genStatusData.status === "success") {
+                      genComplete = true;
+                      const imageUrls: string[] = genStatusData.image_url_list || (genStatusData.image_url ? [genStatusData.image_url] : []);
+                      console.log(`✅ [PROXY BG] Generation ${generationId} complete with ${imageUrls.length} images`);
+
+                      for (const imageUrl of imageUrls) {
+                        try {
+                          await db.insert(lookGenerationJobs).values({
+                            userId: capturedUserId || "unknown",
+                            groupId: groupId,
+                            heygenGenerationId: generationId,
+                            lookLabel: lookLabel,
+                            lookName: lookName,
+                            prompt: enhancedPrompt,
+                            status: "completed",
+                            resultImageUrl: imageUrl,
+                            completedAt: new Date(),
+                          });
+                          console.log(`💾 [PROXY BG] Saved look result: ${imageUrl.substring(0, 80)}...`);
+                        } catch (dbError) {
+                          console.error(`❌ [PROXY BG] Failed to save look result to DB:`, dbError);
+                        }
+                      }
+                    } else if (genStatusData.status === "failed") {
+                      genComplete = true;
+                      console.error(`❌ [PROXY BG] Generation ${generationId} failed`);
+                      try {
+                        await db.insert(lookGenerationJobs).values({
+                          userId: capturedUserId || "unknown",
+                          groupId: groupId,
+                          heygenGenerationId: generationId,
+                          lookLabel: lookLabel,
+                          lookName: lookName,
+                          prompt: enhancedPrompt,
+                          status: "failed",
+                          errorMessage: "Generation failed on HeyGen",
+                          completedAt: new Date(),
+                        });
+                      } catch (dbError) {
+                        console.error(`❌ [PROXY BG] Failed to save failed status to DB:`, dbError);
+                      }
+                    }
+                  }
+                } catch (pollError) {
+                  console.error(`⚠️ [PROXY BG] Generation poll error for ${generationId}:`, pollError);
+                }
+              }
+
+              if (!genComplete) {
+                console.error(`❌ [PROXY BG] Generation ${generationId} timed out after ${maxGenPollAttempts} attempts`);
+                try {
+                  await db.insert(lookGenerationJobs).values({
+                    userId: capturedUserId || "unknown",
+                    groupId: groupId,
+                    heygenGenerationId: generationId,
+                    lookLabel: lookLabel,
+                    lookName: lookName,
+                    prompt: enhancedPrompt,
+                    status: "failed",
+                    errorMessage: "Generation polling timed out",
+                    completedAt: new Date(),
+                  });
+                } catch (dbError) {
+                  console.error(`❌ [PROXY BG] Failed to save timeout status to DB:`, dbError);
+                }
+              }
+            } catch (jobError) {
+              console.error(`❌ [PROXY BG] Error processing generation ${generationId}:`, jobError);
+            }
+          }
+          console.log(`🎉 [PROXY BG] All generation jobs processed for proxy-generate-look on group ${groupId}`);
+        })();
       } catch (error: any) {
         console.error("❌ [PROXY] Failed to generate look:", error);
         res.status(500).json({

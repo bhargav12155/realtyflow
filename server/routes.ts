@@ -11013,14 +11013,34 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
       console.log(`📥 Downloaded image: ${imageBuffer.length} bytes, type: ${contentType}`);
 
-      const photoAvatarService = new HeyGenPhotoAvatarService();
-      const imageKey = await photoAvatarService.uploadCustomPhoto(imageBuffer, contentType);
+      const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
+      console.log(`📤 Uploading look image via external service: ${externalServiceUrl}`);
 
-      if (!imageKey) {
-        throw new Error("Failed to upload image to HeyGen - no image_key returned");
+      const uploadFormData = new FormData();
+      const blob = new Blob([imageBuffer], { type: contentType });
+      uploadFormData.append("file", blob, `look-${Date.now()}.jpg`);
+      uploadFormData.append("kind", "image");
+
+      const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
+        method: "POST",
+        body: uploadFormData,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error("❌ External service upload failed:", uploadResponse.status, errorText);
+        throw new Error(`Failed to upload photo: ${uploadResponse.status}`);
       }
 
-      console.log(`✅ Look image uploaded: image_key = ${imageKey}`);
+      const uploadResult: any = await uploadResponse.json();
+      console.log("📦 External service upload result:", JSON.stringify(uploadResult));
+
+      const imageKey = uploadResult.image_key || uploadResult.data?.image_key;
+      if (!imageKey) {
+        throw new Error("No image_key returned from external service");
+      }
+
+      console.log(`✅ Look image uploaded via proxy: image_key = ${imageKey}`);
 
       const photoTitle = lookName || "AI Generated Look";
       await storage.createPhotoAvatar({

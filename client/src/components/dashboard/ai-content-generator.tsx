@@ -338,6 +338,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     pages: facebookPages,
     isLoading: isLoadingPages,
     isError: isPagesError,
+    refetch,
     selectedPageId,
     setSelectedPageId,
     isReady: isFacebookPagesReady,
@@ -2049,6 +2050,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 label="Facebook Page"
                 placeholder="Select a page to post to Facebook..."
                 showLabel={true}
+                onRefresh={() => refetch()}
               />
 
               {/* Instagram Account Selector */}
@@ -2729,6 +2731,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         pagesError={null}
         selectedPageId={selectedPageForPosting}
         onPageChange={setSelectedPageForPosting}
+        onRefreshPages={() => refetch()}
         instagramAccounts={instagramAccounts}
         isLoadingInstagram={isLoadingInstagram}
         isInstagramError={isInstagramError}

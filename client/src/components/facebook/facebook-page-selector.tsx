@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 
 interface FacebookPage {
   id: string;
@@ -25,6 +25,8 @@ interface FacebookPageSelectorProps {
   placeholder?: string;
   disabled?: boolean;
   showLabel?: boolean;
+  onRefresh?: () => void;
+  errorMessage?: string;
 }
 
 export function FacebookPageSelector({
@@ -37,6 +39,8 @@ export function FacebookPageSelector({
   placeholder = "Choose a page to post to...",
   disabled = false,
   showLabel = true,
+  onRefresh,
+  errorMessage,
 }: FacebookPageSelectorProps) {
   if (isLoading) {
     return (
@@ -61,9 +65,19 @@ export function FacebookPageSelector({
         {showLabel && <Label>{label}</Label>}
         <Alert variant="destructive" data-testid="facebook-pages-error">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Failed to load Facebook Pages. Please reconnect your Facebook
-            account.
+          <AlertDescription className="flex flex-col gap-2">
+            <span>{errorMessage || "Failed to load Facebook Pages. Please reconnect your Facebook account."}</span>
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="inline-flex items-center gap-1 text-xs text-white/80 hover:text-white underline mt-1 w-fit"
+                data-testid="button-refresh-facebook-pages-error"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Retry
+              </button>
+            )}
           </AlertDescription>
         </Alert>
       </div>
@@ -76,8 +90,22 @@ export function FacebookPageSelector({
         {showLabel && <Label>{label}</Label>}
         <Alert data-testid="facebook-pages-empty">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            No Facebook Pages found. Please connect a Facebook Page to post.
+          <AlertDescription className="flex flex-col gap-2">
+            <span>No Facebook Pages found</span>
+            <span className="text-xs text-muted-foreground">
+              Your Facebook account may not have any Pages linked, or the token may need the "pages_show_list" permission. Try disconnecting and reconnecting Facebook.
+            </span>
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 underline mt-1 w-fit"
+                data-testid="button-refresh-facebook-pages"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh Pages
+              </button>
+            )}
           </AlertDescription>
         </Alert>
       </div>

@@ -25,6 +25,7 @@ interface PostingDialogProps {
   pagesError?: Error | null;
   selectedPageId?: string | null;
   onPageChange?: (pageId: string | null) => void;
+  onRefreshPages?: () => void;
   
   // Instagram props
   instagramAccounts?: any[];
@@ -47,6 +48,7 @@ export function PostingDialog({
   pagesError = null,
   selectedPageId = null,
   onPageChange = () => {},
+  onRefreshPages,
   instagramAccounts = [],
   isLoadingInstagram = false,
   isInstagramError = false,
@@ -84,12 +86,13 @@ export function PostingDialog({
               pages={facebookPages}
               isLoading={isLoadingPages}
               isError={isPagesError}
-              error={pagesError}
+              errorMessage={pagesError?.message}
               value={selectedPageId}
               onChange={onPageChange}
               label="Select Facebook Page"
               placeholder="Choose a page to post to..."
               showLabel={true}
+              onRefresh={onRefreshPages}
             />
           )}
 

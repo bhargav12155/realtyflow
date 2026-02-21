@@ -2629,8 +2629,24 @@ Return your response in this exact JSON format:
             throw new Error("Facebook token response missing access_token");
           }
 
-          // CRITICAL FIX: Use stable database user ID directly from state
-          // Do NOT lookup MemStorage - the userId from state IS the stable database ID
+          let longLivedToken = accessToken;
+          try {
+            const llResp = await fetch(
+              `https://graph.facebook.com/v22.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${accessToken}`
+            );
+            if (llResp.ok) {
+              const llData = await llResp.json();
+              if (llData.access_token) {
+                longLivedToken = llData.access_token;
+                console.log(`✅ Facebook: Exchanged for long-lived token (expires in ${llData.expires_in || 'unknown'}s)`);
+              }
+            } else {
+              console.warn("⚠️ Facebook: Long-lived token exchange failed, using short-lived token");
+            }
+          } catch (llError) {
+            console.warn("⚠️ Facebook: Long-lived token exchange error:", llError);
+          }
+
           const stableUserId = String(userId);
           console.log(
             `✅ Facebook token exchange successful for stable DB user ${stableUserId}`
@@ -2639,13 +2655,46 @@ Return your response in this exact JSON format:
           let profile: any = null;
           try {
             const profileResp = await fetch(
-              `https://graph.facebook.com/v22.0/me?fields=id,name,email&access_token=${accessToken}`
+              `https://graph.facebook.com/v22.0/me?fields=id,name,email&access_token=${longLivedToken}`
             );
             if (profileResp.ok) {
               profile = await profileResp.json();
             }
           } catch (profileError) {
             console.warn("Facebook profile lookup failed:", profileError);
+          }
+
+          let fetchedPages: any[] = [];
+          try {
+            const pagesResp = await fetch(
+              `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,category,access_token&access_token=${longLivedToken}`
+            );
+            if (pagesResp.ok) {
+              const pagesData = await pagesResp.json();
+              fetchedPages = pagesData.data || [];
+              console.log(`📄 Facebook OAuth - Found ${fetchedPages.length} pages:`, fetchedPages.map((p: any) => p.name));
+            } else {
+              const pagesError = await pagesResp.text();
+              console.warn(`⚠️ Facebook OAuth - Pages fetch failed:`, pagesError);
+            }
+          } catch (pagesError) {
+            console.warn("⚠️ Facebook OAuth - Pages fetch error:", pagesError);
+          }
+
+          let grantedPermissions: string[] = [];
+          try {
+            const permsResp = await fetch(
+              `https://graph.facebook.com/v22.0/me/permissions?access_token=${longLivedToken}`
+            );
+            if (permsResp.ok) {
+              const permsData = await permsResp.json();
+              grantedPermissions = (permsData.data || [])
+                .filter((p: any) => p.status === 'granted')
+                .map((p: any) => p.permission);
+              console.log(`🔐 Facebook OAuth - Granted permissions:`, grantedPermissions);
+            }
+          } catch (permsError) {
+            console.warn("⚠️ Facebook OAuth - Permissions check error:", permsError);
           }
 
           const existingAccounts = await storage.getSocialMediaAccounts(
@@ -2671,6 +2720,15 @@ Return your response in this exact JSON format:
             profileEmail: profile?.email || null,
             tokenType: tokenData.token_type || "bearer",
             expiresIn: expiresIn || null,
+            pages: fetchedPages.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              category: p.category,
+              access_token: p.access_token,
+            })),
+            grantedPermissions,
+            tokenExchangedAt: new Date().toISOString(),
+            isLongLived: longLivedToken !== accessToken,
           };
 
           if (facebookAccount) {
@@ -2678,7 +2736,7 @@ Return your response in this exact JSON format:
               `🔄 Updating existing Facebook account ${facebookAccount.id} (was: ${facebookAccount.isConnected})`
             );
             await storage.updateSocialMediaAccount(facebookAccount.id, {
-              accessToken,
+              accessToken: longLivedToken,
               metadata,
               isConnected: true,
               lastSync: new Date(),
@@ -2690,7 +2748,7 @@ Return your response in this exact JSON format:
               userId: stableUserId,
               platform: "facebook",
               accountId: profile?.id || "facebook_account",
-              accessToken,
+              accessToken: longLivedToken,
               metadata,
               isConnected: true,
             });
@@ -4225,7 +4283,6 @@ Return your response in this exact JSON format:
   // Facebook-specific endpoints
   app.get("/api/facebook/pages", requireAuth, async (req: any, res) => {
     try {
-      // Use authenticated user ID directly (same as OAuth callback stores)
       const userId = String(req.user?.id);
       if (!userId) {
         return res.status(401).json({ error: "Authentication required" });
@@ -4236,30 +4293,46 @@ Return your response in this exact JSON format:
         (acc) => acc.platform.toLowerCase() === "facebook" && acc.isConnected
       );
 
-      const metadata = (facebookAccount?.metadata as any) || {};
-      const delegatedToken =
-        metadata?.pageAccessToken ||
-        facebookAccount?.accessToken ||
-        process.env.FACEBOOK_USER_TOKEN;
-
-      if (!delegatedToken) {
+      if (!facebookAccount) {
         return res.status(400).json({
-          error:
-            "Facebook token missing. Connect your Facebook Page or set FACEBOOK_USER_TOKEN.",
+          error: "Facebook account not connected. Please connect your Facebook account first.",
         });
       }
 
-      const pages = await socialMediaService.getFacebookPageInfo(
-        delegatedToken
-      );
-      res.json(pages);
+      const metadata = (facebookAccount?.metadata as any) || {};
+      const token = facebookAccount?.accessToken || metadata?.pageAccessToken || process.env.FACEBOOK_USER_TOKEN;
+
+      if (!token) {
+        return res.status(400).json({
+          error: "Facebook token missing. Please reconnect your Facebook account.",
+        });
+      }
+
+      try {
+        const pages = await socialMediaService.getFacebookPageInfo(token);
+        if (pages && pages.length > 0) {
+          console.log(`✅ Facebook Pages API returned ${pages.length} pages for user ${userId}`);
+          return res.json(pages);
+        }
+      } catch (apiError: any) {
+        console.warn(`⚠️ Facebook Pages API call failed for user ${userId}:`, apiError?.message);
+      }
+
+      if (metadata.pages && Array.isArray(metadata.pages) && metadata.pages.length > 0) {
+        console.log(`📋 Using ${metadata.pages.length} cached pages from metadata for user ${userId}`);
+        return res.json(metadata.pages);
+      }
+
+      console.warn(`❌ No Facebook pages found for user ${userId} (API failed, no cached pages)`);
+      const grantedPerms = metadata.grantedPermissions || [];
+      const hasPagesPerm = grantedPerms.includes('pages_show_list');
+
+      return res.json([]);
     } catch (error: any) {
       console.error("Error fetching Facebook pages:", error?.message || error);
       res.status(500).json({
         error: "Failed to fetch Facebook pages",
-        details:
-          error?.message ||
-          "Please check if your Facebook token is valid and has not expired.",
+        details: error?.message || "Please check if your Facebook token is valid.",
       });
     }
   });

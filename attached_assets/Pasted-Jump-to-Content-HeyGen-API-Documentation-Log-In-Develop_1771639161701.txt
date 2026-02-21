@@ -1,0 +1,243 @@
+Jump to Content
+HeyGen API Documentation
+Log In
+Developer Guide
+API Reference
+Updates
+Discussions
+JUMP TO
+⌘/
+Overview
+Authentication
+API Limits and Costs
+Postman Collections
+Error Responses
+Video Agent
+Create with Video Agent
+post
+Text to Speech
+Text-to-Speech — Starfish
+post
+List Compatible Voices
+get
+Video Generation
+Create a Video
+post
+Get Video Status/Details
+get
+Create a WebM Video
+post
+PHOTO AVATAR
+Create Photo Avatar
+post
+Create Photo Avatar Group
+post
+Add Looks to Photo Avatar Group
+post
+Generate Photo Avatar Looks
+post
+Get Photo/Look Generation Status
+get
+Photo Avatar Details
+get
+Train Photo Avatar Group
+post
+Get Training Job Status
+get
+Add Motion
+post
+Delete Photo Avatar
+del
+Delete Photo Avatar Group
+del
+Digital Twin
+Create Digital Twin
+post
+Get Digital Twin Generation Status
+get
+Delete Digital Twin
+del
+Translate Video
+Translate Video
+post
+List Supported Languages
+get
+Get Translation Status
+get
+Generate Proofread
+post
+Get Proofread Status
+get
+Download Proofread SRT
+get
+Upload Proofread SRT
+post
+Translate Video from Proofread
+post
+Video Translate Caption
+get
+Voice Management
+List All Voices
+get
+List All Locales for Voices
+get
+List Brand Glossary
+get
+Update Brand Glossary
+post
+Video Management
+Get Video List
+get
+Get Sharable Video URL
+post
+Delete a Video
+del
+Avatar Management
+List All Avatars
+get
+List All Avatar Groups
+get
+List All Avatars in One Avatar Group
+get
+Get Avatar Details
+get
+Assets
+Upload Asset
+post
+List Assets
+get
+Delete Asset
+post
+Folders
+List Folders
+get
+Create Folder
+post
+Update Folder (Rename Only)
+post
+Trash Folder
+post
+Restore Folder
+post
+User
+Get Remaining Quota
+get
+Get Current User Information
+get
+WEBHOOK
+List Webhook Endpoints
+get
+Add a Webhook Endpoint
+post
+Update a Webhook Endpoint
+patch
+Delete a Webhook Endpoint
+del
+List Available Webhook Events
+get
+templates
+List Templates
+get
+Retrieve Template Details
+get
+
+Generate Video from Template
+post
+[LEGACY] STREAMING API
+New Session
+post
+Start Session
+post
+List Sessions (Active)
+get
+List Sessions (History)
+get
+Send Task
+post
+Close Session
+post
+Interrupt Task
+post
+Create Session Token
+post
+List Streaming Avatars
+get
+Keep Alive
+post
+WSS Audio to Video API (Beta)
+[LEGACY] Streaming API Knowledge Base
+List Knowledge Bases
+get
+Create a Knowledge Base
+post
+Update Knowledge Base
+post
+Delete Knowledge Base
+post
+Powered by 
+
+Get Training Job Status
+get
+https://api.heygen.com/v2/photo_avatar/train/status/{group_id}
+
+Retrieves the current training status and details of the training job.
+
+Recent Requests
+Log in to see full request history
+Time	Status	User Agent	
+Make a request to see history.
+0 Requests This Month
+
+📘
+Note:
+
+Scroll down to the Response section below and expand the status code(s) to view the detailed response schema.
+Refer to the RESPONSE panel on the right and choose an example to explore different training statuses (such as pending or ready) and see how each status appears in the API response examples.
+Path Params
+group_id
+string
+required
+Unique identifier of the avatar group. Can be retrieved from the Create Photo Avatar Group endpoint.
+
+Response
+
+200
+Status retrieved successfully - Expand to view the detailed response schema.
+
+Updated 22 days ago
+
+Train Photo Avatar Group
+Add Motion
+Did this page help you?
+Language
+
+Shell
+
+Node
+
+Ruby
+
+PHP
+
+Python
+Credentials
+Header
+<your-api-key>
+
+1
+curl --request GET \
+2
+     --url https://api.heygen.com/v2/photo_avatar/train/status/group_id \
+3
+     --header 'accept: application/json' \
+4
+     --header 'x-api-key: <your-api-key>'
+
+Try It!
+Response
+Click Try It! to start a request and see the response here! Or choose an example:
+application/json
+
+200 - Ready
+
+200 - Pending

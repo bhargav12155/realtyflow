@@ -1515,24 +1515,38 @@ export function AvatarIVStudio() {
                               </Badge>
                             )}
                             {!isLookSelectMode && (
-                              <button
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  const confirmed = await confirm({
-                                    title: "Delete Look",
-                                    description: "Delete this generated look? This cannot be undone.",
-                                    confirmText: "Delete",
-                                    variant: "destructive",
-                                  });
-                                  if (confirmed) {
-                                    deleteLookMutation.mutate(look.id);
-                                  }
-                                }}
-                                className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/50 hover:bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                data-testid={`button-x-delete-look-${look.id}`}
-                              >
-                                <X className="h-3 w-3 text-white" />
-                              </button>
+                              <>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (look.photoUrl) {
+                                      downloadFile(look.photoUrl, `${look.lookName || look.lookLabel || 'avatar-look'}.png`);
+                                    }
+                                  }}
+                                  className="absolute top-1.5 right-8 w-5 h-5 rounded-full bg-black/50 hover:bg-blue-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  data-testid={`button-download-look-${look.id}`}
+                                >
+                                  <Download className="h-3 w-3 text-white" />
+                                </button>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const confirmed = await confirm({
+                                      title: "Delete Look",
+                                      description: "Delete this generated look? This cannot be undone.",
+                                      confirmText: "Delete",
+                                      variant: "destructive",
+                                    });
+                                    if (confirmed) {
+                                      deleteLookMutation.mutate(look.id);
+                                    }
+                                  }}
+                                  className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/50 hover:bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  data-testid={`button-x-delete-look-${look.id}`}
+                                >
+                                  <X className="h-3 w-3 text-white" />
+                                </button>
+                              </>
                             )}
                           </div>
                         ))}
@@ -2190,21 +2204,34 @@ export function AvatarIVStudio() {
                     {deleteLookMutation.isPending ? "Deleting..." : "Delete"}
                   </Button>
                   {previewLook.photoUrl && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const a = document.createElement("a");
-                        a.href = previewLook.photoUrl;
-                        a.target = "_blank";
-                        a.rel = "noopener noreferrer";
-                        a.click();
-                      }}
-                      data-testid="button-open-full-size"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                      Full Size
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          downloadFile(previewLook.photoUrl, `${previewLook.lookName || previewLook.lookLabel || 'avatar-look'}.png`);
+                        }}
+                        data-testid="button-download-preview-look"
+                      >
+                        <Download className="h-3.5 w-3.5 mr-1.5" />
+                        Download
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const a = document.createElement("a");
+                          a.href = previewLook.photoUrl;
+                          a.target = "_blank";
+                          a.rel = "noopener noreferrer";
+                          a.click();
+                        }}
+                        data-testid="button-open-full-size"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                        Full Size
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>

@@ -249,7 +249,14 @@ const promoApps = [
 
 export function SocialMediaManager() {
   const { user } = useAuth();
-  const isAppPromoUser = user?.email === "bhargav12155@gmail.com";
+  const APP_PROMO_EMAILS = [
+    "bhargav12155@gmail.com",
+    "sudha@mygoldenbrick.com",
+    "sgarikap@gmail.com",
+    "mikebjork@mygoldenbrick.com",
+    "mike.bjork@bhhsamb.com",
+  ];
+  const isAppPromoUser = APP_PROMO_EMAILS.includes(user?.email || "");
   const [postContent, setPostContent] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);

@@ -8485,17 +8485,21 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
-  // List user's videos (My Videos)
+  // List user's videos (My Videos) - Unified from all video sources
   app.get("/api/studio/videos", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
       const studio = getVideoStudio();
       
-      // Get all videos for this user
-      const allVideos = await storage.getVideoContent(userId);
+      // Get videos from all 3 sources in parallel
+      const [videoContentList, generatedVideosList, videoJobsList] = await Promise.all([
+        storage.getVideoContent(userId),
+        storage.getGeneratedVideos(userId),
+        storage.getVideoGenerationJobsByUser(userId),
+      ]);
       
-      // Check status for videos stuck in "generating" or "processing" (limit to 3 to keep it fast)
-      const pendingVideos = allVideos.filter((v: any) => 
+      // Check status for video_content videos stuck in "generating" or "processing" (limit to 3 to keep it fast)
+      const pendingVideos = videoContentList.filter((v: any) => 
         (v.status === "generating" || v.status === "processing") && v.metadata?.heygenVideoId
       ).slice(0, 3);
 
@@ -8505,13 +8509,11 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           if (heygenId) {
             const status = await studio.getVideoStatus(heygenId);
             if (status.status === "completed" && status.videoUrl) {
-              // Update the video in database
               await storage.updateVideoContent(video.id, {
                 status: "ready",
                 videoUrl: status.videoUrl,
                 thumbnailUrl: status.thumbnailUrl,
               });
-              // Update in our array too
               video.status = "ready";
               video.videoUrl = status.videoUrl;
               video.thumbnailUrl = status.thumbnailUrl;
@@ -8522,16 +8524,64 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           console.warn(`Failed to check status for video ${video.id}:`, err);
         }
       }
-      
-      // Sort all videos by most recent
-      const sortedVideos = allVideos
-        .sort((a: any, b: any) => {
-          const dateA = new Date(a.createdAt || 0);
-          const dateB = new Date(b.createdAt || 0);
-          return dateB.getTime() - dateA.getTime();
-        });
 
-      console.log(`📹 Found ${sortedVideos.length} videos for user ${userId}`);
+      // Normalize video_content items
+      const normalizedVideoContent = videoContentList.map((v: any) => ({
+        id: v.id,
+        title: v.title || "Untitled Video",
+        script: v.script || "",
+        videoUrl: ensureS3Url(v.videoUrl),
+        thumbnailUrl: ensureS3Url(v.thumbnailUrl),
+        status: v.status || "draft",
+        platform: v.platform,
+        createdAt: v.createdAt,
+        metadata: { source: "video_content", ...(v.metadata || {}) },
+      }));
+
+      // Normalize generated_videos items
+      const normalizedGeneratedVideos = generatedVideosList.map((gv: any) => ({
+        id: gv.id,
+        title: gv.title || "Untitled Video",
+        script: gv.generatedScript || "",
+        videoUrl: ensureS3Url(gv.videoUrl),
+        thumbnailUrl: ensureS3Url(gv.thumbnailUrl),
+        status: gv.status === "completed" ? "ready" : gv.status,
+        createdAt: gv.createdAt,
+        metadata: { source: "generated_videos", templateName: gv.templateName },
+      }));
+
+      // Normalize video_generation_jobs items
+      const normalizedJobVideos = videoJobsList.map((vgj: any) => ({
+        id: vgj.id,
+        title: vgj.title || "Untitled Video",
+        script: "",
+        videoUrl: ensureS3Url(vgj.videoUrl),
+        thumbnailUrl: ensureS3Url(vgj.thumbnailUrl),
+        status: vgj.status === "completed" ? "ready" : vgj.status,
+        createdAt: vgj.createdAt,
+        metadata: { source: "video_generation_jobs", ...(vgj.metadata || {}) },
+      }));
+
+      // Merge all sources
+      const allVideos = [...normalizedVideoContent, ...normalizedGeneratedVideos, ...normalizedJobVideos];
+
+      // Deduplicate by video URL (keep the first occurrence)
+      const seenUrls = new Set<string>();
+      const deduped = allVideos.filter((v) => {
+        if (!v.videoUrl) return true;
+        if (seenUrls.has(v.videoUrl)) return false;
+        seenUrls.add(v.videoUrl);
+        return true;
+      });
+
+      // Sort by date descending
+      const sortedVideos = deduped.sort((a: any, b: any) => {
+        const dateA = new Date(a.createdAt || 0);
+        const dateB = new Date(b.createdAt || 0);
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      console.log(`📹 Found ${sortedVideos.length} unified videos for user ${userId} (content: ${videoContentList.length}, generated: ${generatedVideosList.length}, jobs: ${videoJobsList.length})`);
       
       res.json({ 
         videos: sortedVideos,

@@ -4341,6 +4341,53 @@ Return your response in this exact JSON format:
     }
   });
 
+  app.get("/api/facebook/debug", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id);
+      const socialAccounts = await storage.getSocialMediaAccounts(userId);
+      const facebookAccount = socialAccounts.find(
+        (acc) => acc.platform.toLowerCase() === "facebook" && acc.isConnected
+      );
+
+      if (!facebookAccount?.accessToken) {
+        return res.json({ error: "No connected Facebook account with token" });
+      }
+
+      const token = facebookAccount.accessToken;
+      const appId = process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+      const appSecret = process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+
+      const results: any = { userId, metadata: (facebookAccount as any).metadata };
+
+      try {
+        const meResp = await fetch(`https://graph.facebook.com/v22.0/me?fields=id,name,email&access_token=${token}`);
+        results.me = await meResp.json();
+      } catch (e: any) { results.meError = e.message; }
+
+      try {
+        const permsResp = await fetch(`https://graph.facebook.com/v22.0/me/permissions?access_token=${token}`);
+        results.permissions = await permsResp.json();
+      } catch (e: any) { results.permissionsError = e.message; }
+
+      try {
+        const pagesResp = await fetch(`https://graph.facebook.com/v22.0/me/accounts?fields=id,name,category,access_token,tasks&access_token=${token}`);
+        results.pages = await pagesResp.json();
+      } catch (e: any) { results.pagesError = e.message; }
+
+      if (appId && appSecret) {
+        try {
+          const debugResp = await fetch(`https://graph.facebook.com/v22.0/debug_token?input_token=${token}&access_token=${appId}|${appSecret}`);
+          results.tokenDebug = await debugResp.json();
+        } catch (e: any) { results.tokenDebugError = e.message; }
+      }
+
+      console.log("🔍 Facebook Debug Info:", JSON.stringify(results, null, 2));
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Get all Instagram Business Accounts linked to user's Facebook Pages
   app.get("/api/instagram/accounts", requireAuth, async (req: any, res) => {
     try {

@@ -245,6 +245,8 @@ export function AvatarIVStudio() {
   const [selectedPhotoForStyle, setSelectedPhotoForStyle] = useState<PhotoAsset | null>(null);
   const [autoStyleGenerating, setAutoStyleGenerating] = useState(false);
   const [previewLook, setPreviewLook] = useState<any | null>(null);
+  const [selectedLookIds, setSelectedLookIds] = useState<Set<string>>(new Set());
+  const [isLookSelectMode, setIsLookSelectMode] = useState(false);
 
   // Multi-upload state
   const [multiUploadProgress, setMultiUploadProgress] = useState<{ current: number; total: number } | null>(null);
@@ -754,6 +756,21 @@ export function AvatarIVStudio() {
     },
     onError: (error: any) => {
       toast({ title: "Delete failed", description: error.message || "Could not delete look", variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteLooksMutation = useMutation({
+    mutationFn: async (lookIds: string[]) => {
+      await Promise.all(lookIds.map(id => apiRequest("DELETE", `/api/photo-avatars/looks/${id}`)));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/all-looks"] });
+      setSelectedLookIds(new Set());
+      setIsLookSelectMode(false);
+      toast({ title: "Looks deleted", description: `${selectedLookIds.size} generated look(s) removed.` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Delete failed", description: error.message || "Could not delete looks", variant: "destructive" });
     },
   });
 
@@ -1304,10 +1321,59 @@ export function AvatarIVStudio() {
                   )}
 
                   <div className="mt-6 pt-4 border-t border-gray-200">
-                    <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-3">
-                      <Sparkles className="w-4 h-4 text-[#D4AF37]" />
-                      AI Generated Looks {allLooks.length > 0 && `(${allLooks.length})`}
-                    </h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                        AI Generated Looks {allLooks.length > 0 && `(${allLooks.length})`}
+                      </h4>
+                      {allLooks.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          {isLookSelectMode && selectedLookIds.size > 0 && (
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                if (confirm(`Delete ${selectedLookIds.size} selected look(s)?`)) {
+                                  bulkDeleteLooksMutation.mutate(Array.from(selectedLookIds));
+                                }
+                              }}
+                              disabled={bulkDeleteLooksMutation.isPending}
+                              data-testid="button-bulk-delete-looks"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-1" />
+                              {bulkDeleteLooksMutation.isPending ? "Deleting..." : `Delete (${selectedLookIds.size})`}
+                            </Button>
+                          )}
+                          {isLookSelectMode && allLooks.length > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                if (selectedLookIds.size === allLooks.length) {
+                                  setSelectedLookIds(new Set());
+                                } else {
+                                  setSelectedLookIds(new Set(allLooks.map((l: any) => l.id)));
+                                }
+                              }}
+                              data-testid="button-select-all-looks"
+                            >
+                              {selectedLookIds.size === allLooks.length ? "Deselect All" : "Select All"}
+                            </Button>
+                          )}
+                          <Button
+                            variant={isLookSelectMode ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              setIsLookSelectMode(!isLookSelectMode);
+                              setSelectedLookIds(new Set());
+                            }}
+                            data-testid="button-toggle-select-mode"
+                          >
+                            {isLookSelectMode ? "Cancel" : "Select"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                     {isLoadingAllLooks ? (
                       <div className="flex justify-center py-6">
                         <Loader2 className="h-6 w-6 animate-spin text-[#D4AF37]" />
@@ -1323,8 +1389,23 @@ export function AvatarIVStudio() {
                         {allLooks.map((look: any) => (
                           <div
                             key={look.id}
-                            onClick={() => setPreviewLook(look)}
-                            className="relative rounded-lg overflow-hidden border-2 border-gray-200 hover:border-[#D4AF37] transition-all hover:shadow-lg cursor-pointer"
+                            onClick={() => {
+                              if (isLookSelectMode) {
+                                setSelectedLookIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(look.id)) next.delete(look.id);
+                                  else next.add(look.id);
+                                  return next;
+                                });
+                              } else {
+                                setPreviewLook(look);
+                              }
+                            }}
+                            className={`group relative rounded-lg overflow-hidden border-2 transition-all hover:shadow-lg cursor-pointer ${
+                              isLookSelectMode && selectedLookIds.has(look.id)
+                                ? "border-[#D4AF37] ring-2 ring-[#D4AF37]/40"
+                                : "border-gray-200 hover:border-[#D4AF37]"
+                            }`}
                             data-testid={`card-look-${look.id}`}
                           >
                             {look.photoUrl ? (
@@ -1347,12 +1428,38 @@ export function AvatarIVStudio() {
                                 {look.groupName || ""}
                               </p>
                             </div>
-                            <Badge
-                              className="absolute top-1 left-1 text-[9px] px-1 py-0 bg-[#D4AF37]/90 text-white border-0"
-                              data-testid={`badge-look-${look.id}`}
-                            >
-                              AI
-                            </Badge>
+                            {isLookSelectMode ? (
+                              <div
+                                className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                  selectedLookIds.has(look.id)
+                                    ? "bg-[#D4AF37] border-[#D4AF37]"
+                                    : "bg-white/80 border-gray-400"
+                                }`}
+                              >
+                                {selectedLookIds.has(look.id) && <Check className="h-3 w-3 text-white" />}
+                              </div>
+                            ) : (
+                              <Badge
+                                className="absolute top-1 left-1 text-[9px] px-1 py-0 bg-[#D4AF37]/90 text-white border-0"
+                                data-testid={`badge-look-${look.id}`}
+                              >
+                                AI
+                              </Badge>
+                            )}
+                            {!isLookSelectMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm("Delete this generated look?")) {
+                                    deleteLookMutation.mutate(look.id);
+                                  }
+                                }}
+                                className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-black/50 hover:bg-red-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                data-testid={`button-x-delete-look-${look.id}`}
+                              >
+                                <X className="h-3 w-3 text-white" />
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>

@@ -4324,13 +4324,17 @@ Return your response in this exact JSON format:
 
       if (metadata.pages && Array.isArray(metadata.pages) && metadata.pages.length > 0) {
         console.log(`📋 Using ${metadata.pages.length} cached pages from metadata for user ${userId}`);
-        return res.json(metadata.pages);
+        const manualPages = metadata.manualPages || [];
+        const allPages = [...metadata.pages, ...manualPages.filter((mp: any) => !metadata.pages.some((p: any) => p.id === mp.id))];
+        return res.json(allPages);
       }
 
-      console.warn(`❌ No Facebook pages found for user ${userId} (API failed, no cached pages)`);
-      const grantedPerms = metadata.grantedPermissions || [];
-      const hasPagesPerm = grantedPerms.includes('pages_show_list');
+      if (metadata.manualPages && Array.isArray(metadata.manualPages) && metadata.manualPages.length > 0) {
+        console.log(`📝 Using ${metadata.manualPages.length} manually added pages for user ${userId}`);
+        return res.json(metadata.manualPages);
+      }
 
+      console.warn(`❌ No Facebook pages found for user ${userId} (API failed, no cached or manual pages)`);
       return res.json([]);
     } catch (error: any) {
       console.error("Error fetching Facebook pages:", error?.message || error);
@@ -4338,6 +4342,83 @@ Return your response in this exact JSON format:
         error: "Failed to fetch Facebook pages",
         details: error?.message || "Please check if your Facebook token is valid.",
       });
+    }
+  });
+
+  app.post("/api/facebook/pages/manual", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id);
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      const { pageId, pageName } = req.body;
+      if (!pageId) {
+        return res.status(400).json({ error: "Page ID is required" });
+      }
+
+      const socialAccounts = await storage.getSocialMediaAccounts(userId);
+      const facebookAccount = socialAccounts.find(
+        (acc) => acc.platform.toLowerCase() === "facebook" && acc.isConnected
+      );
+
+      if (!facebookAccount) {
+        return res.status(400).json({
+          error: "Facebook account not connected. Please connect your Facebook account first.",
+        });
+      }
+
+      const token = facebookAccount?.accessToken;
+
+      let verifiedName = pageName || `Page ${pageId}`;
+      let pageAccessToken = token;
+
+      if (token) {
+        try {
+          const verifyResp = await fetch(
+            `https://graph.facebook.com/v22.0/${pageId}?fields=id,name,category,access_token&access_token=${token}`
+          );
+          if (verifyResp.ok) {
+            const pageData = await verifyResp.json();
+            verifiedName = pageData.name || verifiedName;
+            if (pageData.access_token) {
+              pageAccessToken = pageData.access_token;
+            }
+            console.log(`✅ Manual Page ID verified: ${pageId} = "${verifiedName}"`);
+          } else {
+            console.warn(`⚠️ Could not verify Page ID ${pageId}, saving anyway`);
+          }
+        } catch (e) {
+          console.warn(`⚠️ Page verification failed, saving anyway`);
+        }
+      }
+
+      const existingMetadata = (facebookAccount.metadata as any) || {};
+      const manualPage = {
+        id: pageId,
+        name: verifiedName,
+        category: "Manual Entry",
+        access_token: pageAccessToken,
+        isManual: true,
+      };
+
+      const updatedMetadata = {
+        ...existingMetadata,
+        manualPages: [
+          ...(existingMetadata.manualPages || []).filter((p: any) => p.id !== pageId),
+          manualPage,
+        ],
+      };
+
+      await storage.updateSocialMediaAccount(facebookAccount.id, {
+        metadata: updatedMetadata,
+      });
+
+      console.log(`📝 Manual Facebook Page saved for user ${userId}: ${pageId} ("${verifiedName}")`);
+      res.json({ success: true, page: manualPage });
+    } catch (error: any) {
+      console.error("Error saving manual Facebook page:", error?.message || error);
+      res.status(500).json({ error: "Failed to save manual page" });
     }
   });
 

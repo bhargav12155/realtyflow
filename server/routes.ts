@@ -2295,6 +2295,10 @@ Return your response in this exact JSON format:
         if (!facebookClientId) return null;
         const redirectUri = encodeURIComponent(baseUrl + redirectPath);
         const stateParam = encodeURIComponent(state);
+        if (configId) {
+          console.log(`🔧 Facebook OAuth: Using config_id=${configId} for login configuration`);
+          return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&config_id=${configId}&state=${stateParam}&auth_type=rerequest`;
+        }
         return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${facebookClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${fallbackScope}&state=${stateParam}&auth_type=rerequest`;
       };
 

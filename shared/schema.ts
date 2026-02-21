@@ -337,6 +337,7 @@ export const socialMediaAccounts = pgTable("social_media_accounts", {
   tokenExpiresAt: timestamp("token_expires_at"),
   isConnected: boolean("is_connected").default(false),
   accountUsername: text("account_username"),
+  metadata: jsonb("metadata"),
   lastSynced: timestamp("last_synced"),
   createdAt: timestamp("created_at").defaultNow(),
 });

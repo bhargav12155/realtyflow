@@ -1172,7 +1172,7 @@ export class SocialMediaService {
 
   async getFacebookPageInfo(
     accessToken?: string,
-  ): Promise<{ id: string; name: string; category: string }[]> {
+  ): Promise<{ id: string; name: string; category: string; access_token?: string }[]> {
     try {
       const token = accessToken || process.env.FACEBOOK_USER_TOKEN;
       console.log("🔍 Facebook Debug - Token available:", !!token);
@@ -1185,9 +1185,9 @@ export class SocialMediaService {
         throw new SocialMediaError("Facebook access token not available", 401);
       }
 
-      console.log("🔍 Facebook Debug - Making API call to me/accounts");
+      console.log("🔍 Facebook Debug - Making API call to me/accounts with fields");
       const response = await fetch(
-        `https://graph.facebook.com/v22.0/me/accounts?access_token=${token}`,
+        `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,category,access_token&limit=100&access_token=${token}`,
       );
 
       console.log("🔍 Facebook Debug - Response status:", response.status);
@@ -1202,13 +1202,37 @@ export class SocialMediaService {
 
       const result = await response.json();
       console.log("🔍 Facebook Debug - Pages found:", result.data?.length || 0);
-      console.log("🔍 Facebook Debug - Pages data:", result.data);
 
-      return result.data.map((page: any) => ({
-        id: page.id,
-        name: page.name,
-        category: page.category,
-      }));
+      if (result.data && result.data.length > 0) {
+        return result.data.map((page: any) => ({
+          id: page.id,
+          name: page.name,
+          category: page.category,
+          access_token: page.access_token,
+        }));
+      }
+
+      console.log("🔍 Facebook Debug - me/accounts returned 0, trying me?fields=accounts approach");
+      const altResponse = await fetch(
+        `https://graph.facebook.com/v22.0/me?fields=accounts.limit(100){id,name,category,access_token}&access_token=${token}`,
+      );
+
+      if (altResponse.ok) {
+        const altResult = await altResponse.json();
+        const altPages = altResult.accounts?.data || [];
+        console.log("🔍 Facebook Debug - Alternative approach found:", altPages.length, "pages");
+        if (altPages.length > 0) {
+          return altPages.map((page: any) => ({
+            id: page.id,
+            name: page.name,
+            category: page.category,
+            access_token: page.access_token,
+          }));
+        }
+      }
+
+      console.log("🔍 Facebook Debug - No pages found via any API method");
+      return [];
     } catch (error) {
       console.error("Error fetching Facebook pages:", error);
       throw error;

@@ -315,10 +315,28 @@ export function AvatarIVStudio() {
     queryKey: ["/api/avatar-iv/voices"],
   });
 
-  const { data: allLooksResponse, isLoading: isLoadingAllLooks } = useQuery({
+  const { data: allLooksResponse, isLoading: isLoadingAllLooks } = useQuery<{ looks: any[]; count: number }>({
     queryKey: ["/api/photo-avatars/all-looks"],
   });
   const allLooks = allLooksResponse?.looks || [];
+
+  const { data: activeJobsData } = useQuery<{ activeJobs: any[]; recentlyCompleted: any[]; hasActiveJobs: boolean; totalActive: number; totalRecentlyCompleted: number }>({
+    queryKey: ["/api/photo-avatars/active-jobs"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any;
+      return data?.hasActiveJobs ? 10000 : 30000;
+    },
+  });
+  const hasActiveJobs = activeJobsData?.hasActiveJobs || false;
+  const activeJobsList = activeJobsData?.activeJobs || [];
+  const recentlyCompleted = activeJobsData?.recentlyCompleted || [];
+
+  // Auto-refresh looks when active jobs complete
+  useEffect(() => {
+    if (recentlyCompleted.length > 0) {
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/all-looks"] });
+    }
+  }, [recentlyCompleted.length]);
 
   const voices = voicesData?.voices || FALLBACK_VOICES;
 
@@ -1317,6 +1335,57 @@ export function AvatarIVStudio() {
                           </DropdownMenu>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Active Look Generation Status Tracker */}
+                  {(hasActiveJobs || recentlyCompleted.length > 0) && (
+                    <div className="mt-4 mb-2" data-testid="look-generation-status-tracker">
+                      {hasActiveJobs && (
+                        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30 border border-[#D4AF37]/30 rounded-lg p-4 mb-3">
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="relative">
+                              <Loader2 className="h-5 w-5 animate-spin text-[#D4AF37]" />
+                              <div className="absolute inset-0 animate-ping">
+                                <Sparkles className="h-5 w-5 text-[#D4AF37] opacity-30" />
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                AI is generating new looks for your avatar
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                {activeJobsList.length} look{activeJobsList.length !== 1 ? 's' : ''} in progress — this typically takes 2-3 minutes per look
+                              </p>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5 mt-3">
+                            {activeJobsList.map((job: any) => (
+                              <div key={job.id} className="flex items-center gap-2 text-xs bg-white/60 dark:bg-gray-800/40 rounded-md px-3 py-1.5" data-testid={`status-job-${job.id}`}>
+                                <div className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
+                                <span className="font-medium text-gray-700 dark:text-gray-300">{job.lookName || job.lookLabel}</span>
+                                <span className="text-gray-400 mx-1">—</span>
+                                <span className="text-gray-500 dark:text-gray-400">
+                                  {job.status === "pending" ? "Queued" : "Generating..."}
+                                </span>
+                                <span className="ml-auto text-gray-400">
+                                  {job.createdAt ? new Date(job.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {!hasActiveJobs && recentlyCompleted.length > 0 && (
+                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-300/50 rounded-lg p-3 mb-3">
+                          <div className="flex items-center gap-2">
+                            <Check className="h-4 w-4 text-green-600" />
+                            <p className="text-sm text-green-800 dark:text-green-300">
+                              {recentlyCompleted.length} new look{recentlyCompleted.length !== 1 ? 's' : ''} just finished generating!
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

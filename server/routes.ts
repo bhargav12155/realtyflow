@@ -16,7 +16,7 @@ import {
   whatsappSettings as whatsappSettingsTable,
 } from "@shared/schema";
 import crypto from "crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 import type { Express, NextFunction, Request, Response } from "express";
 import express from "express";
 import fs from "fs";
@@ -9859,6 +9859,60 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       } catch (error) {
         console.error("Failed to get all looks:", error);
         res.status(500).json({ error: "Failed to get all looks" });
+      }
+    }
+  );
+
+  // Get active/in-progress look generation jobs for status tracking
+  app.get(
+    "/api/photo-avatars/active-jobs",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const userId = String(req.user?.id);
+        if (!userId) {
+          return res.status(401).json({ error: "User not authenticated" });
+        }
+        
+        // Get all non-terminal jobs (pending or processing)
+        const activeJobs = await db
+          .select()
+          .from(lookGenerationJobs)
+          .where(
+            and(
+              eq(lookGenerationJobs.userId, userId),
+              or(
+                eq(lookGenerationJobs.status, "pending"),
+                eq(lookGenerationJobs.status, "processing")
+              )
+            )
+          )
+          .orderBy(desc(lookGenerationJobs.createdAt));
+        
+        // Also get recently completed jobs (last 2 minutes) so the UI can show completion
+        const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+        const recentlyCompleted = await db
+          .select()
+          .from(lookGenerationJobs)
+          .where(
+            and(
+              eq(lookGenerationJobs.userId, userId),
+              eq(lookGenerationJobs.status, "completed"),
+              gt(lookGenerationJobs.completedAt, twoMinutesAgo)
+            )
+          )
+          .orderBy(desc(lookGenerationJobs.completedAt));
+        
+        res.json({
+          activeJobs,
+          recentlyCompleted,
+          hasActiveJobs: activeJobs.length > 0,
+          totalActive: activeJobs.length,
+          totalRecentlyCompleted: recentlyCompleted.length,
+        });
+      } catch (error) {
+        console.error("Failed to get active jobs:", error);
+        res.status(500).json({ error: "Failed to get active jobs" });
       }
     }
   );

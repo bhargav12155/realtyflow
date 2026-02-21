@@ -7,12 +7,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Bell, Image, Video, FileText, Calendar, X } from 'lucide-react';
+import { Bell, Image, Video, FileText, Calendar, X, UserPlus, Zap, Volume2, CheckCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Notification {
   id: string;
-  type: 'photo_generated' | 'video_created' | 'content_published' | 'social_post_scheduled' | 'notification';
+  type: 'photo_generated' | 'video_created' | 'content_published' | 'social_post_scheduled' | 'notification' | 'avatar_group_created' | 'motion_added' | 'sound_effect_added' | 'avatar_ready' | 'training_status_update' | 'video_generation_complete' | 'video_generation_failed' | 'motion_complete' | 'look_generation_complete' | 'look_generation_failed';
   title: string;
   message: string;
   link?: string;
@@ -71,6 +71,26 @@ export function NotificationPanel({ userId, lastMessage }: NotificationPanelProp
         return <FileText className="w-4 h-4 text-green-500" />;
       case 'social_post_scheduled':
         return <Calendar className="w-4 h-4 text-orange-500" />;
+      case 'avatar_group_created':
+        return <UserPlus className="w-4 h-4 text-blue-500" />;
+      case 'motion_added':
+        return <Zap className="w-4 h-4 text-yellow-500" />;
+      case 'sound_effect_added':
+        return <Volume2 className="w-4 h-4 text-cyan-500" />;
+      case 'avatar_ready':
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'training_status_update':
+        return <RefreshCw className="w-4 h-4 text-amber-500" />;
+      case 'video_generation_complete':
+        return <Video className="w-4 h-4 text-green-500" />;
+      case 'video_generation_failed':
+        return <Video className="w-4 h-4 text-red-500" />;
+      case 'motion_complete':
+        return <Zap className="w-4 h-4 text-green-500" />;
+      case 'look_generation_complete':
+        return <Sparkles className="w-4 h-4 text-green-500" />;
+      case 'look_generation_failed':
+        return <Sparkles className="w-4 h-4 text-red-500" />;
       default:
         return <Bell className="w-4 h-4 text-gray-500" />;
     }
@@ -86,6 +106,26 @@ export function NotificationPanel({ userId, lastMessage }: NotificationPanelProp
         return 'Content Published';
       case 'social_post_scheduled':
         return 'Post Scheduled';
+      case 'avatar_group_created':
+        return 'Avatar Group Created';
+      case 'motion_added':
+        return 'Motion Added';
+      case 'sound_effect_added':
+        return 'Sound Effect Added';
+      case 'avatar_ready':
+        return 'Avatar Ready';
+      case 'training_status_update':
+        return 'Training Update';
+      case 'video_generation_complete':
+        return 'Video Ready';
+      case 'video_generation_failed':
+        return 'Video Failed';
+      case 'motion_complete':
+        return 'Motion Complete';
+      case 'look_generation_complete':
+        return 'AI Look Ready';
+      case 'look_generation_failed':
+        return 'Look Generation Failed';
       default:
         return 'Notification';
     }

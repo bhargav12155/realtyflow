@@ -12503,6 +12503,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                             console.error(`❌ [PROXY BG] Failed to save look result to DB:`, dbError);
                           }
                         }
+                        if (capturedUserId) {
+                          realtimeService.notifyLookGenerationComplete(
+                            parseInt(capturedUserId),
+                            groupId!,
+                            job.lookName,
+                            imageUrls.length
+                          );
+                        }
                       } else if (genStatusData.status === "failed") {
                         genComplete = true;
                         console.error(`❌ [PROXY BG] Generation ${job.generationId} failed`);
@@ -12520,6 +12528,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                           });
                         } catch (dbError) {
                           console.error(`❌ [PROXY BG] Failed to save failed status to DB:`, dbError);
+                        }
+                        if (capturedUserId) {
+                          realtimeService.notifyLookGenerationFailed(
+                            parseInt(capturedUserId),
+                            groupId!,
+                            job.lookName,
+                            "Generation failed on HeyGen"
+                          );
                         }
                       }
                     }
@@ -12545,6 +12561,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                   } catch (dbError) {
                     console.error(`❌ [PROXY BG] Failed to save timeout status to DB:`, dbError);
                   }
+                  if (capturedUserId) {
+                    realtimeService.notifyLookGenerationFailed(
+                      parseInt(capturedUserId),
+                      groupId!,
+                      job.lookName,
+                      "Generation timed out"
+                    );
+                  }
                 }
               } catch (jobError) {
                 console.error(`❌ [PROXY BG] Error processing generation job ${job.generationId}:`, jobError);
@@ -12552,6 +12576,12 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             }
 
             console.log(`🎉 [PROXY BG] All generation jobs processed for group ${groupId}`);
+            if (capturedUserId) {
+              realtimeService.sendNotification(
+                parseInt(capturedUserId),
+                `All AI looks for avatar group have finished processing.`
+              );
+            }
           } catch (bgError) {
             console.error(`❌ [PROXY BG] Background process failed for group ${groupId}:`, bgError);
           }
@@ -12976,6 +13006,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                           console.error(`❌ [PROXY BG] Failed to save look result to DB:`, dbError);
                         }
                       }
+                      if (capturedUserId) {
+                        realtimeService.notifyLookGenerationComplete(
+                          parseInt(capturedUserId),
+                          groupId,
+                          lookName,
+                          imageUrls.length
+                        );
+                      }
                     } else if (genStatusData.status === "failed") {
                       genComplete = true;
                       console.error(`❌ [PROXY BG] Generation ${generationId} failed`);
@@ -12993,6 +13031,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                         });
                       } catch (dbError) {
                         console.error(`❌ [PROXY BG] Failed to save failed status to DB:`, dbError);
+                      }
+                      if (capturedUserId) {
+                        realtimeService.notifyLookGenerationFailed(
+                          parseInt(capturedUserId),
+                          groupId,
+                          lookName,
+                          "Generation failed on HeyGen"
+                        );
                       }
                     }
                   }
@@ -13018,12 +13064,26 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                 } catch (dbError) {
                   console.error(`❌ [PROXY BG] Failed to save timeout status to DB:`, dbError);
                 }
+                if (capturedUserId) {
+                  realtimeService.notifyLookGenerationFailed(
+                    parseInt(capturedUserId),
+                    groupId,
+                    lookName,
+                    "Generation timed out"
+                  );
+                }
               }
             } catch (jobError) {
               console.error(`❌ [PROXY BG] Error processing generation ${generationId}:`, jobError);
             }
           }
           console.log(`🎉 [PROXY BG] All generation jobs processed for proxy-generate-look on group ${groupId}`);
+          if (capturedUserId) {
+            realtimeService.sendNotification(
+              parseInt(capturedUserId),
+              `AI look generation complete for your avatar.`
+            );
+          }
         })();
       } catch (error: any) {
         console.error("❌ [PROXY] Failed to generate look:", error);

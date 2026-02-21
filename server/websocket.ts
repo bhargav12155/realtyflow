@@ -3,7 +3,7 @@ import { Server } from "http";
 import type { IncomingMessage } from "http";
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed";
   data: any;
   timestamp: string;
   userId?: number;
@@ -301,6 +301,36 @@ export class RealtimeService {
         avatarName,
         motionPreviewUrl,
         message: `Motion animation for "${avatarName}" is complete!`,
+      },
+      timestamp: new Date().toISOString(),
+      userId,
+      link: "photo-avatars",
+    });
+  }
+
+  notifyLookGenerationComplete(userId: number, groupId: string, lookName: string, imageCount: number) {
+    this.sendToUser(userId.toString(), {
+      type: "look_generation_complete" as any,
+      data: {
+        groupId,
+        lookName,
+        imageCount,
+        message: `AI look "${lookName}" is ready! ${imageCount} image${imageCount !== 1 ? 's' : ''} generated.`,
+      },
+      timestamp: new Date().toISOString(),
+      userId,
+      link: "photo-avatars",
+    });
+  }
+
+  notifyLookGenerationFailed(userId: number, groupId: string, lookName: string, error: string) {
+    this.sendToUser(userId.toString(), {
+      type: "look_generation_failed" as any,
+      data: {
+        groupId,
+        lookName,
+        error,
+        message: `AI look "${lookName}" generation failed: ${error}`,
       },
       timestamp: new Date().toISOString(),
       userId,

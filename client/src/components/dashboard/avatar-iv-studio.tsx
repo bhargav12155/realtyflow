@@ -224,7 +224,7 @@ export function AvatarIVStudio() {
   const [voiceSearch, setVoiceSearch] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | "female" | "male">("all");
   const [selectedMotion, setSelectedMotion] = useState(MOTION_PROMPTS[0].id);
-  const [videoOrientation, setVideoOrientation] = useState<"landscape" | "portrait">("landscape");
+  const [videoOrientation, setVideoOrientation] = useState<"landscape" | "portrait">("portrait");
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
   
   // Background generation mode
@@ -2052,13 +2052,13 @@ export function AvatarIVStudio() {
                 </p>
               </div>
 
-              <div className="max-w-2xl mx-auto">
+              <div className={`mx-auto ${videoOrientation === "portrait" ? "max-w-sm" : "max-w-2xl"}`}>
                 {videoStatus?.status === "completed" && videoStatus.video_url ? (
                   <div className="space-y-4">
                     <video
                       src={videoStatus.video_url}
                       controls
-                      className="w-full rounded-xl shadow-lg"
+                      className="w-full max-h-[70vh] rounded-xl shadow-lg object-contain mx-auto"
                       data-testid="video-player"
                     />
                     <div className="flex flex-wrap justify-center gap-3">

@@ -43,6 +43,7 @@ import {
   Save,
   MoreVertical,
   Shirt,
+  ArrowRight,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -1142,46 +1143,48 @@ export function AvatarIVStudio() {
 
   return (
     <div className="space-y-6">
-      {/* Active Background Jobs Section */}
-      {activeJobs.length > 0 && (
-        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Clock className="h-4 w-4 text-blue-600 animate-pulse" />
-              <span>Background Jobs</span>
-              <Badge variant="secondary" className="ml-auto">
-                {activeJobs.length} generating
-              </Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="space-y-2">
-              {activeJobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border"
-                  data-testid={`job-item-${job.id}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                      <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-sm">{job.title}</p>
-                      <p className="text-xs text-gray-500 capitalize">{job.status}</p>
-                    </div>
-                  </div>
-                  <Badge variant={job.status === "processing" ? "default" : "secondary"}>
-                    {job.status === "processing" ? "Processing..." : "Queued"}
-                  </Badge>
-                </div>
-              ))}
+      {/* Compact Status Indicators */}
+      {(activeJobs.length > 0 || hasActiveJobs || recentlyCompleted.length > 0) && (
+        <div className="flex flex-wrap items-center gap-3" data-testid="status-indicators">
+          {activeJobs.length > 0 && (
+            <div className="inline-flex items-center gap-2 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-full px-4 py-2" data-testid="video-jobs-indicator">
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                {activeJobs.length === 1 ? 'Rendering video...' : `Rendering ${activeJobs.length} videos...`}
+              </span>
             </div>
-            <p className="text-xs text-gray-500 mt-3 text-center">
-              You'll receive a notification when each video is ready
-            </p>
-          </CardContent>
-        </Card>
+          )}
+          {hasActiveJobs && (
+            <div className="inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-950/40 border border-[#D4AF37]/40 rounded-full px-4 py-2" data-testid="look-jobs-indicator">
+              <Loader2 className="h-4 w-4 animate-spin text-[#D4AF37]" />
+              <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                Generating {activeJobsList.length} look{activeJobsList.length !== 1 ? 's' : ''}...
+              </span>
+              <button
+                className="text-sm font-semibold text-[#D4AF37] hover:text-amber-600 dark:hover:text-amber-200 flex items-center gap-0.5"
+                onClick={() => document.getElementById('look-gallery-section')?.scrollIntoView({ behavior: 'smooth' })}
+                data-testid="button-view-looks"
+              >
+                View <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          {!hasActiveJobs && recentlyCompleted.length > 0 && (
+            <div className="inline-flex items-center gap-2 bg-green-50 dark:bg-green-950/40 border border-green-300/50 rounded-full px-4 py-2" data-testid="looks-completed-indicator">
+              <Check className="h-4 w-4 text-green-500" />
+              <span className="text-sm font-medium text-green-700 dark:text-green-300">
+                {recentlyCompleted.length} new look{recentlyCompleted.length !== 1 ? 's' : ''} ready!
+              </span>
+              <button
+                className="text-sm font-semibold text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 flex items-center gap-0.5"
+                onClick={() => document.getElementById('look-gallery-section')?.scrollIntoView({ behavior: 'smooth' })}
+                data-testid="button-view-completed-looks"
+              >
+                View <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       <Card>
@@ -1373,62 +1376,17 @@ export function AvatarIVStudio() {
                     </div>
                   )}
 
-                  {/* Active Look Generation Status Tracker */}
-                  {(hasActiveJobs || recentlyCompleted.length > 0) && (
-                    <div className="mt-4 mb-2" data-testid="look-generation-status-tracker">
-                      {hasActiveJobs && (
-                        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30 border border-[#D4AF37]/30 rounded-lg p-4 mb-3">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="relative">
-                              <Loader2 className="h-5 w-5 animate-spin text-[#D4AF37]" />
-                              <div className="absolute inset-0 animate-ping">
-                                <Sparkles className="h-5 w-5 text-[#D4AF37] opacity-30" />
-                              </div>
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                                AI is generating new looks for your avatar
-                              </p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                                {activeJobsList.length} look{activeJobsList.length !== 1 ? 's' : ''} in progress — this typically takes 2-3 minutes per look
-                              </p>
-                            </div>
-                          </div>
-                          <div className="space-y-1.5 mt-3">
-                            {activeJobsList.map((job: any) => (
-                              <div key={job.id} className="flex items-center gap-2 text-xs bg-white/60 dark:bg-gray-800/40 rounded-md px-3 py-1.5" data-testid={`status-job-${job.id}`}>
-                                <div className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse" />
-                                <span className="font-medium text-gray-700 dark:text-gray-300">{job.lookName || job.lookLabel}</span>
-                                <span className="text-gray-400 mx-1">—</span>
-                                <span className="text-gray-500 dark:text-gray-400">
-                                  {job.status === "pending" ? "Queued" : "Generating..."}
-                                </span>
-                                <span className="ml-auto text-gray-400">
-                                  {job.createdAt ? new Date(job.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {!hasActiveJobs && recentlyCompleted.length > 0 && (
-                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-300/50 rounded-lg p-3 mb-3">
-                          <div className="flex items-center gap-2">
-                            <Check className="h-4 w-4 text-green-600" />
-                            <p className="text-sm text-green-800 dark:text-green-300">
-                              {recentlyCompleted.length} new look{recentlyCompleted.length !== 1 ? 's' : ''} just finished generating!
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-6 pt-4 border-t border-gray-200">
+                  <div className="mt-6 pt-4 border-t border-gray-200" id="look-gallery-section">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-[#D4AF37]" />
                         AI Generated Looks {allLooks.length > 0 && `(${allLooks.length})`}
+                        {hasActiveJobs && (
+                          <span className="inline-flex items-center gap-1 ml-2 text-xs font-normal text-amber-600 dark:text-amber-400">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            {activeJobsList.length} generating...
+                          </span>
+                        )}
                       </h4>
                       {allLooks.length > 0 && (
                         <div className="flex items-center gap-2">

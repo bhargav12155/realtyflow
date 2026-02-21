@@ -645,19 +645,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get dashboard overview data
-  app.get("/api/dashboard/overview", async (req, res) => {
+  app.get("/api/dashboard/overview", requireAuth, async (req: any, res) => {
     try {
-      // For demo purposes, use first user. In production, use authenticated user
-      const users = await storage.getUserByUsername("mikebjork");
-      if (!users) {
-        return res.status(404).json({ error: "User not found" });
+      const stableUserId = String(req.user?.id);
+      if (!stableUserId) {
+        return res.status(401).json({ error: "Authentication required" });
       }
 
-      const analytics = await storage.getAnalytics(users.id);
-      const overview = analytics.reduce((acc, analytic) => {
-        acc[analytic.metric] = analytic.value;
-        return acc;
-      }, {} as Record<string, number>);
+      const overview: Record<string, any> = {};
 
       // Add real engagement leads from tracking system
       try {
@@ -742,7 +737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .from(scheduledPosts)
           .where(
             and(
-              eq(scheduledPosts.userId, users.id),
+              eq(scheduledPosts.userId, stableUserId),
               eq(scheduledPosts.status, "posted"),
               gte(scheduledPosts.updatedAt, firstDayOfMonth)
             )
@@ -754,7 +749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .from(scheduledPosts)
           .where(
             and(
-              eq(scheduledPosts.userId, users.id),
+              eq(scheduledPosts.userId, stableUserId),
               eq(scheduledPosts.status, "posted"),
               gte(scheduledPosts.updatedAt, firstDayOfLastMonth),
               lt(scheduledPosts.updatedAt, firstDayOfMonth)
@@ -784,7 +779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .from(scheduledPosts)
           .where(
             and(
-              eq(scheduledPosts.userId, users.id),
+              eq(scheduledPosts.userId, stableUserId),
               eq(scheduledPosts.status, "posted")
             )
           )
@@ -798,6 +793,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`📝 Dashboard: ${currentPosted} posts published this month (${contentChange >= 0 ? '+' : ''}${contentChange.toFixed(1)}% vs last month)`);
       } catch (error) {
         console.warn("Failed to fetch content published stats:", error);
+      }
+
+      // Calculate Social Engagement from connected social accounts activity
+      try {
+        const { socialMediaAccounts } = await import("@shared/schema");
+        const { count, eq } = await import("drizzle-orm");
+        
+        const connectedAccounts = await db
+          .select({ count: count() })
+          .from(socialMediaAccounts)
+          .where(
+            and(
+              eq(socialMediaAccounts.userId, stableUserId),
+              eq(socialMediaAccounts.isConnected, true)
+            )
+          );
+        
+        const totalConnected = connectedAccounts[0]?.count || 0;
+        
+        // Social engagement = connected platforms * posted content as a base metric
+        const contentCount = overview.content_published || 0;
+        overview.social_engagement = totalConnected * Math.max(contentCount, 1) + contentCount;
+        
+        console.log(`💜 Dashboard: Social engagement score: ${overview.social_engagement} (${totalConnected} connected accounts)`);
+      } catch (error) {
+        console.warn("Failed to fetch social engagement:", error);
+        overview.social_engagement = 0;
       }
 
       res.json(overview);

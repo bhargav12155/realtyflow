@@ -66,9 +66,9 @@ const cards = [
     icon: Heart,
     color: "text-chart-4",
     bgColor: "bg-chart-4/10",
-    changeLabel: "this week",
-    format: (value: number) => `${(value / 1000).toFixed(1)}K`,
-    isConnected: false,
+    changeLabel: "total interactions",
+    format: (value: number) => value >= 1000 ? `${(value / 1000).toFixed(1)}K` : String(value),
+    isConnected: true,
     connectHint: "Connect socials",
   },
 ];

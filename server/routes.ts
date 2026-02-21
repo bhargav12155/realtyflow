@@ -4996,37 +4996,120 @@ Return your response in this exact JSON format:
         }
         console.log("📸 Instagram post using stable user ID:", userId);
 
-        // Get connected Instagram account
+        // Get all connected social accounts
         const socialAccounts = await storage.getSocialMediaAccounts(userId);
         const instagramAccount = socialAccounts.find(
           (acc) => acc.platform.toLowerCase() === "instagram" && acc.isConnected
         );
-        
-        // Auto-resolve Instagram Business Account ID from connected account
-        // Format is stored as "igBusinessId:@username" in account_username field
-        if (!instagramBusinessAccountId && instagramAccount?.accountUsername) {
-          const parts = instagramAccount.accountUsername.split(':');
-          if (parts.length >= 1 && parts[0]) {
-            instagramBusinessAccountId = parts[0];
-            console.log("📸 Auto-resolved Instagram Business Account ID from account_username:", instagramBusinessAccountId);
+        const facebookAccount = socialAccounts.find(
+          (acc) => acc.platform.toLowerCase() === "facebook" && acc.isConnected
+        );
+
+        // Strategy: Use Facebook Page's Instagram Business Account for Content Publishing
+        // Instagram Business Login tokens don't support POST /media (content publishing)
+        // We must use the Facebook Graph API with a Page token to publish to Instagram
+        let resolvedToken: string | null = null;
+        let resolvedIgBusinessId: string | null = instagramBusinessAccountId || null;
+
+        if (facebookAccount?.accessToken) {
+          console.log("📸 Attempting Instagram posting via Facebook Page connection...");
+          try {
+            // Get Facebook pages
+            const fbToken = facebookAccount.accessToken;
+            const pagesResponse = await fetch(
+              `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${fbToken}`
+            );
+
+            let pages: any[] = [];
+            if (pagesResponse.ok) {
+              const pagesData = await pagesResponse.json();
+              pages = pagesData.data || [];
+            }
+
+            // If no pages from me/accounts, try Debug Token fallback (New Pages Experience)
+            if (pages.length === 0) {
+              console.log("📸 No pages from me/accounts, trying Debug Token fallback...");
+              const appId = process.env.INSTAGRAM_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+              const appSecret = process.env.FACEBOOK_APP_SECRET;
+              if (appId && appSecret) {
+                const debugResponse = await fetch(
+                  `https://graph.facebook.com/v22.0/debug_token?input_token=${fbToken}&access_token=${appId}|${appSecret}`
+                );
+                if (debugResponse.ok) {
+                  const debugData = await debugResponse.json();
+                  const scopes = debugData.data?.granular_scopes || [];
+                  const pageIds = new Set<string>();
+                  for (const scope of scopes) {
+                    if (scope.target_ids) {
+                      scope.target_ids.forEach((id: string) => pageIds.add(id));
+                    }
+                  }
+                  for (const pageId of pageIds) {
+                    try {
+                      const pageResponse = await fetch(
+                        `https://graph.facebook.com/v22.0/${pageId}?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${fbToken}`
+                      );
+                      if (pageResponse.ok) {
+                        const pageData = await pageResponse.json();
+                        pages.push(pageData);
+                      }
+                    } catch (e) {
+                      console.warn(`📸 Failed to fetch page ${pageId}:`, e);
+                    }
+                  }
+                }
+              }
+            }
+
+            // Find a page with an Instagram Business Account
+            for (const page of pages) {
+              if (page.instagram_business_account?.id) {
+                resolvedIgBusinessId = page.instagram_business_account.id;
+                resolvedToken = page.access_token;
+                console.log(`📸 Found Instagram Business Account ${resolvedIgBusinessId} via Facebook Page "${page.name}" (${page.id})`);
+                break;
+              }
+            }
+
+            if (!resolvedToken && pages.length > 0 && !resolvedIgBusinessId) {
+              // Pages exist but no Instagram Business Account linked
+              console.warn("📸 Facebook Pages found but none have a linked Instagram Business Account");
+            }
+          } catch (fbError) {
+            console.error("📸 Error resolving Instagram via Facebook:", fbError);
           }
         }
 
-        if (!instagramBusinessAccountId) {
+        // Fallback: try Instagram token directly (may work if permissions are approved)
+        if (!resolvedToken) {
+          if (instagramAccount?.accessToken) {
+            resolvedToken = instagramAccount.accessToken;
+            console.log("📸 Falling back to Instagram direct token");
+          }
+          // Auto-resolve Instagram user ID from account_username
+          if (!resolvedIgBusinessId && instagramAccount?.accountUsername) {
+            const parts = instagramAccount.accountUsername.split(':');
+            if (parts.length >= 1 && parts[0]) {
+              resolvedIgBusinessId = parts[0];
+            }
+          }
+        }
+
+        if (!resolvedIgBusinessId) {
           return res.status(400).json({
             error:
-              "Instagram Business Account ID not found. Please disconnect and reconnect your Instagram account.",
+              "Instagram Business Account not found. Please make sure your Facebook Page is linked to an Instagram Business/Creator account.",
           });
         }
 
-        // Get Instagram access token (stored from OAuth)
-        const resolvedToken = instagramAccount?.accessToken || process.env.FACEBOOK_USER_TOKEN;
-        console.log("📸 Using Instagram token:", resolvedToken ? "Token available" : "No token");
+        instagramBusinessAccountId = resolvedIgBusinessId;
+        console.log("📸 Using Instagram Business Account ID:", instagramBusinessAccountId);
+        console.log("📸 Using token:", resolvedToken ? "Token available" : "No token");
 
         if (!resolvedToken) {
           return res.status(400).json({
             error:
-              "Facebook token missing. Instagram posting requires Facebook connection.",
+              "No valid token found for Instagram posting. Please connect your Facebook account with a Page linked to Instagram.",
           });
         }
 

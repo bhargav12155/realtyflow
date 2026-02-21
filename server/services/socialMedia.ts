@@ -431,14 +431,12 @@ export class SocialMediaService {
         }
       }
 
-      // Try multiple endpoint combinations for Instagram Content Publishing API
-      // Instagram Business Login tokens work with graph.instagram.com
-      // Facebook Login tokens work with graph.facebook.com
+      // Try Facebook Graph API first (works with Page tokens for Instagram Business Accounts)
+      // Then fall back to Instagram Graph API (works with Instagram Business Login tokens)
       const endpoints = [
+        `https://graph.facebook.com/v22.0/${userId}/media`,
         `https://graph.instagram.com/v22.0/${userId}/media`,
         `https://graph.instagram.com/v22.0/me/media`,
-        `https://graph.facebook.com/v22.0/${userId}/media`,
-        `https://graph.facebook.com/v22.0/me/media`,
       ];
 
       let containerResponse: Response | null = null;
@@ -506,9 +504,14 @@ export class SocialMediaService {
       const pollInterval = 3000;
       let waited = 0;
       while (waited < maxWaitTime) {
-        const statusRes = await fetch(
-          `https://graph.instagram.com/v22.0/${containerId}?fields=status_code&access_token=${token}`,
+        let statusRes = await fetch(
+          `https://graph.facebook.com/v22.0/${containerId}?fields=status_code&access_token=${token}`,
         );
+        if (!statusRes.ok) {
+          statusRes = await fetch(
+            `https://graph.instagram.com/v22.0/${containerId}?fields=status_code&access_token=${token}`,
+          );
+        }
         if (statusRes.ok) {
           const statusData = await statusRes.json();
           console.log(`Instagram container ${containerId} status: ${statusData.status_code}`);
@@ -524,12 +527,11 @@ export class SocialMediaService {
         throw new Error("Instagram media processing timed out. Please try again.");
       }
 
-      // Step 3: Publish the media container (try multiple endpoints)
+      // Step 3: Publish the media container (try Facebook Graph API first)
       const publishEndpoints = [
+        `https://graph.facebook.com/v22.0/${userId}/media_publish`,
         `https://graph.instagram.com/v22.0/${userId}/media_publish`,
         `https://graph.instagram.com/v22.0/me/media_publish`,
-        `https://graph.facebook.com/v22.0/${userId}/media_publish`,
-        `https://graph.facebook.com/v22.0/me/media_publish`,
       ];
 
       let publishResponse: Response | null = null;

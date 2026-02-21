@@ -12242,65 +12242,104 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const fileBuffer = fs.readFileSync(req.file.path);
         fs.unlinkSync(req.file.path);
 
-        // Step 1: Upload image to external service (kind must be "image" not "photo")
-        console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
-        const uploadFormData = new FormData();
-        const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-        uploadFormData.append("file", blob, req.file.originalname);
-        uploadFormData.append("kind", "image");
+        // ✨ AVATAR REUSE: Hash the image to detect if we already have a trained group
+        const crypto = await import("crypto");
+        const imageHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+        const capturedUserId = (req as any).user?.id;
+        console.log(`🔍 [PROXY] Image hash: ${imageHash}, userId: ${capturedUserId}`);
 
-        const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
-          method: "POST",
-          body: uploadFormData,
-        });
+        let groupId: string | null = null;
+        let reusedExistingGroup = false;
 
-        if (!uploadResponse.ok) {
-          const errorText = await uploadResponse.text();
-          console.error("❌ [PROXY] Asset upload failed:", uploadResponse.status, errorText);
-          return res.status(uploadResponse.status).json({
-            error: "Failed to upload image to external service",
-            details: errorText,
-          });
+        // Check if this image already has a trained avatar group
+        if (capturedUserId) {
+          const existingGroup = await storage.getPhotoAvatarGroupByImageHash(imageHash, capturedUserId);
+          if (existingGroup && existingGroup.heygenGroupId) {
+            console.log(`♻️ [PROXY] Reusing existing trained group: ${existingGroup.heygenGroupId} (name: ${existingGroup.groupName})`);
+            groupId = existingGroup.heygenGroupId;
+            reusedExistingGroup = true;
+          }
         }
 
-        const uploadData = await uploadResponse.json();
-        console.log("📦 [PROXY] Upload response:", JSON.stringify(uploadData));
-        const imageKey = uploadData.image_key || uploadData.asset_id || uploadData.key;
-        console.log("✅ [PROXY] Step 1 complete: image_key =", imageKey);
+        if (!reusedExistingGroup) {
+          // Step 1: Upload image to external service (kind must be "image" not "photo")
+          console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
+          const uploadFormData = new FormData();
+          const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+          uploadFormData.append("file", blob, req.file.originalname);
+          uploadFormData.append("kind", "image");
 
-        if (!imageKey) {
-          return res.status(500).json({
-            error: "External service did not return an image_key",
-            details: JSON.stringify(uploadData),
+          const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
+            method: "POST",
+            body: uploadFormData,
           });
-        }
 
-        // Step 2: Create avatar group
-        console.log("📤 [PROXY] Step 2: Creating avatar group via /api/heygen/avatars/create-group");
-        const createGroupResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/create-group`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_key: imageKey }),
-        });
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            console.error("❌ [PROXY] Asset upload failed:", uploadResponse.status, errorText);
+            return res.status(uploadResponse.status).json({
+              error: "Failed to upload image to external service",
+              details: errorText,
+            });
+          }
 
-        if (!createGroupResponse.ok) {
-          const errorText = await createGroupResponse.text();
-          console.error("❌ [PROXY] Create group failed:", createGroupResponse.status, errorText);
-          return res.status(createGroupResponse.status).json({
-            error: "Failed to create avatar group on external service",
-            details: errorText,
+          const uploadData = await uploadResponse.json();
+          console.log("📦 [PROXY] Upload response:", JSON.stringify(uploadData));
+          const imageKey = uploadData.image_key || uploadData.asset_id || uploadData.key;
+          console.log("✅ [PROXY] Step 1 complete: image_key =", imageKey);
+
+          if (!imageKey) {
+            return res.status(500).json({
+              error: "External service did not return an image_key",
+              details: JSON.stringify(uploadData),
+            });
+          }
+
+          // Step 2: Create avatar group
+          console.log("📤 [PROXY] Step 2: Creating avatar group via /api/heygen/avatars/create-group");
+          const createGroupResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/create-group`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_key: imageKey }),
           });
-        }
 
-        const createGroupData = await createGroupResponse.json();
-        const groupId = createGroupData.group_id || createGroupData.groupId;
-        console.log("✅ [PROXY] Step 2 complete: group_id =", groupId);
+          if (!createGroupResponse.ok) {
+            const errorText = await createGroupResponse.text();
+            console.error("❌ [PROXY] Create group failed:", createGroupResponse.status, errorText);
+            return res.status(createGroupResponse.status).json({
+              error: "Failed to create avatar group on external service",
+              details: errorText,
+            });
+          }
 
-        if (!groupId) {
-          return res.status(500).json({
-            error: "External service did not return a group_id",
-            details: JSON.stringify(createGroupData),
-          });
+          const createGroupData = await createGroupResponse.json();
+          groupId = createGroupData.group_id || createGroupData.groupId;
+          console.log("✅ [PROXY] Step 2 complete: group_id =", groupId);
+
+          if (!groupId) {
+            return res.status(500).json({
+              error: "External service did not return a group_id",
+              details: JSON.stringify(createGroupData),
+            });
+          }
+
+          // Save new group to database for future reuse
+          if (capturedUserId) {
+            try {
+              await storage.createPhotoAvatarGroup({
+                userId: capturedUserId,
+                heygenGroupId: groupId,
+                groupName: req.body.name || `Avatar_${Date.now()}`,
+                imageHash: imageHash,
+                s3ImageUrl: null,
+                heygenImageKey: imageKey,
+                trainingStatus: "pending",
+              });
+              console.log("💾 [PROXY] Avatar group metadata saved for reuse detection");
+            } catch (dbError) {
+              console.error("⚠️ [PROXY] Failed to save avatar group metadata:", dbError);
+            }
+          }
         }
 
         // Return immediately with group_id
@@ -12308,63 +12347,69 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           success: true,
           group_id: groupId,
           status: "processing",
-          message: "Avatar group created. Training and look generation will happen in the background.",
+          reused: reusedExistingGroup,
+          message: reusedExistingGroup
+            ? "Reusing existing trained avatar. New looks will be generated in the background (~2-3 min)."
+            : "Avatar group created. Training and look generation will happen in the background (~6-8 min).",
         });
 
-        // Step 3+: Background async process - train, poll, generate looks
+        // Step 3+: Background async process - train (if new), poll, generate looks
         const backgroundPrompt = req.body.prompt || "";
         const backgroundOrientation = req.body.orientation || "square";
         const backgroundPose = req.body.pose || "half_body";
         const backgroundStyle = req.body.style || "Realistic";
-        const capturedUserId = (req as any).user?.id;
 
         (async () => {
           try {
-            // Wait 30 seconds for HeyGen to process the image
-            console.log(`⏳ [PROXY BG] Waiting 30s before training group ${groupId}...`);
-            await new Promise(resolve => setTimeout(resolve, 30000));
+            if (!reusedExistingGroup) {
+              // Wait 30 seconds for HeyGen to process the image
+              console.log(`⏳ [PROXY BG] Waiting 30s before training group ${groupId}...`);
+              await new Promise(resolve => setTimeout(resolve, 30000));
 
-            // Step 3: Start training
-            console.log(`🎓 [PROXY BG] Step 3: Starting training for group ${groupId}`);
-            const trainResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/train`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({}),
-            });
+              // Step 3: Start training
+              console.log(`🎓 [PROXY BG] Step 3: Starting training for group ${groupId}`);
+              const trainResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/train`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+              });
 
-            if (!trainResponse.ok) {
-              const errorText = await trainResponse.text();
-              console.error(`❌ [PROXY BG] Training start failed for ${groupId}:`, errorText);
-              return;
-            }
-            console.log(`✅ [PROXY BG] Training started for group ${groupId}`);
-
-            // Step 4: Poll training status until trained
-            let trained = false;
-            let pollAttempts = 0;
-            const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
-
-            while (!trained && pollAttempts < maxPollAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s between polls
-              pollAttempts++;
-
-              try {
-                const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
-                if (statusResponse.ok) {
-                  const statusData = await statusResponse.json();
-                  console.log(`📊 [PROXY BG] Training status for ${groupId} (attempt ${pollAttempts}):`, statusData.status, "trained:", statusData.trained);
-                  if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
-                    trained = true;
-                  }
-                }
-              } catch (pollError) {
-                console.error(`⚠️ [PROXY BG] Poll error for ${groupId}:`, pollError);
+              if (!trainResponse.ok) {
+                const errorText = await trainResponse.text();
+                console.error(`❌ [PROXY BG] Training start failed for ${groupId}:`, errorText);
+                return;
               }
-            }
+              console.log(`✅ [PROXY BG] Training started for group ${groupId}`);
 
-            if (!trained) {
-              console.error(`❌ [PROXY BG] Training timed out for group ${groupId} after ${maxPollAttempts} attempts`);
-              return;
+              // Step 4: Poll training status until trained
+              let trained = false;
+              let pollAttempts = 0;
+              const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
+
+              while (!trained && pollAttempts < maxPollAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10s between polls
+                pollAttempts++;
+
+                try {
+                  const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
+                  if (statusResponse.ok) {
+                    const statusData = await statusResponse.json();
+                    console.log(`📊 [PROXY BG] Training status for ${groupId} (attempt ${pollAttempts}):`, statusData.status, "trained:", statusData.trained);
+                    if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
+                      trained = true;
+                    }
+                  }
+                } catch (pollError) {
+                  console.error(`⚠️ [PROXY BG] Poll error for ${groupId}:`, pollError);
+                }
+              }
+
+              if (!trained) {
+                console.error(`❌ [PROXY BG] Training timed out for group ${groupId} after ${maxPollAttempts} attempts`);
+                return;
+              }
+            } else {
+              console.log(`♻️ [PROXY BG] Skipping training for reused group ${groupId} - already trained`);
             }
 
             console.log(`✅ [PROXY BG] Training complete for group ${groupId}. Generating 4 looks...`);
@@ -12541,111 +12586,158 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const fileBuffer = fs.readFileSync(req.file.path);
         fs.unlinkSync(req.file.path);
 
-        // Step 1: Upload image
-        console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
-        const uploadFormData = new FormData();
-        const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-        uploadFormData.append("file", blob, req.file.originalname);
-        uploadFormData.append("kind", "image");
+        // ✨ AVATAR REUSE: Hash image to detect existing trained groups
+        const crypto = await import("crypto");
+        const imageHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+        const capturedUserId = (req as any).user?.id;
+        console.log(`🔍 [PROXY VIDEO] Image hash: ${imageHash}, userId: ${capturedUserId}`);
 
-        const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
-          method: "POST",
-          body: uploadFormData,
-        });
+        let groupId: string | null = null;
+        let imageKey: string | null = null;
+        let reusedExistingGroup = false;
 
-        if (!uploadResponse.ok) {
-          const errorText = await uploadResponse.text();
-          console.error("❌ [PROXY] Asset upload failed:", errorText);
-          return res.status(uploadResponse.status).json({
-            error: "Failed to upload image",
-            details: errorText,
-          });
+        if (capturedUserId) {
+          const existingGroup = await storage.getPhotoAvatarGroupByImageHash(imageHash, capturedUserId);
+          if (existingGroup && existingGroup.heygenGroupId) {
+            console.log(`♻️ [PROXY VIDEO] Reusing existing trained group: ${existingGroup.heygenGroupId}`);
+            groupId = existingGroup.heygenGroupId;
+            imageKey = existingGroup.heygenImageKey;
+            reusedExistingGroup = true;
+          }
         }
 
-        const uploadData = await uploadResponse.json();
-        console.log("📦 [PROXY] Upload response:", JSON.stringify(uploadData));
-        const imageKey = uploadData.image_key || uploadData.asset_id || uploadData.key;
-        console.log("✅ [PROXY] Image uploaded, image_key =", imageKey);
+        if (!reusedExistingGroup) {
+          // Step 1: Upload image
+          console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
+          const uploadFormData = new FormData();
+          const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+          uploadFormData.append("file", blob, req.file.originalname);
+          uploadFormData.append("kind", "image");
 
-        // Step 2: Create avatar group
-        console.log("📤 [PROXY] Step 2: Creating avatar group");
-        const createGroupResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/create-group`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_key: imageKey }),
-        });
-
-        if (!createGroupResponse.ok) {
-          const errorText = await createGroupResponse.text();
-          console.error("❌ [PROXY] Create group failed:", errorText);
-          return res.status(createGroupResponse.status).json({
-            error: "Failed to create avatar group",
-            details: errorText,
+          const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
+            method: "POST",
+            body: uploadFormData,
           });
-        }
 
-        const createGroupData = await createGroupResponse.json();
-        const groupId = createGroupData.group_id || createGroupData.groupId;
-        console.log("✅ [PROXY] Group created, group_id =", groupId);
+          if (!uploadResponse.ok) {
+            const errorText = await uploadResponse.text();
+            console.error("❌ [PROXY] Asset upload failed:", errorText);
+            return res.status(uploadResponse.status).json({
+              error: "Failed to upload image",
+              details: errorText,
+            });
+          }
+
+          const uploadData = await uploadResponse.json();
+          console.log("📦 [PROXY] Upload response:", JSON.stringify(uploadData));
+          imageKey = uploadData.image_key || uploadData.asset_id || uploadData.key;
+          console.log("✅ [PROXY] Image uploaded, image_key =", imageKey);
+
+          // Step 2: Create avatar group
+          console.log("📤 [PROXY] Step 2: Creating avatar group");
+          const createGroupResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/create-group`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_key: imageKey }),
+          });
+
+          if (!createGroupResponse.ok) {
+            const errorText = await createGroupResponse.text();
+            console.error("❌ [PROXY] Create group failed:", errorText);
+            return res.status(createGroupResponse.status).json({
+              error: "Failed to create avatar group",
+              details: errorText,
+            });
+          }
+
+          const createGroupData = await createGroupResponse.json();
+          groupId = createGroupData.group_id || createGroupData.groupId;
+          console.log("✅ [PROXY] Group created, group_id =", groupId);
+
+          // Save to DB for future reuse
+          if (capturedUserId && groupId) {
+            try {
+              await storage.createPhotoAvatarGroup({
+                userId: capturedUserId,
+                heygenGroupId: groupId,
+                groupName: req.body.name || `Avatar_${Date.now()}`,
+                imageHash: imageHash,
+                s3ImageUrl: null,
+                heygenImageKey: imageKey,
+                trainingStatus: "pending",
+              });
+              console.log("💾 [PROXY VIDEO] Avatar group saved for reuse");
+            } catch (dbError) {
+              console.error("⚠️ [PROXY VIDEO] Failed to save group metadata:", dbError);
+            }
+          }
+        }
 
         // Return immediately
         res.json({
           success: true,
           group_id: groupId,
           status: "processing",
-          message: "Avatar group created. Training and video generation will happen in the background.",
+          reused: reusedExistingGroup,
+          message: reusedExistingGroup
+            ? "Reusing existing trained avatar. Video generation will start shortly (~3-5 min)."
+            : "Avatar group created. Training and video generation will happen in the background (~8-13 min).",
         });
 
-        // Background: train -> poll -> create video
+        // Background: train (if new) -> poll -> create video
         const scriptText = req.body.script || "";
         const voiceId = req.body.voice_id || "";
         const avatarName = req.body.name || "";
 
         (async () => {
           try {
-            // Wait 30s for image processing
-            console.log(`⏳ [PROXY BG VIDEO] Waiting 30s before training group ${groupId}...`);
-            await new Promise(resolve => setTimeout(resolve, 30000));
+            if (!reusedExistingGroup) {
+              // Wait 30s for image processing
+              console.log(`⏳ [PROXY BG VIDEO] Waiting 30s before training group ${groupId}...`);
+              await new Promise(resolve => setTimeout(resolve, 30000));
 
-            // Train
-            console.log(`🎓 [PROXY BG VIDEO] Starting training for group ${groupId}`);
-            const trainResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/train`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({}),
-            });
+              // Train
+              console.log(`🎓 [PROXY BG VIDEO] Starting training for group ${groupId}`);
+              const trainResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/train`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}),
+              });
 
-            if (!trainResponse.ok) {
-              console.error(`❌ [PROXY BG VIDEO] Training failed for ${groupId}`);
-              return;
-            }
-
-            // Poll training status
-            let trained = false;
-            let pollAttempts = 0;
-            const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
-
-            while (!trained && pollAttempts < maxPollAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 10000));
-              pollAttempts++;
-
-              try {
-                const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
-                if (statusResponse.ok) {
-                  const statusData = await statusResponse.json();
-                  console.log(`📊 [PROXY BG VIDEO] Training status ${groupId} (${pollAttempts}):`, statusData.status);
-                  if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
-                    trained = true;
-                  }
-                }
-              } catch (pollError) {
-                console.error(`⚠️ [PROXY BG VIDEO] Poll error:`, pollError);
+              if (!trainResponse.ok) {
+                console.error(`❌ [PROXY BG VIDEO] Training failed for ${groupId}`);
+                return;
               }
+
+              // Poll training status
+              let trained = false;
+              let pollAttempts = 0;
+              const maxPollAttempts = 180; // 30 minutes max (180 * 10s)
+
+              while (!trained && pollAttempts < maxPollAttempts) {
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                pollAttempts++;
+
+                try {
+                  const statusResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/train/status/${groupId}`);
+                  if (statusResponse.ok) {
+                    const statusData = await statusResponse.json();
+                    console.log(`📊 [PROXY BG VIDEO] Training status ${groupId} (${pollAttempts}):`, statusData.status);
+                    if (statusData.trained === true || statusData.status === "completed" || statusData.status === "ready") {
+                      trained = true;
+                    }
+                  }
+                } catch (pollError) {
+                  console.error(`⚠️ [PROXY BG VIDEO] Poll error:`, pollError);
+                }
             }
 
-            if (!trained) {
-              console.error(`❌ [PROXY BG VIDEO] Training timed out for ${groupId}`);
-              return;
+              if (!trained) {
+                console.error(`❌ [PROXY BG VIDEO] Training timed out for ${groupId}`);
+                return;
+              }
+            } else {
+              console.log(`♻️ [PROXY BG VIDEO] Skipping training for reused group ${groupId}`);
             }
 
             // Create video if script is provided

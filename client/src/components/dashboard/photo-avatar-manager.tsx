@@ -492,12 +492,12 @@ export function PhotoAvatarManager() {
         return;
       }
 
-      // STEP 2: AUTO-GENERATE LOOKS - If trained but has < 4 looks
+      // STEP 2: AUTO-GENERATE LOOKS - If trained but has < 3 looks
       // Note: HeyGen returns "completed" or "ready" for trained avatars - accept both!
       const isTrainedStatus = currentTrainStatus === "ready" || currentTrainStatus === "completed";
       const wasNotTrained = previousTrainStatus !== "ready" && previousTrainStatus !== "completed";
       const trainingJustCompleted = previousTrainStatus && wasNotTrained && isTrainedStatus;
-      const alreadyTrainedWithFewLooks = !previousTrainStatus && isTrainedStatus && numLooks < 4;
+      const alreadyTrainedWithFewLooks = !previousTrainStatus && isTrainedStatus && numLooks < 3;
       
       const shouldAutoGenerate = (trainingJustCompleted || alreadyTrainedWithFewLooks) && 
                                   !alreadyProcessedLooks;
@@ -507,12 +507,12 @@ export function PhotoAvatarManager() {
         console.log(`    ⏳ WAITING: Training in progress...`);
       } else if (!isTrainedStatus) {
         console.log(`    ⚠️ SKIPPED: Not trained yet (status: "${currentTrainStatus}")`);
-      } else if (numLooks >= 4) {
+      } else if (numLooks >= 3) {
         console.log(`    ✅ COMPLETE: Already has ${numLooks} looks`);
       } else if (alreadyProcessedLooks) {
         console.log(`    ⏭️ SKIPPED: Already processed looks in this session`);
       } else if (shouldAutoGenerate) {
-        console.log(`    🚀 TRIGGERING: Auto-generating 4 looks!`);
+        console.log(`    🚀 TRIGGERING: Auto-generating 3 looks!`);
       }
 
       if (shouldAutoGenerate) {
@@ -533,7 +533,7 @@ export function PhotoAvatarManager() {
 
         toast({
           title: trainingJustCompleted ? "🎉 Training Complete!" : "🎨 Generating Looks",
-          description: `Avatar "${group.name}" - Now auto-generating 4 professional looks...`,
+          description: `Avatar "${group.name}" - Now auto-generating 3 professional looks...`,
           duration: 8000,
         });
 
@@ -542,12 +542,12 @@ export function PhotoAvatarManager() {
         // Also mark as trained to prevent re-triggering training
         autoTrainedRef.current.add(groupId);
         
-        // Update status to show generation is starting (4 professional styles)
+        // Update status to show generation is starting (3 professional styles)
         addActivityLog({
           step: 'generating_looks',
-          message: 'Generating 4 professional looks...',
+          message: 'Generating 3 professional looks...',
           groupName: group.name,
-          details: 'Executive, Friendly Agent, Property Tour, Modern Professional'
+          details: 'Executive, Friendly Agent, Property Tour'
         });
         
         setLookGenerationStatus(prev => ({
@@ -558,8 +558,7 @@ export function PhotoAvatarManager() {
             looks: [
               { label: 'professional-executive', name: 'Executive' },
               { label: 'professional-friendly', name: 'Friendly Agent' },
-              { label: 'professional-outdoor', name: 'Property Tour' },
-              { label: 'professional-modern', name: 'Modern Professional' }
+              { label: 'professional-outdoor', name: 'Property Tour' }
             ]
           }
         }));
@@ -569,7 +568,6 @@ export function PhotoAvatarManager() {
             "Professional executive in a navy business suit, confident and approachable",
             "Friendly real estate agent in smart casual blazer, warm and welcoming smile",
             "Outdoor property tour guide in clean casual attire, natural setting",
-            "Modern professional in contemporary business wear, sleek and polished",
           ];
           
           console.log("🎨 Auto-generating looks via proxy...");
@@ -596,7 +594,7 @@ export function PhotoAvatarManager() {
 
           toast({
             title: "🎨 Generating Looks",
-            description: `Generating 4 professional looks for "${group.name}". This takes 2-5 minutes.`,
+            description: `Generating 3 professional looks for "${group.name}". This takes 2-5 minutes.`,
             duration: 8000,
           });
 
@@ -615,7 +613,7 @@ export function PhotoAvatarManager() {
               step: 'looks_complete',
               message: 'Look generation completed!',
               groupName: group.name,
-              details: '4 professional looks generated.'
+              details: '3 professional looks generated.'
             });
           }, 180000);
         } catch (error) {

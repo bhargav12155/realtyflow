@@ -10144,7 +10144,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         if (!dbGroup) {
           return res.status(404).json({ error: "Avatar group not found" });
         }
-        const { numLooks = 4 } = req.body; // Default to 4 professional styles
+        const { numLooks = 3 } = req.body; // Default to 3 professional styles
 
         const photoAvatarService = new HeyGenPhotoAvatarService();
 
@@ -12432,24 +12432,23 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               console.log(`♻️ [PROXY BG] Skipping training for reused group ${groupId} - already trained`);
             }
 
-            console.log(`✅ [PROXY BG] Training complete for group ${groupId}. Generating 4 looks...`);
+            console.log(`✅ [PROXY BG] Training complete for group ${groupId}. Generating 3 looks...`);
 
-            // Step 5: Generate 4 looks with different prompts
+            // Step 5: Generate 3 looks with different prompts
             const facePreservation = "maintain the exact same face, facial features, and likeness of the person";
-            const lookLabels = ["executive", "friendly-agent", "outdoor-guide", "modern-professional"];
-            const lookNames = ["Executive", "Friendly Agent", "Outdoor Guide", "Modern Professional"];
+            const lookLabels = ["executive", "friendly-agent", "outdoor-guide"];
+            const lookNames = ["Executive", "Friendly Agent", "Outdoor Guide"];
             const lookPrompts = [
               { prompt: backgroundPrompt ? `${backgroundPrompt}, ${facePreservation}` : `Professional executive in a navy business suit, confident and approachable, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
               { prompt: `Friendly real estate agent in smart casual blazer, warm and welcoming smile, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
               { prompt: `Outdoor property tour guide in clean casual attire, natural setting, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
-              { prompt: `Modern professional in contemporary business wear, sleek and polished, ${facePreservation}`, orientation: backgroundOrientation, pose: backgroundPose, style: backgroundStyle },
             ];
 
             const generationJobs: Array<{ generationId: string; lookLabel: string; lookName: string; prompt: string }> = [];
 
             for (let i = 0; i < lookPrompts.length; i++) {
               try {
-                console.log(`🎨 [PROXY BG] Generating look ${i + 1}/4 for group ${groupId}`);
+                console.log(`🎨 [PROXY BG] Generating look ${i + 1}/3 for group ${groupId}`);
                 const lookResponse = await fetch(`${externalServiceUrl}/api/heygen/avatars/${groupId}/generate-look`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },

@@ -2335,7 +2335,7 @@ export function AvatarIVStudio() {
                   if (res.ok && data.group_id) {
                     toast({
                       title: "Style Generation Started",
-                      description: "Training and generating 4 looks in the background. This takes 6-8 minutes.",
+                      description: "Training and generating 3 looks in the background. This takes 6-8 minutes.",
                       duration: 8000,
                     });
                     setChangeStyleDialogOpen(false);

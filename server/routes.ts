@@ -19747,7 +19747,7 @@ Be helpful, professional, and concise.`;
   // Get WhatsApp settings for current user
   app.get("/api/whatsapp/settings", async (req, res) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
       const settings = await storage.getWhatsappSettingsByUserId(String(userId));
@@ -19761,7 +19761,7 @@ Be helpful, professional, and concise.`;
   // Save/update WhatsApp settings
   app.post("/api/whatsapp/settings", async (req, res) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
       const settings = await storage.createOrUpdateWhatsappSettings({
@@ -19778,7 +19778,7 @@ Be helpful, professional, and concise.`;
   // Send WhatsApp message (for marketing/posting) - supports bulk recipients
   app.post("/api/whatsapp/send", async (req, res) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
       const { to, message, imageUrl, templateName } = req.body;
@@ -19899,7 +19899,7 @@ Be helpful, professional, and concise.`;
   // Get WhatsApp conversations
   app.get("/api/whatsapp/conversations", async (req, res) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
       const conversations = await storage.getWhatsappConversationsByUserId(String(userId));
@@ -19913,7 +19913,7 @@ Be helpful, professional, and concise.`;
   // Get messages for a conversation
   app.get("/api/whatsapp/conversations/:id/messages", async (req, res) => {
     try {
-      const userId = (req as any).userId;
+      const userId = (req as any).user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
       const messages = await storage.getWhatsappMessagesByConversationId(req.params.id);

@@ -1,7 +1,10 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Users, Edit, Search, Heart, ExternalLink, CheckCircle, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Users, Edit, Search, Heart, ExternalLink, CheckCircle, Loader2, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { SiFacebook, SiInstagram, SiLinkedin, SiTiktok, SiYoutube, SiWhatsapp } from "react-icons/si";
+import { FaXTwitter } from "react-icons/fa6";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -259,5 +262,163 @@ export function OverviewCards() {
         );
       })}
     </div>
+  );
+}
+
+interface RecentPost {
+  id: string;
+  platform: string;
+  content: string;
+  status: string;
+  scheduledFor: string | null;
+  metadata: any;
+  updatedAt: string;
+}
+
+const platformIcons: Record<string, any> = {
+  facebook: SiFacebook,
+  instagram: SiInstagram,
+  linkedin: SiLinkedin,
+  tiktok: SiTiktok,
+  youtube: SiYoutube,
+  whatsapp: SiWhatsapp,
+  x: FaXTwitter,
+  twitter: FaXTwitter,
+};
+
+const platformColors: Record<string, string> = {
+  facebook: "text-blue-600",
+  instagram: "text-pink-500",
+  linkedin: "text-blue-700",
+  tiktok: "text-foreground",
+  youtube: "text-red-600",
+  whatsapp: "text-green-500",
+  x: "text-foreground",
+  twitter: "text-foreground",
+};
+
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export function RecentPostActivity() {
+  const { data: recentPosts, isLoading } = useQuery<RecentPost[]>({
+    queryKey: ["/api/dashboard/recent-posts"],
+    refetchInterval: 30000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Recent Post Activity
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="animate-pulse flex items-center gap-3">
+                <div className="w-8 h-8 bg-muted rounded-full" />
+                <div className="flex-1 space-y-1">
+                  <div className="h-3 bg-muted rounded w-3/4" />
+                  <div className="h-2 bg-muted rounded w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!recentPosts || recentPosts.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Recent Post Activity
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground" data-testid="text-no-recent-posts">
+            No posts sent yet. Schedule content from the calendar or post directly from the social media manager.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <Clock className="h-4 w-4" />
+          Recent Post Activity
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3" data-testid="list-recent-posts">
+          {recentPosts.map((post) => {
+            const PlatformIcon = platformIcons[post.platform.toLowerCase()] || Edit;
+            const colorClass = platformColors[post.platform.toLowerCase()] || "text-muted-foreground";
+            const publishedAt = post.metadata?.publishedAt || post.updatedAt;
+            const isPosted = post.status === "posted";
+
+            return (
+              <div
+                key={post.id}
+                className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                data-testid={`recent-post-${post.id}`}
+              >
+                <div className={`mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isPosted ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+                  <PlatformIcon className={`h-4 w-4 ${colorClass}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium capitalize">{post.platform}</span>
+                    {isPosted ? (
+                      <Badge variant="outline" className="text-green-600 border-green-200 dark:border-green-800 text-[10px] px-1.5 py-0" data-testid={`badge-status-${post.id}`}>
+                        <CheckCircle2 className="h-3 w-3 mr-0.5" />
+                        Sent
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-red-500 border-red-200 dark:border-red-800 text-[10px] px-1.5 py-0" data-testid={`badge-status-${post.id}`}>
+                        <XCircle className="h-3 w-3 mr-0.5" />
+                        Failed
+                      </Badge>
+                    )}
+                    <span className="text-[11px] text-muted-foreground ml-auto flex-shrink-0">
+                      {formatTimeAgo(publishedAt)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+                    {post.content?.substring(0, 120) || "No content"}
+                  </p>
+                  {!isPosted && post.metadata?.error && (
+                    <p className="text-[11px] text-red-500 mt-0.5 line-clamp-1">
+                      {post.metadata.error}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

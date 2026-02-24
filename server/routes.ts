@@ -851,6 +851,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/dashboard/recent-posts", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user.id);
+      const { scheduledPosts } = await import("@shared/schema");
+      const { eq, and, desc, or } = await import("drizzle-orm");
+
+      const recentPosts = await db
+        .select({
+          id: scheduledPosts.id,
+          platform: scheduledPosts.platform,
+          content: scheduledPosts.content,
+          status: scheduledPosts.status,
+          scheduledFor: scheduledPosts.scheduledFor,
+          metadata: scheduledPosts.metadata,
+          updatedAt: scheduledPosts.updatedAt,
+        })
+        .from(scheduledPosts)
+        .where(
+          and(
+            eq(scheduledPosts.userId, userId),
+            or(
+              eq(scheduledPosts.status, "posted"),
+              eq(scheduledPosts.status, "failed")
+            )
+          )
+        )
+        .orderBy(desc(scheduledPosts.updatedAt))
+        .limit(10);
+
+      res.json(recentPosts);
+    } catch (error) {
+      console.error("Recent posts error:", error);
+      res.status(500).json({ error: "Failed to fetch recent posts" });
+    }
+  });
+
   // AI Chat Sessions - List all chat sessions for user
   app.get("/api/ai/chat-sessions", requireAuth, async (req, res) => {
     try {

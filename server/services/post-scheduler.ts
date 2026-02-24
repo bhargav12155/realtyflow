@@ -1,12 +1,12 @@
 import type { IStorage } from "../storage";
-import { SocialMediaService } from "./socialMedia";
+import { SocialMediaService, postToWhatsApp } from "./socialMedia";
 
 export class PostScheduler {
   private storage: IStorage;
   private socialMediaService: SocialMediaService;
   private intervalId: NodeJS.Timeout | null = null;
   private isProcessing: boolean = false;
-  private supportedPlatforms = ["x", "twitter", "facebook", "linkedin", "tiktok", "instagram"];
+  private supportedPlatforms = ["x", "twitter", "facebook", "linkedin", "tiktok", "instagram", "youtube", "whatsapp"];
 
   constructor(storage: IStorage, socialMediaService: SocialMediaService) {
     this.storage = storage;
@@ -278,15 +278,179 @@ export class PostScheduler {
           });
         }
       } else if (platform === "instagram") {
-        await this.storage.updateScheduledPost(post.id, {
-          status: "failed",
-          metadata: {
-            ...post.metadata,
-            error: "Instagram API posting requires Business Account setup",
-            failedAt: new Date().toISOString(),
-          },
-        });
-        console.log(`❌ Post ${post.id} failed: Instagram API posting requires Business Account setup`);
+        try {
+          const accounts = await this.storage.getSocialMediaAccounts(userId);
+          const igAccount = accounts.find(a => a.platform.toLowerCase() === "instagram");
+
+          if (!igAccount || !igAccount.accessToken) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "No Instagram Business Account connected",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: No Instagram account connected`);
+            return;
+          }
+
+          const imageUrl = post.imageUrl || (post.metadata as any)?.imageUrl;
+          if (!imageUrl) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "Instagram requires an image or video - text-only posts are not supported",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: Instagram requires media`);
+            return;
+          }
+
+          const igMetadata = (igAccount as any).metadata || {};
+          const igUserId = igMetadata.igUserId || igMetadata.instagram_business_account_id;
+
+          const result = await this.socialMediaService.postToInstagram(
+            post.content,
+            imageUrl,
+            igAccount.accessToken,
+            igUserId
+          );
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "posted",
+            metadata: {
+              ...post.metadata,
+              publishedAt: new Date().toISOString(),
+              platformPostId: result.postId,
+            },
+          });
+
+          console.log(`✅ Successfully published post ${post.id} to Instagram`);
+        } catch (error: any) {
+          console.error(`❌ Failed to publish post ${post.id} to Instagram:`, error);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } else if (platform === "youtube") {
+        try {
+          const accounts = await this.storage.getSocialMediaAccounts(userId);
+          const ytAccount = accounts.find(a => a.platform.toLowerCase() === "youtube");
+
+          if (!ytAccount || !ytAccount.accessToken) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "No YouTube account connected",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: No YouTube account connected`);
+            return;
+          }
+
+          const videoUrl = post.imageUrl || (post.metadata as any)?.videoUrl || (post.metadata as any)?.imageUrl;
+          const title = (post.metadata as any)?.title || post.content.substring(0, 100);
+          const description = post.content;
+
+          const result = await this.socialMediaService.postToYoutube(
+            title,
+            description,
+            videoUrl,
+            ytAccount.accessToken
+          );
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "posted",
+            metadata: {
+              ...post.metadata,
+              publishedAt: new Date().toISOString(),
+              platformPostId: result.postId,
+              watchUrl: result.watchUrl,
+            },
+          });
+
+          console.log(`✅ Successfully published post ${post.id} to YouTube`);
+        } catch (error: any) {
+          console.error(`❌ Failed to publish post ${post.id} to YouTube:`, error);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+        }
+      } else if (platform === "whatsapp") {
+        try {
+          const recipientPhone = (post.metadata as any)?.recipientPhone;
+
+          if (!recipientPhone) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: "No recipient phone number specified for WhatsApp message",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: No WhatsApp recipient`);
+            return;
+          }
+
+          const whatsappSettings = (post.metadata as any)?.whatsappSettings || {};
+          const result = await postToWhatsApp(
+            post.content,
+            recipientPhone,
+            whatsappSettings.phoneNumberId,
+            whatsappSettings.accessToken
+          );
+
+          if (result.success) {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "posted",
+              metadata: {
+                ...post.metadata,
+                publishedAt: new Date().toISOString(),
+                platformPostId: result.messageId,
+              },
+            });
+            console.log(`✅ Successfully published post ${post.id} to WhatsApp`);
+          } else {
+            await this.storage.updateScheduledPost(post.id, {
+              status: "failed",
+              metadata: {
+                ...post.metadata,
+                error: result.error || "WhatsApp send failed",
+                failedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`❌ Post ${post.id} failed: ${result.error}`);
+          }
+        } catch (error: any) {
+          console.error(`❌ Failed to publish post ${post.id} to WhatsApp:`, error);
+
+          await this.storage.updateScheduledPost(post.id, {
+            status: "failed",
+            metadata: {
+              ...post.metadata,
+              error: error.message,
+              failedAt: new Date().toISOString(),
+            },
+          });
+        }
       } else {
         console.log(`⚠️ Platform ${platform} posting not yet supported, skipping post ${post.id}`);
       }

@@ -7,7 +7,7 @@ import { AvatarIVStudio } from "@/components/dashboard/avatar-iv-studio";
 import { BrandSettings } from "@/components/dashboard/brand-settings";
 import { ContentCalendar } from "@/components/dashboard/content-calendar";
 import { LocalMarketTools } from "@/components/dashboard/local-market-tools";
-import { OverviewCards } from "@/components/dashboard/overview-cards";
+import { OverviewCards, RecentPostActivity } from "@/components/dashboard/overview-cards";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
 import { ScheduledPostsManager } from "@/components/dashboard/scheduled-posts-manager";
 import { SEOOptimizer } from "@/components/dashboard/seo-optimizer";
@@ -133,6 +133,7 @@ export default function Dashboard() {
         return (
           <>
             <OverviewCards />
+            <RecentPostActivity />
             <ScheduledPostsManager />
           </>
         );

@@ -530,6 +530,7 @@ export const socialApiKeys = pgTable("social_api_keys", {
   youtubeApiKey: text("youtube_api_key"),
   youtubeChannelId: text("youtube_channel_id"),
   tiktokAccessToken: text("tiktok_access_token"),
+  keysConfigured: boolean("keys_configured").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

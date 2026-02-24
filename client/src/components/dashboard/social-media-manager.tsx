@@ -2110,6 +2110,9 @@ ${agentName} | ${brokerageName}
                   {isExtractingNumbers ? "Extracting..." : "Import from File"}
                 </label>
               </div>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                Supported files: Excel/CSV (.csv), PDF (.pdf), Word (.docx), or plain text (.txt) containing phone numbers
+              </p>
             </div>
           )}
           {selectedPlatforms.length > 0 && (

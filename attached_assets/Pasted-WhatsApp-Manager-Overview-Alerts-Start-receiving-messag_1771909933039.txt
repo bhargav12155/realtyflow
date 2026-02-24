@@ -1,0 +1,77 @@
+WhatsApp Manager
+Overview
+Alerts
+​
+Start receiving message template insights
+Get insights that help you track, understand and improve your message templates for selected accounts.
+See more
+​
+Instruct Meta to turn on automatic events to stay up to date with your conversations?
+By providing Meta with this information, you are directing Meta to help you stay updated about key milestones. This will apply to all your WhatsApp Business Accounts. You can turn this off at any time in your WhatsApp accounts settings. Meta Terms for Automatic Events
+See more
+​
+Improve performance of marketing messages with optimizations
+Sharing your WhatsApp Cloud API message event data can help improve the performance of marketing messages with optimizations and Meta ads. This includes data on messages read, replies and delivery status. You can manage this setting any time in Meta Business Settings. Data shared using this feature is subject to the Meta Business Tool Terms. Learn more about data sharing
+See more
+​
+Marketing Messages API for WhatsApp is now Generally Available
+Marketing Messages API for WhatsApp, formerly known as Marketing Messages Lite API, is our next-generation marketing solution built to enhance the customer experience and deliver the right message to more of the right people.
+View features page
+Messaging tiers
+​
+Select a market and message category to view your savings.
+Market
+North America
+​
+Category
+Authentication
+​
+Progress this month
+Messages sent
+0
+Overall savings
+0%
+Current tier savings
+0%
+0/100,000 messages sent
+Unlock 5% savings when you send 100,000 more messages
+WhatsApp accounts
+My Golden Brick
+WhatsApp
+Test Number
+‎15551590748
+0 messages sent
+1 of 5 recipients added
+Business Status
+Business-initiated conversations
+1 of 250 sent
+From your overall business account
+Learn how this works
+Phone numbers
+0 of 2 added
+Grow your business
+Get 2000+ daily conversations to increase your reach.
+Show your business display name in chats and notifications, so your customers know it's you.
+How to unlock your limits:
+Business verification in progress
+View details
+OR
+Send high-quality messages
+​
+1 conversations started/30d
+What’s new
+Template groups
+November 1, 2024
+You can now consolidate templates into groups and track their performance at the group level. Create a template group to monitor data such as cost metrics, engagement rates, and button interactions.
+New cost metrics are now available
+April 29, 2024
+You can now see cost metric insights for your message templates. View the total amount spent, cost per message delivered and cost per website button click metrics.
+Meta Business Suite
+Links
+All tools
+
+Search
+Links
+Settings
+
+Help

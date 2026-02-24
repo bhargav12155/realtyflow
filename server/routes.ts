@@ -213,6 +213,28 @@ const memoryImageUpload = multer({
   },
 });
 
+const documentUpload = multer({
+  dest: "uploads/",
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      "text/csv",
+      "text/plain",
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+      "application/octet-stream",
+    ];
+    if (allowedTypes.includes(file.mimetype) || file.originalname.match(/\.(csv|txt|pdf|docx?|doc)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only CSV, TXT, PDF, and Word documents are allowed"));
+    }
+  },
+});
+
 function generateFallbackScript(
   topic: string,
   neighborhood: string,
@@ -19489,7 +19511,6 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         'image/jpeg', 'image/png', 'image/gif', 'image/webp',
         'application/pdf',
         'text/plain', 'text/csv',
-        'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       ];
       if (allowedMimes.includes(file.mimetype)) {
@@ -19893,6 +19914,57 @@ Be helpful, professional, and concise.`;
     } catch (error: any) {
       console.error("Error sending WhatsApp message:", error);
       res.status(500).json({ error: `Failed to send WhatsApp message: ${error.message}` });
+    }
+  });
+
+  app.post("/api/whatsapp/extract-numbers", requireAuth, documentUpload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const filePath = req.file.path;
+      const originalName = req.file.originalname.toLowerCase();
+      let text = "";
+
+      try {
+        if (originalName.endsWith(".csv") || originalName.endsWith(".txt")) {
+          const fsPromises = await import("fs/promises");
+          text = await fsPromises.readFile(filePath, "utf-8");
+        } else if (originalName.endsWith(".pdf")) {
+          const fsPromises = await import("fs/promises");
+          const pdfParse = (await import("pdf-parse")).default;
+          const buffer = await fsPromises.readFile(filePath);
+          const data = await pdfParse(buffer);
+          text = data.text;
+        } else if (originalName.endsWith(".docx")) {
+          const fsPromises = await import("fs/promises");
+          const mammoth = await import("mammoth");
+          const buffer = await fsPromises.readFile(filePath);
+          const result = await mammoth.extractRawText({ buffer });
+          text = result.value;
+        } else {
+          return res.status(400).json({ error: "Unsupported file type. Please upload CSV, PDF, TXT, or Word (.docx) files." });
+        }
+      } finally {
+        const fsPromises = await import("fs/promises");
+        await fsPromises.unlink(filePath).catch(() => {});
+      }
+
+      const phoneRegex = /(?:\+?\d[\d\s\-().]{6,}\d)/g;
+      const rawMatches = text.match(phoneRegex) || [];
+
+      const numbers = [...new Set(
+        rawMatches
+          .map((n: string) => n.replace(/[\s\-().]/g, ""))
+          .filter((n: string) => n.length >= 7 && n.length <= 15)
+      )];
+
+      console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName}`);
+      res.json({ numbers, count: numbers.length, filename: req.file.originalname });
+    } catch (error: any) {
+      console.error("Error extracting phone numbers:", error);
+      res.status(500).json({ error: "Failed to extract phone numbers from file" });
     }
   });
 

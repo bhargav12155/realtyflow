@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import OAuth from "oauth-1.0a";
 import path from "path";
+import { whatsappService } from "./whatsapp";
 
 export class SocialMediaError extends Error {
   statusCode: number;
@@ -1913,3 +1914,52 @@ export class SocialMediaService {
 }
 
 export const socialMediaService = new SocialMediaService();
+
+export async function postToWhatsApp(
+  content: string,
+  recipientPhone: string,
+  phoneNumberId?: string,
+  accessToken?: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    const resolvedPhoneNumberId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+    const resolvedAccessToken = accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+
+    if (!resolvedPhoneNumberId || !resolvedAccessToken) {
+      return { success: false, error: "WhatsApp credentials not configured. Set phoneNumberId and accessToken in settings or environment variables." };
+    }
+
+    const cleanedPhone = recipientPhone.replace(/\D/g, "");
+    if (!cleanedPhone) {
+      return { success: false, error: "Invalid phone number" };
+    }
+
+    await whatsappService.sendTemplateMessage(
+      resolvedPhoneNumberId,
+      resolvedAccessToken,
+      cleanedPhone,
+      "hello_world",
+      "en_US"
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    const result = await whatsappService.sendTextMessage(
+      resolvedPhoneNumberId,
+      resolvedAccessToken,
+      cleanedPhone,
+      content
+    );
+
+    return {
+      success: true,
+      messageId: result.messages?.[0]?.id,
+    };
+  } catch (error: any) {
+    console.error("postToWhatsApp error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to send WhatsApp message",
+    };
+  }
+}

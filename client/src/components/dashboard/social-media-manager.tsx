@@ -738,17 +738,23 @@ export function SocialMediaManager() {
         return response.json();
       }
     },
-    onSuccess: () => {
-      // Refresh accounts to ensure connection status is up-to-date
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
+
+      const description = data?.sent != null && data?.total != null
+        ? `Sent to ${data.sent} of ${data.total} recipients${data.failed > 0 ? ` (${data.failed} failed)` : ""}`
+        : "Your content has been shared across selected platforms";
 
       toast({
         title: "Posted Successfully!",
-        description: "Your content has been shared across selected platforms",
+        description,
       });
       setPostContent("");
       setSelectedMediaIds([]);
       setSelectedPropertyPhotoUrl(null);
+      if (selectedPlatforms.includes("whatsapp")) {
+        setWhatsappTo("");
+      }
     },
     onError: (error: any) => {
       toast({
@@ -2026,18 +2032,23 @@ ${agentName} | ${brokerageName}
           )}
           {selectedPlatforms.includes("whatsapp") && (
             <div className="space-y-1">
-              <Label htmlFor="whatsapp-to" className="text-xs">WhatsApp Recipient Phone Number</Label>
-              <Input
+              <Label htmlFor="whatsapp-to" className="text-xs">WhatsApp Recipient Phone Numbers</Label>
+              <textarea
                 id="whatsapp-to"
                 data-testid="input-whatsapp-to"
-                placeholder="+1 (555) 123-4567"
+                placeholder={"Enter phone numbers (one per line or comma-separated)\nExample: 15185459592, 447911123456"}
                 value={whatsappTo}
-                onChange={(e) => setWhatsappTo(e.target.value)}
-                className="text-sm"
-                type="tel"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const count = val.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
+                  if (count <= 5000) {
+                    setWhatsappTo(val);
+                  }
+                }}
+                className="text-sm min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <p className="text-xs text-muted-foreground">
-                Enter the recipient's phone number with country code
+                {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length} / 5,000 numbers — Enter with country code, one per line or comma-separated
               </p>
             </div>
           )}

@@ -3498,6 +3498,27 @@ Return your response in this exact JSON format:
         },
       ];
 
+      try {
+        const whatsappSettings = await storage.getWhatsappSettingsByUserId(userId);
+        const hasWhatsappCreds = !!(
+          (whatsappSettings?.phoneNumberId && whatsappSettings?.accessToken) ||
+          (process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN)
+        );
+        platforms.push({
+          id: accountMap.get("whatsapp")?.id || nanoid(),
+          platform: "whatsapp",
+          isConnected: hasWhatsappCreds,
+          lastSync: null,
+        });
+      } catch {
+        platforms.push({
+          id: nanoid(),
+          platform: "whatsapp",
+          isConnected: !!(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN),
+          lastSync: null,
+        });
+      }
+
       res.json(platforms);
     } catch (error) {
       console.error("Get social accounts error:", error);
@@ -19754,7 +19775,7 @@ Be helpful, professional, and concise.`;
     }
   });
 
-  // Send WhatsApp message (for marketing/posting)
+  // Send WhatsApp message (for marketing/posting) - supports bulk recipients
   app.post("/api/whatsapp/send", async (req, res) => {
     try {
       const userId = (req as any).userId;
@@ -19771,47 +19792,104 @@ Be helpful, professional, and concise.`;
 
       const settings = await storage.getWhatsappSettingsByUserId(String(userId));
       
-      if (!settings?.accessToken) {
-        return res.status(400).json({ error: "WhatsApp not configured. Please add a valid access token in your WhatsApp Business settings." });
+      const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+      const accessToken = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+
+      if (!accessToken) {
+        return res.status(400).json({ error: "WhatsApp not configured. Please add a valid access token in your WhatsApp Business settings or set WHATSAPP_ACCESS_TOKEN environment variable." });
       }
-      if (!settings?.phoneNumberId) {
-        return res.status(400).json({ error: "WhatsApp not configured. Please set up your WhatsApp Business settings." });
+      if (!phoneNumberId) {
+        return res.status(400).json({ error: "WhatsApp not configured. Please set up your WhatsApp Business settings or set WHATSAPP_PHONE_NUMBER_ID environment variable." });
       }
 
-      let result;
-      if (templateName) {
-        result = await whatsappService.sendTemplateMessage(
-          settings.phoneNumberId, settings.accessToken, to, templateName
-        );
-      } else if (imageUrl) {
-        result = await whatsappService.sendImageMessage(
-          settings.phoneNumberId, settings.accessToken, to, imageUrl, message
-        );
+      const rawNumbers = to.split(/[\n,]+/).map((n: string) => n.replace(/\D/g, "")).filter((n: string) => n.length > 0);
+      const phoneNumbers = rawNumbers.slice(0, 5000);
+      const isBulk = phoneNumbers.length > 1;
+
+      if (phoneNumbers.length === 0) {
+        return res.status(400).json({ error: "No valid phone numbers provided" });
+      }
+
+      if (!isBulk) {
+        const singlePhone = phoneNumbers[0];
+        let result;
+        if (templateName) {
+          result = await whatsappService.sendTemplateMessage(
+            phoneNumberId, accessToken, singlePhone, templateName
+          );
+        } else if (imageUrl) {
+          result = await whatsappService.sendImageMessage(
+            phoneNumberId, accessToken, singlePhone, imageUrl, message
+          );
+        } else {
+          await whatsappService.sendTemplateMessage(
+            phoneNumberId, accessToken, singlePhone, "hello_world", "en_US"
+          );
+          await new Promise((r) => setTimeout(r, 1000));
+          result = await whatsappService.sendTextMessage(
+            phoneNumberId, accessToken, singlePhone, message
+          );
+        }
+
+        let conversation = await storage.getWhatsappConversationByWaId(String(userId), singlePhone);
+        if (!conversation) {
+          conversation = await storage.createWhatsappConversation({
+            userId: String(userId),
+            waId: singlePhone,
+            status: "active",
+          });
+        }
+        
+        await storage.createWhatsappMessage({
+          conversationId: conversation.id,
+          whatsappMessageId: result.messages?.[0]?.id,
+          direction: "outbound",
+          messageType: imageUrl ? "image" : templateName ? "template" : "text",
+          body: message || `[Template: ${templateName}]`,
+        });
+
+        res.json({ success: true, messageId: result.messages?.[0]?.id, sent: 1, failed: 0, total: 1 });
       } else {
-        result = await whatsappService.sendTextMessage(
-          settings.phoneNumberId, settings.accessToken, to, message
-        );
-      }
+        let sentCount = 0;
+        let failedCount = 0;
+        const BATCH_SIZE = 10;
 
-      // Save outbound message
-      let conversation = await storage.getWhatsappConversationByWaId(String(userId), to);
-      if (!conversation) {
-        conversation = await storage.createWhatsappConversation({
-          userId: String(userId),
-          waId: to,
-          status: "active",
+        for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
+          const batch = phoneNumbers.slice(i, i + BATCH_SIZE);
+          const results = await Promise.allSettled(
+            batch.map(async (phone: string) => {
+              try {
+                await whatsappService.sendTemplateMessage(
+                  phoneNumberId, accessToken, phone, "hello_world", "en_US"
+                );
+                await new Promise((r) => setTimeout(r, 1000));
+                await whatsappService.sendTextMessage(
+                  phoneNumberId, accessToken, phone, message
+                );
+                return true;
+              } catch (err) {
+                console.error(`WhatsApp bulk send failed for ${phone}:`, err);
+                throw err;
+              }
+            })
+          );
+
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              sentCount++;
+            } else {
+              failedCount++;
+            }
+          }
+        }
+
+        res.json({
+          success: sentCount > 0,
+          sent: sentCount,
+          failed: failedCount,
+          total: phoneNumbers.length,
         });
       }
-      
-      await storage.createWhatsappMessage({
-        conversationId: conversation.id,
-        whatsappMessageId: result.messages?.[0]?.id,
-        direction: "outbound",
-        messageType: imageUrl ? "image" : templateName ? "template" : "text",
-        body: message || `[Template: ${templateName}]`,
-      });
-
-      res.json({ success: true, messageId: result.messages?.[0]?.id });
     } catch (error: any) {
       console.error("Error sending WhatsApp message:", error);
       res.status(500).json({ error: `Failed to send WhatsApp message: ${error.message}` });

@@ -16685,7 +16685,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   // Create or update company profile
   app.post("/api/company/profile", requireAuth, async (req, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = String(req.user?.id || "");
       if (!userId) {
         return res.status(401).json({ error: "Unauthorized" });
       }

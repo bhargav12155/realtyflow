@@ -44,19 +44,27 @@ import {
   Megaphone,
   MessageCircle,
   Music,
+  Percent,
   Plug,
   PlugZap,
   RefreshCw,
   Repeat,
   Settings,
+  ShoppingBag,
   Sparkles,
+  Star,
   Tag,
   TrendingDown,
+  TrendingUp,
   Upload,
+  Users,
+  Utensils,
   Video,
+  Wrench,
   Twitter as X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useBusinessType } from "@/lib/businessContext";
 import { MediaLibrary } from "./media-library";
 import { PropertySelector } from "./property-selector";
 import { PostComposer } from "./post-composer";
@@ -100,50 +108,56 @@ const platformIcons = {
   whatsapp: { icon: MessageCircle, color: "text-green-500" },
 };
 
-const postTypes = [
-  {
-    id: "open_houses",
-    label: "Open Houses",
-    icon: Home,
-    color: "text-orange-600",
-    bgColor: "bg-orange-600/10",
-  },
-  {
-    id: "just_listed",
-    label: "Just Listed",
-    icon: Tag,
-    color: "text-blue-600",
-    bgColor: "bg-blue-600/10",
-  },
-  {
-    id: "just_sold",
-    label: "Just Sold",
-    icon: CheckCircle,
-    color: "text-green-600",
-    bgColor: "bg-green-600/10",
-  },
-  {
-    id: "price_improvement",
-    label: "Price Decrease",
-    icon: TrendingDown,
-    color: "text-purple-600",
-    bgColor: "bg-purple-600/10",
-  },
-  {
-    id: "e_card",
-    label: "E-Card",
-    icon: CreditCard,
-    color: "text-teal-600",
-    bgColor: "bg-teal-600/10",
-  },
-  {
-    id: "create_your_own",
-    label: "Custom",
-    icon: Upload,
-    color: "text-indigo-600",
-    bgColor: "bg-indigo-600/10",
-  },
-];
+const POST_TYPES_BY_BUSINESS: Record<string, { id: string; label: string; icon: any; color: string; bgColor: string }[]> = {
+  real_estate: [
+    { id: "open_houses", label: "Open Houses", icon: Home, color: "text-orange-600", bgColor: "bg-orange-600/10" },
+    { id: "just_listed", label: "Just Listed", icon: Tag, color: "text-blue-600", bgColor: "bg-blue-600/10" },
+    { id: "just_sold", label: "Just Sold", icon: CheckCircle, color: "text-green-600", bgColor: "bg-green-600/10" },
+    { id: "price_improvement", label: "Price Decrease", icon: TrendingDown, color: "text-purple-600", bgColor: "bg-purple-600/10" },
+    { id: "e_card", label: "E-Card", icon: CreditCard, color: "text-teal-600", bgColor: "bg-teal-600/10" },
+    { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
+  ],
+  restaurant: [
+    { id: "daily_special", label: "Daily Special", icon: Utensils, color: "text-orange-600", bgColor: "bg-orange-600/10" },
+    { id: "new_menu_item", label: "New Menu Item", icon: Star, color: "text-yellow-600", bgColor: "bg-yellow-600/10" },
+    { id: "happy_hour", label: "Happy Hour", icon: Clock, color: "text-blue-600", bgColor: "bg-blue-600/10" },
+    { id: "weekend_event", label: "Weekend Event", icon: Calendar, color: "text-pink-600", bgColor: "bg-pink-600/10" },
+    { id: "customer_review", label: "Customer Review", icon: MessageCircle, color: "text-green-600", bgColor: "bg-green-600/10" },
+    { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
+  ],
+  home_services: [
+    { id: "before_after", label: "Before & After", icon: Eye, color: "text-orange-600", bgColor: "bg-orange-600/10" },
+    { id: "seasonal_deal", label: "Seasonal Deal", icon: Percent, color: "text-blue-600", bgColor: "bg-blue-600/10" },
+    { id: "free_estimate", label: "Free Estimate", icon: Wrench, color: "text-green-600", bgColor: "bg-green-600/10" },
+    { id: "customer_spotlight", label: "Customer Spotlight", icon: Star, color: "text-yellow-600", bgColor: "bg-yellow-600/10" },
+    { id: "pro_tip", label: "Pro Tip", icon: Brain, color: "text-purple-600", bgColor: "bg-purple-600/10" },
+    { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
+  ],
+  retail: [
+    { id: "new_arrival", label: "New Arrival", icon: ShoppingBag, color: "text-pink-600", bgColor: "bg-pink-600/10" },
+    { id: "flash_sale", label: "Flash Sale", icon: Percent, color: "text-red-600", bgColor: "bg-red-600/10" },
+    { id: "product_spotlight", label: "Product Spotlight", icon: Star, color: "text-yellow-600", bgColor: "bg-yellow-600/10" },
+    { id: "customer_review", label: "Customer Review", icon: MessageCircle, color: "text-green-600", bgColor: "bg-green-600/10" },
+    { id: "weekend_deal", label: "Weekend Deal", icon: Tag, color: "text-blue-600", bgColor: "bg-blue-600/10" },
+    { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
+  ],
+  professional_services: [
+    { id: "client_success", label: "Client Success", icon: CheckCircle, color: "text-green-600", bgColor: "bg-green-600/10" },
+    { id: "expert_tip", label: "Expert Tip", icon: Brain, color: "text-purple-600", bgColor: "bg-purple-600/10" },
+    { id: "free_consultation", label: "Free Consult", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-600/10" },
+    { id: "industry_update", label: "Industry Update", icon: TrendingUp, color: "text-orange-600", bgColor: "bg-orange-600/10" },
+    { id: "team_spotlight", label: "Team Spotlight", icon: Users, color: "text-teal-600", bgColor: "bg-teal-600/10" },
+    { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
+  ],
+  general_business: [
+    { id: "announcement", label: "Announcement", icon: Megaphone, color: "text-orange-600", bgColor: "bg-orange-600/10" },
+    { id: "behind_scenes", label: "Behind Scenes", icon: Eye, color: "text-blue-600", bgColor: "bg-blue-600/10" },
+    { id: "team_spotlight", label: "Team Spotlight", icon: Users, color: "text-teal-600", bgColor: "bg-teal-600/10" },
+    { id: "special_offer", label: "Special Offer", icon: Percent, color: "text-red-600", bgColor: "bg-red-600/10" },
+    { id: "customer_review", label: "Customer Review", icon: Star, color: "text-yellow-600", bgColor: "bg-yellow-600/10" },
+    { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
+  ],
+};
 
 const scheduledPosts = [
   {
@@ -249,6 +263,9 @@ const promoApps = [
 
 export function SocialMediaManager() {
   const { user } = useAuth();
+  const { businessType } = useBusinessType();
+  const postTypes = POST_TYPES_BY_BUSINESS[businessType] ?? POST_TYPES_BY_BUSINESS.real_estate;
+  const isRealEstate = businessType === "real_estate";
   const APP_PROMO_EMAILS = [
     "bhargav12155@gmail.com",
     "sudha@mygoldenbrick.com",
@@ -1577,7 +1594,7 @@ ${agentName} | ${brokerageName}
             <h3 className="text-sm font-medium text-foreground">Quick Post</h3>
           </div>
 
-          {!isTikTokOnly && <div className="space-y-2">
+          {!isTikTokOnly && isRealEstate && <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Property Listing (Optional)
             </div>

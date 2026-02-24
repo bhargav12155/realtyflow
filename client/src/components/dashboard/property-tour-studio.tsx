@@ -1097,7 +1097,7 @@ ${propertyDetails}`;
                   <h5 className="font-medium text-sm">Unassigned Photos</h5>
                   <span className="text-xs text-muted-foreground">Drag to a room below</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-3">
                   {unassignedPhotos.map((photo, index) => (
                     <div
                       key={`unassigned-${index}`}
@@ -1105,7 +1105,7 @@ ${propertyDetails}`;
                       onDragStart={(e) => {
                         e.dataTransfer.setData("application/json", JSON.stringify(photo));
                       }}
-                      className="w-20 h-14 rounded-md overflow-hidden border-2 border-dashed border-muted-foreground/30 cursor-grab hover:border-primary transition-colors"
+                      className="w-36 h-24 rounded-lg overflow-hidden border-2 border-dashed border-muted-foreground/30 cursor-grab hover:border-primary hover:shadow-md transition-all"
                       data-testid={`unassigned-photo-${index}`}
                     >
                       <img src={photo.url} alt="Unassigned" className="w-full h-full object-cover" />

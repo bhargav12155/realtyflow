@@ -2366,7 +2366,7 @@ Return your response in this exact JSON format:
       }
 
       const facebookClientId =
-        process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+        process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID || process.env.INSTAGRAM_CLIENT_ID;
 
       const facebookConfigId = process.env.FACEBOOK_CONFIG_ID;
       const instagramConfigId = process.env.INSTAGRAM_CONFIG_ID;
@@ -2655,9 +2655,9 @@ Return your response in this exact JSON format:
         }
       } else if (platform.toLowerCase() === "facebook") {
         const clientId =
-          process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+          process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID || process.env.INSTAGRAM_CLIENT_ID;
         const clientSecret =
-          process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+          process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET || process.env.INSTAGRAM_CLIENT_SECRET;
         const redirectUri = `${baseUrl}/api/social/callback/facebook`;
 
         if (!clientId || !clientSecret) {
@@ -4602,8 +4602,8 @@ Return your response in this exact JSON format:
       }
 
       const token = facebookAccount.accessToken;
-      const appId = process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID;
-      const appSecret = process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+      const appId = process.env.FACEBOOK_CLIENT_ID || process.env.FACEBOOK_APP_ID || process.env.INSTAGRAM_CLIENT_ID;
+      const appSecret = process.env.FACEBOOK_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET || process.env.INSTAGRAM_CLIENT_SECRET;
 
       const results: any = { userId, metadata: (facebookAccount as any).metadata };
 

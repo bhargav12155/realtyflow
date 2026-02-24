@@ -7,9 +7,18 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { cn, getUserDisplayName, getUserInitials } from "@/lib/utils";
+import { useBusinessType, BUSINESS_TYPE_OPTIONS, BusinessType } from "@/lib/businessContext";
 import {
   BarChart3,
   Bot,
@@ -23,6 +32,7 @@ import {
   MapPin,
   Menu,
   MessageSquare,
+  Package,
   Palette,
   Plus,
   Radio,
@@ -51,6 +61,13 @@ const navigationItems = [
     label: "AI Content Generator",
     href: "/dashboard#ai-content",
     key: "ai-content",
+    isPageLink: true,
+  },
+  {
+    icon: Package,
+    label: "Catalog / Menu",
+    href: "/menu-items",
+    key: "menu-items",
     isPageLink: true,
   },
   {
@@ -158,6 +175,9 @@ function SidebarContent({
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [expandedMenus, setExpandedMenus] = useState<string[]>(["avatar-video"]);
+  const { businessType, setBusinessType } = useBusinessType();
+
+  const currentBusinessOption = BUSINESS_TYPE_OPTIONS.find((o) => o.value === businessType) || BUSINESS_TYPE_OPTIONS[0];
 
   const handleAdvancedAdvertisingClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -249,7 +269,7 @@ function SidebarContent({
     <>
       {/* Header */}
       <div
-        className={cn("border-b border-border", isCollapsed ? "p-4" : "p-6")}
+        className={cn("border-b border-border", isCollapsed ? "p-4" : "p-4 px-5")}
       >
         <div
           className={cn(
@@ -277,6 +297,49 @@ function SidebarContent({
             </div>
           )}
         </div>
+
+        {/* Business Type Switcher */}
+        {!isCollapsed && (
+          <div className="mt-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="button-business-type-switcher"
+                  className="w-full justify-between text-xs h-8 border-yellow-500/30 hover:border-yellow-500/60"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span>{currentBusinessOption.icon}</span>
+                    <span>{currentBusinessOption.label}</span>
+                  </span>
+                  <ChevronDown className="w-3 h-3 opacity-60" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel className="text-xs text-gray-500">Switch Business Type</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {BUSINESS_TYPE_OPTIONS.map((opt) => (
+                  <DropdownMenuItem
+                    key={opt.value}
+                    data-testid={`menu-item-business-type-${opt.value}`}
+                    onClick={() => setBusinessType(opt.value as BusinessType)}
+                    className={cn(
+                      "cursor-pointer",
+                      businessType === opt.value && "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300"
+                    )}
+                  >
+                    <span className="mr-2">{opt.icon}</span>
+                    {opt.label}
+                    {businessType === opt.value && (
+                      <span className="ml-auto text-xs text-amber-500">✓</span>
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}

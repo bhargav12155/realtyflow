@@ -92,6 +92,12 @@ import {
   whatsappSettings as whatsappSettingsTable,
   whatsappConversations as whatsappConversationsTable,
   whatsappMessages as whatsappMessagesTable,
+  type MenuItem,
+  type InsertMenuItem,
+  menuItems as menuItemsTable,
+  type BusinessLocation,
+  type InsertBusinessLocation,
+  businessLocations as businessLocationsTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -397,6 +403,20 @@ export interface IStorage {
   // WhatsApp Messages
   createWhatsappMessage(data: InsertWhatsappMessage): Promise<WhatsappMessage>;
   getWhatsappMessagesByConversationId(conversationId: string): Promise<WhatsappMessage[]>;
+
+  // Menu Items (multi-vertical catalog)
+  getMenuItems(userId: string, businessType?: string): Promise<MenuItem[]>;
+  getMenuItemById(id: string): Promise<MenuItem | undefined>;
+  createMenuItem(item: InsertMenuItem): Promise<MenuItem>;
+  updateMenuItem(id: string, updates: Partial<MenuItem>): Promise<MenuItem | undefined>;
+  deleteMenuItem(id: string): Promise<boolean>;
+
+  // Business Locations
+  getBusinessLocations(userId: string): Promise<BusinessLocation[]>;
+  getBusinessLocationById(id: string): Promise<BusinessLocation | undefined>;
+  createBusinessLocation(location: InsertBusinessLocation): Promise<BusinessLocation>;
+  updateBusinessLocation(id: string, updates: Partial<BusinessLocation>): Promise<BusinessLocation | undefined>;
+  deleteBusinessLocation(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2540,6 +2560,72 @@ export class MemStorage implements IStorage {
       .from(whatsappMessagesTable)
       .where(eq(whatsappMessagesTable.conversationId, conversationId))
       .orderBy(whatsappMessagesTable.createdAt);
+  }
+
+  async getMenuItems(userId: string, businessType?: string): Promise<MenuItem[]> {
+    const conditions = [eq(menuItemsTable.userId, userId)];
+    if (businessType) conditions.push(eq(menuItemsTable.businessType, businessType));
+    return await db
+      .select()
+      .from(menuItemsTable)
+      .where(and(...conditions))
+      .orderBy(menuItemsTable.sortOrder, menuItemsTable.createdAt);
+  }
+
+  async getMenuItemById(id: string): Promise<MenuItem | undefined> {
+    const [item] = await db.select().from(menuItemsTable).where(eq(menuItemsTable.id, id));
+    return item;
+  }
+
+  async createMenuItem(item: InsertMenuItem): Promise<MenuItem> {
+    const [created] = await db.insert(menuItemsTable).values(item).returning();
+    return created;
+  }
+
+  async updateMenuItem(id: string, updates: Partial<MenuItem>): Promise<MenuItem | undefined> {
+    const [updated] = await db
+      .update(menuItemsTable)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(menuItemsTable.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMenuItem(id: string): Promise<boolean> {
+    const result = await db.delete(menuItemsTable).where(eq(menuItemsTable.id, id));
+    return true;
+  }
+
+  async getBusinessLocations(userId: string): Promise<BusinessLocation[]> {
+    return await db
+      .select()
+      .from(businessLocationsTable)
+      .where(eq(businessLocationsTable.userId, userId))
+      .orderBy(businessLocationsTable.isPrimary, businessLocationsTable.createdAt);
+  }
+
+  async getBusinessLocationById(id: string): Promise<BusinessLocation | undefined> {
+    const [location] = await db.select().from(businessLocationsTable).where(eq(businessLocationsTable.id, id));
+    return location;
+  }
+
+  async createBusinessLocation(location: InsertBusinessLocation): Promise<BusinessLocation> {
+    const [created] = await db.insert(businessLocationsTable).values(location).returning();
+    return created;
+  }
+
+  async updateBusinessLocation(id: string, updates: Partial<BusinessLocation>): Promise<BusinessLocation | undefined> {
+    const [updated] = await db
+      .update(businessLocationsTable)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(businessLocationsTable.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteBusinessLocation(id: string): Promise<boolean> {
+    await db.delete(businessLocationsTable).where(eq(businessLocationsTable.id, id));
+    return true;
   }
 }
 

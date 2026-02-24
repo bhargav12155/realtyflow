@@ -20226,6 +20226,103 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  // =====================================================
+  // MENU ITEMS / CATALOG ROUTES (Multi-vertical catalog)
+  // =====================================================
+  app.get("/api/menu-items", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const { businessType } = req.query;
+      const items = await storage.getMenuItems(userId, businessType as string);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching menu items:", error);
+      res.status(500).json({ error: "Failed to fetch menu items" });
+    }
+  });
+
+  app.post("/api/menu-items", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const item = await storage.createMenuItem({ ...req.body, userId });
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating menu item:", error);
+      res.status(500).json({ error: "Failed to create menu item" });
+    }
+  });
+
+  app.patch("/api/menu-items/:id", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const item = await storage.updateMenuItem(id, req.body);
+      if (!item) return res.status(404).json({ error: "Item not found" });
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating menu item:", error);
+      res.status(500).json({ error: "Failed to update menu item" });
+    }
+  });
+
+  app.delete("/api/menu-items/:id", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteMenuItem(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting menu item:", error);
+      res.status(500).json({ error: "Failed to delete menu item" });
+    }
+  });
+
+  // =====================================================
+  // BUSINESS LOCATIONS ROUTES
+  // =====================================================
+  app.get("/api/business-locations", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const locations = await storage.getBusinessLocations(userId);
+      res.json(locations);
+    } catch (error) {
+      console.error("Error fetching business locations:", error);
+      res.status(500).json({ error: "Failed to fetch locations" });
+    }
+  });
+
+  app.post("/api/business-locations", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const location = await storage.createBusinessLocation({ ...req.body, userId });
+      res.status(201).json(location);
+    } catch (error) {
+      console.error("Error creating business location:", error);
+      res.status(500).json({ error: "Failed to create location" });
+    }
+  });
+
+  app.patch("/api/business-locations/:id", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const location = await storage.updateBusinessLocation(id, req.body);
+      if (!location) return res.status(404).json({ error: "Location not found" });
+      res.json(location);
+    } catch (error) {
+      console.error("Error updating business location:", error);
+      res.status(500).json({ error: "Failed to update location" });
+    }
+  });
+
+  app.delete("/api/business-locations/:id", requireAuth, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteBusinessLocation(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting business location:", error);
+      res.status(500).json({ error: "Failed to delete location" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

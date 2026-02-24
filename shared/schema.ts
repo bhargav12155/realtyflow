@@ -783,6 +783,8 @@ export const companyProfiles = pgTable("company_profiles", {
   tagline: text("tagline"),
   bio: text("bio"),
   socialLinks: jsonb("social_links"),
+  businessType: text("business_type").default("real_estate"),
+  businessSubtype: text("business_subtype"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1644,3 +1646,78 @@ export type WhatsappConversation = typeof whatsappConversations.$inferSelect;
 export type InsertWhatsappConversation = z.infer<typeof insertWhatsappConversationSchema>;
 export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
 export type InsertWhatsappMessage = z.infer<typeof insertWhatsappMessageSchema>;
+
+// =====================================================
+// MENU ITEMS / CATALOG TABLE (Multi-vertical items)
+// Used for: restaurant menu items, services, products, listings
+// =====================================================
+export const menuItems = pgTable("menu_items", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  businessType: text("business_type").notNull().default("restaurant"),
+  name: text("name").notNull(),
+  category: text("category"),
+  price: integer("price"),
+  description: text("description"),
+  ingredients: text("ingredients").array(),
+  dietaryTags: text("dietary_tags").array(),
+  allergens: text("allergens").array(),
+  imageUrls: text("image_urls").array(),
+  availability: text("availability").default("always"),
+  isSpecial: boolean("is_special").default(false),
+  specialPrice: integer("special_price"),
+  status: text("status").default("active"),
+  tags: text("tags").array(),
+  notes: text("notes"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertMenuItemSchema = createInsertSchema(menuItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type MenuItem = typeof menuItems.$inferSelect;
+export type InsertMenuItem = z.infer<typeof insertMenuItemSchema>;
+
+// =====================================================
+// BUSINESS LOCATIONS TABLE (Restaurants, offices, etc.)
+// =====================================================
+export const businessLocations = pgTable("business_locations", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull(),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zipCode: text("zip_code"),
+  phoneNumber: text("phone_number"),
+  email: text("email"),
+  website: text("website"),
+  operatingHours: jsonb("operating_hours"),
+  cuisineTypes: text("cuisine_types").array(),
+  diningOptions: text("dining_options").array(),
+  acceptsReservations: boolean("accepts_reservations").default(false),
+  deliveryRadius: integer("delivery_radius"),
+  status: text("status").default("open"),
+  isPrimary: boolean("is_primary").default(false),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBusinessLocationSchema = createInsertSchema(businessLocations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type BusinessLocation = typeof businessLocations.$inferSelect;
+export type InsertBusinessLocation = z.infer<typeof insertBusinessLocationSchema>;

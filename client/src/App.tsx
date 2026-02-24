@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { DemoProvider } from "@/contexts/DemoContext";
+import { BusinessTypeProvider } from "@/lib/businessContext";
+import MenuItemsPage from "@/pages/menu-items";
 import { useTemplateDataImport } from "@/hooks/useTemplateDataImport";
 import AiAssistantPage from "@/pages/ai-assistant";
 import Dashboard from "@/pages/dashboard";
@@ -84,6 +86,11 @@ function Router() {
           <AiAssistantPage />
         </ProtectedRoute>
       </Route>
+      <Route path="/menu-items">
+        <ProtectedRoute>
+          <MenuItemsPage />
+        </ProtectedRoute>
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -94,15 +101,17 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TemplateDataImporter />
-        <DemoProvider>
-          <TooltipProvider>
-            <ConfirmDialogProvider>
-              <DemoModeBanner />
-              <Toaster />
-              <Router />
-            </ConfirmDialogProvider>
-          </TooltipProvider>
-        </DemoProvider>
+        <BusinessTypeProvider>
+          <DemoProvider>
+            <TooltipProvider>
+              <ConfirmDialogProvider>
+                <DemoModeBanner />
+                <Toaster />
+                <Router />
+              </ConfirmDialogProvider>
+            </TooltipProvider>
+          </DemoProvider>
+        </BusinessTypeProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

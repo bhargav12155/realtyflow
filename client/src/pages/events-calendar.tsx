@@ -145,6 +145,26 @@ export default function EventsCalendarPage() {
     queryKey: ["/api/events"],
   });
 
+  const { data: companyProfile } = useQuery<any>({ queryKey: ["/api/company/profile"] });
+  const { data: userPreferences } = useQuery<any>({ queryKey: ["/api/user/preferences"] });
+
+  const cityName: string = (() => {
+    const serviceArea: string = userPreferences?.serviceArea || "";
+    if (serviceArea) {
+      const parts = serviceArea.split(",");
+      return parts[0].trim() || serviceArea.trim();
+    }
+    return companyProfile?.city || "Local";
+  })();
+
+  const isOmahaUser: boolean = (() => {
+    const serviceArea: string = (userPreferences?.serviceArea || "").toLowerCase();
+    const city: string = (companyProfile?.city || "").toLowerCase();
+    const state: string = (companyProfile?.state || "").toLowerCase();
+    return serviceArea.includes("omaha") || serviceArea.includes(", ne") ||
+      city === "omaha" || state === "ne" || state === "nebraska";
+  })();
+
   const { data: suggestionsData, refetch: refetchSuggestions } = useQuery<{ suggestions: EventPostSuggestion[] }>({
     queryKey: ["/api/events", selectedEvent?.id, "suggestions"],
     enabled: !!selectedEvent,
@@ -276,7 +296,7 @@ export default function EventsCalendarPage() {
     },
     onSuccess: (data) => {
       toast({ 
-        title: "Omaha Sources Added", 
+        title: "Local Sources Added", 
         description: data.message || `Added ${data.addedSources} real estate event sources` 
       });
       setIsOmahaSourcesSetup(true);
@@ -502,7 +522,7 @@ export default function EventsCalendarPage() {
                         <FormControl>
                           <Input
                             {...field}
-                            placeholder="Omaha Farmer's Market"
+                            placeholder={`${cityName} Farmer's Market`}
                             data-testid="input-event-title"
                           />
                         </FormControl>
@@ -599,7 +619,7 @@ export default function EventsCalendarPage() {
                         <FormControl>
                           <Input
                             {...field}
-                            placeholder="Old Market, Omaha"
+                            placeholder={`Event venue, ${cityName}`}
                             data-testid="input-event-location"
                           />
                         </FormControl>
@@ -700,11 +720,12 @@ export default function EventsCalendarPage() {
                     Generate Your Weekly Content Plan
                   </CardTitle>
                   <CardDescription>
-                    Automatically fetch Omaha real estate events and generate AI-powered social media posts for the week
+                    Automatically fetch {cityName} real estate events and generate AI-powered social media posts for the week
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex flex-col sm:flex-row gap-4">
+                    {isOmahaUser && (
                     <Button
                       onClick={() => setupOmahaSourcesMutation.mutate()}
                       disabled={setupOmahaSourcesMutation.isPending || isOmahaSourcesSetup}
@@ -719,8 +740,9 @@ export default function EventsCalendarPage() {
                       ) : (
                         <ListChecks className="w-4 h-4 mr-2" />
                       )}
-                      {isOmahaSourcesSetup ? "Omaha Sources Ready" : "Setup Omaha Sources"}
+                      {isOmahaSourcesSetup ? `${cityName} Sources Ready` : `Setup ${cityName} Sources`}
                     </Button>
+                    )}
                     <Button
                       onClick={() => generateWeeklyPlanMutation.mutate()}
                       disabled={generateWeeklyPlanMutation.isPending}
@@ -736,9 +758,11 @@ export default function EventsCalendarPage() {
                       Generate Weekly Plan
                     </Button>
                   </div>
+                  {isOmahaUser && (
                   <p className="text-xs text-muted-foreground">
                     Sources: Omaha Daily Record, Omaha Realtors, OABR Calendar
                   </p>
+                  )}
                 </CardContent>
               </Card>
 
@@ -777,7 +801,7 @@ export default function EventsCalendarPage() {
                         <div className="text-center py-8 text-muted-foreground">
                           <CalendarDays className="w-12 h-12 mx-auto mb-4 opacity-50" />
                           <p>No events this week</p>
-                          <p className="text-sm">Click "Setup Omaha Sources" to fetch local real estate events</p>
+                          <p className="text-sm">{isOmahaUser ? `Click "Setup ${cityName} Sources" to fetch local real estate events` : "Add a calendar source in the Sources tab to fetch local events"}</p>
                         </div>
                       );
                     }
@@ -1200,7 +1224,7 @@ export default function EventsCalendarPage() {
                               <FormControl>
                                 <Input
                                   {...field}
-                                  placeholder="Omaha Events"
+                                  placeholder={`${cityName} Events`}
                                   data-testid="input-source-name"
                                 />
                               </FormControl>
@@ -1279,7 +1303,7 @@ export default function EventsCalendarPage() {
               <CardHeader>
                 <CardTitle>Quick Add Templates</CardTitle>
                 <CardDescription>
-                  Popular calendar sources for Omaha area
+                  Popular calendar sources for {cityName} area
                 </CardDescription>
               </CardHeader>
               <CardContent>

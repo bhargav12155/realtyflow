@@ -25,6 +25,8 @@ import { useToast } from "@/hooks/use-toast";
 import { friendlyError, messages } from "@/lib/messages";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { MenuItem } from "@shared/schema";
 import {
   Brain,
   AlertTriangle,
@@ -307,6 +309,7 @@ export function SocialMediaManager() {
   const [isExtractingNumbers, setIsExtractingNumbers] = useState(false);
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
   const { toast } = useToast();
 
   // Fetch company profile for dynamic content
@@ -316,6 +319,11 @@ export function SocialMediaManager() {
     businessName?: string;
   }>({
     queryKey: ["/api/company/profile"],
+  });
+
+  const { data: menuItemsList } = useQuery<MenuItem[]>({
+    queryKey: ["/api/menu-items"],
+    enabled: !isRealEstate,
   });
 
   // Get agent name and brokerage with smart defaults
@@ -1357,9 +1365,19 @@ ${agentName} | ${brokerageName}
 
     // Optimize for the first selected platform with post type context
     const primaryPlatform = selectedPlatforms[0];
-    const topic = selectedPostType
+    let topic = selectedPostType
       ? `${selectedPostType.replace("_", " ")} ${postContent.trim()}`.trim()
       : postContent.trim();
+
+    if (selectedMenuItem) {
+      const itemContext = [
+        selectedMenuItem.name,
+        selectedMenuItem.description,
+        selectedMenuItem.price ? `$${Number(selectedMenuItem.price).toFixed(2)}` : null,
+        selectedMenuItem.category,
+      ].filter(Boolean).join(" — ");
+      topic = `${topic} [${terms.itemCapitalized}: ${itemContext}]`.trim();
+    }
 
     optimizeContentMutation.mutate({
       topic,
@@ -1663,6 +1681,45 @@ ${agentName} | ${brokerageName}
               </div>
             )}
           </div>}
+
+          {!isTikTokOnly && !isRealEstate && menuItemsList && menuItemsList.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground mb-2">
+                {terms.itemCapitalized} (Optional)
+              </div>
+              <Select
+                value={selectedMenuItem?.id ?? "none"}
+                onValueChange={(val) => {
+                  if (val === "none") {
+                    setSelectedMenuItem(null);
+                  } else {
+                    const item = menuItemsList.find((m) => m.id === val) ?? null;
+                    setSelectedMenuItem(item);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full text-xs" data-testid="select-catalog-item">
+                  <SelectValue placeholder={`Select a ${terms.item}...`} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {menuItemsList.filter((m) => m.status === "active").map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name}{item.price ? ` — $${Number(item.price).toFixed(2)}` : ""}
+                      {item.category ? ` (${item.category})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedMenuItem && (
+                <div className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 space-y-0.5">
+                  <div className="font-medium text-foreground">{selectedMenuItem.name}</div>
+                  {selectedMenuItem.description && <div>{selectedMenuItem.description}</div>}
+                  {selectedMenuItem.price && <div className="text-amber-600 font-medium">${Number(selectedMenuItem.price).toFixed(2)}</div>}
+                </div>
+              )}
+            </div>
+          )}
 
           {!isTikTokOnly && <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground mb-2">

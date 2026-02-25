@@ -28,7 +28,7 @@ interface UserPreferences {
   onboardingCompleted?: boolean;
 }
 
-const SUGGESTED_COMMUNITIES = [
+const NEBRASKA_COMMUNITIES = [
   "Dundee",
   "Benson",
   "Aksarben",
@@ -40,6 +40,12 @@ const SUGGESTED_COMMUNITIES = [
   "Bennington",
   "Westside",
 ];
+
+function isNebraskaArea(area: string): boolean {
+  if (!area) return false;
+  const lower = area.toLowerCase();
+  return lower.includes("nebraska") || lower.includes(", ne") || lower.endsWith(" ne") || lower === "ne";
+}
 
 export function useOnboarding() {
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -76,26 +82,45 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
         return;
       }
 
-      const response = await fetch("/api/user/preferences", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
-      });
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
 
-      if (response.ok) {
-        const data: UserPreferences = await response.json();
+      const [prefRes, profileRes] = await Promise.all([
+        fetch("/api/user/preferences", { method: "GET", headers, credentials: "include" }),
+        fetch("/api/company/profile", { method: "GET", headers, credentials: "include" }),
+      ]);
+
+      let resolvedServiceArea = "";
+      let shouldShow = false;
+
+      if (prefRes.ok) {
+        const data: UserPreferences = await prefRes.json();
         if (data.onboardingCompleted === false || !data.onboardingCompleted) {
-          if (data.serviceArea) setServiceArea(data.serviceArea);
+          shouldShow = true;
+          if (data.serviceArea) resolvedServiceArea = data.serviceArea;
           if (data.communities) setCommunities(data.communities);
           if (data.aiProvider) setAiProvider(data.aiProvider);
           if (data.agentPhotoUrl) setAgentPhotoUrl(data.agentPhotoUrl);
-          setOpen?.(true);
         }
-      } else if (response.status === 404) {
-        setOpen?.(true);
+      } else if (prefRes.status === 404) {
+        shouldShow = true;
       }
+
+      // Pre-populate service area from company profile if not set
+      if (!resolvedServiceArea && profileRes.ok) {
+        const profile = await profileRes.json();
+        const city = profile?.city || "";
+        const state = profile?.state || "";
+        if (city && state) {
+          resolvedServiceArea = `${city}, ${state}`;
+        } else if (state) {
+          resolvedServiceArea = state;
+        } else if (city) {
+          resolvedServiceArea = city;
+        }
+      }
+
+      if (resolvedServiceArea) setServiceArea(resolvedServiceArea);
+      if (shouldShow) setOpen?.(true);
     } catch (error) {
       console.error("Error fetching preferences:", error);
     } finally {
@@ -337,70 +362,72 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
             </p>
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-primary" />
-              <label className="text-sm font-medium text-gray-900 dark:text-white">
-                Communities/Neighborhoods
-              </label>
-            </div>
-            <Input
-              value={communityInput}
-              onChange={(e) => setCommunityInput(e.target.value)}
-              onKeyDown={handleCommunityInputKeyDown}
-              onBlur={() => {
-                if (communityInput.trim()) {
-                  addCommunity(communityInput);
-                }
-              }}
-              placeholder="Type and press Enter to add"
-              className="bg-white dark:bg-gray-800"
-              data-testid="input-community"
-            />
-            
-            {communities.length > 0 && (
-              <div className="flex flex-wrap gap-2" data-testid="community-tags">
-                {communities.map((community) => (
-                  <Badge
-                    key={community}
-                    variant="secondary"
-                    className="flex items-center gap-1 px-2 py-1"
-                  >
-                    {community}
-                    <button
-                      type="button"
-                      onClick={() => removeCommunity(community)}
-                      className="ml-1 hover:text-destructive"
-                      data-testid={`button-remove-community-${community}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
+          {isNebraskaArea(serviceArea) && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-primary" />
+                <label className="text-sm font-medium text-gray-900 dark:text-white">
+                  Communities/Neighborhoods
+                </label>
               </div>
-            )}
+              <Input
+                value={communityInput}
+                onChange={(e) => setCommunityInput(e.target.value)}
+                onKeyDown={handleCommunityInputKeyDown}
+                onBlur={() => {
+                  if (communityInput.trim()) {
+                    addCommunity(communityInput);
+                  }
+                }}
+                placeholder="Type and press Enter to add"
+                className="bg-white dark:bg-gray-800"
+                data-testid="input-community"
+              />
 
-            <div className="space-y-2">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Suggested communities:
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {SUGGESTED_COMMUNITIES.filter(
-                  (c) => !communities.includes(c)
-                ).map((community) => (
-                  <Badge
-                    key={community}
-                    variant="outline"
-                    className="cursor-pointer hover:bg-primary/10 text-xs"
-                    onClick={() => addCommunity(community)}
-                    data-testid={`button-add-suggested-${community}`}
-                  >
-                    + {community}
-                  </Badge>
-                ))}
+              {communities.length > 0 && (
+                <div className="flex flex-wrap gap-2" data-testid="community-tags">
+                  {communities.map((community) => (
+                    <Badge
+                      key={community}
+                      variant="secondary"
+                      className="flex items-center gap-1 px-2 py-1"
+                    >
+                      {community}
+                      <button
+                        type="button"
+                        onClick={() => removeCommunity(community)}
+                        className="ml-1 hover:text-destructive"
+                        data-testid={`button-remove-community-${community}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Suggested communities:
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {NEBRASKA_COMMUNITIES.filter(
+                    (c) => !communities.includes(c)
+                  ).map((community) => (
+                    <Badge
+                      key={community}
+                      variant="outline"
+                      className="cursor-pointer hover:bg-primary/10 text-xs"
+                      onClick={() => addCommunity(community)}
+                      data-testid={`button-add-suggested-${community}`}
+                    >
+                      + {community}
+                    </Badge>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-3">
             <div className="flex items-center gap-2">

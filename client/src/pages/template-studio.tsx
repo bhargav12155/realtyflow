@@ -36,6 +36,55 @@ import {
   Wand2
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { useBusinessType } from "@/lib/businessContext";
+import type { BusinessType } from "@/lib/businessContext";
+
+const TEMPLATE_OVERRIDES: Record<string, Partial<Record<BusinessType, { name: string; description: string }>>> = {
+  "just-listed": {
+    restaurant: { name: "New Menu Item Launch", description: "Announce an exciting new dish or drink with style and energy" },
+    home_services: { name: "New Service Launch", description: "Announce a new service offering to attract more customers" },
+    retail: { name: "New Product Launch", description: "Introduce a new product and generate excitement with customers" },
+    professional_services: { name: "New Service Offer", description: "Announce a new specialty or service area to grow your practice" },
+    general: { name: "New Offering Launch", description: "Announce something new and exciting to your customers" },
+  },
+  "open-house-invitation": {
+    restaurant: { name: "Special Event / Tasting", description: "Invite customers to a special event, tasting night, or promotion" },
+    home_services: { name: "Free Estimate Event", description: "Invite prospects to a complimentary estimate or consultation event" },
+    retail: { name: "Sale Event Invitation", description: "Invite customers to your upcoming sale, pop-up, or in-store event" },
+    professional_services: { name: "Free Consultation Offer", description: "Invite prospects to a complimentary consultation session" },
+    general: { name: "Upcoming Event", description: "Invite your audience to an upcoming event or promotion" },
+  },
+  "market-update": {
+    restaurant: { name: "Menu Refresh Update", description: "Share news about updated menus, seasonal specials, or new offerings" },
+    home_services: { name: "Industry Trends Update", description: "Share insights and trends relevant to your service area" },
+    retail: { name: "New Collection Update", description: "Showcase your newest products, collections, or seasonal arrivals" },
+    professional_services: { name: "Industry Insights", description: "Share expertise and current trends in your professional field" },
+    general: { name: "Business Update", description: "Keep your audience informed about what's new with your business" },
+  },
+  "agent-introduction": {
+    restaurant: { name: "Meet the Team / Chef", description: "Introduce yourself, your chef, or your team to build connection" },
+    home_services: { name: "Meet the Expert", description: "Introduce yourself and your expertise to earn customer trust" },
+    retail: { name: "Brand Story", description: "Tell your brand story and build a personal connection with customers" },
+    professional_services: { name: "Meet the Professional", description: "Introduce yourself and build credibility with potential clients" },
+    general: { name: "Business Introduction", description: "Introduce yourself or your business to your audience" },
+  },
+  "neighborhood-spotlight": {
+    restaurant: { name: "Local Community Spotlight", description: "Highlight a local event, partnership, or community involvement" },
+    home_services: { name: "Service Area Spotlight", description: "Highlight a local area or neighborhood you proudly serve" },
+    retail: { name: "Community Connection", description: "Connect with your local community and showcase your roots" },
+    professional_services: { name: "Community Involvement", description: "Share how you give back and stay engaged with your community" },
+    general: { name: "Community Spotlight", description: "Highlight your local community and the connections you value" },
+  },
+};
+
+const PAGE_SUBTITLE: Partial<Record<BusinessType, string>> = {
+  real_estate: "Create professional real estate videos using pre-built templates",
+  restaurant: "Create professional restaurant & food videos using pre-built templates",
+  home_services: "Create professional service business videos using pre-built templates",
+  retail: "Create professional retail & product videos using pre-built templates",
+  professional_services: "Create professional service videos using pre-built templates",
+  general: "Create professional business videos using pre-built templates",
+};
 
 interface TemplateVariable {
   id: string;
@@ -545,7 +594,16 @@ function GeneratedVideoCard({ video }: { video: GeneratedVideo }) {
 export default function TemplateStudioPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<VideoTemplateWithVariables | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+  const { businessType } = useBusinessType();
+  const isRealEstate = businessType === "real_estate";
+
+  const applyOverride = (template: VideoTemplate): VideoTemplate => {
+    if (isRealEstate) return template;
+    const override = TEMPLATE_OVERRIDES[template.slug]?.[businessType as BusinessType];
+    if (!override) return template;
+    return { ...template, name: override.name, description: override.description };
+  };
+
   const templatesQuery = useQuery<VideoTemplate[]>({
     queryKey: ["/api/video-templates"],
   });
@@ -582,7 +640,7 @@ export default function TemplateStudioPage() {
                 Video Template Studio
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground hidden md:block">
-                Create professional real estate videos using pre-built templates
+                {PAGE_SUBTITLE[businessType as BusinessType] ?? PAGE_SUBTITLE.general}
               </p>
             </div>
             <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
@@ -638,7 +696,7 @@ export default function TemplateStudioPage() {
                 {templatesQuery.data?.map((template) => (
                   <TemplateCard 
                     key={template.id} 
-                    template={template} 
+                    template={applyOverride(template)} 
                     onClick={() => handleTemplateClick(template)}
                   />
                 ))}

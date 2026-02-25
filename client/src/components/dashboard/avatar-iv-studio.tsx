@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useLocation } from "wouter";
+import { useBusinessType } from "@/lib/businessContext";
 import {
   Upload,
   Wand2,
@@ -95,13 +96,50 @@ const MOTION_PROMPTS = [
   { id: "friendly", label: "Friendly", prompt: "friendly customer service representative" },
 ];
 
-const SCRIPT_STYLES = [
-  { id: "property_tour", label: "Property Tour", description: "Showcase property features and highlights" },
-  { id: "listing_spotlight", label: "Listing Spotlight", description: "Quick attention-grabbing listing preview" },
-  { id: "market_update", label: "Market Update", description: "Local real estate market insights" },
-  { id: "agent_intro", label: "Agent Introduction", description: "Professional self-introduction" },
-  { id: "neighborhood_guide", label: "Neighborhood Guide", description: "Area highlights and amenities" },
-];
+const SCRIPT_STYLES_BY_BUSINESS: Record<string, { id: string; label: string; description: string }[]> = {
+  real_estate: [
+    { id: "property_tour", label: "Property Tour", description: "Showcase property features and highlights" },
+    { id: "listing_spotlight", label: "Listing Spotlight", description: "Quick attention-grabbing listing preview" },
+    { id: "market_update", label: "Market Update", description: "Local real estate market insights" },
+    { id: "agent_intro", label: "Agent Introduction", description: "Professional self-introduction" },
+    { id: "neighborhood_guide", label: "Neighborhood Guide", description: "Area highlights and amenities" },
+  ],
+  restaurant: [
+    { id: "menu_showcase", label: "Menu Showcase", description: "Highlight your best dishes and specials" },
+    { id: "daily_special", label: "Daily Special", description: "Quick promo for today's special offer" },
+    { id: "chefs_story", label: "Chef's Story", description: "Behind-the-scenes with the chef" },
+    { id: "customer_welcome", label: "Customer Welcome", description: "Warm welcome and invitation to visit" },
+    { id: "local_favorite", label: "Local Favorite", description: "Why locals love this restaurant" },
+  ],
+  home_services: [
+    { id: "service_demo", label: "Service Demo", description: "Showcase your service in action" },
+    { id: "new_service", label: "New Service Launch", description: "Introduce a new service offering" },
+    { id: "expert_tip", label: "Expert Tip", description: "Share a helpful tip from your expertise" },
+    { id: "business_intro", label: "Business Introduction", description: "Professional self-introduction" },
+    { id: "customer_success", label: "Customer Success", description: "Share a customer success story" },
+  ],
+  retail: [
+    { id: "product_showcase", label: "Product Showcase", description: "Feature your best products" },
+    { id: "new_arrival", label: "New Arrival", description: "Announce new stock or collections" },
+    { id: "brand_story", label: "Brand Story", description: "Tell your brand's unique story" },
+    { id: "sale_promo", label: "Sale Promotion", description: "Promote upcoming sales or deals" },
+    { id: "local_favorite", label: "Local Favorite", description: "Why the community loves your store" },
+  ],
+  professional_services: [
+    { id: "service_overview", label: "Service Overview", description: "Explain your key services clearly" },
+    { id: "expert_insight", label: "Expert Insight", description: "Share industry knowledge and tips" },
+    { id: "client_success", label: "Client Success", description: "Showcase a client success story" },
+    { id: "professional_intro", label: "Professional Introduction", description: "Introduce yourself and your practice" },
+    { id: "industry_update", label: "Industry Update", description: "Share relevant industry trends" },
+  ],
+  general: [
+    { id: "business_showcase", label: "Business Showcase", description: "Highlight what makes your business special" },
+    { id: "new_offering", label: "New Offering", description: "Announce a new product or service" },
+    { id: "business_intro", label: "Business Introduction", description: "Introduce yourself and your business" },
+    { id: "testimonial", label: "Customer Testimonial", description: "Share a positive customer experience" },
+    { id: "community_update", label: "Community Update", description: "Share news and updates with your community" },
+  ],
+};
 
 const OUTFIT_PRESETS = [
   { label: "Business Suit", prompt: "wearing a tailored navy blue business suit with white dress shirt and silk tie, professional office setting", icon: "👔" },
@@ -215,9 +253,17 @@ export function AvatarIVStudio() {
   const [showLibrary, setShowLibrary] = useState(true);
   const [isConvertingHeic, setIsConvertingHeic] = useState(false);
   
+  const { businessType } = useBusinessType();
+  const scriptStyles = SCRIPT_STYLES_BY_BUSINESS[businessType] ?? SCRIPT_STYLES_BY_BUSINESS.real_estate;
+
   const [videoTitle, setVideoTitle] = useState("");
   const [script, setScript] = useState("");
-  const [scriptStyle, setScriptStyle] = useState(SCRIPT_STYLES[0].id);
+  const [scriptStyle, setScriptStyle] = useState(scriptStyles[0].id);
+
+  useEffect(() => {
+    const styles = SCRIPT_STYLES_BY_BUSINESS[businessType] ?? SCRIPT_STYLES_BY_BUSINESS.real_estate;
+    setScriptStyle(styles[0].id);
+  }, [businessType]);
   const videoTitleRef = useRef<IsolatedInputHandle>(null);
   const scriptTextareaRef = useRef<IsolatedInputHandle>(null);
   const [selectedVoice, setSelectedVoice] = useState("");
@@ -1708,7 +1754,7 @@ export function AvatarIVStudio() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {SCRIPT_STYLES.map((style) => (
+                            {scriptStyles.map((style) => (
                               <SelectItem key={style.id} value={style.id}>
                                 <div className="flex flex-col">
                                   <span>{style.label}</span>

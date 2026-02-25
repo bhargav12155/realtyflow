@@ -1571,7 +1571,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
   app.post("/api/content/social-post", async (req, res) => {
     try {
-      const { topic, platform, neighborhood, businessType } = req.body;
+      const { topic, platform, neighborhood, businessType, menuItem } = req.body;
 
       // Fetch company profile for dynamic personalization
       const userId = req.user?.id;
@@ -1585,7 +1585,8 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         platform,
         neighborhood,
         companyProfile || undefined,
-        businessType || companyProfile?.businessType
+        businessType || companyProfile?.businessType,
+        menuItem
       );
       res.json(socialPost);
     } catch (error) {

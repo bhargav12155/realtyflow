@@ -870,7 +870,7 @@ export function SocialMediaManager() {
   });
 
   const optimizeContentMutation = useMutation({
-    mutationFn: async (data: { topic: string; platform: string }) => {
+    mutationFn: async (data: { topic: string; platform: string; menuItem?: { name: string; description?: string; price?: string; category?: string } }) => {
       const response = await apiRequest(
         "POST",
         "/api/content/social-post",
@@ -879,12 +879,11 @@ export function SocialMediaManager() {
       return response.json();
     },
     onSuccess: (data) => {
-      setPostContent(
-        data.content +
-          (data.hashtags
-            ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ")
-            : ""),
-      );
+      const content: string = data.content || "";
+      const newTags: string[] = (data.hashtags || [])
+        .map((tag: string) => (tag.startsWith("#") ? tag : "#" + tag))
+        .filter((tag: string) => !content.includes(tag));
+      setPostContent(content + (newTags.length ? " " + newTags.join(" ") : ""));
       toast({
         title: "Content Optimized!",
         description:
@@ -1365,23 +1364,19 @@ ${agentName} | ${brokerageName}
 
     // Optimize for the first selected platform with post type context
     const primaryPlatform = selectedPlatforms[0];
-    let topic = selectedPostType
+    const topic = selectedPostType
       ? `${selectedPostType.replace("_", " ")} ${postContent.trim()}`.trim()
       : postContent.trim();
-
-    if (selectedMenuItem) {
-      const itemContext = [
-        selectedMenuItem.name,
-        selectedMenuItem.description,
-        selectedMenuItem.price ? `$${Number(selectedMenuItem.price).toFixed(2)}` : null,
-        selectedMenuItem.category,
-      ].filter(Boolean).join(" — ");
-      topic = `${topic} [${terms.itemCapitalized}: ${itemContext}]`.trim();
-    }
 
     optimizeContentMutation.mutate({
       topic,
       platform: primaryPlatform,
+      menuItem: selectedMenuItem ? {
+        name: selectedMenuItem.name,
+        description: selectedMenuItem.description ?? undefined,
+        price: selectedMenuItem.price ? `$${(Number(selectedMenuItem.price) / 100).toFixed(2)}` : undefined,
+        category: selectedMenuItem.category ?? undefined,
+      } : undefined,
     });
   };
 
@@ -1705,7 +1700,7 @@ ${agentName} | ${brokerageName}
                   <SelectItem value="none">None</SelectItem>
                   {menuItemsList.filter((m) => m.status === "active").map((item) => (
                     <SelectItem key={item.id} value={item.id}>
-                      {item.name}{item.price ? ` — $${Number(item.price).toFixed(2)}` : ""}
+                      {item.name}{item.price ? ` — $${(Number(item.price) / 100).toFixed(2)}` : ""}
                       {item.category ? ` (${item.category})` : ""}
                     </SelectItem>
                   ))}
@@ -1715,7 +1710,7 @@ ${agentName} | ${brokerageName}
                 <div className="text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2 space-y-0.5">
                   <div className="font-medium text-foreground">{selectedMenuItem.name}</div>
                   {selectedMenuItem.description && <div>{selectedMenuItem.description}</div>}
-                  {selectedMenuItem.price && <div className="text-amber-600 font-medium">${Number(selectedMenuItem.price).toFixed(2)}</div>}
+                  {selectedMenuItem.price && <div className="text-amber-600 font-medium">${(Number(selectedMenuItem.price) / 100).toFixed(2)}</div>}
                 </div>
               )}
             </div>

@@ -438,15 +438,21 @@ export class OpenAIService {
     platform: string,
     neighborhood?: string,
     companyProfile?: CompanyProfileData,
-    businessType?: string
+    businessType?: string,
+    menuItem?: { name?: string; description?: string; price?: string; category?: string }
   ): Promise<any> {
     try {
       const bType = businessType || companyProfile?.businessType || "real_estate";
       const { industryContext, roleLabel, fallbackHashtags } = getBusinessContext(bType, companyProfile, neighborhood);
 
-      const prompt = `Create a ${platform} post about "${topic}" for ${industryContext}.
-      Platform: ${platform}. Keep it engaging, authentic, and on-brand. Do NOT use placeholder text like [Business Name] or [Agent Name] — use the actual names provided.
-      Respond with JSON: { "content": "post text", "hashtags": ["tag1", "tag2"], "characterCount": 0 }`;
+      const menuItemContext = menuItem?.name
+        ? `\nFeatured item context (use naturally, do NOT quote brackets or show this literally): Name: ${menuItem.name}${menuItem.description ? `, Description: ${menuItem.description}` : ""}${menuItem.price ? `, Price: ${menuItem.price}` : ""}${menuItem.category ? `, Category: ${menuItem.category}` : ""}`
+        : "";
+
+      const prompt = `Create a ${platform} post about "${topic}" for ${industryContext}.${menuItemContext}
+      Platform: ${platform}. Keep it engaging, authentic, and on-brand. Do NOT use placeholder text like [Business Name] or [Agent Name] — use the actual names provided. Do NOT include any bracket notation or raw metadata in the output.
+      Return ONLY the post content in the "content" field — do NOT include hashtags inside "content". Put all hashtags only in the "hashtags" array.
+      Respond with JSON: { "content": "post text without hashtags", "hashtags": ["tag1", "tag2"], "characterCount": 0 }`;
 
       const genAI = getGeminiClient();
       const response = await genAI.models.generateContent({

@@ -1612,19 +1612,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
       const platformGuide = platformGuidelines[platform] || platformGuidelines.facebook;
 
-      const { default: OpenAI } = await import("openai");
-      const openai = new OpenAI();
-      
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert social media marketer creating promotional content for real estate technology products. You understand the real estate industry and create content that resonates with agents, brokers, and real estate professionals. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska.`
-          },
-          {
-            role: "user",
-            content: `Create a promotional social media post for:
+      const promoUserPrompt = `Create a promotional social media post for:
 
 App Name: ${appName}
 Website: ${appUrl}
@@ -1646,14 +1634,39 @@ The LAST LINE of the content MUST be a call-to-action with both links, like:
 "Visit https://www.${appUrl} | Contact us: https://www.imakepage.com/#contact"
 
 Return your response in this exact JSON format:
-{"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`
-          }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.9,
-      });
+{"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`;
 
-      const result = JSON.parse(completion.choices[0].message.content || "{}");
+      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for real estate technology products. You understand the real estate industry and create content that resonates with agents, brokers, and real estate professionals. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska.`;
+
+      let result: any;
+
+      // Try OpenAI first
+      try {
+        const { default: OpenAI } = await import("openai");
+        const openai = new OpenAI();
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: promoSystemPrompt },
+            { role: "user", content: promoUserPrompt }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.9,
+        });
+        result = JSON.parse(completion.choices[0].message.content || "{}");
+      } catch (openaiErr: any) {
+        // OpenAI unavailable — fall back to Gemini
+        console.warn("⚠️ [PromoApp] OpenAI failed, falling back to Gemini:", openaiErr?.status || openaiErr?.message);
+        const { GoogleGenAI } = await import("@google/genai");
+        const geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const geminiResponse = await geminiClient.models.generateContent({
+          model: "gemini-2.0-flash",
+          contents: `${promoSystemPrompt}\n\n${promoUserPrompt}`,
+        });
+        const rawText = geminiResponse.text ?? "";
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        result = jsonMatch ? JSON.parse(jsonMatch[0]) : { content: rawText, hashtags: [] };
+      }
       let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
       
       content = content.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/`([^`]*)`/g, "$1");

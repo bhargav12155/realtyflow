@@ -8,13 +8,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/lib/authToken";
@@ -429,24 +422,6 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
             </div>
           )}
 
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <label className="text-sm font-medium text-gray-900 dark:text-white">
-                Preferred AI
-              </label>
-            </div>
-            <Select value={aiProvider} onValueChange={setAiProvider}>
-              <SelectTrigger className="bg-white dark:bg-gray-800" data-testid="select-ai-provider">
-                <SelectValue placeholder="Select AI provider" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Auto (Recommended)</SelectItem>
-                <SelectItem value="openai">ChatGPT (GPT-4o)</SelectItem>
-                <SelectItem value="gemini">Gemini</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
         </div>
 
         <div className="flex justify-end pt-2">

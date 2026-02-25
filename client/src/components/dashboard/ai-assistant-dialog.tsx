@@ -1094,9 +1094,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   Tip: For 3 images use triangle positioning (left → right → opposite view)
                 </p>
-                <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1">
-                  VEO API: 10 requests/min, pay-per-use ($0.75/sec), no daily limit
-                </p>
               </div>
 
               <div>

@@ -14,7 +14,7 @@ import {
   PublicUserData,
   AuthResponse,
 } from "@/types/auth";
-import { setAuthToken, clearAuthToken, getAuthHeaders } from "@/lib/authToken";
+import { setAuthToken, clearAuthToken, getAuthHeaders, getAuthToken } from "@/lib/authToken";
 
 interface AuthContextType extends AuthState {
   login: (credentials: LoginCredentials) => Promise<AuthResponse>;
@@ -61,6 +61,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         const data = await response.json();
 
         if (data.authenticated && data.user) {
+          if (data.token && !getAuthToken()) {
+            setAuthToken(data.token);
+          }
           setAuthState({
             user: data.user,
             isAuthenticated: true,

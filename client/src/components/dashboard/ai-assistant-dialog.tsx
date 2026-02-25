@@ -360,11 +360,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     try {
       setSessionsLoading(true);
       const token = getAuthToken();
-      if (!token) return;
       
       const response = await fetch("/api/ai/chat-sessions", {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: "include",
       });
       
@@ -388,14 +387,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const createSession = useCallback(async (title: string): Promise<string | null> => {
     try {
       const token = getAuthToken();
-      if (!token) return null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       
       const response = await fetch("/api/ai/chat-sessions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         credentials: "include",
         body: JSON.stringify({ title }),
       });
@@ -415,17 +412,15 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const saveSessionMessages = useCallback(async (sessionId: string, sessionMessages: Message[], title?: string) => {
     try {
       const token = getAuthToken();
-      if (!token) return;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
       
       const body: { messages: Message[]; title?: string } = { messages: sessionMessages };
       if (title) body.title = title;
       
       await fetch(`/api/ai/chat-sessions/${sessionId}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         credentials: "include",
         body: JSON.stringify(body),
       });
@@ -439,11 +434,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const loadSession = useCallback(async (sessionId: string) => {
     try {
       const token = getAuthToken();
-      if (!token) return;
       
       const response = await fetch(`/api/ai/chat-sessions/${sessionId}`, {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: "include",
       });
       
@@ -466,11 +460,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const deleteSession = useCallback(async (sessionId: string) => {
     try {
       const token = getAuthToken();
-      if (!token) return;
       
       const response = await fetch(`/api/ai/chat-sessions/${sessionId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
         credentials: "include",
       });
       

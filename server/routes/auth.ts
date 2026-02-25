@@ -271,17 +271,24 @@ router.get("/check", optionalAuth, async (req: Request, res: Response) => {
       }
     }
     
+    const rawToken = req.cookies?.authToken ||
+      req.headers.authorization?.replace("Bearer ", "");
+
     res.json({
       success: true,
       authenticated: true,
       user: enrichedUser,
+      token: rawToken || undefined,
     });
   } catch (error) {
     console.error("Error enriching user data:", error);
+    const rawToken = req.cookies?.authToken ||
+      req.headers.authorization?.replace("Bearer ", "");
     res.json({
       success: true,
       authenticated: !!req.user,
       user: req.user,
+      token: rawToken || undefined,
     });
   }
 });

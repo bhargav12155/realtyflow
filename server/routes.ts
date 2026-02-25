@@ -1152,7 +1152,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
   });
 
   // VEO 3.1 Video Generation Routes
-  const VEO_PRESETS: Record<string, { aspectRatio: "16:9" | "9:16"; duration: 4 | 6 | 8 }> = {
+  const VEO_PRESETS: Record<string, { aspectRatio: "16:9" | "9:16"; duration: number }> = {
     "tiktok": { aspectRatio: "9:16", duration: 8 },
     "youtube-shorts": { aspectRatio: "9:16", duration: 8 },
     "instagram-stories": { aspectRatio: "9:16", duration: 8 },
@@ -1161,6 +1161,11 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
     "commercial-15": { aspectRatio: "16:9", duration: 4 },
     "commercial-30": { aspectRatio: "16:9", duration: 8 },
     "commercial-60": { aspectRatio: "16:9", duration: 8 },
+    "tour-16s": { aspectRatio: "16:9", duration: 16 },
+    "tour-24s": { aspectRatio: "16:9", duration: 24 },
+    "tour-30s": { aspectRatio: "16:9", duration: 30 },
+    "reel-16s": { aspectRatio: "9:16", duration: 16 },
+    "reel-30s": { aspectRatio: "9:16", duration: 30 },
   };
 
   // Track VEO videos generated via AI Assistant (operationId -> userId)

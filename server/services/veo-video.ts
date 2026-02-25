@@ -4,7 +4,7 @@ interface VeoVideoRequest {
   imageUrl: string;
   prompt: string;
   aspectRatio?: "16:9" | "9:16";
-  duration?: 4 | 6 | 8;
+  duration?: number;
   agentPhotoUrl?: string;
 }
 
@@ -69,6 +69,14 @@ export class VeoVideoService {
 
       console.log(`📤 [VeoVideo] Sending to VEO 3.1 API...`);
       
+      const config: Record<string, any> = {
+        aspectRatio: request.aspectRatio || "16:9",
+        numberOfVideos: 1,
+      };
+      if (request.duration && request.duration > 0) {
+        config.durationSeconds = request.duration;
+      }
+
       const operation = await client.models.generateVideos({
         model: "veo-3.1-generate-preview",
         prompt: request.prompt,
@@ -76,10 +84,7 @@ export class VeoVideoService {
           imageBytes: imageData.bytes,
           mimeType: imageData.mimeType,
         },
-        config: {
-          aspectRatio: request.aspectRatio || "16:9",
-          numberOfVideos: 1,
-        },
+        config,
       });
 
       const operationId = `veo-${Date.now()}-${Math.random().toString(36).substring(7)}`;

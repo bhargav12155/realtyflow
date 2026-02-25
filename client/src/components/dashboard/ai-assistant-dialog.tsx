@@ -109,6 +109,11 @@ const videoPresets = [
   { value: "linkedin-feed", label: "LinkedIn Feed (8s, Landscape)" },
   { value: "commercial-15", label: "Commercial Spot (4s, Landscape)" },
   { value: "commercial-30", label: "Commercial Spot (8s, Landscape)" },
+  { value: "tour-16s", label: "Extended Tour (16s, Landscape)" },
+  { value: "tour-24s", label: "Long Tour (24s, Landscape)" },
+  { value: "tour-30s", label: "Full Tour (30s, Landscape)" },
+  { value: "reel-16s", label: "Extended Reel (16s, Portrait)" },
+  { value: "reel-30s", label: "Full Reel (30s, Portrait)" },
 ];
 
 const spaceTypes = [

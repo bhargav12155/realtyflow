@@ -1032,11 +1032,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (userPreferencesData) {
         if (userPreferencesData.serviceArea) {
           locationContext += `The user is a real estate agent serving the ${userPreferencesData.serviceArea} area.`;
+        } else if ((companyProfile as any)?.city || (companyProfile as any)?.state) {
+          const cpCity = (companyProfile as any)?.city || "";
+          const cpState = (companyProfile as any)?.state || "";
+          const cpArea = cpCity && cpState ? `${cpCity}, ${cpState}` : cpCity || cpState;
+          locationContext += `The user operates in ${cpArea}.`;
         }
         if (userPreferencesData.communities && userPreferencesData.communities.length > 0) {
           locationContext += ` They focus on these neighborhoods/communities: ${userPreferencesData.communities.join(", ")}.`;
         }
         locationContext = locationContext.trim();
+      } else if ((companyProfile as any)?.city || (companyProfile as any)?.state) {
+        const cpCity = (companyProfile as any)?.city || "";
+        const cpState = (companyProfile as any)?.state || "";
+        const cpArea = cpCity && cpState ? `${cpCity}, ${cpState}` : cpCity || cpState;
+        locationContext = `The user operates in ${cpArea}.`;
       }
 
       // Use Gemini when explicitly requested

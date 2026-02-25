@@ -228,38 +228,45 @@ export interface CompanyProfileData {
 function getBusinessContext(businessType: string, companyProfile?: CompanyProfileData, location?: string) {
   const name = companyProfile?.businessName || companyProfile?.brokerageName || "";
   const person = companyProfile?.agentName || "";
-  const loc = location || "the local area";
+  const city = (companyProfile as any)?.city || "";
+  const state = (companyProfile as any)?.state || "";
+  const loc = location || (city && state ? `${city}, ${state}` : city || state || "the local area");
+  const hasLocation = loc !== "the local area";
+
+  // Build city-specific hashtag from city name (e.g. "Omaha" -> "OmahaRealEstate")
+  const cityTag = city ? city.replace(/\s+/g, "") : "";
+  const stateTag = state ? state.replace(/\s+/g, "") : "";
 
   const contexts: Record<string, { industryContext: string; roleLabel: string; fallbackHashtags: string[] }> = {
     restaurant: {
-      industryContext: `${name || "a restaurant"}${person ? `, featuring ${person}` : ""} — focusing on food, dining, menu items, atmosphere, and community${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      industryContext: `${name || "a restaurant"}${person ? `, featuring ${person}` : ""} — focusing on food, dining, menu items, atmosphere, and community${hasLocation ? ` in ${loc}` : ""}`,
       roleLabel: "restaurant and food & beverage",
-      fallbackHashtags: ["Restaurant", "FoodLovers", "LocalEats", "Foodie", "DineLocal"],
+      fallbackHashtags: ["Restaurant", "FoodLovers", "LocalEats", "Foodie", "DineLocal", ...(cityTag ? [`${cityTag}Eats`, `${cityTag}Food`] : [])],
     },
     home_services: {
-      industryContext: `${name || "a home services company"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      industryContext: `${name || "a home services company"}${person ? ` with ${person}` : ""}${hasLocation ? ` in ${loc}` : ""}`,
       roleLabel: "home services",
-      fallbackHashtags: ["HomeServices", "HomeImprovement", "LocalContractor", "HomeRepair"],
+      fallbackHashtags: ["HomeServices", "HomeImprovement", "LocalContractor", "HomeRepair", ...(cityTag ? [`${cityTag}HomeServices`] : [])],
     },
     retail: {
-      industryContext: `${name || "a retail store"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      industryContext: `${name || "a retail store"}${person ? ` with ${person}` : ""}${hasLocation ? ` in ${loc}` : ""}`,
       roleLabel: "retail",
-      fallbackHashtags: ["Shopping", "RetailTherapy", "LocalShop", "NewArrivals"],
+      fallbackHashtags: ["Shopping", "RetailTherapy", "LocalShop", "NewArrivals", ...(cityTag ? [`${cityTag}Shopping`, `Shop${cityTag}`] : [])],
     },
     professional_services: {
-      industryContext: `${name || "a professional services firm"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      industryContext: `${name || "a professional services firm"}${person ? ` with ${person}` : ""}${hasLocation ? ` in ${loc}` : ""}`,
       roleLabel: "professional services",
-      fallbackHashtags: ["ProfessionalServices", "BusinessTips", "Consulting", "ExpertAdvice"],
+      fallbackHashtags: ["ProfessionalServices", "BusinessTips", "Consulting", "ExpertAdvice", ...(cityTag ? [`${cityTag}Business`] : [])],
     },
     real_estate: {
       industryContext: `${loc} real estate${name ? ` — ${name}` : ""}${person ? `, represented by ${person}` : ""}`,
       roleLabel: "real estate",
-      fallbackHashtags: ["RealEstate", "HomesForSale", "OmahaRealEstate", "DreamHome"],
+      fallbackHashtags: ["RealEstate", "HomesForSale", "DreamHome", ...(cityTag ? [`${cityTag}RealEstate`, `${cityTag}Homes`] : ["OmahaRealEstate"]), ...(stateTag ? [`${stateTag}RealEstate`] : [])],
     },
     general: {
-      industryContext: `${name || "a local business"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      industryContext: `${name || "a local business"}${person ? ` with ${person}` : ""}${hasLocation ? ` in ${loc}` : ""}`,
       roleLabel: "general business",
-      fallbackHashtags: ["LocalBusiness", "SmallBusiness", "Community", "SupportLocal"],
+      fallbackHashtags: ["LocalBusiness", "SmallBusiness", "Community", "SupportLocal", ...(cityTag ? [`${cityTag}Business`, `${cityTag}Local`] : [])],
     },
   };
 

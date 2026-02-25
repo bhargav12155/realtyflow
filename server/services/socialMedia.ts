@@ -1706,6 +1706,13 @@ export class SocialMediaService {
         throw new Error("Video file exceeds TikTok's 4GB limit");
       }
 
+      // TikTok recommended chunk size: 10MB per chunk
+      const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+      const totalChunkCount = Math.ceil(videoSize / CHUNK_SIZE);
+      const chunkSize = Math.min(CHUNK_SIZE, videoSize); // declared chunk_size (all chunks same size except last)
+
+      console.log(`🎵 Video: ${(videoSize / (1024 * 1024)).toFixed(2)} MB, ${totalChunkCount} chunk(s) of ${(chunkSize / (1024 * 1024)).toFixed(0)} MB`);
+
       // Initialize video post using FILE_UPLOAD method
       console.log("🎵 Initializing TikTok FILE_UPLOAD...");
       
@@ -1719,7 +1726,7 @@ export class SocialMediaService {
           },
           body: JSON.stringify({
             post_info: {
-              title: title.substring(0, 2200), // TikTok title limit
+              title: title.substring(0, 2200),
               privacy_level: privacyLevel,
               disable_duet: options?.disableDuet ?? false,
               disable_comment: options?.disableComment ?? false,
@@ -1728,8 +1735,8 @@ export class SocialMediaService {
             source_info: {
               source: "FILE_UPLOAD",
               video_size: videoSize,
-              chunk_size: videoSize, // Upload as single chunk for simplicity
-              total_chunk_count: 1,
+              chunk_size: chunkSize,
+              total_chunk_count: totalChunkCount,
             },
           }),
         },
@@ -1759,26 +1766,37 @@ export class SocialMediaService {
       const uploadUrl = initResult.data.upload_url;
       
       console.log("🎵 TikTok video init successful, publish_id:", publishId);
-      console.log("🎵 Upload URL received, uploading video...");
+      console.log(`🎵 Uploading ${totalChunkCount} chunk(s) to TikTok...`);
 
-      // Upload the video binary to TikTok's upload URL
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "video/mp4",
-          "Content-Length": videoSize.toString(),
-          "Content-Range": `bytes 0-${videoSize - 1}/${videoSize}`,
-        },
-        body: videoBuffer,
-      });
+      // Upload video in chunks per TikTok API specification
+      for (let chunkIndex = 0; chunkIndex < totalChunkCount; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, videoSize);
+        const chunk = videoBuffer.subarray(start, end);
+        const contentRangeHeader = `bytes ${start}-${end - 1}/${videoSize}`;
 
-      if (!uploadResponse.ok) {
-        const uploadError = await uploadResponse.text();
-        console.error("TikTok video upload failed:", uploadError);
-        throw new Error(`TikTok video upload failed: ${uploadResponse.status} ${uploadError}`);
+        console.log(`🎵 Uploading chunk ${chunkIndex + 1}/${totalChunkCount}: ${contentRangeHeader}`);
+
+        const uploadResponse = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "video/mp4",
+            "Content-Length": chunk.length.toString(),
+            "Content-Range": contentRangeHeader,
+          },
+          body: chunk,
+        });
+
+        if (!uploadResponse.ok) {
+          const uploadError = await uploadResponse.text();
+          console.error(`TikTok chunk ${chunkIndex + 1} upload failed:`, uploadError);
+          throw new Error(`TikTok video upload failed on chunk ${chunkIndex + 1}: ${uploadResponse.status} ${uploadError}`);
+        }
+
+        console.log(`🎵 Chunk ${chunkIndex + 1}/${totalChunkCount} uploaded successfully`);
       }
 
-      console.log("🎵 Video uploaded successfully to TikTok!");
+      console.log("🎵 All chunks uploaded to TikTok!");
 
       // Check post status
       const statusResult = await this.checkTikTokPostStatus(accessToken, publishId);

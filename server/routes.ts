@@ -3764,6 +3764,19 @@ Return your response in this exact JSON format:
         // Auto-detect media type and fetch URLs
         if (mediaIds && Array.isArray(mediaIds) && mediaIds.length > 0) {
           for (const id of mediaIds) {
+            // If the "id" is actually a URL or local path, handle it directly without DB lookup
+            const isDirectUrl = typeof id === "string" && (id.startsWith("http://") || id.startsWith("https://") || id.startsWith("/uploads/"));
+            if (isDirectUrl) {
+              const isVideo = /\.(mp4|mov|avi|webm|mkv)(\?|$)/i.test(id);
+              if (isVideo) {
+                mediaUrls.videoUrls.push(id);
+                console.log(`📹 Direct URL treated as video: ${id}`);
+              } else {
+                mediaUrls.photoUrls.push(id);
+                console.log(`🖼️ Direct URL treated as photo: ${id}`);
+              }
+              continue;
+            }
             // Try to find as video first
             const video = await storage.getVideoById(id);
             if (video && video.videoUrl) {
@@ -3962,12 +3975,16 @@ Return your response in this exact JSON format:
               );
             } else if (platform.toLowerCase() === "tiktok") {
               // For TikTok, we need a video URL from a verified domain
-              const videoUrl = mediaUrls.videoUrls[0];
-              if (!videoUrl) {
+              const rawVideoUrl = mediaUrls.videoUrls[0];
+              if (!rawVideoUrl) {
                 return res.status(400).json({
-                  error: "TikTok requires a video URL from a verified domain to post",
+                  error: "TikTok requires a video. Please upload a video using the Upload Video button.",
                 });
               }
+              // Resolve relative paths to absolute URLs so the server can download them
+              const baseUrl = `${req.protocol}://${req.get("host")}`;
+              const videoUrl = rawVideoUrl.startsWith("/") ? `${baseUrl}${rawVideoUrl}` : rawVideoUrl;
+              console.log(`🎵 TikTok resolved video URL: ${videoUrl}`);
               const title = req.body.title || postContent.substring(0, 2200);
               const tiktokResult = await socialMediaService.postToTikTok(
                 userId,
@@ -4120,8 +4137,8 @@ Return your response in this exact JSON format:
                   youtubeToken
                 );
               } else if (targetPlatform.toLowerCase() === "tiktok") {
-                const videoUrl = mediaUrls.videoUrls[0];
-                if (!videoUrl) {
+                const rawVideoUrl = mediaUrls.videoUrls[0];
+                if (!rawVideoUrl) {
                   console.log(`❌ TikTok post skipped - no video URL found in mediaUrls:`, mediaUrls);
                   errors.push({
                     platform: targetPlatform,
@@ -4129,7 +4146,10 @@ Return your response in this exact JSON format:
                   });
                   continue;
                 }
-                console.log(`🎵 TikTok posting with video URL: ${videoUrl}`);
+                // Resolve relative paths to absolute URLs so the server can download them
+                const baseUrl2 = `${req.protocol}://${req.get("host")}`;
+                const videoUrl = rawVideoUrl.startsWith("/") ? `${baseUrl2}${rawVideoUrl}` : rawVideoUrl;
+                console.log(`🎵 TikTok posting with resolved video URL: ${videoUrl}`);
                 const title = req.body.title || postContent.substring(0, 2200);
                 const tiktokResult = await socialMediaService.postToTikTok(
                   userId,

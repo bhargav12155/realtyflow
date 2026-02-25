@@ -1556,11 +1556,11 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
   app.post("/api/content/social-post", async (req, res) => {
     try {
-      const { topic, platform, neighborhood } = req.body;
+      const { topic, platform, neighborhood, businessType } = req.body;
 
       // Fetch company profile for dynamic personalization
       const userId = req.user?.id;
-      let companyProfile = null;
+      let companyProfile: any = null;
       if (userId) {
         companyProfile = await storage.getCompanyProfile(userId);
       }
@@ -1569,7 +1569,8 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         topic,
         platform,
         neighborhood,
-        companyProfile || undefined
+        companyProfile || undefined,
+        businessType || companyProfile?.businessType
       );
       res.json(socialPost);
     } catch (error) {
@@ -2153,6 +2154,7 @@ Return your response in this exact JSON format:
         neighborhood,
         seoOptimized,
         longTailKeywords,
+        businessType,
       } = req.body;
 
       if (!platform || !originalContent) {
@@ -2160,6 +2162,10 @@ Return your response in this exact JSON format:
           .status(400)
           .json({ error: "Platform and original content are required" });
       }
+
+      const userId2 = req.user?.id;
+      let cp2: any = null;
+      if (userId2) cp2 = await storage.getCompanyProfile(userId2);
 
       // Generate platform-optimized content using OpenAI
       const platformOptimizedContent =
@@ -2171,6 +2177,8 @@ Return your response in this exact JSON format:
           neighborhood: neighborhood || "Omaha",
           seoOptimized: seoOptimized !== false,
           longTailKeywords: longTailKeywords !== false,
+          businessType: businessType || cp2?.businessType,
+          companyProfile: cp2 || undefined,
         });
 
       res.json(platformOptimizedContent);
@@ -6914,14 +6922,17 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
           if (generateUniqueContent) {
             try {
+              const schedProfile: any = await storage.getCompanyProfile(req.user?.id);
               const optimized = await openaiService.generatePlatformSpecificContent({
                 platform: platform.toLowerCase(),
                 originalContent: content,
                 contentType: "social",
-                topic: "real estate",
-                neighborhood: "Omaha",
+                topic: "social media post",
+                neighborhood: schedProfile?.city || "local area",
                 seoOptimized: true,
                 longTailKeywords: true,
+                businessType: schedProfile?.businessType,
+                companyProfile: schedProfile || undefined,
               });
               postContent = optimized.content || content;
             } catch (error) {

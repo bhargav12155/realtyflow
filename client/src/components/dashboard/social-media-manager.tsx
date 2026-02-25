@@ -841,7 +841,7 @@ export function SocialMediaManager() {
       const response = await apiRequest(
         "POST",
         "/api/content/social-post",
-        data,
+        { ...data, businessType },
       );
       return response.json();
     },

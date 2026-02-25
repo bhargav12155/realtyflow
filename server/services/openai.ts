@@ -222,6 +222,48 @@ export interface CompanyProfileData {
   email?: string;
   brokerageName?: string;
   tagline?: string;
+  businessType?: string;
+}
+
+function getBusinessContext(businessType: string, companyProfile?: CompanyProfileData, location?: string) {
+  const name = companyProfile?.businessName || companyProfile?.brokerageName || "";
+  const person = companyProfile?.agentName || "";
+  const loc = location || "the local area";
+
+  const contexts: Record<string, { industryContext: string; roleLabel: string; fallbackHashtags: string[] }> = {
+    restaurant: {
+      industryContext: `${name || "a restaurant"}${person ? `, featuring ${person}` : ""} — focusing on food, dining, menu items, atmosphere, and community${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      roleLabel: "restaurant and food & beverage",
+      fallbackHashtags: ["Restaurant", "FoodLovers", "LocalEats", "Foodie", "DineLocal"],
+    },
+    home_services: {
+      industryContext: `${name || "a home services company"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      roleLabel: "home services",
+      fallbackHashtags: ["HomeServices", "HomeImprovement", "LocalContractor", "HomeRepair"],
+    },
+    retail: {
+      industryContext: `${name || "a retail store"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      roleLabel: "retail",
+      fallbackHashtags: ["Shopping", "RetailTherapy", "LocalShop", "NewArrivals"],
+    },
+    professional_services: {
+      industryContext: `${name || "a professional services firm"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      roleLabel: "professional services",
+      fallbackHashtags: ["ProfessionalServices", "BusinessTips", "Consulting", "ExpertAdvice"],
+    },
+    real_estate: {
+      industryContext: `${loc} real estate${name ? ` — ${name}` : ""}${person ? `, represented by ${person}` : ""}`,
+      roleLabel: "real estate",
+      fallbackHashtags: ["RealEstate", "HomesForSale", "OmahaRealEstate", "DreamHome"],
+    },
+    general: {
+      industryContext: `${name || "a local business"}${person ? ` with ${person}` : ""}${loc !== "the local area" ? ` in ${loc}` : ""}`,
+      roleLabel: "general business",
+      fallbackHashtags: ["LocalBusiness", "SmallBusiness", "Community", "SupportLocal"],
+    },
+  };
+
+  return contexts[businessType] || contexts.real_estate;
 }
 
 export interface ContentGenerationRequest {
@@ -388,15 +430,15 @@ export class OpenAIService {
     topic: string,
     platform: string,
     neighborhood?: string,
-    companyProfile?: CompanyProfileData
+    companyProfile?: CompanyProfileData,
+    businessType?: string
   ): Promise<any> {
     try {
-      const agentName = companyProfile?.agentName || "your local real estate agent";
-      const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "our brokerage";
+      const bType = businessType || companyProfile?.businessType || "real_estate";
+      const { industryContext, roleLabel, fallbackHashtags } = getBusinessContext(bType, companyProfile, neighborhood);
 
-      const prompt = `Create a ${platform} post about "${topic}" for ${neighborhood || "Omaha"} real estate. 
-      Include ${agentName} as the real estate agent and reference ${businessName}.
-      Platform: ${platform}. Keep it engaging, on-brand, and include relevant hashtags.
+      const prompt = `Create a ${platform} post about "${topic}" for ${industryContext}.
+      Platform: ${platform}. Keep it engaging, authentic, and on-brand. Do NOT use placeholder text like [Business Name] or [Agent Name] — use the actual names provided.
       Respond with JSON: { "content": "post text", "hashtags": ["tag1", "tag2"], "characterCount": 0 }`;
 
       const genAI = getGeminiClient();
@@ -404,32 +446,41 @@ export class OpenAIService {
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are an expert social media content creator for real estate. Always respond with valid JSON only — no markdown, no code blocks, just raw JSON.",
+          systemInstruction: `You are an expert social media content creator for ${roleLabel} businesses. Write posts that sound natural and specific to the industry. Always respond with valid JSON only — no markdown, no code blocks, just raw JSON.`,
           maxOutputTokens: 1500,
         },
       });
 
-      return extractJSON(response.text || "{}", { content: `Check out our latest listings in ${neighborhood || "Omaha"}! #RealEstate #Omaha`, hashtags: ["RealEstate", "Omaha"] });
+      return extractJSON(response.text || "{}", { content: `${topic} — follow us for more updates! ${fallbackHashtags.map(t => "#" + t).join(" ")}`, hashtags: fallbackHashtags });
     } catch (error) {
       console.error("Gemini social media post error:", error);
-      return { content: `Check out our latest listings in ${neighborhood || "Omaha"}! #RealEstate #Omaha`, hashtags: ["RealEstate", "Omaha"] };
+      return { content: `${topic}`, hashtags: [] };
     }
   }
 
   async generatePlatformSpecificContent(params: {
     topic: string;
     platform: string;
-    postType: string;
+    postType?: string;
     neighborhood?: string;
     companyProfile?: CompanyProfileData;
     propertyData?: any;
     customPrompt?: string;
+    businessType?: string;
+    originalContent?: string;
+    contentType?: string;
+    seoOptimized?: boolean;
+    longTailKeywords?: boolean;
   }): Promise<any> {
     try {
-      const agentName = params.companyProfile?.agentName || "your local real estate agent";
-      const prompt = `Create a ${params.platform} ${params.postType} post about "${params.topic}" for ${params.neighborhood || "Omaha"} real estate by ${agentName}.
+      const bType = params.businessType || params.companyProfile?.businessType || "real_estate";
+      const { industryContext, roleLabel, fallbackHashtags } = getBusinessContext(bType, params.companyProfile, params.neighborhood);
+      const postTypeLabel = params.postType || params.contentType || "post";
+
+      const prompt = `Create a ${params.platform} ${postTypeLabel} about "${params.topic}" for ${industryContext}.
       ${params.customPrompt ? `Additional instructions: ${params.customPrompt}` : ""}
-      ${params.propertyData ? `Property details: ${JSON.stringify(params.propertyData)}` : ""}
+      ${params.propertyData ? `Additional details: ${JSON.stringify(params.propertyData)}` : ""}
+      Do NOT use placeholder text like [Business Name] or [Agent Name] — use the actual names provided.
       Make it engaging and platform-appropriate. Respond with JSON: { "content": "post text", "hashtags": ["tag1"], "characterCount": 0 }`;
 
       const genAI = getGeminiClient();
@@ -437,15 +488,15 @@ export class OpenAIService {
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are an expert social media content creator for real estate. Always respond with valid JSON only — no markdown, no code blocks, just raw JSON.",
+          systemInstruction: `You are an expert social media content creator for ${roleLabel} businesses. Write posts that sound natural and specific to the industry. Always respond with valid JSON only — no markdown, no code blocks, just raw JSON.`,
           maxOutputTokens: 1500,
         },
       });
 
-      return extractJSON(response.text || "{}", { content: `${params.topic} in ${params.neighborhood || "Omaha"} - contact us today! #RealEstate`, hashtags: ["RealEstate"] });
+      return extractJSON(response.text || "{}", { content: `${params.topic} — contact us today! ${fallbackHashtags.map(t => "#" + t).join(" ")}`, hashtags: fallbackHashtags });
     } catch (error) {
       console.error("Gemini platform-specific content error:", error);
-      return { content: `${params.topic} in ${params.neighborhood || "Omaha"} - contact us today! #RealEstate`, hashtags: ["RealEstate"] };
+      return { content: `${params.topic}`, hashtags: [] };
     }
   }
 

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useBusinessType } from "@/lib/businessContext";
 import {
   Dialog,
   DialogContent,
@@ -141,6 +142,137 @@ const exteriorRoomTypes = [
   { value: "other-exterior", label: "Other Exterior", prompt: "impressive outdoor feature" },
 ];
 
+const VIDEO_PANEL_BY_BUSINESS: Record<string, {
+  spaceTypeLabel: string;
+  imagesLabel: string;
+  imageTypeLabel: string;
+  descPlaceholder: string;
+  interiorLabel: string;
+  exteriorLabel: string;
+  interiorTypes: typeof interiorRoomTypes;
+  exteriorTypes: typeof exteriorRoomTypes;
+}> = {
+  restaurant: {
+    spaceTypeLabel: "Area Type",
+    imagesLabel: "Restaurant Photos",
+    imageTypeLabel: "Area",
+    descPlaceholder: "Add notes about this scene, like 'Our main dining room decorated for a special event, warm lighting, intimate atmosphere...'",
+    interiorLabel: "Indoor Areas",
+    exteriorLabel: "Outdoor Areas",
+    interiorTypes: [
+      { value: "dining-area", label: "Dining Room", prompt: "elegant dining area with beautifully set tables and warm ambiance" },
+      { value: "bar-lounge", label: "Bar / Lounge", prompt: "stylish bar and lounge area with premium spirits display" },
+      { value: "open-kitchen", label: "Open Kitchen", prompt: "bustling open kitchen showcasing culinary craftsmanship" },
+      { value: "private-dining", label: "Private Dining", prompt: "intimate private dining room perfect for special occasions" },
+      { value: "dessert-station", label: "Dessert Station", prompt: "inviting dessert display with artisan sweets" },
+      { value: "counter", label: "Counter / Service Area", prompt: "welcoming service counter with attentive staff" },
+      { value: "waiting-area", label: "Waiting Area / Entrance", prompt: "welcoming entrance and waiting area" },
+      { value: "other-indoor", label: "Other Indoor Area", prompt: "beautifully appointed interior space" },
+    ],
+    exteriorTypes: [
+      { value: "patio-terrace", label: "Patio / Terrace", prompt: "charming outdoor patio dining area" },
+      { value: "storefront", label: "Entrance / Storefront", prompt: "inviting restaurant entrance and storefront" },
+      { value: "outdoor-seating", label: "Outdoor Seating", prompt: "relaxing outdoor seating area" },
+      { value: "rooftop", label: "Rooftop", prompt: "stunning rooftop dining experience" },
+      { value: "other-exterior", label: "Other Outdoor Area", prompt: "charming outdoor space" },
+    ],
+  },
+  home_services: {
+    spaceTypeLabel: "Location Type",
+    imagesLabel: "Job Site Photos",
+    imageTypeLabel: "Area",
+    descPlaceholder: "Add notes about this job, like 'Kitchen remodel with custom cabinetry and quartz countertops...'",
+    interiorLabel: "Interior Areas",
+    exteriorLabel: "Exterior Areas",
+    interiorTypes: [
+      { value: "kitchen", label: "Kitchen", prompt: "professionally renovated kitchen with quality finishes" },
+      { value: "bathroom", label: "Bathroom", prompt: "beautifully updated bathroom with modern fixtures" },
+      { value: "living-room", label: "Living Room", prompt: "refreshed living space with professional workmanship" },
+      { value: "bedroom", label: "Bedroom", prompt: "comfortable bedroom with expert finishing" },
+      { value: "basement", label: "Basement", prompt: "transformed basement space" },
+      { value: "other", label: "Other Interior", prompt: "professionally finished interior space" },
+    ],
+    exteriorTypes: [
+      { value: "roof", label: "Roof", prompt: "newly installed or repaired roof" },
+      { value: "siding", label: "Siding / Exterior", prompt: "refreshed exterior with quality siding" },
+      { value: "landscaping", label: "Landscaping", prompt: "professionally manicured landscaping" },
+      { value: "driveway", label: "Driveway", prompt: "newly paved or repaired driveway" },
+      { value: "other-exterior", label: "Other Exterior", prompt: "expertly completed exterior work" },
+    ],
+  },
+  retail: {
+    spaceTypeLabel: "Area Type",
+    imagesLabel: "Store Photos",
+    imageTypeLabel: "Area",
+    descPlaceholder: "Add notes about this scene, like 'Our new summer collection display near the front entrance...'",
+    interiorLabel: "Indoor Areas",
+    exteriorLabel: "Outdoor Areas",
+    interiorTypes: [
+      { value: "sales-floor", label: "Sales Floor", prompt: "inviting sales floor with attractive product displays" },
+      { value: "display", label: "Feature Display", prompt: "eye-catching feature display showcasing top products" },
+      { value: "fitting-room", label: "Fitting Room", prompt: "comfortable and stylish fitting rooms" },
+      { value: "counter", label: "Checkout / Counter", prompt: "efficient checkout area with friendly service" },
+      { value: "window-display", label: "Window Display", prompt: "captivating window display" },
+      { value: "other", label: "Other Area", prompt: "well-merchandised store area" },
+    ],
+    exteriorTypes: [
+      { value: "storefront", label: "Storefront / Entrance", prompt: "welcoming storefront and entrance" },
+      { value: "signage", label: "Signage", prompt: "prominent and attractive store signage" },
+      { value: "outdoor-display", label: "Outdoor Display", prompt: "eye-catching outdoor product display" },
+      { value: "other-exterior", label: "Other Exterior", prompt: "attractive exterior area" },
+    ],
+  },
+  professional_services: {
+    spaceTypeLabel: "Space Type",
+    imagesLabel: "Office Photos",
+    imageTypeLabel: "Space",
+    descPlaceholder: "Add notes about this space, like 'Our main conference room with video conferencing setup...'",
+    interiorLabel: "Office Areas",
+    exteriorLabel: "Exterior",
+    interiorTypes: [
+      { value: "reception", label: "Reception", prompt: "welcoming reception area with professional atmosphere" },
+      { value: "office", label: "Private Office", prompt: "well-appointed private office space" },
+      { value: "conference", label: "Conference Room", prompt: "modern conference room for client meetings" },
+      { value: "waiting", label: "Waiting Area", prompt: "comfortable waiting area" },
+      { value: "workspace", label: "Open Workspace", prompt: "collaborative open workspace" },
+      { value: "other", label: "Other Space", prompt: "professional office environment" },
+    ],
+    exteriorTypes: [
+      { value: "building", label: "Building / Exterior", prompt: "professional office building exterior" },
+      { value: "entrance", label: "Entrance", prompt: "welcoming building entrance" },
+      { value: "other-exterior", label: "Other", prompt: "professional exterior" },
+    ],
+  },
+  real_estate: {
+    spaceTypeLabel: "Space Type",
+    imagesLabel: "Property Images",
+    imageTypeLabel: "Room",
+    descPlaceholder: "Add notes about this property, like '4BR/3BA with updated kitchen, open concept living area...' This will be included in the video generation.",
+    interiorLabel: "Interior Rooms",
+    exteriorLabel: "Exterior Spaces",
+    interiorTypes: interiorRoomTypes,
+    exteriorTypes: exteriorRoomTypes,
+  },
+  general: {
+    spaceTypeLabel: "Area Type",
+    imagesLabel: "Business Photos",
+    imageTypeLabel: "Area",
+    descPlaceholder: "Add notes about this scene, like 'Our main workspace during a busy day...'",
+    interiorLabel: "Indoor Areas",
+    exteriorLabel: "Outdoor Areas",
+    interiorTypes: [
+      { value: "main-area", label: "Main Area", prompt: "well-organized main business area" },
+      { value: "workspace", label: "Workspace", prompt: "productive workspace environment" },
+      { value: "meeting", label: "Meeting Space", prompt: "professional meeting or collaboration space" },
+      { value: "other", label: "Other Indoor", prompt: "professional indoor space" },
+    ],
+    exteriorTypes: [
+      { value: "exterior", label: "Exterior / Entrance", prompt: "inviting business exterior" },
+      { value: "other-exterior", label: "Other Outdoor", prompt: "business outdoor area" },
+    ],
+  },
+};
+
 interface AIAssistantDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -175,6 +307,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoImageInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { businessType } = useBusinessType();
+  const videoPanel = useMemo(() => VIDEO_PANEL_BY_BUSINESS[businessType] ?? VIDEO_PANEL_BY_BUSINESS.real_estate, [businessType]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollAreaRef.current) {
@@ -541,7 +675,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       }
 
       const data = await response.json();
-      const defaultRoomType = spaceType === "interior" ? "living-room" : "front-yard";
+      const defaultRoomType = spaceType === "interior"
+        ? (videoPanel.interiorTypes[0]?.value || "living-room")
+        : (videoPanel.exteriorTypes[0]?.value || "front-yard");
       setVideoImages(prev => [...prev, { url: data.url, preview: previewUrl, roomType: defaultRoomType }]);
       toast({
         title: "Image uploaded",
@@ -985,17 +1121,14 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </Select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Space Type</label>
+                  <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">{videoPanel.spaceTypeLabel}</label>
                   <Select value={spaceType} onValueChange={(val: "interior" | "exterior") => setSpaceType(val)}>
                     <SelectTrigger className="w-full" data-testid="select-space-type">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      {spaceTypes.map((type) => (
-                        <SelectItem key={type.value} value={type.value}>
-                          {type.label}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="interior">{videoPanel.interiorLabel}</SelectItem>
+                      <SelectItem value="exterior">{videoPanel.exteriorLabel}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1003,7 +1136,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
               <div>
                 <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                  Property Images ({videoImages.length}/3) - Select room type for each
+                  {videoPanel.imagesLabel} ({videoImages.length}/3) - Select {videoPanel.imageTypeLabel.toLowerCase()} type for each
                 </label>
                 <input
                   ref={videoImageInputRef}
@@ -1016,7 +1149,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 
                 <div className="space-y-3">
                   {videoImages.map((img, index) => {
-                    const currentRoomOptions = spaceType === "interior" ? interiorRoomTypes : exteriorRoomTypes;
+                    const currentRoomOptions = spaceType === "interior" ? videoPanel.interiorTypes : videoPanel.exteriorTypes;
                     const currentRoomType = currentRoomOptions.find(r => r.value === img.roomType);
                     return (
                       <div
@@ -1026,7 +1159,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
                           <img
                             src={img.preview || img.url}
-                            alt={`Property ${index + 1}`}
+                            alt={`${videoPanel.imageTypeLabel} ${index + 1}`}
                             className="w-full h-full object-cover"
                           />
                           <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-0.5">
@@ -1043,7 +1176,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                             }}
                           >
                             <SelectTrigger className="w-full h-8 text-xs" data-testid={`select-room-type-${index}`}>
-                              <SelectValue placeholder="Select room type" />
+                              <SelectValue placeholder={`Select ${videoPanel.imageTypeLabel.toLowerCase()} type`} />
                             </SelectTrigger>
                             <SelectContent>
                               {currentRoomOptions.map((room) => (
@@ -1084,7 +1217,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       ) : (
                         <div className="flex items-center gap-2">
                           <Upload className="h-5 w-5 text-gray-400" />
-                          <span className="text-xs text-gray-500">Add {spaceType === "interior" ? "Room" : "Exterior"} Image</span>
+                          <span className="text-xs text-gray-500">Add {spaceType === "interior" ? videoPanel.interiorLabel.split(" ")[0] : videoPanel.exteriorLabel.split(" ")[0]} Photo</span>
                         </div>
                       )}
                     </div>
@@ -1103,7 +1236,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 <textarea
                   value={customDescription}
                   onChange={(e) => setCustomDescription(e.target.value)}
-                  placeholder="Add notes about this property, like '4BR/3BA with updated kitchen, open concept living area...' This will be included in the video generation."
+                  placeholder={videoPanel.descPlaceholder}
                   className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                   rows={2}
                   data-testid="input-custom-description"

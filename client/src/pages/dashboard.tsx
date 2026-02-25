@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import UserMenu from "@/components/UserMenu";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useBusinessType } from "@/lib/businessContext";
 import { VERSION_DISPLAY } from "@/lib/version";
 import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -39,6 +40,7 @@ export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
   const [location] = useLocation();
   const aiAssistant = useAIAssistantDialog();
+  const { terms } = useBusinessType();
 
   // Connect to WebSocket for real-time updates
   const { isConnected, lastMessage } = useWebSocket({
@@ -156,7 +158,7 @@ export default function Dashboard() {
                 <span className="sm:hidden">Dashboard</span>
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground hidden md:block">
-                Automated content generation for Omaha real estate market
+                {terms.dashboardSubtitle}
               </p>
             </div>
             <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">

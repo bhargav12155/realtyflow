@@ -29,7 +29,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
-  Globe,
   Home,
   MapPin,
   Menu,
@@ -77,13 +76,6 @@ const navigationItems = [
     label: "Quick Posts",
     href: "/dashboard#social",
     key: "social",
-    isPageLink: true,
-  },
-  {
-    icon: Globe,
-    label: "Social Media",
-    href: "/social-media",
-    key: "social-media",
     isPageLink: true,
   },
   {

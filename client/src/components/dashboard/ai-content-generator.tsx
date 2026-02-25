@@ -1937,7 +1937,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 )}
                 
                 {/* BHHS Compliance Check */}
-                {((isEditing && editedContent.trim().length > 10) || 
+                {isRealEstate && ((isEditing && editedContent.trim().length > 10) || 
                   (!isEditing && lastGenerated.content.trim().length > 10)) && (
                   <ComplianceChecker
                     content={isEditing ? editedContent : lastGenerated.content}

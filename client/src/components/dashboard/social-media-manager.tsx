@@ -2111,7 +2111,7 @@ ${agentName} | ${brokerageName}
                 </p>
               </div>
 
-              {postContent.trim().length > 10 && (
+              {isRealEstate && postContent.trim().length > 10 && (
                 <ComplianceChecker
                   content={postContent}
                   platform={selectedPlatforms[0] || "general"}

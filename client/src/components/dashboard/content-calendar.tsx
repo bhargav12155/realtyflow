@@ -410,7 +410,8 @@ interface ScheduledPost {
 
 export function ContentCalendar() {
   const { user, isLoading: authLoading } = useAuth();
-  const { terms } = useBusinessType();
+  const { businessType, terms } = useBusinessType();
+  const isRealEstate = businessType === "real_estate";
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [localGeneratedPosts, setLocalGeneratedPosts] = useState<typeof initialScheduledContent>([]);
   const [showPreview, setShowPreview] = useState(false);
@@ -1585,7 +1586,7 @@ export function ContentCalendar() {
                     </div>
                     <div>
                       <div className="font-semibold text-sm">{userName}</div>
-                      <div className="text-xs text-gray-500">Real Estate Professional at BHHS</div>
+                      <div className="text-xs text-gray-500">{terms.role}</div>
                       <div className="text-xs text-gray-400">
                         {format(new Date(), "MMM d, h:mm a")}
                       </div>
@@ -1726,7 +1727,7 @@ export function ContentCalendar() {
           )}
           
           {/* BHHS Compliance Checker */}
-          {previewContent && (
+          {isRealEstate && previewContent && (
             <div className="px-4 pt-3">
               <ComplianceChecker
                 content={isEditing ? editedContent : (previewContent.content || "")}

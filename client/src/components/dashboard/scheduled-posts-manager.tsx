@@ -156,7 +156,8 @@ const aiPresets = [
 
 export function ScheduledPostsManager() {
   const { user, isLoading: authLoading } = useAuth();
-  const { terms } = useBusinessType();
+  const { businessType, terms } = useBusinessType();
+  const isRealEstate = businessType === "real_estate";
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -931,7 +932,7 @@ export function ScheduledPostsManager() {
               </div>
 
               {/* BHHS Compliance Check */}
-              {(editContent.trim().length > 10 || aiEditContent.trim().length > 10) && (
+              {isRealEstate && (editContent.trim().length > 10 || aiEditContent.trim().length > 10) && (
                 <ComplianceChecker
                   content={editMode === "manual" ? editContent : aiEditContent}
                   platform={selectedPost?.platform || "general"}

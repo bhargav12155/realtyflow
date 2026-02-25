@@ -26,6 +26,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AiGeneratedBadge } from "@/components/shared/ai-generated-badge";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessType } from "@/lib/businessContext";
 import { ComplianceChecker } from "@/components/shared/compliance-checker";
 import { CharacterCounter } from "@/components/ui/character-counter";
 
@@ -409,6 +410,7 @@ interface ScheduledPost {
 
 export function ContentCalendar() {
   const { user, isLoading: authLoading } = useAuth();
+  const { terms } = useBusinessType();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [localGeneratedPosts, setLocalGeneratedPosts] = useState<typeof initialScheduledContent>([]);
   const [showPreview, setShowPreview] = useState(false);
@@ -851,7 +853,7 @@ export function ContentCalendar() {
           marketData: validMarketData.slice(0, 3), // Top 3 market trends
           timeframe: '15-days',
           focus: 'high-impact',
-          prompt: 'You are a Luxury real estate agent. Create 2 weeks worth of social media posts. Optimize what days are best for each platform.'
+          prompt: `You are a ${terms.role} creating a content calendar. Create 2 weeks worth of social media posts relevant to ${terms.dashboardSubtitle}. Optimize what days are best for each platform.`
         }),
         signal: controller.signal,
       });

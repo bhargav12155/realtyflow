@@ -16,6 +16,8 @@ The backend uses Express.js with TypeScript (ESM), Replit OpenID Connect for aut
 
 **Multi-Vertical Business Type System**: Platform supports 6 business types (Real Estate, Restaurant, Home Services, Retail, Professional Services, General Business). Business type switcher dropdown in sidebar saves preference to user's company profile. Business terminology adapts platform-wide (properties/menu items/services/products). Catalog/Menu Items page (`/menu-items`) provides full CRUD for restaurant menu items, services, products depending on active business type. Database tables: `menu_items` (catalog items with pricing, dietary tags, status), `business_locations` (multi-location support). Business context: `client/src/lib/businessContext.tsx`.
 
+**Business-Type Adaptations (fully implemented)**: `ai-content-generator.tsx` — content type card "Property Feature" dynamically relabels via `terms.featureLabel` (e.g., "Menu Item Feature", "Service Feature"); topic placeholder uses `terms.topicPlaceholder`; "Select a Property" label uses `terms.item`; "Neighborhood Focus" relabels to "Area / Location" for non-real-estate. `social-media-manager.tsx` — main post textarea placeholder adapts using `terms.topicPlaceholder`. `content-calendar.tsx` — auto-fill AI prompt uses `terms.role` and `terms.dashboardSubtitle`. `scheduled-posts-manager.tsx` — preview subtitle and feature card label use `terms.role` / `terms.featureLabel`. `ai-assistant-dialog.tsx` — Video panel labels adapt per `VIDEO_PANEL_BY_BUSINESS` config.
+
 ### System Design Choices
 - **Database**: PostgreSQL with Drizzle ORM, supporting multi-tenancy.
 - **Storage Architecture**: Dual-storage using HeyGen API and AWS S3 for media.

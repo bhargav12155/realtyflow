@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessType } from "@/lib/businessContext";
 import { 
   Calendar, 
   Edit2, 
@@ -155,6 +156,7 @@ const aiPresets = [
 
 export function ScheduledPostsManager() {
   const { user, isLoading: authLoading } = useAuth();
+  const { terms } = useBusinessType();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -167,7 +169,7 @@ export function ScheduledPostsManager() {
   const rawName = user?.name || user?.email?.split('@')[0];
   const userName = rawName 
     ? rawName.charAt(0).toUpperCase() + rawName.slice(1) // Capitalize first letter
-    : "Real Estate Agent";
+    : terms.role;
   const [isEditingWithAI, setIsEditingWithAI] = useState(false);
   const [aiEditContent, setAiEditContent] = useState("");
   const [showPromptEditor, setShowPromptEditor] = useState(false);
@@ -1362,7 +1364,7 @@ export function ScheduledPostsManager() {
                         </div>
                         <div>
                           <div className="font-semibold text-sm">{userName}</div>
-                          <div className="text-xs text-gray-500">Real Estate Professional at BHHS</div>
+                          <div className="text-xs text-gray-500">{terms.role}</div>
                           <div className="text-xs text-gray-400">
                             {format(new Date(previewPost.scheduledFor), "MMM d, h:mm a")}
                           </div>
@@ -1389,7 +1391,7 @@ export function ScheduledPostsManager() {
                       <div className="border rounded bg-gray-50 p-4">
                         <div className="text-center text-gray-600">
                           <Home className="h-8 w-8 mx-auto mb-2" />
-                          <div className="text-sm font-medium">Property Listing</div>
+                          <div className="text-sm font-medium">{terms.featureLabel}</div>
                           <div className="text-xs">Click to view details</div>
                         </div>
                       </div>

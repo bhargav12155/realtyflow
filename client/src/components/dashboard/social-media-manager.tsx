@@ -263,7 +263,7 @@ const promoApps = [
 
 export function SocialMediaManager() {
   const { user } = useAuth();
-  const { businessType } = useBusinessType();
+  const { businessType, terms } = useBusinessType();
   const postTypes = POST_TYPES_BY_BUSINESS[businessType] ?? POST_TYPES_BY_BUSINESS.real_estate;
   const isRealEstate = businessType === "real_estate";
   const APP_PROMO_EMAILS = [
@@ -1996,10 +1996,10 @@ ${agentName} | ${brokerageName}
               <Textarea
                 placeholder={
                   selectedPostType
-                    ? `Enter details for ${postTypes
+                    ? `Enter details for your ${postTypes
                         .find((t) => t.id === selectedPostType)
-                        ?.label.toLowerCase()} post (address, price, features, etc.)...`
-                    : "Share market insights, property highlights, or select a post type above and click AI Optimize..."
+                        ?.label.toLowerCase()} post...`
+                    : `${terms.topicPlaceholder} — or select a post type above and click AI Optimize`
                 }
                 value={postContent}
                 onChange={(e) => setPostContent(e.target.value)}

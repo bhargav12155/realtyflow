@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useBusinessType } from "@/lib/businessContext";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -216,6 +217,15 @@ const getPlatformSuggestions = (
 };
 
 export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
+  const { businessType, terms } = useBusinessType();
+  const isRealEstate = businessType === "real_estate";
+
+  const dynamicContentTypes = useMemo(() => [
+    { value: "blog", label: "Blog Post", icon: FileText, description: "Long-form articles for your website", color: "from-blue-500 to-blue-600" },
+    { value: "social", label: "Social Post", icon: Share2, description: "Quick posts for social media", color: "from-purple-500 to-pink-500" },
+    { value: "property_feature", label: terms.featureLabel, icon: Home, description: isRealEstate ? "Showcase a specific listing" : `Showcase a specific ${terms.item}`, color: "from-amber-500 to-orange-500" },
+  ], [businessType, terms, isRealEstate]);
+
   // Wizard step state
   const [currentStep, setCurrentStep] = useState(1);
   
@@ -1264,7 +1274,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {contentTypes.map((type) => {
+              {dynamicContentTypes.map((type) => {
                 const IconComponent = type.icon;
                 const isSelected = contentType === type.value;
                 return (
@@ -1344,11 +1354,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           <div className="space-y-6" data-testid="wizard-step-2-content">
             <div className="text-center mb-6">
               <h3 className="text-xl font-semibold text-foreground mb-2">
-                {contentType === "property_feature" ? "Select a Property" : "What's your topic?"}
+                {contentType === "property_feature" ? (isRealEstate ? "Select a Property" : `Select a ${terms.itemCapitalized}`) : "What's your topic?"}
               </h3>
               <p className="text-muted-foreground">
                 {contentType === "property_feature" 
-                  ? "Search for a property to feature" 
+                  ? (isRealEstate ? "Search for a property to feature" : `Search for a ${terms.item} to feature`)
                   : "Enter keywords or a topic for your content"}
               </p>
             </div>
@@ -1604,7 +1614,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   </Label>
                   <Input
                     id="topic"
-                    placeholder="e.g., Dundee neighborhood guide, luxury homes Aksarben"
+                    placeholder={terms.topicPlaceholder}
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     className="w-full text-lg py-6"
@@ -1616,7 +1626,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-sm font-medium text-foreground mb-2 block">
-                      Neighborhood Focus
+                      {isRealEstate ? "Neighborhood Focus" : "Area / Location"}
                     </Label>
                     <Select value={neighborhood} onValueChange={setNeighborhood}>
                       <SelectTrigger data-testid="select-neighborhood">
@@ -1702,7 +1712,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Type:</span>
-                  <span className="ml-2 font-medium">{contentTypes.find(t => t.value === contentType)?.label}</span>
+                  <span className="ml-2 font-medium">{dynamicContentTypes.find(t => t.value === contentType)?.label}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Style:</span>

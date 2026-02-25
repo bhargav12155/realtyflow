@@ -1444,11 +1444,13 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         {message.attachments.map((attachment, idx) => (
                           <div key={idx}>
                             {attachment.type.startsWith('image/') ? (
-                              <img 
-                                src={attachment.url} 
-                                alt={attachment.name}
-                                className="max-w-[150px] max-h-[100px] rounded object-cover"
-                              />
+                              <div className="w-[200px] h-[140px] rounded overflow-hidden flex-shrink-0">
+                                <img 
+                                  src={attachment.url} 
+                                  alt={attachment.name}
+                                  className="w-full h-full object-contain bg-black/5"
+                                />
+                              </div>
                             ) : (
                               <div className="flex items-center gap-1 bg-white/20 dark:bg-black/20 rounded px-2 py-1 text-xs">
                                 <FileText className="h-3 w-3" />

@@ -42,7 +42,7 @@ export class GeminiService {
     }
 
     try {
-      console.log(`💬 [Gemini] Processing chat message with gemini-2.0-flash`);
+      console.log(`💬 [Gemini] Processing chat message with gemini-2.5-flash`);
 
       const systemPrompt = customSystemPrompt || `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
 You help with:
@@ -72,7 +72,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
       });
 
       const response = await client.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-2.5-flash",
         contents,
         config: {
           systemInstruction: systemPrompt,

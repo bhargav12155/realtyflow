@@ -1660,7 +1660,7 @@ Return your response in this exact JSON format:
         const { GoogleGenAI } = await import("@google/genai");
         const geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const geminiResponse = await geminiClient.models.generateContent({
-          model: "gemini-2.0-flash",
+          model: "gemini-2.5-flash",
           contents: `${promoSystemPrompt}\n\n${promoUserPrompt}`,
         });
         const rawText = geminiResponse.text ?? "";

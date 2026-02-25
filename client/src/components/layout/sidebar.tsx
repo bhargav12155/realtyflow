@@ -63,6 +63,7 @@ const navigationItems = [
     href: "/dashboard#ai-content",
     key: "ai-content",
     isPageLink: true,
+    showOnlyFor: ["real_estate"],
   },
   {
     icon: Package,
@@ -354,6 +355,10 @@ function SidebarContent({
       <nav className="flex-1 px-4 py-6 overflow-y-auto">
         <div className="space-y-1">
           {navigationItems.map((item: any) => {
+            if (item.showOnlyFor && !item.showOnlyFor.includes(businessType)) {
+              return null;
+            }
+
             const isActive = activeView === item.key;
             const isAdvancedAdvertising = item.key === "advertising";
             const hasSubItems = item.isCollapsible && item.subItems;

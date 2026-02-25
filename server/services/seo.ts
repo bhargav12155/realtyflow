@@ -92,15 +92,13 @@ export class SEOService {
     marketData?: any[]
   ): Promise<AIGeneratedKeyword[]> {
     try {
-      if (!process.env.OPENAI_API_KEY) {
-        console.warn('⚠️  OpenAI API key not found - using fallback keywords (not recommended)');
+      if (!process.env.GEMINI_API_KEY) {
+        console.warn('⚠️  GEMINI_API_KEY not found - using fallback keywords');
         return this.getFallbackKeywords();
       }
 
-      const { OpenAI } = await import('openai');
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
+      const { GoogleGenAI } = await import('@google/genai');
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       // Build market intelligence context from real data
       let marketContext = '';
@@ -144,16 +142,15 @@ Return ONLY a valid JSON array with this exact structure:
   }
 ]`;
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 2000,
+      const completion = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { maxOutputTokens: 2000 },
       });
 
-      let responseText = completion.choices[0]?.message?.content?.trim();
+      let responseText = (completion.text || '').trim();
       if (!responseText) {
-        throw new Error('Empty response from OpenAI');
+        throw new Error('Empty response from Gemini');
       }
 
       // Remove markdown code blocks if present

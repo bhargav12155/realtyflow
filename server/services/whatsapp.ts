@@ -1,6 +1,6 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export class WhatsAppService {
   
@@ -196,15 +196,15 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
     ];
 
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages,
-        max_tokens: 300,
-        temperature: 0.7,
-        response_format: { type: "json_object" },
+      const systemMsg = messages.find((m: any) => m.role === 'system')?.content;
+      const otherMsgs = messages.filter((m: any) => m.role !== 'system');
+      const completion = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: otherMsgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        config: { systemInstruction: systemMsg, maxOutputTokens: 300, responseMimeType: 'application/json' },
       });
 
-      const content = completion.choices[0]?.message?.content || '{"response": "Thanks for reaching out! How can I help you with your real estate needs?", "extractedInfo": {}}';
+      const content = completion.text || '{"response": "Thanks for reaching out! How can I help you with your real estate needs?", "extractedInfo": {}}';
       const parsed = JSON.parse(content);
       return {
         response: parsed.response || "Thanks for your message! How can I help?",

@@ -33,8 +33,8 @@ export interface MarketIntelligence {
 export class MarketIntelligenceService {
   async generateIntelligence(marketData: any[]): Promise<MarketIntelligence> {
     try {
-      if (!process.env.OPENAI_API_KEY) {
-        console.warn('⚠️  OpenAI API key not found - returning basic market intelligence');
+      if (!process.env.GEMINI_API_KEY) {
+        console.warn('⚠️  GEMINI_API_KEY not found - returning basic market intelligence');
         return this.getBasicIntelligence(marketData);
       }
 
@@ -42,10 +42,8 @@ export class MarketIntelligenceService {
         throw new Error('No market data available for analysis');
       }
 
-      const { OpenAI } = await import('openai');
-      const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
+      const { GoogleGenAI } = await import('@google/genai');
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       // Calculate base statistics
       const overview = this.calculateOverview(marketData);
@@ -104,16 +102,15 @@ Return ONLY a valid JSON object with this structure:
   ]
 }`;
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.7,
-        max_tokens: 1500,
+      const completion = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { maxOutputTokens: 1500 },
       });
 
-      let responseText = completion.choices[0]?.message?.content?.trim();
+      let responseText = (completion.text || '').trim();
       if (!responseText) {
-        throw new Error('Empty response from OpenAI');
+        throw new Error('Empty response from Gemini');
       }
 
       // Remove markdown code blocks if present

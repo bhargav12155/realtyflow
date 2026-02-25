@@ -439,33 +439,18 @@ export class VideoStudioService {
     const prompt = this.buildScriptPrompt(topic, type, duration);
 
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      const { GoogleGenAI } = await import("@google/genai");
+      const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+      const result = await genAI.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: {
+          systemInstruction: "You are a professional video script writer. Write concise, engaging scripts for AI avatar videos. Keep scripts under 1500 characters for optimal video generation.",
+          maxOutputTokens: 500,
         },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a professional video script writer. Write concise, engaging scripts for AI avatar videos. Keep scripts under 1500 characters for optimal video generation.",
-            },
-            { role: "user", content: prompt },
-          ],
-          max_tokens: 500,
-          temperature: 0.7,
-        }),
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.choices[0]?.message?.content || this.getFallbackScript(topic);
+      return result.text || this.getFallbackScript(topic);
     } catch (error) {
       console.error("Script generation failed, using fallback:", error);
       return this.getFallbackScript(topic);

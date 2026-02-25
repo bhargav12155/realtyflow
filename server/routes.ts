@@ -1640,33 +1640,16 @@ Return your response in this exact JSON format:
 
       let result: any;
 
-      // Try OpenAI first
-      try {
-        const { default: OpenAI } = await import("openai");
-        const openai = new OpenAI();
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            { role: "system", content: promoSystemPrompt },
-            { role: "user", content: promoUserPrompt }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.9,
-        });
-        result = JSON.parse(completion.choices[0].message.content || "{}");
-      } catch (openaiErr: any) {
-        // OpenAI unavailable — fall back to Gemini
-        console.warn("⚠️ [PromoApp] OpenAI failed, falling back to Gemini:", openaiErr?.status || openaiErr?.message);
-        const { GoogleGenAI } = await import("@google/genai");
-        const geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const geminiResponse = await geminiClient.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: `${promoSystemPrompt}\n\n${promoUserPrompt}`,
-        });
-        const rawText = geminiResponse.text ?? "";
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        result = jsonMatch ? JSON.parse(jsonMatch[0]) : { content: rawText, hashtags: [] };
-      }
+      const { GoogleGenAI } = await import("@google/genai");
+      const geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const geminiResponse = await geminiClient.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: `${promoSystemPrompt}\n\n${promoUserPrompt}` }] }],
+        config: { responseMimeType: "application/json", maxOutputTokens: 1000 },
+      });
+      const rawText = geminiResponse.text ?? "";
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      result = jsonMatch ? JSON.parse(jsonMatch[0]) : { content: rawText, hashtags: [] };
       let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
       
       content = content.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/`([^`]*)`/g, "$1");
@@ -15354,9 +15337,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(400).json({ error: "File URL is required" });
       }
 
-      // Import OpenAI here to avoid issues with module loading
-      const { default: OpenAI } = await import("openai");
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const { GoogleGenAI } = await import("@google/genai");
+      const openai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
       let messages: any[] = [];
       let extractedText = "";
@@ -15516,18 +15498,24 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         });
       }
 
-      console.log("🤖 Sending to OpenAI for analysis...");
+      console.log("🤖 Sending to Gemini for analysis...");
 
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o", // Use GPT-4O for vision capabilities
-        messages,
-        response_format: { type: "json_object" },
-        max_tokens: 1500,
+      const systemMsg = messages.find((m: any) => m.role === "system")?.content;
+      const otherMsgs = messages.filter((m: any) => m.role !== "system");
+      const geminiContents = otherMsgs.map((m: any) => {
+        const parts = Array.isArray(m.content)
+          ? m.content.map((p: any) => p.type === "image_url" ? { text: `[Image URL for analysis: ${p.image_url?.url}]` } : { text: p.text || "" })
+          : [{ text: m.content || "" }];
+        return { role: m.role === "assistant" ? "model" : "user", parts };
       });
 
-      const analysisResult = JSON.parse(
-        response.choices[0].message.content || "{}"
-      );
+      const response = await openai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: geminiContents,
+        config: { systemInstruction: systemMsg, responseMimeType: "application/json", maxOutputTokens: 1500 },
+      });
+
+      const analysisResult = JSON.parse(response.text || "{}");
 
       // Debug logging to help troubleshoot
       console.log(

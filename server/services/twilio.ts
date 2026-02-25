@@ -1,10 +1,10 @@
 import twilio from 'twilio';
 import type { TwilioSettings, TwilioMessage, TwilioConversation } from '@shared/schema';
-import OpenAI from 'openai';
+import { GoogleGenAI } from '@google/genai';
 
 const { MessagingResponse, VoiceResponse } = twilio.twiml;
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
 export class TwilioService {
   generateSmsResponse(message: string): string {
@@ -67,14 +67,15 @@ export class TwilioService {
       const systemPrompt = this.buildSystemPrompt(settings);
       const messages = this.buildConversationMessages(conversationHistory, message, systemPrompt);
       
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages,
-        max_tokens: 300,
-        temperature: 0.7,
+      const systemMsg = messages.find((m: any) => m.role === 'system')?.content;
+      const otherMsgs = messages.filter((m: any) => m.role !== 'system');
+      const response = await genAI.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: otherMsgs.map((m: any) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        config: { systemInstruction: systemMsg, maxOutputTokens: 300 },
       });
       
-      return response.choices[0]?.message?.content || this.getFallbackResponse(settings);
+      return response.text || this.getFallbackResponse(settings);
     } catch (error) {
       console.error('Error generating chatbot response:', error);
       return this.getFallbackResponse(settings);

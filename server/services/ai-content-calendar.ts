@@ -20,14 +20,12 @@ export class AIContentCalendarGenerator {
   }
 
   async initialize() {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OpenAI API key not configured');
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('Gemini API key not configured');
     }
     
-    const { OpenAI } = await import('openai');
-    this.openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    const { GoogleGenAI } = await import('@google/genai');
+    this.openai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 
   /**
@@ -135,16 +133,15 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
 ]`;
 
     try {
-      const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.8,
-        max_completion_tokens: 16000,
+      const completion = await this.openai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: { maxOutputTokens: 8000 },
       });
 
-      let responseText = completion.choices[0]?.message?.content?.trim();
+      let responseText = (completion.text || '').trim();
       if (!responseText) {
-        throw new Error('Empty response from OpenAI');
+        throw new Error('Empty response from Gemini');
       }
 
       // Remove markdown code blocks if present
@@ -224,7 +221,7 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
         posts: validatedPosts,
         metadata: {
           generatedAt: new Date().toISOString(),
-          model: 'gpt-4o-mini',
+          model: 'gemini-2.5-flash',
           planDuration: `${weeks} weeks (${days} days)`,
           userContext: `Service areas: ${areasText}, Audience: ${audienceText}`,
         },

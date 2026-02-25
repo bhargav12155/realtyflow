@@ -1402,9 +1402,14 @@ ${agentName} | ${brokerageName}
                       data-testid={`checkbox-${account.platform}`}
                     />
                     <PlatformIcon className={`h-4 w-4 ${platformInfo.color}`} />
-                    <span className="text-sm font-medium capitalize">
-                      {account.platform}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-medium capitalize">
+                        {account.platform}
+                      </span>
+                      {account.platform === "instagram" && (
+                        <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full font-medium">Temporarily down</span>
+                      )}
+                    </div>
                   </div>
                   <div
                     className="flex items-center gap-2"
@@ -2365,6 +2370,9 @@ ${agentName} | ${brokerageName}
                               <div className="flex items-center gap-1">
                                 <span className="text-sm capitalize">{account.platform}</span>
                                 {(account.platform === "x" || account.platform === "twitter") && (
+                                  <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full font-medium">Temporarily down</span>
+                                )}
+                                {account.platform === "instagram" && (
                                   <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full font-medium">Temporarily down</span>
                                 )}
                               </div>

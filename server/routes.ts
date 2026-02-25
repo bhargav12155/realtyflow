@@ -1645,11 +1645,18 @@ Return your response in this exact JSON format:
       const geminiResponse = await geminiClient.models.generateContent({
         model: "gemini-2.5-flash",
         contents: [{ role: "user", parts: [{ text: `${promoSystemPrompt}\n\n${promoUserPrompt}` }] }],
-        config: { responseMimeType: "application/json", maxOutputTokens: 1000 },
+        config: { maxOutputTokens: 1500 },
       });
-      const rawText = geminiResponse.text ?? "";
+      const rawText = (geminiResponse.text ?? "")
+        .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       result = jsonMatch ? JSON.parse(jsonMatch[0]) : { content: rawText, hashtags: [] };
+      if (result && typeof result.content === "string") {
+        const inner = result.content.trim();
+        if (inner.startsWith("{")) {
+          try { result = JSON.parse(inner); } catch {}
+        }
+      }
       let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
       
       content = content.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/`([^`]*)`/g, "$1");

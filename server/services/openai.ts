@@ -9,6 +9,30 @@ function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 }
 
+function extractJSON(raw: string, fallback: any = {}): any {
+  try {
+    const stripped = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    const match = stripped.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    const parsed = JSON.parse(match ? match[0] : stripped);
+    if (parsed && typeof parsed.content === "string") {
+      const inner = parsed.content.trim();
+      if (inner.startsWith("{") || inner.startsWith("[")) {
+        try {
+          const nested = JSON.parse(inner);
+          if (nested && nested.content) return nested;
+        } catch {}
+      }
+    }
+    return parsed;
+  } catch {
+    return fallback;
+  }
+}
+
 // Gemini-compatible client that mimics the OpenAI client interface.
 // Used by makeRequest() so existing callbacks work unchanged.
 function createGeminiCompatibleClient() {
@@ -264,13 +288,12 @@ export class OpenAIService {
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: `You are an expert real estate content writer and SEO specialist focused on the Omaha, Nebraska market. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in Omaha. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON.`,
+          systemInstruction: `You are an expert real estate content writer and SEO specialist focused on the Omaha, Nebraska market. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in Omaha. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON only — no markdown, no code blocks.`,
           maxOutputTokens: 2000,
-          responseMimeType: "application/json",
         },
       });
 
-      const result = JSON.parse(response.text || "{}");
+      const result = extractJSON(response.text || "{}", {});
       return {
         title: result.title || "Untitled Content",
         content: result.content || "",
@@ -381,13 +404,12 @@ export class OpenAIService {
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are an expert social media content creator for real estate. Always respond with valid JSON.",
-          maxOutputTokens: 800,
-          responseMimeType: "application/json",
+          systemInstruction: "You are an expert social media content creator for real estate. Always respond with valid JSON only — no markdown, no code blocks, just raw JSON.",
+          maxOutputTokens: 1500,
         },
       });
 
-      return JSON.parse(response.text || "{}");
+      return extractJSON(response.text || "{}", { content: `Check out our latest listings in ${neighborhood || "Omaha"}! #RealEstate #Omaha`, hashtags: ["RealEstate", "Omaha"] });
     } catch (error) {
       console.error("Gemini social media post error:", error);
       return { content: `Check out our latest listings in ${neighborhood || "Omaha"}! #RealEstate #Omaha`, hashtags: ["RealEstate", "Omaha"] };
@@ -415,13 +437,12 @@ export class OpenAIService {
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are an expert social media content creator for real estate. Always respond with valid JSON.",
-          maxOutputTokens: 800,
-          responseMimeType: "application/json",
+          systemInstruction: "You are an expert social media content creator for real estate. Always respond with valid JSON only — no markdown, no code blocks, just raw JSON.",
+          maxOutputTokens: 1500,
         },
       });
 
-      return JSON.parse(response.text || "{}");
+      return extractJSON(response.text || "{}", { content: `${params.topic} in ${params.neighborhood || "Omaha"} - contact us today! #RealEstate`, hashtags: ["RealEstate"] });
     } catch (error) {
       console.error("Gemini platform-specific content error:", error);
       return { content: `${params.topic} in ${params.neighborhood || "Omaha"} - contact us today! #RealEstate`, hashtags: ["RealEstate"] };

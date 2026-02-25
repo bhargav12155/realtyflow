@@ -759,6 +759,31 @@ export function SocialMediaManager() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });
 
+      // Handle partial or full failure from the server (success: false or 0 results)
+      if (data?.success === false || (data?.results !== undefined && data.results.length === 0 && data?.errors?.length > 0)) {
+        const errorDetails = data?.errors?.map((e: any) => e.error).join(" | ") || data?.message || "Post failed";
+        toast({
+          title: "Post Failed",
+          description: errorDetails,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Show partial success if some platforms failed
+      if (data?.errors?.length > 0 && data?.results?.length > 0) {
+        const failedPlatforms = data.errors.map((e: any) => e.platform).join(", ");
+        toast({
+          title: "Partially Posted",
+          description: `Posted successfully, but failed on: ${failedPlatforms}. ${data.errors[0]?.error || ""}`,
+          variant: "destructive",
+        });
+        setPostContent("");
+        setSelectedMediaIds([]);
+        setSelectedPropertyPhotoUrl(null);
+        return;
+      }
+
       const description = data?.sent != null && data?.total != null
         ? `Sent to ${data.sent} of ${data.total} recipients${data.failed > 0 ? ` (${data.failed} failed)` : ""}`
         : "Your content has been shared across selected platforms";

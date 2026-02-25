@@ -3420,14 +3420,21 @@ Return your response in this exact JSON format:
           }
 
           const tokenData = await tokenResponse.json();
-          
+          console.log("🎵 TikTok OAuth token exchange response:", JSON.stringify(tokenData, null, 2));
+
           // TikTok API returns tokens nested inside a 'data' object
           const data = tokenData.data || tokenData;
           const accessToken = data.access_token;
           const refreshToken = data.refresh_token;
           const openId = data.open_id;
 
-          console.log("🎵 TikTok OAuth token exchange response:", JSON.stringify(tokenData, null, 2));
+          // Catch TikTok returning a 200 with an error body (no actual token)
+          if (!accessToken) {
+            const errMsg = tokenData.error || tokenData.error_description || data.error || "No access token returned";
+            console.error("🎵 TikTok OAuth: token exchange returned no access_token:", errMsg, tokenData);
+            return res.redirect(`${baseUrl}/?oauth_error=tiktok_no_token&reason=${encodeURIComponent(errMsg)}`);
+          }
+
           console.log("🎵 TikTok OAuth token exchange successful", {
             hasAccessToken: !!accessToken,
             hasRefreshToken: !!refreshToken,
@@ -4081,10 +4088,17 @@ Return your response in this exact JSON format:
 
               // Check if account is connected (except YouTube which uses mock)
               if (targetPlatform.toLowerCase() !== "youtube") {
-                if (!connectedAccount || !connectedAccount.accessToken) {
+                if (!connectedAccount) {
                   errors.push({
                     platform: targetPlatform,
-                    error: `${targetPlatform} account not connected`,
+                    error: `${targetPlatform} account not connected. Please connect it in Quick Posts settings.`,
+                  });
+                  continue;
+                }
+                if (!connectedAccount.accessToken) {
+                  errors.push({
+                    platform: targetPlatform,
+                    error: `${targetPlatform} needs to be reconnected — your session token is missing. Please disconnect and reconnect ${targetPlatform} in the platform list above.`,
                   });
                   continue;
                 }

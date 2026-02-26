@@ -19891,6 +19891,27 @@ Be helpful, professional, and concise. Always let users know what the platform c
   // WHATSAPP BUSINESS API ROUTES
   // =====================================================
 
+  // Debug WhatsApp token (shows length/format without exposing the value)
+  app.get("/api/whatsapp/debug-token", requireAuth, async (req, res) => {
+    const userId = req.user?.id;
+    const settings = userId ? await storage.getWhatsappSettingsByUserId(String(userId)) : null;
+    const token = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "";
+    const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+    const trimmed = token.trim();
+    res.json({
+      source: settings?.accessToken ? "database" : "environment_variable",
+      token_length: token.length,
+      trimmed_length: trimmed.length,
+      has_leading_whitespace: token.length > 0 && token[0] !== trimmed[0],
+      has_trailing_whitespace: token.length > 0 && token[token.length - 1] !== trimmed[trimmed.length - 1],
+      starts_with: token.length >= 10 ? token.substring(0, 10) + "..." : "(too short)",
+      ends_with: token.length >= 5 ? "..." + token.substring(token.length - 5) : "(too short)",
+      looks_like_valid_facebook_token: /^EAA[A-Za-z0-9]+$/.test(trimmed),
+      phone_number_id: phoneNumberId || "(not set)",
+      phone_number_id_is_numeric: /^\d+$/.test(phoneNumberId),
+    });
+  });
+
   // Get WhatsApp settings for current user
   app.get("/api/whatsapp/settings", requireAuth, async (req, res) => {
     try {
@@ -19939,8 +19960,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const settings = await storage.getWhatsappSettingsByUserId(String(userId));
       
-      const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-      const accessToken = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
+      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
 
       if (!accessToken) {
         return res.status(400).json({ error: "WhatsApp not configured. Please add a valid access token in your WhatsApp Business settings or set WHATSAPP_ACCESS_TOKEN environment variable." });

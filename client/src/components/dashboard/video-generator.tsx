@@ -131,6 +131,13 @@ export function VideoGenerator() {
   const [uploadVideoTitle, setUploadVideoTitle] = useState("");
   const [uploadVideoDescription, setUploadVideoDescription] = useState("");
 
+  // SJinn AI state
+  const [aiEngine, setAiEngine] = useState<"heygen" | "sjinn_auto" | "sjinn_veo3" | "sjinn_sora2">("heygen");
+  const [sjinnChatId, setSjinnChatId] = useState<string | null>(null);
+  const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
+  const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const previousStatusesRef = useRef<Record<string, string>>({});
@@ -254,6 +261,73 @@ export function VideoGenerator() {
         description: error.message || "Failed to create video",
         variant: "destructive",
       });
+    },
+  });
+
+  // SJinn polling helpers
+  const stopSjinnPolling = () => {
+    if (sjinnPollRef.current) {
+      clearInterval(sjinnPollRef.current);
+      sjinnPollRef.current = null;
+    }
+  };
+
+  const startSjinnPolling = (chatId: string) => {
+    stopSjinnPolling();
+    sjinnPollRef.current = setInterval(async () => {
+      try {
+        const response = await apiRequest("GET", `/api/sjinn/status/${chatId}`);
+        const data = await response.json();
+        if (data.status === "completed" && data.videoUrl) {
+          stopSjinnPolling();
+          setSjinnStatus("completed");
+          setSjinnVideoUrl(data.videoUrl);
+          toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view." });
+        } else if (data.status === "failed") {
+          stopSjinnPolling();
+          setSjinnStatus("failed");
+          toast({ title: "SJinn Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+        } else {
+          setSjinnStatus("processing");
+        }
+      } catch (err) {
+        console.error("SJinn poll error:", err);
+      }
+    }, 15000);
+  };
+
+  const sjinnMutation = useMutation({
+    mutationFn: async () => {
+      const prompt = generatedScript || videoTopic || videoTitle;
+      if (!prompt?.trim()) throw new Error("Please enter a topic or generate a script first");
+      const modelMap: Record<string, string> = {
+        sjinn_auto: "auto",
+        sjinn_veo3: "veo3",
+        sjinn_sora2: "sora2",
+      };
+      const response = await apiRequest("POST", "/api/sjinn/create-video", {
+        prompt: prompt.trim(),
+        model: modelMap[aiEngine] || "auto",
+        quality: "quality",
+      });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.error) {
+        toast({ title: "SJinn Error", description: data.error, variant: "destructive" });
+        return;
+      }
+      setSjinnChatId(data.chatId);
+      setSjinnStatus("pending");
+      toast({
+        title: "SJinn Video Started!",
+        description: "SJinn AI is creating your video. This can take 5-15 minutes.",
+        duration: 8000,
+      });
+      startSjinnPolling(data.chatId);
+    },
+    onError: (error: any) => {
+      toast({ title: "SJinn Failed", description: error?.message || "Could not start SJinn video", variant: "destructive" });
     },
   });
 
@@ -1001,7 +1075,55 @@ export function VideoGenerator() {
                 </div>
               </div>
 
-              {/* Video Platform */}
+              {/* AI Engine Selector */}
+              <div>
+                <Label htmlFor="ai-engine" className="text-sm font-medium">
+                  AI Video Engine
+                </Label>
+                <Select
+                  value={aiEngine}
+                  onValueChange={(v) => setAiEngine(v as typeof aiEngine)}
+                  data-testid="select-ai-engine"
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="heygen">
+                      <div className="flex flex-col items-start">
+                        <span>HeyGen (Talking Avatar)</span>
+                        <span className="text-xs text-muted-foreground">Animate an avatar with voice — 1-3 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sjinn_auto">
+                      <div className="flex flex-col items-start">
+                        <span>SJinn Auto (Kling / Seedance / Hailuo)</span>
+                        <span className="text-xs text-muted-foreground">AI auto-selects best model — 5-15 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sjinn_veo3">
+                      <div className="flex flex-col items-start">
+                        <span>SJinn Veo3</span>
+                        <span className="text-xs text-muted-foreground">Google Veo3 cinematic video with audio — 5-15 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sjinn_sora2">
+                      <div className="flex flex-col items-start">
+                        <span>SJinn Sora2</span>
+                        <span className="text-xs text-muted-foreground">OpenAI Sora2 consistent characters — 5-15 min</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {aiEngine !== "heygen" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    SJinn will use your topic/script as the video prompt. Avatar selection is not needed.
+                  </p>
+                )}
+              </div>
+
+              {/* Video Platform (social destination) — HeyGen only */}
+              {aiEngine === "heygen" && (
               <div>
                 <Label htmlFor="video-platform" className="text-sm font-medium">
                   Video Platform
@@ -1031,6 +1153,7 @@ export function VideoGenerator() {
                   </SelectContent>
                 </Select>
               </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1145,6 +1268,21 @@ export function VideoGenerator() {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap gap-2">
+                {aiEngine !== "heygen" ? (
+                  <Button
+                    onClick={() => sjinnMutation.mutate()}
+                    disabled={sjinnMutation.isPending || sjinnStatus === "processing" || sjinnStatus === "pending"}
+                    className="bg-primary text-primary-foreground hover:bg-primary/90"
+                    data-testid="button-generate-sjinn"
+                  >
+                    <FileVideo className="mr-2 h-4 w-4" />
+                    {sjinnMutation.isPending || sjinnStatus === "pending" || sjinnStatus === "processing"
+                      ? "SJinn is working..."
+                      : sjinnStatus === "completed"
+                        ? "Generate Another"
+                        : "Generate with SJinn"}
+                  </Button>
+                ) : (
                 <Button
                   onClick={handleCreateVideo}
                   disabled={
@@ -1161,6 +1299,7 @@ export function VideoGenerator() {
                       ? "Sending to HeyGen..."
                       : "Create & Generate Video"}
                 </Button>
+                )}
 
                 {videoTopic && (
                   <Button
@@ -1176,6 +1315,39 @@ export function VideoGenerator() {
                   </Button>
                 )}
               </div>
+
+              {/* SJinn result panel */}
+              {aiEngine !== "heygen" && (sjinnStatus === "pending" || sjinnStatus === "processing" || sjinnStatus === "completed" || sjinnStatus === "failed") && (
+                <div className="mt-4 border rounded-lg p-4">
+                  {sjinnStatus === "completed" && sjinnVideoUrl ? (
+                    <div className="space-y-3">
+                      <p className="font-medium text-green-700 dark:text-green-400">SJinn video is ready!</p>
+                      <video src={sjinnVideoUrl} controls className="w-full rounded-lg max-h-64" data-testid="sjinn-video-result" />
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => { window.open(sjinnVideoUrl!, "_blank"); }}>
+                          Open in New Tab
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => { setSjinnStatus("idle"); setSjinnVideoUrl(null); setSjinnChatId(null); }}>
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+                  ) : sjinnStatus === "failed" ? (
+                    <div className="text-center py-6 space-y-2">
+                      <p className="text-red-500 font-medium">SJinn generation failed. Please try again.</p>
+                      <Button variant="outline" size="sm" onClick={() => { setSjinnStatus("idle"); setSjinnVideoUrl(null); }}>Reset</Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 py-4">
+                      <div className="animate-spin h-5 w-5 border-2 border-[#D4AF37] border-t-transparent rounded-full" />
+                      <div>
+                        <p className="font-medium">SJinn AI is generating your video...</p>
+                        <p className="text-sm text-muted-foreground">This can take 5-15 minutes. Status: {sjinnStatus}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

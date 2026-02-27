@@ -1,7 +1,8 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "wouter";
-import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, ArrowLeft, Wand2, ListChecks, CheckCircle2 } from "lucide-react";
+import { Sidebar } from "@/components/layout/sidebar";
+import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, Wand2, ListChecks, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -462,14 +463,12 @@ export default function EventsCalendarPage() {
     .slice(0, 10);
 
   return (
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      <Sidebar activeView="events" />
+      <main className="flex-1 overflow-y-auto">
     <div className="container mx-auto p-6 max-w-7xl">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" data-testid="btn-back-dashboard">
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-          </Link>
           <div>
             <h1 className="text-3xl font-bold flex items-center gap-2" data-testid="page-title">
               <CalendarDays className="w-8 h-8" />
@@ -1345,6 +1344,8 @@ export default function EventsCalendarPage() {
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+      </main>
     </div>
   );
 }

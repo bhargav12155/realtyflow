@@ -54,6 +54,7 @@ import { twilioService } from "./services/twilio";
 import { storage } from "./storage";
 import twilio from "twilio";
 import { realtimeService } from "./websocket";
+import { sjinnService } from "./services/sjinn";
 
 // Shared streaming service instance (singleton) to maintain session state across requests
 let streamingServiceInstance: HeyGenStreamingService | null = null;
@@ -20368,6 +20369,41 @@ Be helpful, professional, and concise. Always let users know what the platform c
   // =====================================================
   // BUSINESS LOCATIONS ROUTES
   // =====================================================
+  // =====================================================
+  // SJinn AI Video Generation Routes
+  // =====================================================
+  app.post("/api/sjinn/create-video", requireAuth, async (req: any, res) => {
+    try {
+      const { prompt, model, quality } = req.body;
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+      const result = await sjinnService.createVideoTask(
+        prompt,
+        model || "auto",
+        quality || "quality"
+      );
+      res.json(result);
+    } catch (error: any) {
+      console.error("SJinn create-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to start SJinn video task" });
+    }
+  });
+
+  app.get("/api/sjinn/status/:chatId", requireAuth, async (req: any, res) => {
+    try {
+      const { chatId } = req.params;
+      if (!chatId) {
+        return res.status(400).json({ error: "chatId is required" });
+      }
+      const result = await sjinnService.getTaskStatus(chatId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("SJinn status error:", error);
+      res.status(500).json({ error: error.message || "Failed to get SJinn task status" });
+    }
+  });
+
   app.get("/api/business-locations", requireAuth, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;

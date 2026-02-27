@@ -1,0 +1,64 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+
+Facebook
+Use cases
+Customize
+Customize use case
+Customize use case settings and permissions to make your app work the way you want it to.
+Use case switcher
+​
+Connect on WhatsApp
+​
+​
+You have alerts that need review
+Go to WhatsApp Manager
+​
+Missing valid payment method
+Free tier conversations can only be initiated by your customers. You won't be able to message customers until you add a payment method or update your existing payment method. Learn more about free tier conversations.
+Access Token
+Clicking Generate access token will allow you to select one or more WhatsApp Business accounts to generate temporary tokens for.
+Access Token Copyable Input
+Access Token String
+
+Send and receive messages
+Configure how you will send and receive messages from your WhatsApp Business account.
+Step 1: Select phone numbers
+Test phone numbers allow you to send free messages for 90 days. You can use your own phone number, which is subject to limits and pricing. About pricing
+From
+From
++1 402 320 4775
+​
+Phone number ID: 1009337698927791
+WhatsApp Business Account ID: 2690438238000842
+To
+To
+Country
+US +1
+​
+To
+
+Step 2: Send messages with the API
+You can send a test message by clicking Send message, or by copying this command, pasting it into Terminal, and pressing enter. If you want to create a new test message, you can create your own template from WhatsApp Manager. About message templates
+12345
+curl -i -X POST \  https://graph.facebook.com/v22.0/1009337698927791/messages \  -H 'Authorization: Bearer <access token>' \  -H 'Content-Type: application/json' \  -d '{ "messaging_product": "whatsapp", "to": "", "type": "template", "template": { "name": "hello_world", "language": { "code": "en_US" } } }'
+
+Step 3: Configure webhooks to receive messages
+Create a custom webhook URL or use services that help you set up an endpoint.
+Step 4: Learn about the API and build your app
+Review the developer documentation to learn how to build your app and start sending messages.
+Step 5: Add a phone number
+Add and verify your business phone number to start sending messages at scale. You can manage your numbers at any time from WhatsApp Manager.
+Step 6: Add payment method
+Add a payment method to start sending business-initiated messages to your customers. About pricing
+​
+Improve ROI with marketing messages with optimizations
+Sending marketing messages with optimizations through Marketing Messages API for WhatsApp delivers improved performance compared to non-optimized messages.
+View integration guide
+Not now

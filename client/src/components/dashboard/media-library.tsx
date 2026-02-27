@@ -12,6 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Check,
@@ -65,6 +66,12 @@ export function MediaLibrary({
   // Fetch media assets
   const { data: mediaAssets = [], isLoading } = useQuery<MediaAsset[]>({
     queryKey: ["/api/media", filter !== "all" ? filter : undefined],
+    queryFn: async () => {
+      const url = filter !== "all" ? `/api/media?type=${filter}` : "/api/media";
+      const res = await fetch(url, { credentials: "include", headers: getAuthHeaders() });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
   });
 
   // Upload mutation

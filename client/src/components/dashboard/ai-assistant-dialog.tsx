@@ -1395,7 +1395,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         {!videoMode && (
         <div
           ref={scrollAreaRef}
-          className="flex-1 overflow-y-auto px-4 py-4"
+          className="flex-1 min-h-0 overflow-y-auto px-4 py-4"
           data-testid="scroll-area-messages"
         >
           {messages.length === 0 ? (

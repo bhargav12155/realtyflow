@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -12,6 +11,7 @@ import {
   Image,
   Loader2,
   Paperclip,
+  Plus,
   Send,
   Trash2,
   User,
@@ -50,6 +50,7 @@ export default function AiAssistantPage() {
   const [message, setMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [isNewChat, setIsNewChat] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -58,7 +59,8 @@ export default function AiAssistantPage() {
     queryKey: ["/api/ai-assistant/history"],
   });
 
-  const messages = historyData?.messages || [];
+  const allMessages = historyData?.messages || [];
+  const messages = isNewChat ? [] : allMessages;
 
   const chatMutation = useMutation({
     mutationFn: async ({ text, files }: { text: string; files: File[] }) => {
@@ -73,6 +75,7 @@ export default function AiAssistantPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ai-assistant/history"] });
+      setIsNewChat(false);
       setMessage("");
       setSelectedFiles([]);
       setPreviewUrls([]);
@@ -275,20 +278,37 @@ export default function AiAssistantPage() {
               <Bot className="h-5 w-5 text-primary" />
               <CardTitle>AI Assistant</CardTitle>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => clearHistoryMutation.mutate()}
-              disabled={clearHistoryMutation.isPending || messages.length === 0}
-              data-testid="button-clear-chat"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear Chat
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsNewChat(true);
+                  setMessage("");
+                  setSelectedFiles([]);
+                  setPreviewUrls([]);
+                  toast({ title: "New chat started", description: "Your previous history is preserved." });
+                }}
+                data-testid="button-new-chat"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Chat
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => clearHistoryMutation.mutate()}
+                disabled={clearHistoryMutation.isPending || allMessages.length === 0}
+                data-testid="button-clear-chat"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clear History
+              </Button>
+            </div>
           </CardHeader>
 
           <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
-            <ScrollArea className="flex-1 p-4">
+            <div className="flex-1 overflow-y-auto p-4">
               {isLoadingHistory ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -323,7 +343,7 @@ export default function AiAssistantPage() {
                 </div>
               )}
               <div ref={messagesEndRef} />
-            </ScrollArea>
+            </div>
 
             {selectedFiles.length > 0 && (
               <div className="px-4 py-2 border-t bg-muted/30">

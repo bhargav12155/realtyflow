@@ -308,6 +308,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [showHistory, setShowHistory] = useState(false);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoImageInputRef = useRef<HTMLInputElement>(null);
@@ -316,12 +317,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const videoPanel = useMemo(() => VIDEO_PANEL_BY_BUSINESS[businessType] ?? VIDEO_PANEL_BY_BUSINESS.real_estate, [businessType]);
 
   const scrollToBottom = useCallback(() => {
-    if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      }
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
@@ -1397,9 +1393,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         )}
 
         {!videoMode && (
-        <ScrollArea 
+        <div
           ref={scrollAreaRef}
-          className="flex-1 px-4 py-4"
+          className="flex-1 overflow-y-auto px-4 py-4"
           data-testid="scroll-area-messages"
         >
           {messages.length === 0 ? (
@@ -1514,7 +1510,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               )}
             </div>
           )}
-        </ScrollArea>
+          <div ref={messagesEndRef} />
+        </div>
         )}
 
         {!videoMode && (

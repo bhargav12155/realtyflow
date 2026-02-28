@@ -6,6 +6,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -32,6 +33,7 @@ import {
   AlertTriangle,
   Calendar,
   Check,
+  Download,
   CheckCircle,
   Clock,
   CreditCard,
@@ -2325,6 +2327,48 @@ ${agentName} | ${brokerageName}
                       </div>
                     </div>
                   </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      data-testid="button-download-post"
+                      onClick={() => {
+                        const platforms = selectedPlatforms.length > 0
+                          ? selectedPlatforms.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ")
+                          : "No platforms selected";
+                        const lines: string[] = [
+                          "POST PREVIEW",
+                          "============",
+                          `Platforms: ${platforms}`,
+                          "",
+                          agentName,
+                          `${businessName} at ${brokerageName}`,
+                          "",
+                          postContent,
+                        ];
+                        if (selectedProperty) {
+                          lines.push(
+                            "",
+                            "--- Property ---",
+                            `Address: ${selectedProperty.address}`,
+                            `${selectedProperty.city}, ${selectedProperty.state}`,
+                            `Price: $${selectedProperty.listPrice?.toLocaleString() || "0"}`,
+                            `${selectedProperty.bedrooms || 0} bd • ${selectedProperty.bathrooms || 0} ba • ${selectedProperty.squareFootage?.toLocaleString() || "0"} sq ft`,
+                          );
+                        }
+                        const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "post.txt";
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Post
+                    </Button>
+                  </DialogFooter>
                 </DialogContent>
               </Dialog>
               <Dialog>

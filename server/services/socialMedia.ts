@@ -459,10 +459,6 @@ export class SocialMediaService {
         const errorData = await containerResponse.json();
         lastError = errorData;
         console.error(`📸 Instagram Container Error (${endpoint}):`, JSON.stringify(errorData));
-
-        if (errorData.error?.code === 190) {
-          break;
-        }
       }
 
       if (!containerResponse || !containerResponse.ok) {

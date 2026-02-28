@@ -1,0 +1,190 @@
+
+Nav Logo
+Build with us
+
+Docs
+Blog
+Resources
+
+Developer centers
+
+My Apps
+
+
+Docs
+
+Overview
+
+WhatsApp Cloud API Get Started
+WhatsApp Cloud API Get Started
+Updated: Oct 1, 2025
+This guide helps developers quickly get started with the WhatsApp Cloud API. It covers the basic setup steps, including registering as a developer, creating a Meta app, sending your first message, and setting up a test webhook endpoint. You’ll also learn how to generate secure access tokens and send both template and non-template messages. Advanced features and further resources are introduced for deeper exploration.
+Download the Sample App
+
+The Jasper’s Market sample app contains all of the messages and code used in the Jasper’s Market demo. You can use this sample app to learn how to build an application that sends and handles WhatsApp Cloud API data.
+Prerequisites
+
+You must have a Facebook account or a managed Meta account.
+You must be registered as a developer.
+If you have not registered as a developer, navigate to https://developers.facebook.com/async/registration/ and follow the prompts.
+You need access to a device with WhatsApp on it so you can send and receive test messages during setup.
+Step 1. Create a New Meta Developer App and Set Up with WhatsApp
+
+You need to create a Meta developer app and set the app up with the WhatsApp use case.
+Click on “Go to App Dashboard” and follow the instructions below to get started.
+If you already have a Meta app
+
+Select your existing app in the App Dashboard.
+Click on Add use cases.
+Select Connect with customers through WhatsApp and follow the prompts to add the use case to your app.
+Note: If you do not have a Meta Business Portfolio, you will create one during this process.
+If you do not have a Meta app
+
+Follow the prompts in the App Dashboard to create a new app.
+Select the Connect with customers through WhatsApp use case.
+Select an existing Business Portfolio or follow the prompts to create a new one.
+Finish creating your app.
+Once your app has been created, select Use cases (pencil icon) from the sidebar.
+Step 2. Connect Your Meta App to a WhatsApp Business Account
+
+After creating your Meta app, you need to connect it to a WhatsApp Business Account. This connection allows your app to access the WhatsApp Cloud API and send messages on behalf of your business.
+Navigate to the App Dashboard and select your app.
+Click on Use cases (pencil icon) in the sidebar.
+Under your Connect with customers through WhatsApp use case, click Customize.
+In the API Setup section, select an existing WhatsApp Business Account or create a new one:
+To use an existing account: Select the WhatsApp Business Account from the dropdown menu.
+To create a new account: Click Create a WhatsApp Business Account and follow the prompts to set up your business profile.
+Once connected, you will see your WhatsApp Business Account ID displayed in the API Setup panel.
+Save this ID for use in API calls.
+Note: If you created a new Meta Business Portfolio during app creation, a WhatsApp Business Account may have been automatically created for you. Verify the connection in the API Setup section before proceeding.
+Step 3. Send Your First Template Message
+
+With your new app set up, let’s send your first message on WhatsApp.
+Click on Use cases (pencil icon) on the sidebar.
+Under your Connect with customers through WhatsApp use case, click Customize.
+In Quickstart, click on the Start using the API button and follow the first 2 steps to send the hello_world template message to a phone number of your choosing.
+Make sure to retain both your test phone number ID and WhatsApp Business Account ID for later use.
+Once you receive the message you sent, make sure to reply back to keep the conversation going.
+Step 4. Set Up the Test Webhook App
+
+You will need to set up a webhook endpoint in order to receive notifications about message statuses, such as read and delivered.
+Use our sample webhook server for testing purposes by following the Using a test webhook app guide.
+Once your test webhook application is established, respond in the WhatsApp chat thread you created with yourself. You will see the webhook payload in your test application like this:
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "215589313241560883",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15551797781",
+              "phone_number_id": "7794189252778687"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Jessica Laverdetman"
+                },
+                "wa_id": "13557825698"
+              }
+            ],
+            "messages": [
+              {
+                "from": "17863559966",
+                "id": "wamid.HBgLMTc4NjM1NTk5NjYVAGHAYWYET688aASGNTI1QzZFQjhEMDk2QQA=",
+                "timestamp": "1758254144",
+                "text": {
+                  "body": "Hi!"
+                },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
+
+
+Step 5. Create a System User and Generate a Permanent Access Token
+
+The temporary access token you created to send the hello_world template message expires quickly and is not suitable for development purposes. So you should create a permanent token for use across the WhatsApp Business Platform.
+Navigate to Business Settings⁠ and click System users in the sidebar.
+Click the Add+ button in the upper-right corner and follow the prompts to create a new system user.
+Select the new system user you created, and click Assign Assets.
+Select your app and toggle Manage app under Full control.
+Select your WhatsApp account and toggle Manage WhatsApp Business Accounts under Full control.
+Click the Assign assets button.
+Click Generate token.
+Follow the prompts to generate your token.
+Add the following permissions to the token:
+business_management
+whatsapp_business_messaging
+whatsapp_business_management
+Copy the token and store it in a secure place to be used in the later steps.
+Step 6. Send a Non-Template Message
+
+When you responded to your earlier test message, you triggered what is known as a customer service window. This 24-hour window allows you to send non-template messages to users on WhatsApp. With the customer service window now open, you can send a non-template message to yourself. To do this, insert your test phone number ID, the system user access token, and your phone number in the code sample below, then paste the code into your terminal and run it.
+curl 'https://graph.facebook.com/v23.0/<TEST_BUSINESS_PHONE_NUMBER_ID>/messages' \
+-H 'Content-Type: application/json' \
+-H 'Authorization: Bearer <SYSTEM_USER_ACCESS_TOKEN>' \
+-d '
+{
+  "messaging_product": "whatsapp",
+  "recipient_type": "individual",
+  "to": "<WHATSAPP_USER_PHONE_NUMBER>",
+  "type": "text",
+  "text": {
+    "body": "Hello!"
+  }
+}'
+
+After successfully sending your message, check your test webhook application to view the webhook event confirming the message receipt.
+Step 7. Finish
+
+The WhatsApp Cloud API enables you to send messages and receive webhooks—these are the fundamental building blocks for messaging integration. Beyond these basics, the API offers additional features such as group creation and management, as well as support for calling. To explore these advanced capabilities, check out the “Learn more” section below.
+Learn more
+
+Learn about the different types of non-template messages
+Learn how to create and send template messages
+Learn how to create and manage WhatsApp groups via API
+Learn how to send and receive calls on WhatsApp via API
+Learn how to add a business phone number
+Learn how to set up your own webhook server
+Become a Solution Provider
+View WhatsApp API OpenAPI Specification⁠
+Did you find this page helpful?
+Thumbs up icon
+Thumbs down icon
+Meta
+FacebookInstagramXLinkedInYouTube
+Build with Meta
+AI
+Meta Horizon
+Social technologies
+Wearables
+News
+Meta for Developers
+Blog
+Success stories
+Support
+Developer Support
+Bug tool
+Platform status
+Developer community forum
+Report an incident
+About us
+About
+Careers
+Terms and policies
+Responsible platform initiatives
+Platform terms
+Developer policies
+Privacy policy
+Cookies
+English (US)

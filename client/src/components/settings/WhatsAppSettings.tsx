@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -47,6 +47,7 @@ import {
   XCircle,
   Key,
   Phone,
+  Pencil,
 } from "lucide-react";
 
 const whatsappSettingsSchema = z.object({
@@ -86,6 +87,7 @@ interface Conversation {
 export function WhatsAppSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [changingToken, setChangingToken] = useState(false);
 
   const form = useForm<WhatsAppSettingsFormData>({
     resolver: zodResolver(whatsappSettingsSchema),
@@ -122,7 +124,7 @@ export function WhatsAppSettings() {
         phoneNumberId: settings.phoneNumberId ?? "",
         wabaId: settings.wabaId ?? "",
         displayPhoneNumber: settings.displayPhoneNumber ?? "",
-        accessToken: settings.accessToken ?? "",
+        accessToken: "",
         aiPersonality: settings.aiPersonality ?? "professional",
         aiGreeting: settings.aiGreeting ?? "Hello! Thanks for reaching out via WhatsApp. How can I help you today?",
         businessHoursStart: settings.businessHoursStart ?? "09:00",
@@ -133,6 +135,7 @@ export function WhatsAppSettings() {
         askForName: settings.askForName ?? true,
         askForEmail: settings.askForEmail ?? true,
       });
+      setChangingToken(false);
     }
   }, [settings, form]);
 
@@ -263,14 +266,33 @@ export function WhatsAppSettings() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Access Token</FormLabel>
-                    <FormControl>
-                      <Input
-                        data-testid="input-wa-accessToken"
-                        {...field}
-                        placeholder="Permanent token from Meta"
-                        type="password"
-                      />
-                    </FormControl>
+                    {settings?.accessToken && !changingToken ? (
+                      <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 px-3 py-2">
+                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                        <span className="text-sm text-green-700 dark:text-green-300 flex-1">Token saved and active</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setChangingToken(true)}
+                          data-testid="button-change-token"
+                          className="text-xs h-7"
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Change
+                        </Button>
+                      </div>
+                    ) : (
+                      <FormControl>
+                        <Input
+                          data-testid="input-wa-accessToken"
+                          {...field}
+                          placeholder="Paste your permanent token from Meta"
+                          type="password"
+                          autoComplete="off"
+                        />
+                      </FormControl>
+                    )}
                     <FormDescription>
                       Permanent access token from Meta Developer Dashboard
                     </FormDescription>

@@ -19932,9 +19932,21 @@ Be helpful, professional, and concise. Always let users know what the platform c
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
-      
+
+      const incoming = { ...req.body };
+
+      // If the client sent an empty accessToken, preserve the existing one from DB
+      if (!incoming.accessToken || incoming.accessToken.trim() === "") {
+        const existing = await storage.getWhatsappSettingsByUserId(String(userId));
+        if (existing?.accessToken) {
+          incoming.accessToken = existing.accessToken;
+        } else {
+          delete incoming.accessToken;
+        }
+      }
+
       const settings = await storage.createOrUpdateWhatsappSettings({
-        ...req.body,
+        ...incoming,
         userId: String(userId),
       });
       res.json(settings);

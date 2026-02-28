@@ -325,13 +325,18 @@ export default function MenuItemsPage() {
   const [filterCategory, setFilterCategory] = useState<string>("all");
 
   const { data: items = [], isLoading } = useQuery<MenuItem[]>({
-    queryKey: ["/api/menu-items"],
+    queryKey: ["/api/menu-items", businessType],
+    queryFn: () =>
+      fetch(`/api/menu-items?businessType=${encodeURIComponent(businessType)}`, {
+        credentials: "include",
+        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
+      }).then((r) => r.json()),
   });
 
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/menu-items", data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/menu-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items", businessType] });
       setDialogOpen(false);
       toast({ title: `${terms.itemCapitalized} added!` });
     },
@@ -344,7 +349,7 @@ export default function MenuItemsPage() {
     mutationFn: ({ id, data }: { id: string; data: any }) =>
       apiRequest("PATCH", `/api/menu-items/${id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/menu-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items", businessType] });
       setDialogOpen(false);
       setEditingItem(null);
       toast({ title: `${terms.itemCapitalized} updated!` });
@@ -357,7 +362,7 @@ export default function MenuItemsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/menu-items/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/menu-items"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/menu-items", businessType] });
       toast({ title: `${terms.itemCapitalized} deleted` });
     },
     onError: () => {
@@ -369,7 +374,7 @@ export default function MenuItemsPage() {
     if (editingItem) {
       updateMutation.mutate({ id: editingItem.id, data });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate({ ...data, businessType });
     }
   };
 

@@ -129,6 +129,8 @@ function MenuItemForm({
                 ? "e.g., Margherita Pizza"
                 : businessType === "retail"
                 ? "e.g., Classic White T-Shirt"
+                : businessType === "real_estate"
+                ? "e.g., 4BR Colonial in Elkhorn"
                 : "e.g., Drain Cleaning Service"
             }
             required
@@ -142,7 +144,13 @@ function MenuItemForm({
             value={form.category}
             onChange={(e) => setForm({ ...form, category: e.target.value })}
             placeholder={
-              isRestaurant ? "e.g., Pizza, Pasta, Desserts" : "e.g., Plumbing, HVAC"
+              isRestaurant
+                ? "e.g., Pizza, Pasta, Desserts"
+                : businessType === "real_estate"
+                ? "e.g., Single Family, Condo, Land"
+                : businessType === "retail"
+                ? "e.g., Tops, Bottoms, Accessories"
+                : "e.g., Plumbing, HVAC"
             }
           />
         </div>
@@ -171,6 +179,8 @@ function MenuItemForm({
           placeholder={
             isRestaurant
               ? "Fresh mozzarella, tomato sauce, basil leaves..."
+              : businessType === "real_estate"
+              ? "e.g., Stunning walkout ranch with open floor plan, 3-car garage, and modern finishes..."
               : "Describe this item..."
           }
           rows={3}

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -272,7 +272,7 @@ export default function AiAssistantPage() {
       <Sidebar activeView="ai-assistant" />
 
       <main className="flex-1 flex flex-col overflow-hidden">
-        <Card className="flex-1 m-4 flex flex-col">
+        <Card className="flex-1 m-4 flex flex-col overflow-hidden">
           <CardHeader className="flex-shrink-0 border-b flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-primary" />
@@ -307,7 +307,7 @@ export default function AiAssistantPage() {
             </div>
           </CardHeader>
 
-          <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <div className="flex-1 min-h-0 overflow-y-auto p-4">
               {isLoadingHistory ? (
                 <div className="flex items-center justify-center h-full">
@@ -346,7 +346,7 @@ export default function AiAssistantPage() {
             </div>
 
             {selectedFiles.length > 0 && (
-              <div className="px-4 py-2 border-t bg-muted/30">
+              <div className="flex-shrink-0 px-4 py-2 border-t bg-muted/30">
                 <div className="flex flex-wrap gap-2">
                   {selectedFiles.map((file, index) => (
                     <div
@@ -394,7 +394,7 @@ export default function AiAssistantPage() {
               </div>
             )}
 
-            <div className="p-4 border-t flex gap-2">
+            <div className="flex-shrink-0 p-4 border-t flex gap-2">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -442,7 +442,7 @@ export default function AiAssistantPage() {
                 )}
               </Button>
             </div>
-          </CardContent>
+          </div>
         </Card>
       </main>
     </div>

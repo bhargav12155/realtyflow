@@ -87,7 +87,8 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
 
       if (prefRes.ok) {
         const data: UserPreferences = await prefRes.json();
-        if (data.onboardingCompleted === false || !data.onboardingCompleted) {
+        const dismissed = localStorage.getItem("onboarding_dismissed") === "true";
+        if (!dismissed && (data.onboardingCompleted === false || !data.onboardingCompleted)) {
           shouldShow = true;
           if (data.serviceArea) resolvedServiceArea = data.serviceArea;
           if (data.communities) setCommunities(data.communities);
@@ -95,7 +96,8 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
           if (data.agentPhotoUrl) setAgentPhotoUrl(data.agentPhotoUrl);
         }
       } else if (prefRes.status === 404) {
-        shouldShow = true;
+        const dismissed = localStorage.getItem("onboarding_dismissed") === "true";
+        if (!dismissed) shouldShow = true;
       }
 
       // Pre-populate service area from company profile if not set
@@ -260,7 +262,10 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(val) => {
+      if (!val) localStorage.setItem("onboarding_dismissed", "true");
+      setOpen?.(val);
+    }}>
       <DialogContent
         className="sm:max-w-[500px] bg-white dark:bg-gray-900"
         data-testid="dialog-onboarding"

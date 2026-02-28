@@ -24,6 +24,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
 import { useBusinessType } from "@/lib/businessContext";
 import { MenuItem } from "@shared/schema";
 import {
@@ -326,11 +327,14 @@ export default function MenuItemsPage() {
 
   const { data: items = [], isLoading } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items", businessType],
-    queryFn: () =>
-      fetch(`/api/menu-items?businessType=${encodeURIComponent(businessType)}`, {
+    queryFn: async () => {
+      const res = await fetch(`/api/menu-items?businessType=${encodeURIComponent(businessType)}`, {
         credentials: "include",
-        headers: { Authorization: `Bearer ${localStorage.getItem("auth_token")}` },
-      }).then((r) => r.json()),
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+      return res.json();
+    },
   });
 
   const createMutation = useMutation({

@@ -230,7 +230,15 @@ export class VeoVideoService {
   private async fetchImageAsBase64(url: string): Promise<{ bytes: string; mimeType: string } | null> {
     try {
       console.log(`📷 [VeoVideo] Fetching image from URL...`);
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+          "Referer": "https://www.paragonrels.com/",
+          "Cache-Control": "no-cache",
+        },
+      });
       if (!response.ok) {
         console.error(`❌ [VeoVideo] Failed to fetch image: HTTP ${response.status}`);
         return null;

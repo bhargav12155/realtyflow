@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -223,6 +223,12 @@ export function PropertyTourStudio() {
   const [connectionFrom, setConnectionFrom] = useState<string>("");
   const [connectionTo, setConnectionTo] = useState<string>("");
   const [connectionLabel, setConnectionLabel] = useState<string>("");
+
+  const [tourVideoEngine, setTourVideoEngine] = useState<"veo" | "sjinn_auto" | "sjinn_veo3" | "sjinn_sora2">("veo");
+  const [sjinnTourChatId, setSjinnTourChatId] = useState<string | null>(null);
+  const [sjinnTourStatus, setSjinnTourStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [sjinnTourVideoUrl, setSjinnTourVideoUrl] = useState<string | null>(null);
+  const sjinnTourPollRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: avatarsData, isLoading: avatarsLoading } = useQuery<{ photos: AvatarPhoto[] }>({
     queryKey: ["/api/avatar-iv/photos"],
@@ -825,6 +831,64 @@ ${propertyDetails}`;
       });
     }
   }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, getRoomsWithPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData]);
+
+  const handleGenerateSjinnTour = useCallback(async () => {
+    const modelMap: Record<string, string> = {
+      sjinn_auto: "auto",
+      sjinn_veo3: "veo3",
+      sjinn_sora2: "sora2",
+    };
+    const model = modelMap[tourVideoEngine] || "auto";
+    const rooms = getRoomsWithPhotos().map(r => r.roomId.replace(/-/g, " "));
+    const address = selectedProperty
+      ? `${selectedProperty.address}, ${selectedProperty.city}, ${selectedProperty.state}`
+      : "custom property";
+    const prompt = `Cinematic property tour video of ${address}. ${generatedScript ? generatedScript.slice(0, 300) : "Showcase each room with smooth camera movements."}. Rooms featured: ${rooms.join(", ")}. Style: professional real estate video with warm lighting and elegant transitions.`;
+
+    setSjinnTourStatus("pending");
+    setSjinnTourChatId(null);
+    setSjinnTourVideoUrl(null);
+
+    try {
+      const res = await fetch("/api/sjinn/create-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ prompt, model }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to start SJinn generation");
+      }
+      const data = await res.json();
+      const chatId = data.chatId;
+      setSjinnTourChatId(chatId);
+      setSjinnTourStatus("processing");
+
+      if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
+      sjinnTourPollRef.current = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/sjinn/status/${chatId}`, { credentials: "include" });
+          if (!statusRes.ok) return;
+          const statusData = await statusRes.json();
+          if (statusData.status === "completed" && statusData.videoUrl) {
+            setSjinnTourVideoUrl(statusData.videoUrl);
+            setSjinnTourStatus("completed");
+            if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
+            toast({ title: "SJinn Video Ready", description: "Your property tour video has been generated." });
+          } else if (statusData.status === "failed") {
+            setSjinnTourStatus("failed");
+            if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
+            toast({ title: "SJinn Generation Failed", description: statusData.error || "Video generation failed.", variant: "destructive" });
+          }
+        } catch {
+        }
+      }, 15000);
+    } catch (error: any) {
+      setSjinnTourStatus("failed");
+      toast({ title: "SJinn Error", description: error.message || "Failed to start video generation.", variant: "destructive" });
+    }
+  }, [tourVideoEngine, getRoomsWithPhotos, selectedProperty, generatedScript, toast, sjinnTourPollRef]);
 
   const handleSaveToLibrary = useCallback(async () => {
     if (!currentJobId) return;
@@ -1642,6 +1706,32 @@ ${propertyDetails}`;
 
         {currentStep === 4 && (
           <div className="space-y-6" data-testid="step-4-content">
+            <div className="p-4 border rounded-lg space-y-3 bg-card">
+              <Label className="text-sm font-semibold">AI Video Engine</Label>
+              <Select value={tourVideoEngine} onValueChange={(v) => {
+                setTourVideoEngine(v as typeof tourVideoEngine);
+                setSjinnTourStatus("idle");
+                setSjinnTourChatId(null);
+                setSjinnTourVideoUrl(null);
+                if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
+              }}>
+                <SelectTrigger data-testid="tour-engine-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="veo">Google VEO 3.1 — Cinematic Room Videos</SelectItem>
+                  <SelectItem value="sjinn_auto">SJinn Auto (Kling / Seedance / Hailuo)</SelectItem>
+                  <SelectItem value="sjinn_veo3">SJinn Veo3</SelectItem>
+                  <SelectItem value="sjinn_sora2">SJinn Sora2</SelectItem>
+                </SelectContent>
+              </Select>
+              {tourVideoEngine === "veo" ? (
+                <p className="text-xs text-muted-foreground">VEO 3.1 generates individual cinematic clips per room using your uploaded photos.</p>
+              ) : (
+                <p className="text-xs text-amber-600 dark:text-amber-400">SJinn generates a single AI video from your property details and script — no photos required. Estimated time: 5–15 minutes.</p>
+              )}
+            </div>
+
             <div className="p-6 bg-muted rounded-lg space-y-4">
               <h4 className="font-medium">Tour Summary</h4>
               <div className="grid md:grid-cols-2 gap-4 text-sm">
@@ -2022,7 +2112,7 @@ ${propertyDetails}`;
               </div>
             )}
 
-            {!isGenerating && !generationComplete && (
+            {tourVideoEngine === "veo" && !isGenerating && !generationComplete && (
               <div className="flex justify-center">
                 <Button
                   size="lg"
@@ -2034,6 +2124,105 @@ ${propertyDetails}`;
                   <Video className="h-5 w-5" />
                   Generate Tour Video
                 </Button>
+              </div>
+            )}
+
+            {tourVideoEngine !== "veo" && (
+              <div className="space-y-4">
+                {sjinnTourStatus === "idle" && (
+                  <div className="flex justify-center">
+                    <Button
+                      size="lg"
+                      onClick={handleGenerateSjinnTour}
+                      className="gap-2"
+                      data-testid="sjinn-generate-btn"
+                    >
+                      <Video className="h-5 w-5" />
+                      Generate with SJinn
+                    </Button>
+                  </div>
+                )}
+
+                {(sjinnTourStatus === "pending" || sjinnTourStatus === "processing") && (
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg space-y-3" data-testid="sjinn-progress">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-700 dark:text-amber-400">SJinn is generating your video…</p>
+                        <p className="text-xs text-muted-foreground">Estimated time: 5–15 minutes. You can stay on this page.</p>
+                      </div>
+                    </div>
+                    {sjinnTourChatId && (
+                      <p className="text-xs text-muted-foreground">Job ID: {sjinnTourChatId}</p>
+                    )}
+                  </div>
+                )}
+
+                {sjinnTourStatus === "failed" && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg space-y-3" data-testid="sjinn-failed">
+                    <p className="text-sm font-medium text-red-600 dark:text-red-400">SJinn generation failed. Please try again.</p>
+                    <Button size="sm" variant="outline" onClick={() => { setSjinnTourStatus("idle"); setSjinnTourChatId(null); setSjinnTourVideoUrl(null); }}>
+                      Try Again
+                    </Button>
+                  </div>
+                )}
+
+                {sjinnTourStatus === "completed" && sjinnTourVideoUrl && (
+                  <div className="p-6 bg-green-500/10 border border-green-500/20 rounded-lg space-y-4" data-testid="sjinn-complete">
+                    <div className="flex items-center gap-3">
+                      <Check className="h-6 w-6 text-green-500" />
+                      <div>
+                        <h4 className="font-medium text-green-600 dark:text-green-400">SJinn Video Ready</h4>
+                        <p className="text-sm text-muted-foreground">Your AI-generated property tour video is ready.</p>
+                      </div>
+                    </div>
+                    <div className="rounded-lg overflow-hidden border bg-black max-w-2xl mx-auto">
+                      <video
+                        src={sjinnTourVideoUrl}
+                        controls
+                        className="w-full aspect-video"
+                        data-testid="sjinn-tour-video"
+                      />
+                      <div className="bg-muted p-2 flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">SJinn AI Property Tour</span>
+                        <Button size="sm" variant="ghost" className="h-6 gap-1 text-xs" asChild>
+                          <a href={sjinnTourVideoUrl} download target="_blank" rel="noopener noreferrer">
+                            <Download className="h-3 w-3" />
+                            Download
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 justify-center">
+                      <Button
+                        variant="secondary"
+                        className="gap-2"
+                        onClick={() => {
+                          setSelectedVideoForShare(sjinnTourVideoUrl);
+                          handleOpenShareDialog();
+                        }}
+                        data-testid="sjinn-share-btn"
+                      >
+                        <Share2 className="h-4 w-4" />
+                        Share to Social Media
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => {
+                          setSjinnTourStatus("idle");
+                          setSjinnTourChatId(null);
+                          setSjinnTourVideoUrl(null);
+                          setCurrentStep(1);
+                        }}
+                        data-testid="sjinn-new-tour-btn"
+                      >
+                        <Video className="h-4 w-4" />
+                        Create Another Tour
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -215,6 +215,8 @@ export function PropertyTourStudio() {
   const [showRoomModal, setShowRoomModal] = useState<boolean>(false);
   const [showGlobalUploadModal, setShowGlobalUploadModal] = useState<boolean>(false);
   const [unassignedPhotos, setUnassignedPhotos] = useState<{url: string; source: "mls" | "upload"}[]>([]);
+  const [selectedUnassigned, setSelectedUnassigned] = useState<Set<number>>(new Set());
+  const [bulkAssignRoom, setBulkAssignRoom] = useState<string>("");
   const [roomDragOver, setRoomDragOver] = useState<string | null>(null);
   const [cameraPositions, setCameraPositions] = useState<Record<string, CameraPosition[]>>({});
     const [customPrompt, setCustomPrompt] = useState<string>("");
@@ -561,6 +563,18 @@ ${propertyDetails}`;
       }
     }
   }, [addPhotoToRoom]);
+
+  const handleBulkAssign = useCallback(() => {
+    if (!bulkAssignRoom || selectedUnassigned.size === 0) return;
+    const indices = Array.from(selectedUnassigned).sort((a, b) => a - b);
+    indices.forEach(idx => {
+      const photo = unassignedPhotos[idx];
+      if (photo) addPhotoToRoom(bulkAssignRoom, photo.url, photo.source);
+    });
+    setUnassignedPhotos(prev => prev.filter((_, i) => !selectedUnassigned.has(i)));
+    setSelectedUnassigned(new Set());
+    setBulkAssignRoom("");
+  }, [bulkAssignRoom, selectedUnassigned, unassignedPhotos, addPhotoToRoom]);
 
   const handleRoomClick = useCallback((roomId: string) => {
     setSelectedRoomId(roomId);
@@ -1157,25 +1171,98 @@ ${propertyDetails}`;
 
             {unassignedPhotos.length > 0 && (
               <div className="p-4 bg-muted rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <h5 className="font-medium text-sm">Unassigned Photos</h5>
-                  <span className="text-xs text-muted-foreground">Drag to a room below</span>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h5 className="font-medium text-sm">Unassigned Photos ({unassignedPhotos.length})</h5>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="text-xs text-primary underline-offset-2 hover:underline"
+                      data-testid="select-all-unassigned-btn"
+                      onClick={() => {
+                        if (selectedUnassigned.size === unassignedPhotos.length) {
+                          setSelectedUnassigned(new Set());
+                        } else {
+                          setSelectedUnassigned(new Set(unassignedPhotos.map((_, i) => i)));
+                        }
+                      }}
+                    >
+                      {selectedUnassigned.size === unassignedPhotos.length ? "Deselect All" : "Select All"}
+                    </button>
+                    <span className="text-xs text-muted-foreground">or drag to a room below</span>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {unassignedPhotos.map((photo, index) => (
-                    <div
-                      key={`unassigned-${index}`}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData("application/json", JSON.stringify(photo));
-                      }}
-                      className="w-36 h-24 rounded-lg overflow-hidden border-2 border-dashed border-muted-foreground/30 cursor-grab hover:border-primary hover:shadow-md transition-all"
-                      data-testid={`unassigned-photo-${index}`}
-                    >
-                      <img src={photo.url} alt="Unassigned" className="w-full h-full object-cover" />
-                    </div>
-                  ))}
+                  {unassignedPhotos.map((photo, index) => {
+                    const isChecked = selectedUnassigned.has(index);
+                    return (
+                      <div
+                        key={`unassigned-${index}`}
+                        draggable={!isChecked}
+                        onDragStart={(e) => {
+                          if (isChecked) { e.preventDefault(); return; }
+                          e.dataTransfer.setData("application/json", JSON.stringify(photo));
+                        }}
+                        className={`relative w-36 h-24 rounded-lg overflow-hidden border-2 transition-all cursor-grab hover:shadow-md ${
+                          isChecked
+                            ? "border-primary shadow-md ring-2 ring-primary/40"
+                            : "border-dashed border-muted-foreground/30 hover:border-primary"
+                        }`}
+                        data-testid={`unassigned-photo-${index}`}
+                      >
+                        <img src={photo.url} alt="Unassigned" className="w-full h-full object-cover" />
+                        <div
+                          className="absolute top-1 left-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedUnassigned(prev => {
+                              const next = new Set(prev);
+                              if (next.has(index)) next.delete(index);
+                              else next.add(index);
+                              return next;
+                            });
+                          }}
+                        >
+                          <Checkbox
+                            checked={isChecked}
+                            className="bg-white/90 border-white shadow data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                            data-testid={`unassigned-check-${index}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+
+                {selectedUnassigned.size > 0 && (
+                  <div className="flex items-center gap-3 flex-wrap pt-1 border-t border-muted-foreground/20">
+                    <span className="text-sm font-medium">{selectedUnassigned.size} selected</span>
+                    <Select value={bulkAssignRoom} onValueChange={setBulkAssignRoom}>
+                      <SelectTrigger className="w-44 h-8 text-xs" data-testid="bulk-assign-room-select">
+                        <SelectValue placeholder="Choose a room…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROOM_ZONES.map(room => (
+                          <SelectItem key={room.roomId} value={room.roomId}>{room.roomName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      disabled={!bulkAssignRoom}
+                      onClick={handleBulkAssign}
+                      data-testid="bulk-assign-btn"
+                    >
+                      Assign to Room
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => { setSelectedUnassigned(new Set()); setBulkAssignRoom(""); }}
+                      data-testid="bulk-clear-btn"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
 

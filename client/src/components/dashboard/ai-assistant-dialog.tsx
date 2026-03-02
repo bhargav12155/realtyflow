@@ -291,7 +291,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
-  const [spaceType, setSpaceType] = useState<"interior" | "exterior">("interior");
+  const [spaceType, setSpaceType] = useState<"interior" | "exterior" | "none">("interior");
   const [customDescription, setCustomDescription] = useState("");
   const [noSound, setNoSound] = useState(false);
   const [videoImages, setVideoImages] = useState<Array<{ url: string; preview: string; roomType: string }>>([]);
@@ -669,7 +669,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       }
 
       const data = await response.json();
-      const defaultRoomType = spaceType === "interior"
+      const defaultRoomType = spaceType === "none"
+        ? "other"
+        : spaceType === "interior"
         ? (videoPanel.interiorTypes[0]?.value || "living-room")
         : (videoPanel.exteriorTypes[0]?.value || "front-yard");
       setVideoImages(prev => [...prev, { url: data.url, preview: previewUrl, roomType: defaultRoomType }]);
@@ -1116,11 +1118,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">{videoPanel.spaceTypeLabel}</label>
-                  <Select value={spaceType} onValueChange={(val: "interior" | "exterior") => setSpaceType(val)}>
+                  <Select value={spaceType} onValueChange={(val: "interior" | "exterior" | "none") => setSpaceType(val)}>
                     <SelectTrigger className="w-full" data-testid="select-space-type">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="none">No Trigger</SelectItem>
                       <SelectItem value="interior">{videoPanel.interiorLabel}</SelectItem>
                       <SelectItem value="exterior">{videoPanel.exteriorLabel}</SelectItem>
                     </SelectContent>
@@ -1143,7 +1146,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 
                 <div className="space-y-3">
                   {videoImages.map((img, index) => {
-                    const currentRoomOptions = spaceType === "interior" ? videoPanel.interiorTypes : videoPanel.exteriorTypes;
+                    const currentRoomOptions = spaceType === "none"
+                      ? [...videoPanel.interiorTypes, ...videoPanel.exteriorTypes]
+                      : spaceType === "interior"
+                      ? videoPanel.interiorTypes
+                      : videoPanel.exteriorTypes;
                     const currentRoomType = currentRoomOptions.find(r => r.value === img.roomType);
                     return (
                       <div
@@ -1211,7 +1218,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       ) : (
                         <div className="flex items-center gap-2">
                           <Upload className="h-5 w-5 text-gray-400" />
-                          <span className="text-xs text-gray-500">Add {spaceType === "interior" ? videoPanel.interiorLabel.split(" ")[0] : videoPanel.exteriorLabel.split(" ")[0]} Photo</span>
+                          <span className="text-xs text-gray-500">Add {spaceType === "none" ? "" : spaceType === "interior" ? videoPanel.interiorLabel.split(" ")[0] + " " : videoPanel.exteriorLabel.split(" ")[0] + " "}Photo</span>
                         </div>
                       )}
                     </div>

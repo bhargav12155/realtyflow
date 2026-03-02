@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
@@ -45,12 +45,17 @@ export function StreamingAvatarComponent() {
   const roomRef = useRef<LiveKitClient.Room | null>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Fetch stored custom avatars (streaming-compatible)
+  // Fetch stored custom avatars (locally saved with HeyGen streaming IDs)
   const { data: customAvatarsResponse } = useQuery({
     queryKey: ['/api/avatars'],
   });
 
-  // HeyGen's public streaming avatars
+  // Fetch Interactive Avatars from HeyGen account (created via HeyGen Labs)
+  const { data: streamingAvatarsData, isLoading: streamingAvatarsLoading } = useQuery({
+    queryKey: ['/api/streaming/avatars'],
+  });
+
+  // HeyGen's public streaming avatars (fallback / always shown)
   const defaultStreamingAvatars: Avatar[] = [
     { avatar_id: 'Wayne_20240711', avatar_name: 'Wayne - Professional Male', avatar_type: 'public' },
     { avatar_id: 'Angela-inblackskirt-20220820', avatar_name: 'Angela - Professional Female', avatar_type: 'public' },
@@ -59,19 +64,33 @@ export function StreamingAvatarComponent() {
     { avatar_id: 'Tyler-incasualsuit-20220721', avatar_name: 'Tyler - Casual Male', avatar_type: 'public' },
   ];
 
-  // Combine streaming-compatible avatars: stored avatars + public avatars
-  // NOTE: Photo avatar groups are NOT included because they only work for video generation, not streaming
+  const defaultIds = new Set(defaultStreamingAvatars.map(a => a.avatar_id));
+
+  // Interactive avatars created by the user in HeyGen Labs
+  const heygenInteractiveAvatars: Avatar[] = ((streamingAvatarsData as any)?.avatars || [])
+    .filter((a: any) => !defaultIds.has(a.avatar_id))
+    .map((a: any) => ({
+      avatar_id: a.avatar_id,
+      avatar_name: a.avatar_name,
+      preview_image_url: a.preview_image_url,
+      avatar_type: 'interactive',
+      supportsGestures: true,
+    }));
+
+  // Locally stored custom avatars (uploaded via Avatar Creator)
+  const localCustomAvatars: Avatar[] = (customAvatarsResponse || [])
+    .filter((avatar: any) => avatar.heygenAvatarId)
+    .map((avatar: any) => ({
+      avatar_id: avatar.heygenAvatarId,
+      avatar_name: `${avatar.name} (Custom)`,
+      avatar_type: 'custom',
+      supportsGestures: avatar.supportsGestures || false,
+    }));
+
+  // All avatars combined (for default selection logic)
   const allAvatars: Avatar[] = [
-    // Stored custom streaming avatars (from avatars API with HeyGen streaming IDs)
-    ...(customAvatarsResponse || [])
-      .filter((avatar: any) => avatar.heygenAvatarId) // Only include if has HeyGen streaming ID
-      .map((avatar: any) => ({
-        avatar_id: avatar.heygenAvatarId,
-        avatar_name: `${avatar.name} (Custom)`,
-        avatar_type: 'custom',
-        supportsGestures: avatar.supportsGestures || false,
-      })),
-    // Public HeyGen streaming avatars
+    ...heygenInteractiveAvatars,
+    ...localCustomAvatars,
     ...defaultStreamingAvatars,
   ];
 
@@ -464,19 +483,52 @@ export function StreamingAvatarComponent() {
                 <SelectValue placeholder="Choose an avatar" />
               </SelectTrigger>
               <SelectContent>
-                {allAvatars.length === 0 ? (
-                  <SelectItem value="loading" disabled>Loading avatars...</SelectItem>
-                ) : (
-                  allAvatars.map((avatar) => (
-                    <SelectItem 
-                      key={avatar.avatar_id} 
+                {streamingAvatarsLoading && (
+                  <SelectItem value="loading-placeholder" disabled>
+                    <Loader2 className="w-3 h-3 inline mr-1 animate-spin" />
+                    Loading your avatars...
+                  </SelectItem>
+                )}
+                {heygenInteractiveAvatars.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Your Interactive Avatars</SelectLabel>
+                    {heygenInteractiveAvatars.map((avatar) => (
+                      <SelectItem
+                        key={avatar.avatar_id}
+                        value={avatar.avatar_id}
+                        data-testid={`avatar-option-${avatar.avatar_id}`}
+                      >
+                        {avatar.avatar_name} ✨
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {localCustomAvatars.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Custom (Locally Saved)</SelectLabel>
+                    {localCustomAvatars.map((avatar) => (
+                      <SelectItem
+                        key={avatar.avatar_id}
+                        value={avatar.avatar_id}
+                        data-testid={`avatar-option-${avatar.avatar_id}`}
+                      >
+                        {avatar.avatar_name} {avatar.supportsGestures && '✨'}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                <SelectGroup>
+                  <SelectLabel>Public Avatars</SelectLabel>
+                  {defaultStreamingAvatars.map((avatar) => (
+                    <SelectItem
+                      key={avatar.avatar_id}
                       value={avatar.avatar_id}
                       data-testid={`avatar-option-${avatar.avatar_id}`}
                     >
-                      {avatar.avatar_name} {avatar.supportsGestures && '✨'}
+                      {avatar.avatar_name}
                     </SelectItem>
-                  ))
-                )}
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-1">

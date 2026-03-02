@@ -20402,14 +20402,13 @@ Be helpful, professional, and concise. Always let users know what the platform c
   // =====================================================
   app.post("/api/sjinn/create-video", requireAuth, async (req: any, res) => {
     try {
-      const { prompt, model, quality } = req.body;
+      const { prompt, model } = req.body;
       if (!prompt || typeof prompt !== "string") {
         return res.status(400).json({ error: "prompt is required" });
       }
       const result = await sjinnService.createVideoTask(
         prompt,
-        model || "auto",
-        quality || "quality"
+        model || "auto"
       );
       res.json(result);
     } catch (error: any) {

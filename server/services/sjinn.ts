@@ -7,7 +7,6 @@ const SJINN_TEMPLATE_IDS: Record<string, string | undefined> = {
 };
 
 export type SJinnModel = "auto" | "veo3" | "sora2";
-export type SJinnQuality = "quality" | "cheap";
 export type SJinnStatus = "pending" | "processing" | "completed" | "failed";
 
 export interface SJinnTaskResult {
@@ -38,12 +37,10 @@ function authHeaders() {
 
 export async function createVideoTask(
   prompt: string,
-  model: SJinnModel = "auto",
-  quality: SJinnQuality = "quality"
+  model: SJinnModel = "auto"
 ): Promise<SJinnTaskResult> {
   const body: Record<string, string> = {
     message: prompt,
-    quality,
   };
 
   const templateId = SJINN_TEMPLATE_IDS[model];
@@ -63,6 +60,7 @@ export async function createVideoTask(
   }
 
   const data = await response.json();
+  console.log("[SJinn] create_agent_task response:", JSON.stringify(data));
 
   if (!data.success) {
     throw new Error(`SJinn task creation failed: ${data.errorMsg || "Unknown error"}`);

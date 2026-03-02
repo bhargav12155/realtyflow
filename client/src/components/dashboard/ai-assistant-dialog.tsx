@@ -290,6 +290,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
+  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sjinn_auto" | "sjinn_veo3" | "sjinn_sora2">("veo");
+  const [sjinnPrompt, setSjinnPrompt] = useState("");
+  const [sjinnChatId, setSjinnChatId] = useState<string | null>(null);
+  const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
+  const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
   const [spaceType, setSpaceType] = useState<"interior" | "exterior" | "none">("interior");
   const [customDescription, setCustomDescription] = useState("");
@@ -705,6 +711,86 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     });
   };
 
+  const stopSjinnPolling = () => {
+    if (sjinnPollRef.current) {
+      clearInterval(sjinnPollRef.current);
+      sjinnPollRef.current = null;
+    }
+  };
+
+  const startSjinnPolling = (chatId: string) => {
+    stopSjinnPolling();
+    sjinnPollRef.current = setInterval(async () => {
+      try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`/api/sjinn/status/${chatId}`, { headers, credentials: "include" });
+        const data = await res.json();
+        if (data.status === "completed" && data.videoUrl) {
+          setSjinnStatus("completed");
+          setSjinnVideoUrl(data.videoUrl);
+          stopSjinnPolling();
+          const assistantMsg: Message = {
+            role: "assistant",
+            content: "Your SJinn AI video is ready!",
+            videoUrl: data.videoUrl,
+          };
+          setMessages(prev => [...prev, assistantMsg]);
+          setVideoMode(false);
+          toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
+        } else if (data.status === "failed") {
+          setSjinnStatus("failed");
+          stopSjinnPolling();
+          toast({ title: "SJinn Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+        } else {
+          setSjinnStatus(data.status || "processing");
+        }
+      } catch (err) {
+        console.error("SJinn poll error:", err);
+      }
+    }, 15000);
+  };
+
+  const startSjinnGeneration = async () => {
+    if (!sjinnPrompt.trim()) {
+      toast({ title: "Prompt Required", description: "Please enter a video prompt.", variant: "destructive" });
+      return;
+    }
+    setSjinnStatus("pending");
+    const modelMap: Record<string, string> = {
+      sjinn_auto: "auto",
+      sjinn_veo3: "veo3",
+      sjinn_sora2: "sora2",
+    };
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/sjinn/create-video", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ prompt: sjinnPrompt, model: modelMap[assistantVideoPlatform] || "auto" }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.chatId) {
+        throw new Error(data.error || "Failed to start SJinn");
+      }
+      setSjinnChatId(data.chatId);
+      setSjinnStatus("processing");
+      startSjinnPolling(data.chatId);
+      const userMsg: Message = { role: "user", content: `Generate a video: ${sjinnPrompt}` };
+      const assistantMsg: Message = { role: "assistant", content: "SJinn AI is creating your video. This can take 5–15 minutes. I'll show it here when it's ready..." };
+      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      setVideoMode(false);
+      toast({ title: "SJinn Video Started!", description: "SJinn AI is generating your video. This can take 5-15 minutes." });
+    } catch (error: any) {
+      setSjinnStatus("failed");
+      toast({ title: "SJinn Failed", description: error?.message || "Could not start SJinn video", variant: "destructive" });
+    }
+  };
+
   const startVideoGeneration = async () => {
     if (videoImages.length === 0) {
       toast({
@@ -1100,6 +1186,82 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             </div>
             
             <div className="space-y-2 mt-2">
+              {/* AI Video Platform selector */}
+              <div>
+                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">AI Video Platform</label>
+                <Select value={assistantVideoPlatform} onValueChange={(v) => setAssistantVideoPlatform(v as typeof assistantVideoPlatform)}>
+                  <SelectTrigger className="w-full" data-testid="select-assistant-video-platform">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="veo">
+                      <div className="flex flex-col">
+                        <span>Google VEO (Property Tour)</span>
+                        <span className="text-xs text-gray-500">Upload room photos — cinematic walk-through</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sjinn_auto">
+                      <div className="flex flex-col">
+                        <span>SJinn Auto (Kling / Seedance / Hailuo)</span>
+                        <span className="text-xs text-gray-500">AI auto-selects best model — 5-15 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sjinn_veo3">
+                      <div className="flex flex-col">
+                        <span>SJinn Veo3</span>
+                        <span className="text-xs text-gray-500">Google Veo3 cinematic video with audio — 5-15 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="sjinn_sora2">
+                      <div className="flex flex-col">
+                        <span>SJinn Sora2</span>
+                        <span className="text-xs text-gray-500">OpenAI Sora2 consistent characters — 5-15 min</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* SJinn flow */}
+              {assistantVideoPlatform !== "veo" && (
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                    Your prompt will be sent to SJinn as the video prompt. No images needed — just describe the scene.
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Video Prompt</label>
+                    <textarea
+                      value={sjinnPrompt}
+                      onChange={(e) => setSjinnPrompt(e.target.value)}
+                      placeholder="e.g. A cinematic walk-through of a modern kitchen with marble countertops, warm lighting, and open shelving..."
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                      rows={3}
+                      data-testid="input-sjinn-prompt"
+                    />
+                  </div>
+                  {(sjinnStatus === "pending" || sjinnStatus === "processing") && (
+                    <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>SJinn is generating your video (5–15 min)…</span>
+                    </div>
+                  )}
+                  <Button
+                    onClick={startSjinnGeneration}
+                    disabled={sjinnStatus === "pending" || sjinnStatus === "processing" || !sjinnPrompt.trim()}
+                    className="w-full bg-primary hover:bg-primary/90"
+                    data-testid="button-generate-sjinn-assistant"
+                  >
+                    {(sjinnStatus === "pending" || sjinnStatus === "processing") ? (
+                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating...</>
+                    ) : (
+                      <><Video className="h-4 w-4 mr-2" />Generate with SJinn</>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {/* VEO (Google) flow — existing image-based UI */}
+              {assistantVideoPlatform === "veo" && (
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Platform Preset</label>
@@ -1130,8 +1292,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </Select>
                 </div>
               </div>
+              )}
 
-              <div>
+              {assistantVideoPlatform === "veo" && <div>
                 <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
                   {videoPanel.imagesLabel} ({videoImages.length}/3) - Select {videoPanel.imageTypeLabel.toLowerCase()} type for each
                 </label>
@@ -1228,8 +1391,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   Tip: For 3 images use triangle positioning (left → right → opposite view)
                 </p>
-              </div>
+              </div>}
 
+              {assistantVideoPlatform === "veo" && <>
               <div>
                 <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
                   Custom Description (Optional)
@@ -1299,6 +1463,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </>
                 )}
               </Button>
+              </> }
 
               {completedVideos.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-800">

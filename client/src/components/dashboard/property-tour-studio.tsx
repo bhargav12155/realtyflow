@@ -751,7 +751,7 @@ ${propertyDetails}`;
   }, [toast]);
 
   const handleGenerateVideo = useCallback(async () => {
-    if (!selectedAvatar || !generatedScript) return;
+    if (!selectedAvatar) return;
     if (!selectedProperty && !noMlsMode) return;
     
     setIsGenerating(true);
@@ -1043,7 +1043,7 @@ ${propertyDetails}`;
       case 3:
         return getTotalRoomPhotoCount() > 0;
       case 4:
-        return selectedAvatar !== "" && generatedScript.trim() !== "";
+        return selectedAvatar !== "";
       default:
         return true;
     }

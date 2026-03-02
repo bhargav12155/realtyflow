@@ -296,6 +296,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
   const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
+  const [sjinnImages, setSjinnImages] = useState<Array<{ url: string; preview: string }>>([]);
+  const [sjinnImageUploading, setSjinnImageUploading] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
   const [spaceType, setSpaceType] = useState<"interior" | "exterior" | "none">("interior");
   const [customDescription, setCustomDescription] = useState("");
@@ -318,6 +320,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoImageInputRef = useRef<HTMLInputElement>(null);
+  const sjinnImageInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { businessType } = useBusinessType();
   const videoPanel = useMemo(() => VIDEO_PANEL_BY_BUSINESS[businessType] ?? VIDEO_PANEL_BY_BUSINESS.real_estate, [businessType]);
@@ -711,6 +714,54 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     });
   };
 
+  const handleSjinnImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (sjinnImages.length >= 3) {
+      toast({ title: "Maximum images reached", description: "You can upload up to 3 reference images.", variant: "destructive" });
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file type", description: "Please upload an image file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Image must be under 10MB.", variant: "destructive" });
+      return;
+    }
+    setSjinnImageUploading(true);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/upload/video-source", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("Failed to upload image");
+      const data = await response.json();
+      setSjinnImages(prev => [...prev, { url: data.url, preview: previewUrl }]);
+      toast({ title: "Image added", description: `Reference image ${sjinnImages.length + 1} of 3 added.` });
+    } catch (error) {
+      toast({ title: "Upload failed", description: "Failed to upload image. Please try again.", variant: "destructive" });
+      URL.revokeObjectURL(previewUrl);
+    } finally {
+      setSjinnImageUploading(false);
+      if (sjinnImageInputRef.current) sjinnImageInputRef.current.value = "";
+    }
+  };
+
+  const removeSjinnImage = (index: number) => {
+    setSjinnImages(prev => {
+      const removed = prev[index];
+      if (removed?.preview) URL.revokeObjectURL(removed.preview);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
+
   const stopSjinnPolling = () => {
     if (sjinnPollRef.current) {
       clearInterval(sjinnPollRef.current);
@@ -763,6 +814,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       sjinn_veo3: "veo3",
       sjinn_sora2: "sora2",
     };
+    const finalPrompt = sjinnImages.length > 0
+      ? `Reference image URLs for visual context:\n${sjinnImages.map(img => `- ${img.url}`).join("\n")}\n\n${sjinnPrompt}`
+      : sjinnPrompt;
     try {
       const token = getAuthToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -771,7 +825,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         method: "POST",
         headers,
         credentials: "include",
-        body: JSON.stringify({ prompt: sjinnPrompt, model: modelMap[assistantVideoPlatform] || "auto" }),
+        body: JSON.stringify({ prompt: finalPrompt, model: modelMap[assistantVideoPlatform] || "auto" }),
       });
       const data = await res.json();
       if (!res.ok || !data.chatId) {
@@ -780,9 +834,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       setSjinnChatId(data.chatId);
       setSjinnStatus("processing");
       startSjinnPolling(data.chatId);
-      const userMsg: Message = { role: "user", content: `Generate a video: ${sjinnPrompt}` };
+      const imageNote = sjinnImages.length > 0 ? ` (with ${sjinnImages.length} reference image${sjinnImages.length > 1 ? "s" : ""})` : "";
+      const userMsg: Message = { role: "user", content: `Generate a video${imageNote}: ${sjinnPrompt}` };
       const assistantMsg: Message = { role: "assistant", content: "SJinn AI is creating your video. This can take 5–15 minutes. I'll show it here when it's ready..." };
       setMessages(prev => [...prev, userMsg, assistantMsg]);
+      setSjinnImages([]);
       setVideoMode(false);
       toast({ title: "SJinn Video Started!", description: "SJinn AI is generating your video. This can take 5-15 minutes." });
     } catch (error: any) {
@@ -1225,9 +1281,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               {/* SJinn flow */}
               {assistantVideoPlatform !== "veo" && (
                 <div className="space-y-2">
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-                    Your prompt will be sent to SJinn as the video prompt. No images needed — just describe the scene.
-                  </div>
                   <div>
                     <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Video Prompt</label>
                     <textarea
@@ -1239,6 +1292,66 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       data-testid="input-sjinn-prompt"
                     />
                   </div>
+
+                  {/* Reference image upload */}
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                      Reference Images (optional, up to 3)
+                    </label>
+                    <input
+                      ref={sjinnImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleSjinnImageUpload}
+                      className="hidden"
+                      data-testid="input-sjinn-image-file"
+                    />
+                    <div className="space-y-2">
+                      {sjinnImages.map((img, index) => (
+                        <div key={index} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
+                          <div className="relative w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                            <img src={img.preview || img.url} alt={`Reference ${index + 1}`} className="w-full h-full object-cover" />
+                            <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] text-center py-0.5">
+                              #{index + 1}
+                            </span>
+                          </div>
+                          <span className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">Reference image {index + 1}</span>
+                          <button
+                            onClick={() => removeSjinnImage(index)}
+                            className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 flex-shrink-0"
+                            data-testid={`button-remove-sjinn-image-${index}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {sjinnImages.length < 3 && (
+                        <div
+                          onClick={() => !sjinnImageUploading && sjinnImageInputRef.current?.click()}
+                          className={cn(
+                            "border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg py-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors",
+                            sjinnImageUploading && "opacity-50 cursor-wait"
+                          )}
+                          data-testid="button-upload-sjinn-image"
+                        >
+                          {sjinnImageUploading ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                          ) : (
+                            <>
+                              <Upload className="h-4 w-4 text-gray-400" />
+                              <span className="text-xs text-gray-500">Add Reference Image (optional)</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {sjinnImages.length > 0 && (
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+                        Image URLs will be included in the prompt as visual reference for the AI.
+                      </p>
+                    )}
+                  </div>
+
                   {(sjinnStatus === "pending" || sjinnStatus === "processing") && (
                     <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
                       <Loader2 className="h-4 w-4 animate-spin" />

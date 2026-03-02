@@ -11,6 +11,50 @@ export interface GeneratedContentPlan {
   };
 }
 
+// Research-backed posting frequency per platform
+// 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+const PLATFORM_POSTING_DAYS: Record<string, number[]> = {
+  facebook:  [0, 1, 2, 3, 4, 5, 6], // every day (1x/day)
+  instagram: [1, 3, 5, 6],            // Mon, Wed, Fri, Sat (4x/week)
+  linkedin:  [1, 3, 5],               // Mon, Wed, Fri (3x/week)
+  x:         [1, 2, 3, 4, 5],         // Mon–Fri (5x/week)
+  tiktok:    [1, 2, 4, 6],            // Mon, Tue, Thu, Sat (4x/week)
+};
+
+// Platform-friendly day names for the AI prompt
+const PLATFORM_SCHEDULE_DESCRIPTION: Record<string, string> = {
+  facebook:  "every day (daily posting works well for Facebook's algorithm)",
+  instagram: "Monday, Wednesday, Friday, Saturday only (4x/week — daily posting drops engagement 20%)",
+  linkedin:  "Monday, Wednesday, Friday only (3x/week — professional audience fatigues quickly with daily posts)",
+  x:         "Monday through Friday only (5x/week — weekday focus for maximum reach)",
+  tiktok:    "Monday, Tuesday, Thursday, Saturday only (4x/week — algorithm rewards consistent schedule over volume)",
+};
+
+/**
+ * Calculate which platforms should post on a given day offset from today.
+ * dayOffset 0 = tomorrow, 1 = day after tomorrow, etc.
+ */
+function getPlatformsForDay(dayOffset: number, startDate: Date): string[] {
+  const date = new Date(startDate);
+  date.setDate(startDate.getDate() + dayOffset + 1);
+  const dayOfWeek = date.getDay(); // 0=Sun, 1=Mon, ...
+  return Object.entries(PLATFORM_POSTING_DAYS)
+    .filter(([, days]) => days.includes(dayOfWeek))
+    .map(([platform]) => platform);
+}
+
+/**
+ * Calculate total expected posts across all days for a given number of weeks.
+ */
+function calculateExpectedPosts(weeks: number, startDate: Date): number {
+  const days = weeks * 7;
+  let total = 0;
+  for (let day = 0; day < days; day++) {
+    total += getPlatformsForDay(day, startDate).length;
+  }
+  return total;
+}
+
 export class AIContentCalendarGenerator {
   private openai: any;
   private userId: string;
@@ -43,13 +87,13 @@ export class AIContentCalendarGenerator {
     }
 
     const days = weeks * 7;
+    const today = new Date();
     const areasText = serviceAreas.length > 0 ? serviceAreas.join(', ') : 'Omaha metro area';
     const audienceText = targetAudience || 'home buyers and sellers';
     const specialtiesText = specialties && specialties.length > 0 
       ? ` Specialties: ${specialties.join(', ')}.` 
       : '';
 
-    // Create market insights from actual market data
     const marketInsights = marketData.map(m => 
       `${m.neighborhood}: avg $${Math.round((m.avgPrice || 0) / 1000)}K, ${m.daysOnMarket} days on market, ${m.trend} market`
     ).join('; ');
@@ -59,6 +103,17 @@ export class AIContentCalendarGenerator {
     const liConfig = PLATFORM_CONFIGS.linkedin;
     const xConfig = PLATFORM_CONFIGS.x;
 
+    const expectedPosts = calculateExpectedPosts(weeks, today);
+
+    // Build the per-day schedule for the prompt so AI knows exactly which platforms each day
+    const dayScheduleLines: string[] = [];
+    for (let day = 0; day < days; day++) {
+      const platforms = getPlatformsForDay(day, today);
+      if (platforms.length > 0) {
+        dayScheduleLines.push(`Day ${day + 1}: ${platforms.join(', ')}`);
+      }
+    }
+
     const prompt = `You are a social media content strategist for real estate agents. Create a ${weeks}-week (${days}-day) content calendar for a real estate agent in Omaha, Nebraska.
 
 **Agent Profile:**
@@ -66,67 +121,64 @@ export class AIContentCalendarGenerator {
 - Target Audience: ${audienceText}${specialtiesText}
 - Current Market Data: ${marketInsights || 'Strong Omaha market'}
 
-**Content Strategy:**
-Create posts for ALL 5 platforms (Facebook, Instagram, LinkedIn, X, TikTok) for EACH day.
-Each day should have a separate post for EACH platform, optimized for that platform's format.
-Total posts = ${days} days × 5 platforms = ${days * 5} posts.
+**Research-Backed Posting Schedule (FOLLOW EXACTLY):**
+Do NOT post to every platform every day. Use this platform-specific frequency based on engagement research:
 
-1. Mix content types: 40% local market updates, 30% neighborhood spotlights, 20% buyer/seller tips, 10% community engagement
-2. Every day must have one post for EACH platform: Facebook, Instagram, LinkedIn, X (Twitter), TikTok
-3. Vary posting times: mornings (9-10am), afternoons (2-3pm), evenings (6-7pm)
-4. Include relevant hashtags for Instagram posts only (1-2 hashtags max - 21% better engagement than 3+)
-5. Reference actual market data and neighborhoods from service areas
-6. CRITICAL: Optimize character count for each platform's engagement sweet spot
+${Object.entries(PLATFORM_SCHEDULE_DESCRIPTION).map(([p, desc]) => `- ${p.toUpperCase()}: ${desc}`).join('\n')}
 
-**📊 Platform Character Optimization (FOLLOW THESE EXACTLY):**
+**Per-Day Platform Schedule:**
+${dayScheduleLines.slice(0, 14).join('\n')}
+(This pattern repeats for the full ${weeks} weeks)
+
+Total posts to generate: ${expectedPosts} (NOT ${days * 5} — do not post to all platforms every day)
+
+**Content Mix:**
+1. 40% local market updates, 30% neighborhood spotlights, 20% buyer/seller tips, 10% community engagement
+2. Vary posting times: mornings (9-10am), afternoons (2-3pm), evenings (6-7pm)
+3. Include relevant hashtags for Instagram posts only (1-2 hashtags max)
+4. Reference actual market data and neighborhoods from service areas
+
+**📊 Platform Character Optimization:**
 
 FACEBOOK:
-- Optimal: ${fbConfig.optimalCharacters.min}-${fbConfig.optimalCharacters.max} characters (posts under 50 get 66% more engagement!)
-- Truncates at: ${fbConfig.truncatesAt} chars - put hook FIRST
+- Optimal: ${fbConfig.optimalCharacters.min}-${fbConfig.optimalCharacters.max} characters
 - ${fbConfig.hashtagRecommendation}
-- Lead with attention-grabbing hook (users spend only 2.5 seconds scanning)
+- Lead with attention-grabbing hook
 
 INSTAGRAM:
-- Optimal: ${igConfig.optimalCharacters.min}-${igConfig.optimalCharacters.max} characters for maximum engagement
-- Truncates at: ${igConfig.truncatesAt} chars - first line is critical!
+- Optimal: ${igConfig.optimalCharacters.min}-${igConfig.optimalCharacters.max} characters
 - ${igConfig.hashtagRecommendation}
-- Use emojis sparingly, line breaks strategically
+- First line is critical — it's all users see before "more"
 
 X (TWITTER):
-- Optimal: ${xConfig.optimalCharacters.min}-${xConfig.optimalCharacters.max} characters (36% more engagement!)
+- Optimal: ${xConfig.optimalCharacters.min}-${xConfig.optimalCharacters.max} characters (36% more engagement)
 - Maximum: ${xConfig.maxCharacters} chars (hard limit)
 - ${xConfig.hashtagRecommendation}
-- Create urgency or curiosity in every tweet
 
 LINKEDIN:
-- Optimal: ${liConfig.optimalCharacters.min}-${liConfig.optimalCharacters.max} characters (~25 words)
-- Truncates at: ${liConfig.truncatesAt} chars with 'See More'
+- Optimal: ${liConfig.optimalCharacters.min}-${liConfig.optimalCharacters.max} characters
 - ${liConfig.hashtagRecommendation}
-- Professional yet approachable tone, position as thought leader
+- Professional yet approachable tone
 
 TIKTOK:
 - Optimal: 100-150 characters for video description
-- Short-form, vertical video style content
-- Reference trending sounds and challenges when relevant
-- Use casual, energetic tone with emoji
-- Focus on quick tips, property reveals, behind-the-scenes content
+- Casual, energetic tone with emoji
+- Focus on quick tips, property reveals, behind-the-scenes
 
 **Post Types:**
-- "local_market": Market updates, price trends, inventory levels
-- "neighborhood_spotlight": Highlight specific neighborhoods with amenities, lifestyle
+- "local_market": Market updates, price trends, inventory
+- "neighborhood_spotlight": Highlight neighborhoods with amenities
 - "buyer_tips": First-time buyer advice, financing, inspections
 - "seller_tips": Staging, pricing strategy, market timing
 - "community": Local events, businesses, Omaha lifestyle
 
-💡 KEY INSIGHT: Average attention span is 1.7 seconds on mobile - LEAD WITH A STRONG HOOK!
-
-Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
+Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
 [
   {
     "platform": "facebook|instagram|linkedin|x|tiktok",
     "postType": "local_market|neighborhood_spotlight|buyer_tips|seller_tips|community",
-    "content": "engaging post text (OPTIMIZED for platform character count)",
-    "hashtags": ["tag1", "tag2"] (only for Instagram, 1-2 max, empty array for others),
+    "content": "engaging post text optimized for platform",
+    "hashtags": ["tag1"] (only for instagram, 1-2 max, empty array for others),
     "neighborhood": "neighborhood name or null",
     "dayOffset": day_number (0-${days-1}, where 0 = tomorrow)
   }
@@ -144,7 +196,6 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
         throw new Error('Empty response from Gemini');
       }
 
-      // Remove markdown code blocks if present
       if (responseText.startsWith('```json')) {
         responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?$/g, '').trim();
       } else if (responseText.startsWith('```')) {
@@ -153,45 +204,35 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
 
       const posts = JSON.parse(responseText);
 
-      // Validate structure
       if (!Array.isArray(posts) || posts.length === 0) {
         throw new Error('Invalid response structure: expected array of posts');
       }
 
-      const expectedPosts = weeks * 7 * 5;
       const minPosts = Math.max(5, Math.floor(expectedPosts * 0.6));
       
       if (posts.length < minPosts) {
-        console.warn(`AI generated only ${posts.length} posts, expected ${expectedPosts}. Using fallback data.`);
+        console.warn(`AI generated only ${posts.length} posts, expected ${expectedPosts}. Using fallback.`);
         return this.getFallbackContentPlan(serviceAreas, marketData, weeks);
       }
 
-      const today = new Date();
+      const validPlatforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
+      const validTypes = ['local_market', 'neighborhood_spotlight', 'buyer_tips', 'seller_tips', 'community'];
 
-      // Validate and transform each post
       const validatedPosts: InsertScheduledPost[] = posts.map((p, index) => {
         if (!p.platform || !p.postType || !p.content) {
           throw new Error(`Invalid post at index ${index}: missing required fields`);
         }
 
-        // Validate platform
-        const validPlatforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
         if (!validPlatforms.includes(p.platform)) {
-          p.platform = 'facebook'; // Default fallback
+          p.platform = 'facebook';
         }
-
-        // Validate post type
-        const validTypes = ['local_market', 'neighborhood_spotlight', 'buyer_tips', 'seller_tips', 'community'];
         if (!validTypes.includes(p.postType)) {
-          p.postType = 'local_market'; // Default fallback
+          p.postType = 'local_market';
         }
 
-        // Calculate scheduled date
         const dayOffset = typeof p.dayOffset === 'number' ? p.dayOffset : index;
         const scheduleDate = new Date(today);
-        scheduleDate.setDate(today.getDate() + dayOffset + 1); // +1 to start tomorrow
-        
-        // Vary posting times
+        scheduleDate.setDate(today.getDate() + dayOffset + 1);
         const hour = dayOffset % 3 === 0 ? 9 : (dayOffset % 3 === 1 ? 14 : 18);
         scheduleDate.setHours(hour, 0, 0, 0);
 
@@ -215,7 +256,7 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
         };
       });
 
-      console.log(`✅ AI generated ${weeks}-week content calendar with ${validatedPosts.length} posts for user ${this.userId}`);
+      console.log(`✅ AI generated ${weeks}-week calendar with ${validatedPosts.length} posts (research-backed frequency) for user ${this.userId}`);
 
       return {
         posts: validatedPosts,
@@ -234,7 +275,7 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
   }
 
   /**
-   * Legacy method - calls generateContentPlan with 4 weeks (30 days)
+   * Legacy method - calls generateContentPlan with 4 weeks
    */
   async generate30DayPlan(
     serviceAreas: string[],
@@ -246,31 +287,48 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
   }
 
   /**
-   * Generate fallback content plan if AI fails
+   * Generate fallback content plan following the same platform frequency rules
    */
   getFallbackContentPlan(serviceAreas: string[], marketData: MarketData[], weeks: number = 4): GeneratedContentPlan {
     const areas = serviceAreas.length > 0 ? serviceAreas : ['Omaha'];
-    const platforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
     const today = new Date();
-
-    const contentTemplates = [
-      { type: 'local_market', content: `Market update: The ${areas[0]} real estate market continues to show strong activity. Great time for both buyers and sellers!` },
-      { type: 'neighborhood_spotlight', content: `Spotlight on ${areas[0]}: This vibrant neighborhood offers excellent schools, parks, and convenient shopping. Perfect for families!` },
-      { type: 'buyer_tips', content: `First-time buyer tip: Get pre-approved before house hunting. It shows sellers you're serious and helps you understand your budget.` },
-      { type: 'seller_tips', content: `Seller strategy: Proper staging can increase your home's value by 5-10%. Let's discuss how to showcase your property's best features!` },
-      { type: 'community', content: `Love living in Omaha! Check out the local farmers market this weekend for fresh produce and community connections. 🌽` },
-    ];
-
-    const fallbackPosts: InsertScheduledPost[] = [];
     const days = weeks * 7;
 
+    const contentTemplates: Record<string, { type: string; content: string }> = {
+      facebook: {
+        type: 'local_market',
+        content: `Market update: The ${areas[0]} real estate market continues to show strong activity. Great time for both buyers and sellers! Reach out to discuss your options.`,
+      },
+      instagram: {
+        type: 'neighborhood_spotlight',
+        content: `${areas[0]} has everything — great schools, parks, and community! 🏡 Whether you're buying or selling, let's make your next move the right one.`,
+      },
+      linkedin: {
+        type: 'seller_tips',
+        content: `Thinking of selling? Proper staging can increase your home's value by 5–10%. Here are three things to do before listing in today's market.`,
+      },
+      x: {
+        type: 'buyer_tips',
+        content: `Buyer tip: Get pre-approved before house hunting. It shows sellers you're serious and helps you know your budget. #OmahaRealEstate`,
+      },
+      tiktok: {
+        type: 'community',
+        content: `Love living in Omaha! 🌽 Local gems, great neighborhoods, and an amazing community await. Ask me anything about buying or selling here!`,
+      },
+    };
+
+    const fallbackPosts: InsertScheduledPost[] = [];
+
     for (let day = 0; day < days; day++) {
-      for (let pIdx = 0; pIdx < platforms.length; pIdx++) {
+      const scheduledPlatforms = getPlatformsForDay(day, today);
+      
+      scheduledPlatforms.forEach((platform, pIdx) => {
         const scheduleDate = new Date(today);
         scheduleDate.setDate(today.getDate() + day + 1);
-        scheduleDate.setHours(9 + (day % 8), pIdx * 3, 0, 0);
-        const template = contentTemplates[day % contentTemplates.length];
-        const platform = platforms[pIdx];
+        scheduleDate.setHours(9 + (pIdx * 3), 0, 0, 0);
+
+        const template = contentTemplates[platform] || contentTemplates.facebook;
+
         fallbackPosts.push({
           userId: this.userId,
           platform,
@@ -289,7 +347,7 @@ Return ONLY a valid JSON array with exactly ${days * 5} posts in this structure:
             fallback: true,
           },
         });
-      }
+      });
     }
 
     return {

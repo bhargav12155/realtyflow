@@ -7305,7 +7305,15 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         "Blackstone",
         "Benson",
       ];
-      const platforms = ["facebook", "instagram", "linkedin", "x", "tiktok"];
+
+      // Research-backed posting frequency: 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
+      const platformPostingDays: Record<string, number[]> = {
+        facebook:  [0, 1, 2, 3, 4, 5, 6],
+        instagram: [1, 3, 5, 6],
+        linkedin:  [1, 3, 5],
+        x:         [1, 2, 3, 4, 5],
+        tiktok:    [1, 2, 4, 6],
+      };
 
       const movingGuideTopics = [
         "Best Omaha neighborhoods for families",
@@ -7318,14 +7326,22 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       const today = new Date();
       const generatedPosts = [];
 
-      // Generate 2 weeks of AI-powered content
+      // Generate 2 weeks of content, one post per scheduled platform per day
       for (let day = 0; day < 14; day++) {
         const scheduleDate = new Date(today);
         scheduleDate.setDate(today.getDate() + day + 1);
-        scheduleDate.setHours(9 + (day % 8), 0, 0, 0); // Vary posting times
+        const dayOfWeek = scheduleDate.getDay();
 
-        const platformIndex = day % platforms.length;
-        const platform = platforms[platformIndex];
+        // Only post to platforms scheduled for this day of week
+        const scheduledPlatforms = Object.entries(platformPostingDays)
+          .filter(([, days]) => days.includes(dayOfWeek))
+          .map(([p]) => p);
+
+        if (scheduledPlatforms.length === 0) continue;
+
+        // Pick one platform per day (cycle through scheduled ones)
+        const platform = scheduledPlatforms[day % scheduledPlatforms.length];
+        scheduleDate.setHours(9 + (day % 8), 0, 0, 0);
 
         let aiContent, postType, neighborhood;
 

@@ -1252,7 +1252,7 @@ export function VideoStudio() {
                                 src={video.videoUrl}
                                 controls
                                 autoPlay
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-contain bg-black"
                                 data-testid={`video-player-${video.id}`}
                               />
                             ) : (
@@ -1261,7 +1261,7 @@ export function VideoStudio() {
                                   <img
                                     src={video.thumbnailUrl}
                                     alt={video.title}
-                                    className="w-full h-full object-cover"
+                                    className="w-full h-full object-contain bg-black"
                                   />
                                 ) : (
                                   <div className="w-full h-full flex items-center justify-center">

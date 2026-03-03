@@ -19,6 +19,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { AddToCalendar } from "@/components/shared/add-to-calendar";
 
 interface EventSource {
   id: string;
@@ -834,16 +835,19 @@ export default function EventsCalendarPage() {
                                   )}
                                 </div>
                               </div>
-                              {event.eventUrl && (
-                                <a 
-                                  href={event.eventUrl} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="text-muted-foreground hover:text-primary"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                </a>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <AddToCalendar event={event} size="sm" variant="ghost" className="text-xs" />
+                                {event.eventUrl && (
+                                  <a 
+                                    href={event.eventUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-muted-foreground hover:text-primary"
+                                  >
+                                    <ExternalLink className="w-4 h-4" />
+                                  </a>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1014,17 +1018,20 @@ export default function EventsCalendarPage() {
                                 )}
                               </div>
                             </div>
-                            {event.eventUrl && (
-                              <a 
-                                href={event.eventUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-muted-foreground hover:text-primary"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </a>
-                            )}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <AddToCalendar event={event} size="sm" variant="ghost" className="text-xs" />
+                              {event.eventUrl && (
+                                <a 
+                                  href={event.eventUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-muted-foreground hover:text-primary"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1049,10 +1056,15 @@ export default function EventsCalendarPage() {
                   {selectedEvent ? (
                     <div className="space-y-4">
                       <div className="p-3 bg-muted rounded-lg">
-                        <h4 className="font-medium">{selectedEvent.title}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDate(selectedEvent.startTime)}
-                        </p>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-medium">{selectedEvent.title}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              {formatDate(selectedEvent.startTime)}
+                            </p>
+                          </div>
+                          <AddToCalendar event={selectedEvent} size="sm" variant="outline" />
+                        </div>
                       </div>
 
                       <Button

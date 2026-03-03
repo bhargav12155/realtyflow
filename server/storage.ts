@@ -707,49 +707,105 @@ export class MemStorage implements IStorage {
   }
 
   async getContentPieces(userId: string): Promise<ContentPiece[]> {
-    return Array.from(this.contentPieces.values()).filter(
-      (content) => content.userId === userId
-    );
+    try {
+      const { db } = await import("./db");
+      const { contentPieces: contentPiecesTable } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const rows = await db.select().from(contentPiecesTable).where(eq(contentPiecesTable.userId, userId)).orderBy(desc(contentPiecesTable.createdAt));
+      return rows;
+    } catch (error) {
+      console.error("[STORAGE] getContentPieces DB error, falling back to memory:", error);
+      return Array.from(this.contentPieces.values()).filter(
+        (content) => content.userId === userId
+      );
+    }
   }
 
   async getContentPieceById(id: string): Promise<ContentPiece | undefined> {
-    return this.contentPieces.get(id);
+    try {
+      const { db } = await import("./db");
+      const { contentPieces: contentPiecesTable } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const rows = await db.select().from(contentPiecesTable).where(eq(contentPiecesTable.id, id));
+      return rows[0] || undefined;
+    } catch (error) {
+      console.error("[STORAGE] getContentPieceById DB error:", error);
+      return this.contentPieces.get(id);
+    }
   }
 
   async createContentPiece(
     insertContent: InsertContentPiece
   ): Promise<ContentPiece> {
-    const id = randomUUID();
-    const content: ContentPiece = {
-      ...insertContent,
-      id,
-      createdAt: new Date(),
-      metadata: insertContent.metadata || null,
-      neighborhood: insertContent.neighborhood || null,
-      keywords: insertContent.keywords || null,
-      seoOptimized: insertContent.seoOptimized || false,
-      status: insertContent.status || "draft",
-      publishedAt: insertContent.publishedAt || null,
-      scheduledFor: insertContent.scheduledFor || null,
-    };
-    this.contentPieces.set(id, content);
-    return content;
+    try {
+      const { db } = await import("./db");
+      const { contentPieces: contentPiecesTable } = await import("@shared/schema");
+      const [created] = await db.insert(contentPiecesTable).values({
+        userId: insertContent.userId,
+        type: insertContent.type,
+        title: insertContent.title,
+        content: insertContent.content,
+        keywords: insertContent.keywords || null,
+        neighborhood: insertContent.neighborhood || null,
+        seoOptimized: insertContent.seoOptimized || false,
+        status: insertContent.status || "draft",
+        publishedAt: insertContent.publishedAt || null,
+        scheduledFor: insertContent.scheduledFor || null,
+        socialPlatforms: insertContent.socialPlatforms || null,
+        metadata: insertContent.metadata || null,
+      }).returning();
+      return created;
+    } catch (error) {
+      console.error("[STORAGE] createContentPiece DB error, falling back to memory:", error);
+      const id = randomUUID();
+      const content: ContentPiece = {
+        ...insertContent,
+        id,
+        createdAt: new Date(),
+        metadata: insertContent.metadata || null,
+        neighborhood: insertContent.neighborhood || null,
+        keywords: insertContent.keywords || null,
+        seoOptimized: insertContent.seoOptimized || false,
+        status: insertContent.status || "draft",
+        publishedAt: insertContent.publishedAt || null,
+        scheduledFor: insertContent.scheduledFor || null,
+      };
+      this.contentPieces.set(id, content);
+      return content;
+    }
   }
 
   async updateContentPiece(
     id: string,
     updates: Partial<ContentPiece>
   ): Promise<ContentPiece | undefined> {
-    const content = this.contentPieces.get(id);
-    if (!content) return undefined;
-
-    const updated = { ...content, ...updates };
-    this.contentPieces.set(id, updated);
-    return updated;
+    try {
+      const { db } = await import("./db");
+      const { contentPieces: contentPiecesTable } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updated] = await db.update(contentPiecesTable).set(updates).where(eq(contentPiecesTable.id, id)).returning();
+      return updated || undefined;
+    } catch (error) {
+      console.error("[STORAGE] updateContentPiece DB error:", error);
+      const content = this.contentPieces.get(id);
+      if (!content) return undefined;
+      const updated = { ...content, ...updates };
+      this.contentPieces.set(id, updated);
+      return updated;
+    }
   }
 
   async deleteContentPiece(id: string): Promise<boolean> {
-    return this.contentPieces.delete(id);
+    try {
+      const { db } = await import("./db");
+      const { contentPieces: contentPiecesTable } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const result = await db.delete(contentPiecesTable).where(eq(contentPiecesTable.id, id));
+      return true;
+    } catch (error) {
+      console.error("[STORAGE] deleteContentPiece DB error:", error);
+      return this.contentPieces.delete(id);
+    }
   }
 
   async getSocialMediaAccounts(userId: string): Promise<SocialMediaAccount[]> {

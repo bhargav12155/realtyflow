@@ -2267,13 +2267,26 @@ ${agentName} | ${brokerageName}
                           <div className="text-sm text-foreground whitespace-pre-wrap">
                             {postContent}
                           </div>
-                          {selectedPropertyPhotoUrl && (
-                            <div className="mt-3 rounded-md overflow-hidden border" data-testid="preview-selected-photo">
-                              <img
-                                src={selectedPropertyPhotoUrl}
-                                alt="Selected listing photo"
-                                className="w-full h-40 object-cover"
-                              />
+                          {(selectedPropertyPhotoUrl || selectedMediaIds.length > 0) && (
+                            <div className="mt-3 grid grid-cols-1 gap-2">
+                              {selectedPropertyPhotoUrl && (
+                                <div className="rounded-md overflow-hidden border" data-testid="preview-selected-photo">
+                                  <img
+                                    src={selectedPropertyPhotoUrl}
+                                    alt="Selected listing photo"
+                                    className="w-full h-40 object-cover"
+                                  />
+                                </div>
+                              )}
+                              {selectedMediaIds.map((url, idx) => (
+                                <div key={idx} className="rounded-md overflow-hidden border" data-testid={`preview-media-${idx}`}>
+                                  <img
+                                    src={url}
+                                    alt={`Selected media ${idx + 1}`}
+                                    className="w-full h-40 object-cover"
+                                  />
+                                </div>
+                              ))}
                             </div>
                           )}
                           {selectedProperty && (

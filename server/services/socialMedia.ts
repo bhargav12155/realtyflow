@@ -1325,9 +1325,13 @@ export class SocialMediaService {
     try {
       const token = accessToken || process.env.FACEBOOK_USER_TOKEN;
       const presetPageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+      
+      // Support multiple images from options.photoUrls
+      const effectiveImageUrl = imageUrl || (options?.photoUrls && options.photoUrls.length > 0 ? options.photoUrls[0] : undefined);
+
       console.log("🔍 Facebook Post Debug - Token available:", !!token);
       console.log("🔍 Facebook Post Debug - Page ID:", pageId);
-      console.log("🔍 Facebook Post Debug - Content length:", content?.length);
+      console.log("🔍 Facebook Post Debug - Effective Image URL:", effectiveImageUrl);
 
       if (!token) {
         throw new Error("Facebook access token not available");
@@ -1342,32 +1346,19 @@ export class SocialMediaService {
         formData.append("message", content);
         formData.append("access_token", presetPageAccessToken);
 
-        // Handle media from library (options) or direct upload (imageUrl)
-        // Note: Facebook Graph API supports multi-photo, but current implementation uses first asset only
-        if (options?.photoUrls && options.photoUrls.length > 1) {
-          console.warn(
-            `Facebook posting: ${options.photoUrls.length} photos selected, using first only. Multi-asset support coming soon.`,
-          );
-        }
-        if (options?.videoUrls && options.videoUrls.length > 0) {
-          console.warn(
-            `Facebook posting: Videos not yet supported via media library. Use direct upload for now.`,
-          );
-        }
-
-        const photoUrl = imageUrl || options?.photoUrls?.[0];
-        if (photoUrl) {
+        // Use the effective image URL
+        if (effectiveImageUrl) {
           const deploymentUrl =
             process.env.REPLIT_DEPLOYMENT_URL ||
             process.env.CLIENT_URL ||
             "http://localhost:5000";
-          const fullImageUrl = photoUrl.startsWith("http")
-            ? photoUrl
-            : `${baseUrl || deploymentUrl}${photoUrl}`;
+          const fullImageUrl = effectiveImageUrl.startsWith("http")
+            ? effectiveImageUrl
+            : `${baseUrl || deploymentUrl}${effectiveImageUrl}`;
           formData.append("url", fullImageUrl);
         }
 
-        const endpoint = photoUrl
+        const endpoint = effectiveImageUrl
           ? `https://graph.facebook.com/v22.0/${pageId}/photos`
           : `https://graph.facebook.com/v22.0/${pageId}/feed`;
 
@@ -1490,33 +1481,19 @@ export class SocialMediaService {
       formData.append("message", content);
       formData.append("access_token", pageAccessToken);
 
-      // Handle media from library (options) or direct upload (imageUrl)
-      // Note: Facebook Graph API supports multi-photo, but current implementation uses first asset only
-      if (options?.photoUrls && options.photoUrls.length > 1) {
-        console.warn(
-          `Facebook posting: ${options.photoUrls.length} photos selected, using first only. Multi-asset support coming soon.`,
-        );
-      }
-      if (options?.videoUrls && options.videoUrls.length > 0) {
-        console.warn(
-          `Facebook posting: Videos not yet supported via media library. Use direct upload for now.`,
-        );
-      }
-
-      const photoUrl = imageUrl || options?.photoUrls?.[0];
-      if (photoUrl) {
+      if (effectiveImageUrl) {
         const deploymentUrl =
           process.env.REPLIT_DEPLOYMENT_URL ||
           process.env.CLIENT_URL ||
           "http://localhost:5000";
-        const fullImageUrl = photoUrl.startsWith("http")
-          ? photoUrl
-          : `${baseUrl || deploymentUrl}${photoUrl}`;
+        const fullImageUrl = effectiveImageUrl.startsWith("http")
+          ? effectiveImageUrl
+          : `${baseUrl || deploymentUrl}${effectiveImageUrl}`;
         formData.append("url", fullImageUrl);
       }
 
       // Make the API call to post to the page
-      const endpoint = photoUrl
+      const endpoint = effectiveImageUrl
         ? `https://graph.facebook.com/v22.0/${pageId}/photos`
         : `https://graph.facebook.com/v22.0/${pageId}/feed`;
 

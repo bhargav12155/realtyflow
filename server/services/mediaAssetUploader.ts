@@ -115,12 +115,13 @@ async function normalizeVideoAudio(videoBuffer: Buffer): Promise<Buffer> {
       return videoBuffer;
     }
 
-    console.log(`🔊 Normalizing audio from ${meanVolume} dB to -16 LUFS...`);
+    const boostDb = Math.min(Math.abs(meanVolume) - 16, 30);
+    console.log(`🔊 Boosting audio by ${boostDb} dB with compression and limiting...`);
 
     await execFileAsync('ffmpeg', [
       '-y',
       '-i', inputPath,
-      '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+      '-af', `volume=${boostDb}dB,compand=attacks=0.01:decays=0.3:points=-80/-80|-45/-25|-27/-15|-10/-10|0/-5:soft-knee=6,alimiter=limit=0.95:attack=5:release=50`,
       '-c:v', 'copy',
       outputPath
     ], { maxBuffer: 10 * 1024 * 1024, timeout: 300000 });

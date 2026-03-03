@@ -9152,6 +9152,16 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             status.videoUrl = result.url;
             normalizedVideoCache.set(videoId, result.url);
             console.log(`💾 Studio video normalized and saved to S3: ${result.url}`);
+            
+            const vcList = await storage.getVideoContent(userId);
+            const matchingVc = vcList.find((v: any) => v.metadata?.heygenVideoId === videoId);
+            if (matchingVc) {
+              await storage.updateVideoContent(matchingVc.id, {
+                videoUrl: result.url,
+                status: "ready",
+              });
+              console.log(`📝 Updated video_content record ${matchingVc.id} with S3 URL`);
+            }
           }
         }
       }

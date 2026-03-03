@@ -1598,11 +1598,31 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
   app.post("/api/content/promote-app", async (req: Request, res: Response) => {
     try {
-      const { appId, appName, appUrl, appDescription, appFeatures, platform } = req.body;
+      const { appId, appName, appUrl, appDescription, appFeatures, platform, businessType, aiPrompt } = req.body;
       
       if (!appName || !appUrl) {
         return res.status(400).json({ error: "App name and URL are required" });
       }
+
+      const businessAudienceMap: Record<string, string> = {
+        real_estate: "real estate agents, brokers, and real estate professionals",
+        restaurant: "restaurant owners, food service operators, and hospitality professionals",
+        home_services: "home service business owners, contractors, and tradespeople",
+        retail: "retail business owners, shop managers, and merchants",
+        professional_services: "professional service providers, consultants, and business owners",
+        general: "business owners and entrepreneurs",
+      };
+      const businessIndustryMap: Record<string, string> = {
+        real_estate: "real estate technology",
+        restaurant: "restaurant and hospitality technology",
+        home_services: "home services business technology",
+        retail: "retail business technology",
+        professional_services: "professional services technology",
+        general: "business technology",
+      };
+      const bType = businessType || "real_estate";
+      const targetAudience = businessAudienceMap[bType] || businessAudienceMap.real_estate;
+      const industryLabel = businessIndustryMap[bType] || businessIndustryMap.real_estate;
 
       const angles = [
         "Write a compelling social media post highlighting the key features and benefits. Focus on what makes it unique and why someone should try it today.",
@@ -1644,9 +1664,10 @@ Important:
 - Make it feel natural and engaging, not salesy
 - ALWAYS include the full website URL https://www.${appUrl} prominently in the post (with https://www. prefix)
 - MUST end every post with a call-to-action that includes the contact link. Example endings: "Get started at https://www.${appUrl} or contact us at https://www.imakepage.com/#contact" or "Visit https://www.${appUrl} | Questions? https://www.imakepage.com/#contact"
-- Reference specific features and real benefits for real estate professionals
+- Reference specific features and real benefits for ${targetAudience}
 - Generate 5-8 relevant hashtags separately
 - Do NOT use markdown formatting (no asterisks, no bold, no headers)
+${aiPrompt ? `- Additional instructions from the user: ${aiPrompt}` : ""}
 
 The LAST LINE of the content MUST be a call-to-action with both links, like:
 "Visit https://www.${appUrl} | Contact us: https://www.imakepage.com/#contact"
@@ -1654,7 +1675,7 @@ The LAST LINE of the content MUST be a call-to-action with both links, like:
 Return your response in this exact JSON format:
 {"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`;
 
-      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for real estate technology products. You understand the real estate industry and create content that resonates with agents, brokers, and real estate professionals. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska.`;
+      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for ${industryLabel} products. You understand the ${industryLabel} space and create content that resonates with ${targetAudience}. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska.`;
 
       let result: any;
 

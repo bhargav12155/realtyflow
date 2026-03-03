@@ -1822,6 +1822,8 @@ ${agentName} | ${brokerageName}
                           appDescription: app.description,
                           appFeatures: app.features,
                           platform: selectedPlatforms[0] || "facebook",
+                          businessType,
+                          aiPrompt: aiPrompt || undefined,
                         });
                         const data = await response.json();
                         setPostContent(data.content + (data.hashtags ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ") : ""));
@@ -1874,6 +1876,8 @@ ${agentName} | ${brokerageName}
                         appDescription: app.description,
                         appFeatures: app.features,
                         platform: selectedPlatforms[0] || "facebook",
+                        businessType,
+                        aiPrompt: aiPrompt || undefined,
                       });
                       const data = await response.json();
                       setPostContent(data.content + (data.hashtags ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ") : ""));

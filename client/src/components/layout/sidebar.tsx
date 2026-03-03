@@ -63,7 +63,6 @@ const navigationItems = [
     href: "/dashboard#ai-content",
     key: "ai-content",
     isPageLink: true,
-    showOnlyFor: ["real_estate"],
   },
   {
     icon: Package,

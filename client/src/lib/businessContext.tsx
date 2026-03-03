@@ -89,7 +89,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     features: {
       mlsSearch: false,
       propertyTours: false,
-      aiContentGenerator: false,
+      aiContentGenerator: true,
       complianceCheck: false,
       neighborhoodFocus: false,
       dietaryTags: true,
@@ -117,7 +117,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     features: {
       mlsSearch: false,
       propertyTours: false,
-      aiContentGenerator: false,
+      aiContentGenerator: true,
       complianceCheck: false,
       neighborhoodFocus: false,
       dietaryTags: false,
@@ -145,7 +145,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     features: {
       mlsSearch: false,
       propertyTours: false,
-      aiContentGenerator: false,
+      aiContentGenerator: true,
       complianceCheck: false,
       neighborhoodFocus: false,
       dietaryTags: false,
@@ -173,7 +173,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     features: {
       mlsSearch: false,
       propertyTours: false,
-      aiContentGenerator: false,
+      aiContentGenerator: true,
       complianceCheck: false,
       neighborhoodFocus: false,
       dietaryTags: false,
@@ -201,7 +201,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     features: {
       mlsSearch: false,
       propertyTours: false,
-      aiContentGenerator: false,
+      aiContentGenerator: true,
       complianceCheck: false,
       neighborhoodFocus: false,
       dietaryTags: false,

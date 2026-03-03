@@ -1355,7 +1355,7 @@ export class SocialMediaService {
           const fullImageUrl = effectiveImageUrl.startsWith("http")
             ? effectiveImageUrl
             : `${baseUrl || deploymentUrl}${effectiveImageUrl}`;
-          formData.append("url", fullImageUrl);
+          formData.append("url", encodeURI(fullImageUrl));
         }
 
         const endpoint = effectiveImageUrl
@@ -1579,7 +1579,7 @@ export class SocialMediaService {
           : `${deploymentUrl}${photoUrl}`;
 
         const uploadFormData = new URLSearchParams();
-        uploadFormData.append("url", fullImageUrl);
+        uploadFormData.append("url", encodeURI(fullImageUrl));
         uploadFormData.append("published", "false");
         uploadFormData.append("access_token", pageAccessToken);
 

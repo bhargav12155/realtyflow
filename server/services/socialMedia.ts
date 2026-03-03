@@ -1314,6 +1314,19 @@ export class SocialMediaService {
     }
   }
 
+  private encodeMediaUrl(url: string): string {
+    if (!url) return url;
+    if (!url.startsWith("http")) return url;
+    
+    try {
+      const urlObj = new URL(url);
+      urlObj.pathname = urlObj.pathname.split('/').map(segment => encodeURIComponent(decodeURIComponent(segment))).join('/');
+      return urlObj.toString();
+    } catch (e) {
+      return encodeURI(url);
+    }
+  }
+
   async postToFacebookPage(
     pageId: string,
     content: string,
@@ -1355,7 +1368,7 @@ export class SocialMediaService {
           const fullImageUrl = effectiveImageUrl.startsWith("http")
             ? effectiveImageUrl
             : `${baseUrl || deploymentUrl}${effectiveImageUrl}`;
-          formData.append("url", encodeURI(fullImageUrl));
+          formData.append("url", fullImageUrl);
         }
 
         const endpoint = effectiveImageUrl
@@ -1579,7 +1592,7 @@ export class SocialMediaService {
           : `${deploymentUrl}${photoUrl}`;
 
         const uploadFormData = new URLSearchParams();
-        uploadFormData.append("url", encodeURI(fullImageUrl));
+        uploadFormData.append("url", fullImageUrl);
         uploadFormData.append("published", "false");
         uploadFormData.append("access_token", pageAccessToken);
 

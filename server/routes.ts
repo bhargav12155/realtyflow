@@ -4988,12 +4988,22 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
           }
         }
 
+        // Apply encoding to all resolved URLs
+        const finalPhotoUrls = resolvedPhotoUrls.map(url => {
+          if (!url.startsWith('http')) return url;
+          try {
+            const urlObj = new URL(url);
+            urlObj.pathname = urlObj.pathname.split('/').map(s => encodeURIComponent(decodeURIComponent(s))).join('/');
+            return urlObj.toString();
+          } catch (e) { return encodeURI(url); }
+        });
+
         // Use the first resolved URL as the primary single image (for backwards compat)
-        if (!photoUrl && resolvedPhotoUrls.length > 0) {
-          photoUrl = resolvedPhotoUrls[0];
+        if (!photoUrl && finalPhotoUrls.length > 0) {
+          photoUrl = finalPhotoUrls[0];
         }
 
-        console.log(`📸 Facebook post: ${resolvedPhotoUrls.length} images to post`);
+        console.log(`📸 Facebook post: ${finalPhotoUrls.length} images to post`);
 
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const postResult = await socialMediaService.postToFacebookPage(
@@ -5002,7 +5012,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
           photoUrl || undefined,
           resolvedToken,
           baseUrl,
-          { photoUrls: resolvedPhotoUrls }
+          { photoUrls: finalPhotoUrls }
         );
 
         const scheduledPost = await storage.createScheduledPost({

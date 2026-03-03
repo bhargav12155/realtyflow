@@ -1815,6 +1815,9 @@ ${agentName} | ${brokerageName}
                       }
                       setIsGeneratingPromo(true);
                       try {
+                        // Clean the aiPrompt to remove "promote app" or "promote_app" prefix if it's there
+                        const cleanAiPrompt = (aiPrompt || "").replace(/^promote\s+app\s+/i, "").replace(/^promote_app\s+/i, "").trim();
+                        
                         const response = await apiRequest("POST", "/api/content/promote-app", {
                           appId: app.id,
                           appName: app.name,
@@ -1823,7 +1826,7 @@ ${agentName} | ${brokerageName}
                           appFeatures: app.features,
                           platform: selectedPlatforms[0] || "facebook",
                           businessType,
-                          aiPrompt: aiPrompt || undefined,
+                          aiPrompt: cleanAiPrompt || undefined,
                         });
                         const data = await response.json();
                         const promoContent: string = data.content || "";
@@ -1873,6 +1876,9 @@ ${agentName} | ${brokerageName}
                     if (!app) return;
                     setIsGeneratingPromo(true);
                     try {
+                      // Clean the aiPrompt to remove "promote app" or "promote_app" prefix if it's there
+                      const cleanAiPrompt = (aiPrompt || "").replace(/^promote\s+app\s+/i, "").replace(/^promote_app\s+/i, "").trim();
+                      
                       const response = await apiRequest("POST", "/api/content/promote-app", {
                         appId: app.id,
                         appName: app.name,
@@ -1881,7 +1887,7 @@ ${agentName} | ${brokerageName}
                         appFeatures: app.features,
                         platform: selectedPlatforms[0] || "facebook",
                         businessType,
-                        aiPrompt: aiPrompt || undefined,
+                        aiPrompt: cleanAiPrompt || undefined,
                       });
                       const data = await response.json();
                       const regenContent: string = data.content || "";

@@ -1669,6 +1669,7 @@ Important:
 - MUST end every post with a call-to-action that includes the contact link. Example endings: "Get started at https://www.${appUrl} or contact us at https://www.imakepage.com/#contact" or "Visit https://www.${appUrl} | Questions? https://www.imakepage.com/#contact"
 - Generate 5-8 relevant hashtags separately in the hashtags field — do NOT put them inside the post content
 - Do NOT use markdown formatting (no asterisks, no bold, no headers)
+- Do NOT start the content with "promote app" or "promote_app".
 
 The LAST LINE of the content MUST be a call-to-action with both links, like:
 "Visit https://www.${appUrl} | Contact us: https://www.imakepage.com/#contact"
@@ -1692,27 +1693,34 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       const rawText = (geminiResponse.text ?? "")
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
 
+      // 1. Clean the AI's response properly
       function parsePromoJSON(text: string): { content: string; hashtags: string[] } {
         const fallback = { content: `Check out ${appName} at https://www.${appUrl}!`, hashtags: [] };
         try {
-          const jsonMatch = text.match(/\{[\s\S]*\}/);
-          const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+          // Remove any "promote app" prefix the AI might have hallucinated into the JSON
+          const cleanedText = text.replace(/^promote\s+app\s+/i, "").trim();
+          const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+          const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : cleanedText);
+          
           if (parsed && typeof parsed.content === "string") {
             let contentStr = parsed.content.trim();
-            // Unwrap if AI double-wrapped the JSON (content field is itself a JSON object string)
+            // Remove "promote app" from inside the content string if it exists
+            contentStr = contentStr.replace(/^promote\s+app\s+/i, "").trim();
+            
+            // Unwrap if AI double-wrapped the JSON
             if (contentStr.startsWith("{") && contentStr.includes('"content"')) {
-              // Try JSON.parse first
               try {
                 const nested = JSON.parse(contentStr);
-                if (nested && typeof nested.content === "string" && !nested.content.startsWith("{")) {
-                  return { content: nested.content, hashtags: nested.hashtags || parsed.hashtags || [] };
+                if (nested && typeof nested.content === "string") {
+                  let innerContent = nested.content.trim().replace(/^promote\s+app\s+/i, "").trim();
+                  return { content: innerContent, hashtags: nested.hashtags || parsed.hashtags || [] };
                 }
               } catch {
-                // JSON.parse failed (likely unescaped chars in content) — use regex to pull content value
                 const rgx = /"content"\s*:\s*"([\s\S]*?)",\s*"hashtags"/;
                 const m = contentStr.match(rgx);
                 if (m) {
                   try { contentStr = JSON.parse('"' + m[1] + '"'); } catch { contentStr = m[1]; }
+                  contentStr = contentStr.replace(/^promote\s+app\s+/i, "").trim();
                   return { content: contentStr, hashtags: parsed.hashtags || [] };
                 }
               }
@@ -1727,16 +1735,21 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       result = parsePromoJSON(rawText);
       let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
       
+      // 2. Remove markdown and "promote app" prefix
+      content = content.replace(/^promote\s+app\s+/i, "").trim();
+      content = content.replace(/^promote_app\s+/i, "").trim();
       content = content.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/`([^`]*)`/g, "$1");
       
-      const hasWebsiteUrl = content.includes(`https://www.${appUrl}`) || content.includes(`http://www.${appUrl}`) || content.includes(`www.${appUrl}`);
-      const hasContactLink = content.includes("imakepage.com/#contact");
+      // 3. Smart URL handling - only add if missing
+      const hasWebsiteUrl = content.toLowerCase().includes(appUrl.toLowerCase());
+      const hasContactLink = content.toLowerCase().includes("imakepage.com/#contact");
       
       if (!hasWebsiteUrl) {
         content += `\n\nVisit https://www.${appUrl}`;
       }
       if (!hasContactLink) {
-        content += ` | Contact us: https://www.imakepage.com/#contact`;
+        const separator = !hasWebsiteUrl ? " | " : "\n\n";
+        content += `${separator}Contact us: https://www.imakepage.com/#contact`;
       }
       
       res.json({

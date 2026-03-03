@@ -1673,10 +1673,12 @@ Important:
 The LAST LINE of the content MUST be a call-to-action with both links, like:
 "Visit https://www.${appUrl} | Contact us: https://www.imakepage.com/#contact"
 
-Return your response in this exact JSON format:
-{"content": "the post content here without hashtags", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`;
+CRITICAL RESPONSE FORMAT — respond with ONLY this raw JSON, nothing else, no explanation, no markdown, no code block:
+{"content": "the post text here — no hashtags inside this string", "hashtags": ["tag1", "tag2", "tag3"]}
 
-      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for ${industryLabel} products. You understand the ${industryLabel} space and create content that resonates with ${targetAudience}. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska. CRITICAL: Never put hashtags inside the content body — they go only in the separate hashtags array.`;
+Do NOT nest JSON inside the content field. The content value must be a plain text string, not a JSON object.`;
+
+      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for ${industryLabel} products. You understand the ${industryLabel} space and create content that resonates with ${targetAudience}. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska. CRITICAL: Respond with raw JSON only — no markdown, no code blocks, no explanation. Never put hashtags inside the content string and never nest JSON inside content.`;
 
       let result: any;
 
@@ -1696,20 +1698,30 @@ Return your response in this exact JSON format:
           const jsonMatch = text.match(/\{[\s\S]*\}/);
           const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
           if (parsed && typeof parsed.content === "string") {
-            const inner = parsed.content.trim();
-            if (inner.startsWith("{")) {
+            let contentStr = parsed.content.trim();
+            // Unwrap if AI double-wrapped the JSON (content field is itself a JSON object string)
+            if (contentStr.startsWith("{") && contentStr.includes('"content"')) {
+              // Try JSON.parse first
               try {
-                const nested = JSON.parse(inner);
-                if (nested && nested.content) return { content: nested.content, hashtags: nested.hashtags || parsed.hashtags || [] };
+                const nested = JSON.parse(contentStr);
+                if (nested && typeof nested.content === "string" && !nested.content.startsWith("{")) {
+                  return { content: nested.content, hashtags: nested.hashtags || parsed.hashtags || [] };
+                }
               } catch {
-                // inner isn't valid JSON — use outer content as-is
+                // JSON.parse failed (likely unescaped chars in content) — use regex to pull content value
+                const rgx = /"content"\s*:\s*"([\s\S]*?)",\s*"hashtags"/;
+                const m = contentStr.match(rgx);
+                if (m) {
+                  try { contentStr = JSON.parse('"' + m[1] + '"'); } catch { contentStr = m[1]; }
+                  return { content: contentStr, hashtags: parsed.hashtags || [] };
+                }
               }
             }
-            return { content: parsed.content, hashtags: parsed.hashtags || [] };
+            return { content: contentStr, hashtags: parsed.hashtags || [] };
           }
           return fallback;
         } catch {
-          return { content: text.includes("content") ? text : fallback.content, hashtags: [] };
+          return fallback;
         }
       }
       result = parsePromoJSON(rawText);

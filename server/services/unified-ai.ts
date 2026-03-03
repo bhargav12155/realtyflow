@@ -97,15 +97,29 @@ class UnifiedAIService {
     });
   }
 
+  private getBusinessDefaults(companyProfile?: any) {
+    const bt = companyProfile?.businessType || "real_estate";
+    const defaults: Record<string, { role: string; industry: string; fallbackName: string }> = {
+      real_estate: { role: "real estate agent", industry: "real estate", fallbackName: "your local real estate agent" },
+      restaurant: { role: "restaurant professional", industry: "food & hospitality", fallbackName: "our restaurant team" },
+      home_services: { role: "home services professional", industry: "home services", fallbackName: "our service team" },
+      retail: { role: "retail professional", industry: "retail", fallbackName: "our retail team" },
+      professional_services: { role: "professional consultant", industry: "professional services", fallbackName: "our team" },
+      general: { role: "business professional", industry: "business", fallbackName: "our team" },
+    };
+    return defaults[bt] || defaults.general;
+  }
+
   async generateStructuredContent(request: ContentGenerationRequest): Promise<GeneratedContent> {
     try {
-      const agentName = request.companyProfile?.agentName || "your local real estate agent";
-      const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our brokerage";
-      const agentTitle = request.companyProfile?.agentTitle || "real estate agent";
+      const bizDefaults = this.getBusinessDefaults(request.companyProfile);
+      const agentName = request.companyProfile?.agentName || bizDefaults.fallbackName;
+      const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our business";
+      const agentTitle = request.companyProfile?.agentTitle || bizDefaults.role;
 
       let prompt = `Generate ${request.type} content about "${request.topic}"`;
-      if (request.neighborhood) prompt += ` focusing on the ${request.neighborhood} neighborhood in Omaha, Nebraska`;
-      else prompt += ` for the Omaha, Nebraska real estate market`;
+      if (request.neighborhood) prompt += ` focusing on the ${request.neighborhood} area`;
+      else prompt += ` for a ${bizDefaults.industry} business`;
       if (request.aiPrompt) prompt += `\n\nAdditional instructions: ${request.aiPrompt}`;
       if (request.keywords && request.keywords.length > 0) prompt += `\n\nInclude these keywords: ${request.keywords.join(", ")}`;
       if (request.seoOptimized) prompt += `\n\nOptimize for SEO with proper headings, meta descriptions, and keyword placement.`;
@@ -113,12 +127,21 @@ class UnifiedAIService {
       prompt += `\n\nRespond with a JSON object containing: title, content, keywords (array), metaDescription, seoScore (0-100), wordCount`;
 
       const response = await this.generate(prompt, {
-        systemPrompt: `You are an expert real estate content writer and SEO specialist focused on the Omaha, Nebraska market. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in Omaha. Always respond with valid JSON.`,
-        maxTokens: 2000,
+        systemPrompt: `You are an expert ${bizDefaults.industry} content writer and SEO specialist. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName}. Always respond with valid JSON. Keep the content field under 800 words to avoid truncation.`,
+        maxTokens: 4000,
         jsonMode: true,
       });
 
-      const result = JSON.parse(response.content);
+      let result: any;
+      try {
+        result = JSON.parse(response.content);
+      } catch {
+        const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { result = JSON.parse(jsonMatch[0]); } catch { result = null; }
+        }
+        if (!result) throw new Error("Failed to parse AI response as JSON");
+      }
       return {
         title: result.title || "Untitled Content",
         content: result.content || "",
@@ -134,13 +157,15 @@ class UnifiedAIService {
   }
 
   private getFallbackContent(request: ContentGenerationRequest): GeneratedContent {
-    const agentName = request.companyProfile?.agentName || "your local real estate agent";
-    const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our brokerage";
+    const bizDefaults = this.getBusinessDefaults(request.companyProfile);
+    const agentName = request.companyProfile?.agentName || bizDefaults.fallbackName;
+    const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our business";
+    const area = request.neighborhood || "your area";
     return {
-      title: `${request.topic} - ${request.neighborhood || "Omaha"} Real Estate`,
-      content: `Looking for expert real estate guidance in ${request.neighborhood || "Omaha"}? Contact ${agentName} with ${businessName} for professional service and local market expertise.`,
-      keywords: ["Omaha real estate", request.neighborhood ? `${request.neighborhood} homes` : "Nebraska homes", request.topic],
-      metaDescription: `${request.topic} in ${request.neighborhood || "Omaha"} with ${agentName}`,
+      title: `${request.topic} - ${bizDefaults.industry}`,
+      content: `Looking for expert ${bizDefaults.industry} guidance in ${area}? Contact ${agentName} with ${businessName} for professional service and expertise.`,
+      keywords: [bizDefaults.industry, request.neighborhood || "local", request.topic],
+      metaDescription: `${request.topic} - ${agentName} with ${businessName}`,
       seoScore: 45,
       wordCount: 25,
     };

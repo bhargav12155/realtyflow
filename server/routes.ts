@@ -1507,14 +1507,16 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         longTailKeywords,
         localSeoFocus,
         propertyData,
+        businessType,
       } = req.body;
 
       // Fetch company profile for dynamic personalization
       const userId = req.user?.id;
-      let companyProfile = null;
+      let companyProfile: any = null;
       if (userId) {
         companyProfile = await storage.getCompanyProfile(userId);
       }
+      const effectiveProfile = { ...companyProfile, businessType: businessType || companyProfile?.businessType || "real_estate" };
 
       // Use unified AI service (GitHub Copilot primary, OpenAI fallback)
       const { unifiedAI } = await import("./services/unified-ai");
@@ -1528,7 +1530,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         longTailKeywords,
         localSeoFocus,
         propertyData,
-        companyProfile: companyProfile || undefined,
+        companyProfile: effectiveProfile,
       });
 
       // Save to storage

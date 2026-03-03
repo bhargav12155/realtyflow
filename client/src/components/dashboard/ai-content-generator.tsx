@@ -1130,6 +1130,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       localSeoFocus: true,
       propertyData:
         contentType === "property_feature" ? selectedProperty : undefined,
+      businessType,
     });
   };
 

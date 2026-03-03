@@ -503,7 +503,7 @@ export default function EventsCalendarPage() {
                 Add Event
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add Manual Event</DialogTitle>
                 <DialogDescription>
@@ -1205,7 +1205,7 @@ export default function EventsCalendarPage() {
                       Add Calendar Source
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Add Calendar Source</DialogTitle>
                       <DialogDescription>

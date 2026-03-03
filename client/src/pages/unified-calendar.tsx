@@ -830,7 +830,7 @@ export default function UnifiedCalendarPage() {
                     Add Event
                   </Button>
                 </DialogTrigger>
-                <DialogContent>
+                <DialogContent className="max-h-[85vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Add Manual Event</DialogTitle>
                     <DialogDescription>
@@ -2125,7 +2125,7 @@ export default function UnifiedCalendarPage() {
                       Add Calendar Source
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Add Calendar Source</DialogTitle>
                       <DialogDescription>
@@ -2266,7 +2266,7 @@ export default function UnifiedCalendarPage() {
       </Tabs>
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {previewContent?.type === "event" ? "Event Details" : "Post Preview"}

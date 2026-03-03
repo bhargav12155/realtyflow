@@ -17,16 +17,25 @@ function extractJSON(raw: string, fallback: any = {}): any {
       .replace(/```\s*$/i, "")
       .trim();
     const match = stripped.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    const parsed = JSON.parse(match ? match[0] : stripped);
-    if (parsed && typeof parsed.content === "string") {
-      const inner = parsed.content.trim();
-      if (inner.startsWith("{") || inner.startsWith("[")) {
-        try {
-          const nested = JSON.parse(inner);
-          if (nested && nested.content) return nested;
-        } catch {}
+    let parsed = JSON.parse(match ? match[0] : stripped);
+    
+    // Recursive unwrap and prefix stripping
+    const unwrap = (obj: any): any => {
+      if (typeof obj === "string") {
+        const clean = obj.replace(/^(promote[ _]app|promoteapp)\s*/i, "").trim();
+        if (clean.startsWith("{") || clean.startsWith("[")) {
+          try { return unwrap(JSON.parse(clean)); } catch { return clean; }
+        }
+        return clean;
       }
-    }
+      if (obj && typeof obj === "object") {
+        if (obj.content) obj.content = unwrap(obj.content);
+        if (obj.text) obj.text = unwrap(obj.text);
+      }
+      return obj;
+    };
+    
+    parsed = unwrap(parsed);
     return parsed;
   } catch {
     return fallback;

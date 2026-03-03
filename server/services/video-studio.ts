@@ -512,7 +512,7 @@ Thanks for watching! If you found this helpful, don't forget to like and subscri
         script: request.script,
         voiceId: request.voiceId || "119caed25533477ba63822d5d1552d25", // Default voice if not specified
         videoOrientation: request.aspectRatio === "9:16" ? "portrait" : "landscape",
-        fit: "cover",
+        fit: "contain",
       });
 
       if (!result.video_id) {

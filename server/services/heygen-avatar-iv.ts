@@ -128,7 +128,7 @@ export class HeyGenAvatarIVService {
       script: cleanedScript,
       voice_id: options.voiceId,
       video_orientation: options.videoOrientation || "landscape",
-      fit: options.fit || "cover",
+      fit: options.fit || "contain",
     };
 
     if (options.customMotionPrompt) {
@@ -172,7 +172,7 @@ export class HeyGenAvatarIVService {
       image_key: options.imageKey,
       video_title: options.videoTitle,
       video_orientation: options.videoOrientation || "landscape",
-      fit: options.fit || "cover",
+      fit: options.fit || "contain",
     };
 
     if (options.audioUrl) {

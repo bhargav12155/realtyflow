@@ -9118,13 +9118,44 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
-  // Check video status
-  app.get("/api/studio/status/:videoId", requireAuth, async (req, res) => {
+  // Check video status - with audio normalization and S3 persistence
+  const normalizedVideoCache = new Map<string, string>();
+  
+  app.get("/api/studio/status/:videoId", requireAuth, async (req: any, res) => {
     try {
       const { videoId } = req.params;
+      const userId = String(req.user?.id);
       const studio = getVideoStudio();
       
       const status = await studio.getVideoStatus(videoId);
+      
+      if (status.status === "completed" && status.videoUrl) {
+        const cachedUrl = normalizedVideoCache.get(videoId);
+        if (cachedUrl) {
+          status.videoUrl = cachedUrl;
+        } else {
+          const { persistVideoFromUrlAndRecord } = await import("./services/mediaAssetUploader");
+          const filename = `user-${userId}-${videoId}.mp4`;
+          const result = await persistVideoFromUrlAndRecord(
+            status.videoUrl,
+            filename,
+            'videos',
+            {
+              userId,
+              type: 'video',
+              source: 'heygen',
+              title: 'Studio Video',
+              durationSeconds: undefined,
+            }
+          );
+          if (result?.url) {
+            status.videoUrl = result.url;
+            normalizedVideoCache.set(videoId, result.url);
+            console.log(`💾 Studio video normalized and saved to S3: ${result.url}`);
+          }
+        }
+      }
+      
       res.json(status);
     } catch (error) {
       console.error("Failed to get video status:", error);
@@ -11811,7 +11842,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           audioUrl,
           audioAssetId,
           videoOrientation: videoOrientation || "landscape",
-          fit: fit || "cover",
+          fit: fit || "contain",
           customMotionPrompt,
           enhanceCustomMotionPrompt,
         });
@@ -11830,7 +11861,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           script,
           voiceId,
           videoOrientation: videoOrientation || "landscape",
-          fit: fit || "cover",
+          fit: fit || "contain",
           customMotionPrompt,
           enhanceCustomMotionPrompt,
         });
@@ -11959,19 +11990,23 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log(`💾 Video saved to S3: ${savedPath || 'failed'}${result ? `, media asset: ${result.mediaAsset.id}` : ''}`);
         (status as any).saved_path = savedPath;
         
+        if (savedPath) {
+          status.video_url = savedPath;
+        }
+        
         // Check if already in quick posts library
         const existingVideos = await storage.getGeneratedVideos(userId);
         const alreadySaved = existingVideos.some(v => v.heygenVideoId === videoId);
         
         if (!alreadySaved) {
-          // Save to quick posts library (generatedVideos table)
+          // Save to quick posts library (generatedVideos table) with S3 URL
           const generatedVideo = await storage.createGeneratedVideo({
             userId,
             title: (title as string) || "Avatar IV Video",
             generatedScript: (script as string) || "",
             status: "completed",
             heygenVideoId: videoId,
-            videoUrl: status.video_url,
+            videoUrl: savedPath || status.video_url,
             thumbnailUrl: status.thumbnail_url || "",
             duration: status.duration || 0,
           });

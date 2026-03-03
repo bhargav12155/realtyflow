@@ -39,7 +39,7 @@ export async function createVideoTask(
   prompt: string,
   model: SJinnModel = "auto"
 ): Promise<SJinnTaskResult> {
-  const body: Record<string, any> = {
+  const body: Record<string, string> = {
     message: prompt,
   };
 
@@ -60,7 +60,6 @@ export async function createVideoTask(
   }
 
   const data = await response.json();
-  // Improve error logging by capturing full response
   console.log("[SJinn] create_agent_task response:", JSON.stringify(data));
 
   if (!data.success) {

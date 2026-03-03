@@ -328,6 +328,10 @@ export function SocialMediaManager() {
     enabled: !isRealEstate,
   });
 
+  const { data: mediaAssets = [] } = useQuery<any[]>({
+    queryKey: ["/api/media"],
+  });
+
   // Get agent name and brokerage with smart defaults
   const isTikTokOnly = selectedPlatforms.length === 1 && selectedPlatforms[0] === "tiktok";
   const agentName = companyProfile?.agentName || "[Your Name]";
@@ -2278,15 +2282,19 @@ ${agentName} | ${brokerageName}
                                   />
                                 </div>
                               )}
-                              {selectedMediaIds.map((url, idx) => (
-                                <div key={idx} className="rounded-md overflow-hidden border" data-testid={`preview-media-${idx}`}>
-                                  <img
-                                    src={url}
-                                    alt={`Selected media ${idx + 1}`}
-                                    className="w-full h-40 object-cover"
-                                  />
-                                </div>
-                              ))}
+                              {selectedMediaIds.map((idOrUrl, idx) => {
+                                const asset = mediaAssets.find((a: any) => a.id === idOrUrl);
+                                const url = asset ? asset.url : idOrUrl;
+                                return (
+                                  <div key={idx} className="rounded-md overflow-hidden border" data-testid={`preview-media-${idx}`}>
+                                    <img
+                                      src={url}
+                                      alt={`Selected media ${idx + 1}`}
+                                      className="w-full h-40 object-cover"
+                                    />
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                           {selectedProperty && (

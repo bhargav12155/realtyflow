@@ -4908,6 +4908,14 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
           return res.status(400).json({ error: "Content is required" });
         }
 
+        // Resolve mediaIds to photo/video URLs (sent from social-media-manager.tsx)
+        const incomingMediaIds: string[] = (() => {
+          const raw = req.body.mediaIds;
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw;
+          try { return JSON.parse(raw); } catch { return [raw]; }
+        })();
+
         // Use authenticated user ID directly - CRITICAL: don't use resolveMemStorageUser
         const userId = String(req.user.id);
         console.log(`[FB POST] Using authenticated user ID: ${userId}`);
@@ -4949,17 +4957,43 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         const mediaUrl = req.body.mediaUrl; // Image URL from S3 or external source
         let photoUrl: string | null = null;
         let usedSampleImage = false;
+        const resolvedPhotoUrls: string[] = [];
 
         if (photo) {
           photoUrl = `/uploads/${path.basename(photo.path)}`;
+          resolvedPhotoUrls.push(photoUrl);
         } else if (mediaUrl && (mediaUrl.startsWith('https://') || mediaUrl.startsWith('http://'))) {
-          // Use the provided media URL (e.g., from S3 upload) - only if it's a valid HTTP(S) URL
           photoUrl = mediaUrl;
+          resolvedPhotoUrls.push(photoUrl);
           console.log(`📸 Facebook Post Debug - Using mediaUrl: ${mediaUrl.substring(0, 50)}...`);
         } else if (useSampleImage) {
           photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
+          resolvedPhotoUrls.push(photoUrl);
           usedSampleImage = true;
         }
+
+        // Resolve mediaIds to photo/video URLs
+        if (incomingMediaIds.length > 0) {
+          for (const id of incomingMediaIds) {
+            if (typeof id === 'string' && (id.startsWith('http://') || id.startsWith('https://') || id.startsWith('/uploads/'))) {
+              resolvedPhotoUrls.push(id);
+              continue;
+            }
+            try {
+              const asset = await storage.getMediaAssetById(id);
+              if (asset?.url) { resolvedPhotoUrls.push(asset.url); continue; }
+              const avatar = await storage.getAvatarById(id);
+              if (avatar?.photoUrl) { resolvedPhotoUrls.push(avatar.photoUrl); continue; }
+            } catch (e) { console.warn('FB: Could not resolve mediaId', id, e); }
+          }
+        }
+
+        // Use the first resolved URL as the primary single image (for backwards compat)
+        if (!photoUrl && resolvedPhotoUrls.length > 0) {
+          photoUrl = resolvedPhotoUrls[0];
+        }
+
+        console.log(`📸 Facebook post: ${resolvedPhotoUrls.length} images to post`);
 
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const postResult = await socialMediaService.postToFacebookPage(
@@ -4967,7 +5001,8 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
           content,
           photoUrl || undefined,
           resolvedToken,
-          baseUrl
+          baseUrl,
+          { photoUrls: resolvedPhotoUrls }
         );
 
         const scheduledPost = await storage.createScheduledPost({

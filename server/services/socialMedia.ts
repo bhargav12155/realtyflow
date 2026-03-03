@@ -1476,7 +1476,13 @@ export class SocialMediaService {
         );
       }
 
-      // Prepare the request using form data for better compatibility
+      // Handle multiple images: if more than one photoUrl, use multi-photo post
+      const photoUrls = options?.photoUrls || (imageUrl ? [imageUrl] : []);
+      if (photoUrls.length > 1) {
+        return this.postMultiPhotoToFacebookPage(pageId, content, photoUrls, pageAccessToken);
+      }
+
+            // Prepare the request using form data for better compatibility
       const formData = new URLSearchParams();
       formData.append("message", content);
       formData.append("access_token", pageAccessToken);
@@ -1549,7 +1555,83 @@ export class SocialMediaService {
     }
   }
 
-  async getTikTokAccessToken(userId: string): Promise<{
+  /**
+   * Post multiple photos to a Facebook page as a single post
+   */
+  private async postMultiPhotoToFacebookPage(
+    pageId: string,
+    content: string,
+    photoUrls: string[],
+    pageAccessToken: string,
+  ): Promise<{ postId: string }> {
+    try {
+      console.log(`FB: Starting multi-photo post with ${photoUrls.length} images`);
+      const deploymentUrl =
+        process.env.REPLIT_DEPLOYMENT_URL ||
+        process.env.CLIENT_URL ||
+        "http://localhost:5000";
+
+      // Step 1: Upload each photo as unpublished
+      const attachedMedia: Array<{ media_fbid: string }> = [];
+      for (const photoUrl of photoUrls) {
+        const fullImageUrl = photoUrl.startsWith("http")
+          ? photoUrl
+          : `${deploymentUrl}${photoUrl}`;
+
+        const uploadFormData = new URLSearchParams();
+        uploadFormData.append("url", fullImageUrl);
+        uploadFormData.append("published", "false");
+        uploadFormData.append("access_token", pageAccessToken);
+
+        const uploadRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/photos`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: uploadFormData.toString(),
+        });
+
+        const uploadResult = await uploadRes.json();
+        if (!uploadRes.ok) {
+          console.error("FB Multi-photo: Photo upload failed", uploadResult);
+          continue;
+        }
+        attachedMedia.push({ media_fbid: uploadResult.id });
+      }
+
+      if (attachedMedia.length === 0) {
+        throw new Error("Failed to upload any photos for multi-photo post");
+      }
+
+      // Step 2: Create the post with all photo IDs attached
+      const postFormData = new URLSearchParams();
+      postFormData.append("message", content);
+      postFormData.append("access_token", pageAccessToken);
+      attachedMedia.forEach((media, index) => {
+        postFormData.append(`attached_media[${index}]`, JSON.stringify(media));
+      });
+
+      const postRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: postFormData.toString(),
+      });
+
+      const postResult = await postRes.json();
+      if (!postRes.ok) {
+        throw new SocialMediaError(
+          postResult.error?.message || "Failed to create multi-photo post",
+          postRes.status,
+          postResult
+        );
+      }
+
+      return { postId: postResult.id };
+    } catch (error) {
+      console.error("Facebook multi-photo post error:", error);
+      throw error;
+    }
+  }
+
+    async getTikTokAccessToken(userId: string): Promise<{
     accessToken: string;
     refreshToken?: string;
     openId?: string;

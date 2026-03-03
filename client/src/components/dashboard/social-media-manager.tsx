@@ -269,7 +269,7 @@ export function SocialMediaManager() {
   const { user } = useAuth();
   const { businessType, terms } = useBusinessType();
   const postTypes = POST_TYPES_BY_BUSINESS[businessType] ?? POST_TYPES_BY_BUSINESS.real_estate;
-  const isRealEstate = businessType === "real_estate";
+  const isRealEstate = terms.features.mlsSearch;
   const APP_PROMO_EMAILS = [
     "bhargav12155@gmail.com",
     "sudha@mygoldenbrick.com",

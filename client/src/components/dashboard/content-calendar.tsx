@@ -411,7 +411,7 @@ interface ScheduledPost {
 export function ContentCalendar() {
   const { user, isLoading: authLoading } = useAuth();
   const { businessType, terms } = useBusinessType();
-  const isRealEstate = businessType === "real_estate";
+  const isRealEstate = terms.features.complianceCheck;
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [localGeneratedPosts, setLocalGeneratedPosts] = useState<typeof initialScheduledContent>([]);
   const [showPreview, setShowPreview] = useState(false);

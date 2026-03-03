@@ -28,6 +28,15 @@ export interface BusinessTerminology {
   catalogPage: string;
   catalogDescription: string;
   featureLabel: string;
+  features: {
+    mlsSearch: boolean;
+    propertyTours: boolean;
+    aiContentGenerator: boolean;
+    complianceCheck: boolean;
+    neighborhoodFocus: boolean;
+    dietaryTags: boolean;
+    ingredients: boolean;
+  };
 }
 
 const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
@@ -49,6 +58,15 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     catalogPage: "Property Listings",
     catalogDescription: "Manage your property listings and generate AI content for each one",
     featureLabel: "Property Feature",
+    features: {
+      mlsSearch: true,
+      propertyTours: true,
+      aiContentGenerator: true,
+      complianceCheck: true,
+      neighborhoodFocus: true,
+      dietaryTags: false,
+      ingredients: false,
+    },
   },
   restaurant: {
     item: "menu item",
@@ -68,6 +86,15 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     catalogPage: "Menu & Catalog",
     catalogDescription: "Manage your menu items and generate AI content for each dish",
     featureLabel: "Menu Item Feature",
+    features: {
+      mlsSearch: false,
+      propertyTours: false,
+      aiContentGenerator: false,
+      complianceCheck: false,
+      neighborhoodFocus: false,
+      dietaryTags: true,
+      ingredients: true,
+    },
   },
   home_services: {
     item: "service",
@@ -87,6 +114,15 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     catalogPage: "Services Catalog",
     catalogDescription: "Manage your services and generate AI content for each offering",
     featureLabel: "Service Feature",
+    features: {
+      mlsSearch: false,
+      propertyTours: false,
+      aiContentGenerator: false,
+      complianceCheck: false,
+      neighborhoodFocus: false,
+      dietaryTags: false,
+      ingredients: false,
+    },
   },
   retail: {
     item: "product",
@@ -106,6 +142,15 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     catalogPage: "Product Catalog",
     catalogDescription: "Manage your products and generate AI content for each item",
     featureLabel: "Product Feature",
+    features: {
+      mlsSearch: false,
+      propertyTours: false,
+      aiContentGenerator: false,
+      complianceCheck: false,
+      neighborhoodFocus: false,
+      dietaryTags: false,
+      ingredients: false,
+    },
   },
   professional_services: {
     item: "service",
@@ -125,6 +170,15 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     catalogPage: "Services Catalog",
     catalogDescription: "Manage your services and generate AI content for each offering",
     featureLabel: "Service Feature",
+    features: {
+      mlsSearch: false,
+      propertyTours: false,
+      aiContentGenerator: false,
+      complianceCheck: false,
+      neighborhoodFocus: false,
+      dietaryTags: false,
+      ingredients: false,
+    },
   },
   general: {
     item: "item",
@@ -144,6 +198,15 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     catalogPage: "Business Catalog",
     catalogDescription: "Manage your items and generate AI content for each one",
     featureLabel: "Feature Post",
+    features: {
+      mlsSearch: false,
+      propertyTours: false,
+      aiContentGenerator: false,
+      complianceCheck: false,
+      neighborhoodFocus: false,
+      dietaryTags: false,
+      ingredients: false,
+    },
   },
 };
 

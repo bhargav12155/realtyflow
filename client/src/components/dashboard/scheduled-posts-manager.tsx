@@ -157,7 +157,7 @@ const aiPresets = [
 export function ScheduledPostsManager() {
   const { user, isLoading: authLoading } = useAuth();
   const { businessType, terms } = useBusinessType();
-  const isRealEstate = businessType === "real_estate";
+  const isRealEstate = terms.features.complianceCheck;
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);

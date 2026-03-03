@@ -33,8 +33,9 @@ import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
-const VIEWS_BY_BUSINESS_TYPE: Record<string, string[]> = {
-  real_estate: ["ai-content", "property-tour"],
+const VIEW_FEATURE_GATE: Record<string, string> = {
+  "ai-content": "aiContentGenerator",
+  "property-tour": "propertyTours",
 };
 
 export default function Dashboard() {
@@ -82,15 +83,12 @@ export default function Dashboard() {
   }, [location]); // Re-run when Wouter location changes
 
   useEffect(() => {
-    const restrictedViews = Object.entries(VIEWS_BY_BUSINESS_TYPE);
-    const isRestricted = restrictedViews.some(([type, views]) => {
-      return views.includes(activeView) && businessType !== type;
-    });
-    if (isRestricted) {
+    const featureKey = VIEW_FEATURE_GATE[activeView];
+    if (featureKey && !(terms.features as any)[featureKey]) {
       window.location.hash = "";
       setActiveView("dashboard");
     }
-  }, [businessType, activeView]);
+  }, [businessType, activeView, terms]);
 
   // Don't auto-show social links prompt on first visit - users can access it in settings
   useEffect(() => {
@@ -102,10 +100,8 @@ export default function Dashboard() {
   }, []);
 
   const renderActiveView = () => {
-    const restrictedEntries = Object.entries(VIEWS_BY_BUSINESS_TYPE);
-    const viewIsRestricted = restrictedEntries.some(([type, views]) => {
-      return views.includes(activeView) && businessType !== type;
-    });
+    const featureKey = VIEW_FEATURE_GATE[activeView];
+    const viewIsRestricted = featureKey && !(terms.features as any)[featureKey];
     if (viewIsRestricted) {
       return (
         <>
@@ -211,7 +207,7 @@ export default function Dashboard() {
         </header>
 
         {/* Dashboard Content */}
-        <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
+        <div key={businessType} className="p-3 sm:p-6 space-y-4 sm:space-y-6">
           {renderActiveView()}
         </div>
       </main>

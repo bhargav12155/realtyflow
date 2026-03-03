@@ -218,7 +218,7 @@ const getPlatformSuggestions = (
 
 export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const { businessType, terms } = useBusinessType();
-  const isRealEstate = businessType === "real_estate";
+  const isRealEstate = terms.features.mlsSearch;
 
   const dynamicContentTypes = useMemo(() => [
     { value: "blog", label: "Blog Post", icon: FileText, description: "Long-form articles for your website", color: "from-blue-500 to-blue-600" },

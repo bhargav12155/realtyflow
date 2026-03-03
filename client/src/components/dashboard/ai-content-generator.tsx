@@ -110,7 +110,7 @@ function ContentHistory() {
 
   if (!contentPieces.length) {
     return (
-      <div className="mb-6 p-4 border rounded-lg bg-muted/30" data-testid="content-history-empty">
+      <div className="mt-6 p-4 border rounded-lg bg-card" data-testid="content-history-empty">
         <div className="flex items-center gap-2 mb-2">
           <History className="h-4 w-4 text-primary" />
           <h3 className="font-medium text-foreground">Content History</h3>
@@ -125,7 +125,7 @@ function ContentHistory() {
   ).slice(0, 20);
 
   return (
-    <div className="mb-6 border rounded-lg" data-testid="content-history">
+    <div className="mt-6 border rounded-lg bg-card" data-testid="content-history">
       <div className="flex items-center gap-2 p-4 pb-2">
         <History className="h-4 w-4 text-primary" />
         <h3 className="font-medium text-foreground">Content History</h3>
@@ -1296,6 +1296,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   }, [lastGenerated]);
 
   return (
+    <>
     <Card className="overflow-hidden">
       <CardHeader className="pb-4 border-b bg-gradient-to-r from-primary/5 to-primary/10">
         <div className="flex items-center justify-between mb-4">
@@ -1375,8 +1376,6 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       </CardHeader>
 
       <CardContent className="p-6">
-        <ContentHistory />
-
         {/* Step 1: Choose Content Type */}
         {currentStep === 1 && (
           <div className="space-y-6" data-testid="wizard-step-1-content">
@@ -3028,5 +3027,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         </DialogContent>
       </Dialog>
     </Card>
+
+    <ContentHistory />
+    </>
   );
 }

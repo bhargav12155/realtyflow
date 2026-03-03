@@ -52,6 +52,8 @@ import {
   Check,
   Wand2,
   ArrowRight,
+  History,
+  Trash2,
 } from "lucide-react";
 import {
   FaFacebook,
@@ -86,6 +88,103 @@ import {
   scorePlatform,
 } from "@/lib/platform-intelligence";
 import type { PlatformScore as PlatformScoreType } from "@shared/schema";
+
+function ContentHistory() {
+  const { toast } = useToast();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { data: contentPieces = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/content"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mt-6 p-4 border rounded-lg">
+        <div className="flex items-center gap-2 mb-3">
+          <History className="h-4 w-4" />
+          <h3 className="font-medium">Content History</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!contentPieces.length) return null;
+
+  const sorted = [...contentPieces].sort((a: any, b: any) =>
+    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  ).slice(0, 20);
+
+  return (
+    <div className="mt-6 border rounded-lg" data-testid="content-history">
+      <div className="flex items-center gap-2 p-4 pb-2">
+        <History className="h-4 w-4 text-primary" />
+        <h3 className="font-medium text-foreground">Content History</h3>
+        <Badge variant="secondary" className="ml-auto">{contentPieces.length}</Badge>
+      </div>
+      <div className="max-h-[400px] overflow-y-auto px-4 pb-4 space-y-2">
+        {sorted.map((piece: any) => (
+          <div
+            key={piece.id}
+            className="border rounded-md p-3 hover:bg-muted/50 transition-colors"
+            data-testid={`content-history-item-${piece.id}`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium truncate">{piece.title || "Untitled"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">{piece.type || "content"}</Badge>
+                  {piece.metadata?.wordCount && <span>{piece.metadata.wordCount} words</span>}
+                  {piece.metadata?.seoScore && <span>SEO: {piece.metadata.seoScore}/100</span>}
+                  {piece.createdAt && <span>{format(new Date(piece.createdAt), "MMM d, h:mm a")}</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(piece.content || "");
+                    toast({ title: "Copied", description: "Content copied to clipboard" });
+                  }}
+                  data-testid={`button-copy-history-${piece.id}`}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={() => setExpandedId(expandedId === piece.id ? null : piece.id)}
+                  data-testid={`button-expand-history-${piece.id}`}
+                >
+                  {expandedId === piece.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+            </div>
+            {expandedId === piece.id && (
+              <div className="mt-2 pt-2 border-t">
+                <div className="text-sm text-foreground whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                  {piece.content?.replace(/<[^>]*>/g, '') || "No content"}
+                </div>
+                {piece.keywords?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {piece.keywords.map((kw: string, i: number) => (
+                      <Badge key={i} variant="secondary" className="text-[10px]">{kw}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface AIContentGeneratorProps {
   isGenerating: boolean;
@@ -2752,6 +2851,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       />
 
       {/* Photo Upload Dialog */}
+      <ContentHistory />
+
       <Dialog open={showPhotoUpload} onOpenChange={setShowPhotoUpload}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

@@ -1534,10 +1534,12 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       });
 
       // Save to storage
-      const user = await storage.getUserByUsername("mikebjork");
-      if (user) {
+      const contentUserId = userId ? String(userId) : null;
+      const fallbackUser = !contentUserId ? await storage.getUserByUsername("mikebjork") : null;
+      const saveUserId = contentUserId || fallbackUser?.id;
+      if (saveUserId) {
         const contentPiece = await storage.createContentPiece({
-          userId: user.id,
+          userId: saveUserId,
           type,
           title: generatedContent.title,
           content: generatedContent.content,
@@ -1557,7 +1559,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
         // Send real-time notification
         realtimeService.notifyContentPublished(
-          user.id,
+          Number(saveUserId),
           contentPiece.id,
           generatedContent.title
         );
@@ -1766,11 +1768,15 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
   app.get("/api/content", async (req, res) => {
     try {
+      const userId = req.user?.id;
+      if (userId) {
+        const content = await storage.getContentPieces(String(userId));
+        return res.json(content);
+      }
       const user = await storage.getUserByUsername("mikebjork");
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-
       const content = await storage.getContentPieces(user.id);
       res.json(content);
     } catch (error) {

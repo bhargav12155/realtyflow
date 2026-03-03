@@ -1495,7 +1495,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
   });
 
   // Content generation endpoints
-  app.post("/api/content/generate", async (req, res) => {
+  app.post("/api/content/generate", optionalAuth, async (req: any, res) => {
     try {
       const {
         type,
@@ -1766,7 +1766,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
     }
   });
 
-  app.get("/api/content", async (req, res) => {
+  app.get("/api/content", optionalAuth, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (userId) {

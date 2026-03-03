@@ -2399,6 +2399,10 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         )}
       </CardContent>
 
+      <div className="px-6 pb-6">
+        <ContentHistory />
+      </div>
+
       {/* Platform Preview Dialog */}
       <Dialog open={showPlatformPreview} onOpenChange={setShowPlatformPreview}>
         <DialogContent className="max-w-sm p-0 overflow-hidden">
@@ -2851,8 +2855,6 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       />
 
       {/* Photo Upload Dialog */}
-      <ContentHistory />
-
       <Dialog open={showPhotoUpload} onOpenChange={setShowPhotoUpload}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

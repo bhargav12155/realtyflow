@@ -1826,7 +1826,11 @@ ${agentName} | ${brokerageName}
                           aiPrompt: aiPrompt || undefined,
                         });
                         const data = await response.json();
-                        setPostContent(data.content + (data.hashtags ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ") : ""));
+                        const promoContent: string = data.content || "";
+                        const promoTags: string[] = (data.hashtags || [])
+                          .map((tag: string) => (tag.startsWith("#") ? tag : "#" + tag))
+                          .filter((tag: string) => !promoContent.includes(tag));
+                        setPostContent(promoContent + (promoTags.length ? " " + promoTags.join(" ") : ""));
                         toast({ title: "Promo Content Generated!", description: `Created engaging promotional post for ${app.name}` });
                       } catch (error: any) {
                         toast({ title: "Generation Failed", description: error.message || "Failed to generate promotional content", variant: "destructive" });
@@ -1880,7 +1884,11 @@ ${agentName} | ${brokerageName}
                         aiPrompt: aiPrompt || undefined,
                       });
                       const data = await response.json();
-                      setPostContent(data.content + (data.hashtags ? " " + data.hashtags.map((tag: string) => "#" + tag).join(" ") : ""));
+                      const regenContent: string = data.content || "";
+                      const regenTags: string[] = (data.hashtags || [])
+                        .map((tag: string) => (tag.startsWith("#") ? tag : "#" + tag))
+                        .filter((tag: string) => !regenContent.includes(tag));
+                      setPostContent(regenContent + (regenTags.length ? " " + regenTags.join(" ") : ""));
                       toast({ title: "New Angle Generated!", description: "Created a fresh promotional post with a different angle" });
                     } catch (error: any) {
                       toast({ title: "Generation Failed", description: error.message || "Failed to generate content", variant: "destructive" });

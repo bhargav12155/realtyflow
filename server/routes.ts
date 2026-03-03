@@ -1636,6 +1636,9 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       ];
       
       const randomAngle = angles[Math.floor(Math.random() * angles.length)];
+      const contentAngle = aiPrompt
+        ? `OVERRIDE INSTRUCTION — the user has given a specific direction that MUST be followed exactly: "${aiPrompt}". Build the entire post around this instruction. Ignore the default angle below and use this as the primary creative direction.`
+        : `Content Angle: ${randomAngle}`;
       const featuresText = Array.isArray(appFeatures) && appFeatures.length ? `\nKey Features: ${appFeatures.join(", ")}` : "";
       
       const platformGuidelines: Record<string, string> = {
@@ -1656,7 +1659,7 @@ App Name: ${appName}
 Website: ${appUrl}
 Description: ${appDescription}${featuresText}
 
-Content Angle: ${randomAngle}
+${contentAngle}
 
 Platform Guidelines: ${platformGuide}
 
@@ -1664,18 +1667,16 @@ Important:
 - Make it feel natural and engaging, not salesy
 - ALWAYS include the full website URL https://www.${appUrl} prominently in the post (with https://www. prefix)
 - MUST end every post with a call-to-action that includes the contact link. Example endings: "Get started at https://www.${appUrl} or contact us at https://www.imakepage.com/#contact" or "Visit https://www.${appUrl} | Questions? https://www.imakepage.com/#contact"
-- Reference specific features and real benefits for ${targetAudience}
-- Generate 5-8 relevant hashtags separately
+- Generate 5-8 relevant hashtags separately in the hashtags field — do NOT put them inside the post content
 - Do NOT use markdown formatting (no asterisks, no bold, no headers)
-${aiPrompt ? `- Additional instructions from the user: ${aiPrompt}` : ""}
 
 The LAST LINE of the content MUST be a call-to-action with both links, like:
 "Visit https://www.${appUrl} | Contact us: https://www.imakepage.com/#contact"
 
 Return your response in this exact JSON format:
-{"content": "the post content here", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`;
+{"content": "the post content here without hashtags", "hashtags": ["hashtag1", "hashtag2", "hashtag3"]}`;
 
-      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for ${industryLabel} products. You understand the ${industryLabel} space and create content that resonates with ${targetAudience}. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska.`;
+      const promoSystemPrompt = `You are an expert social media marketer creating promotional content for ${industryLabel} products. You understand the ${industryLabel} space and create content that resonates with ${targetAudience}. Create engaging, authentic content that drives engagement and conversions. Never use generic filler - be specific about the product's value. The company behind these products is My Golden Brick (mygoldenbrick.com), based in Omaha, Nebraska. CRITICAL: Never put hashtags inside the content body — they go only in the separate hashtags array.`;
 
       let result: any;
 

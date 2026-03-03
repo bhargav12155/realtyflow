@@ -108,14 +108,24 @@ function ContentHistory() {
     );
   }
 
-  if (!contentPieces.length) return null;
+  if (!contentPieces.length) {
+    return (
+      <div className="mb-6 p-4 border rounded-lg bg-muted/30" data-testid="content-history-empty">
+        <div className="flex items-center gap-2 mb-2">
+          <History className="h-4 w-4 text-primary" />
+          <h3 className="font-medium text-foreground">Content History</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">No content generated yet. Use the wizard below to create your first post!</p>
+      </div>
+    );
+  }
 
   const sorted = [...contentPieces].sort((a: any, b: any) =>
     new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
   ).slice(0, 20);
 
   return (
-    <div className="mt-6 border rounded-lg" data-testid="content-history">
+    <div className="mb-6 border rounded-lg" data-testid="content-history">
       <div className="flex items-center gap-2 p-4 pb-2">
         <History className="h-4 w-4 text-primary" />
         <h3 className="font-medium text-foreground">Content History</h3>
@@ -1365,6 +1375,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       </CardHeader>
 
       <CardContent className="p-6">
+        <ContentHistory />
+
         {/* Step 1: Choose Content Type */}
         {currentStep === 1 && (
           <div className="space-y-6" data-testid="wizard-step-1-content">
@@ -2398,10 +2410,6 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           </div>
         )}
       </CardContent>
-
-      <div className="px-6 pb-6">
-        <ContentHistory />
-      </div>
 
       {/* Platform Preview Dialog */}
       <Dialog open={showPlatformPreview} onOpenChange={setShowPlatformPreview}>

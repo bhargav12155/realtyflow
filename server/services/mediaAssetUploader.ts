@@ -2,6 +2,13 @@ import { S3UploadService } from './s3Upload';
 import { storage } from '../storage';
 import type { MediaAsset, InsertMediaAsset } from '@shared/schema';
 import { randomUUID } from 'crypto';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+const execFileAsync = promisify(execFile);
 
 export type MediaType = 'photo' | 'video' | 'avatar' | 'document' | 'audio';
 export type MediaSource = 'upload' | 'heygen' | 'library' | 'ai_generated' | 'kling';
@@ -82,6 +89,54 @@ export async function persistImageFromUrlAndRecord(
   }
 }
 
+async function normalizeVideoAudio(videoBuffer: Buffer): Promise<Buffer> {
+  const tmpDir = os.tmpdir();
+  const inputPath = path.join(tmpDir, `video-input-${randomUUID()}.mp4`);
+  const outputPath = path.join(tmpDir, `video-normalized-${randomUUID()}.mp4`);
+
+  try {
+    fs.writeFileSync(inputPath, videoBuffer);
+
+    const detectResult = await execFileAsync('ffmpeg', [
+      '-i', inputPath,
+      '-af', 'volumedetect',
+      '-f', 'null',
+      '/dev/null'
+    ], { maxBuffer: 10 * 1024 * 1024 }).catch(e => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
+
+    const detectOutput = (detectResult.stderr || '') + (detectResult.stdout || '');
+    const meanMatch = String(detectOutput).match(/mean_volume:\s*([-\d.]+)\s*dB/);
+    const meanVolume = meanMatch ? parseFloat(meanMatch[1]) : -30;
+
+    console.log(`🔊 Video audio mean volume: ${meanVolume} dB`);
+
+    if (meanVolume > -25) {
+      console.log(`✅ Audio level is already good (${meanVolume} dB), skipping normalization`);
+      return videoBuffer;
+    }
+
+    console.log(`🔊 Normalizing audio from ${meanVolume} dB to -16 LUFS...`);
+
+    await execFileAsync('ffmpeg', [
+      '-y',
+      '-i', inputPath,
+      '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11',
+      '-c:v', 'copy',
+      outputPath
+    ], { maxBuffer: 10 * 1024 * 1024, timeout: 300000 });
+
+    const normalizedBuffer = fs.readFileSync(outputPath);
+    console.log(`✅ Audio normalized successfully (${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB → ${(normalizedBuffer.length / 1024 / 1024).toFixed(1)}MB)`);
+    return normalizedBuffer;
+  } catch (error) {
+    console.error('⚠️ Audio normalization failed, using original video:', error);
+    return videoBuffer;
+  } finally {
+    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(outputPath); } catch {}
+  }
+}
+
 export async function persistVideoFromUrlAndRecord(
   videoUrl: string,
   fileName: string,
@@ -96,8 +151,10 @@ export async function persistVideoFromUrlAndRecord(
       return null;
     }
 
-    const videoBuffer = Buffer.from(await response.arrayBuffer());
+    let videoBuffer = Buffer.from(await response.arrayBuffer());
     const contentType = response.headers.get('content-type') || 'video/mp4';
+
+    videoBuffer = await normalizeVideoAudio(videoBuffer);
 
     return await uploadAndRecord(videoBuffer, fileName, contentType, folder, options);
   } catch (error) {

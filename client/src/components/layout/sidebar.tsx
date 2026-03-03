@@ -135,6 +135,7 @@ const navigationItems = [
         key: "property-tour",
         isPageLink: true,
         badge: "NEW",
+        showOnlyFor: ["real_estate"],
       },
     ],
   },
@@ -396,7 +397,7 @@ function SidebarContent({
                   </Button>
                   {!isCollapsed && isExpanded && (
                     <div className="ml-4 mt-1 space-y-1 border-l border-border pl-3">
-                      {item.subItems.map((subItem: any) => {
+                      {item.subItems.filter((subItem: any) => !subItem.showOnlyFor || subItem.showOnlyFor.includes(businessType)).map((subItem: any) => {
                         const isSubActive = activeView === subItem.key;
                         return (
                           <Button

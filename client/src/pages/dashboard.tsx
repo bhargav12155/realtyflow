@@ -33,6 +33,10 @@ import { Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
+const VIEWS_BY_BUSINESS_TYPE: Record<string, string[]> = {
+  real_estate: ["ai-content", "property-tour"],
+};
+
 export default function Dashboard() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeView, setActiveView] = useState("dashboard");
@@ -40,7 +44,7 @@ export default function Dashboard() {
   const { user, isAuthenticated } = useAuth();
   const [location] = useLocation();
   const aiAssistant = useAIAssistantDialog();
-  const { terms } = useBusinessType();
+  const { businessType, terms } = useBusinessType();
 
   // Connect to WebSocket for real-time updates
   const { isConnected, lastMessage } = useWebSocket({
@@ -77,6 +81,17 @@ export default function Dashboard() {
     };
   }, [location]); // Re-run when Wouter location changes
 
+  useEffect(() => {
+    const restrictedViews = Object.entries(VIEWS_BY_BUSINESS_TYPE);
+    const isRestricted = restrictedViews.some(([type, views]) => {
+      return views.includes(activeView) && businessType !== type;
+    });
+    if (isRestricted) {
+      window.location.hash = "";
+      setActiveView("dashboard");
+    }
+  }, [businessType, activeView]);
+
   // Don't auto-show social links prompt on first visit - users can access it in settings
   useEffect(() => {
     const hasSeenPrompt = localStorage.getItem("socialLinksPromptShown");
@@ -87,6 +102,20 @@ export default function Dashboard() {
   }, []);
 
   const renderActiveView = () => {
+    const restrictedEntries = Object.entries(VIEWS_BY_BUSINESS_TYPE);
+    const viewIsRestricted = restrictedEntries.some(([type, views]) => {
+      return views.includes(activeView) && businessType !== type;
+    });
+    if (viewIsRestricted) {
+      return (
+        <>
+          <OverviewCards />
+          <RecentPostActivity />
+          <ScheduledPostsManager />
+        </>
+      );
+    }
+
     switch (activeView) {
       case "ai-content":
         return <AIContentGenerator isGenerating={isGenerating} />;

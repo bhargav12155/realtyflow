@@ -13432,7 +13432,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         });
 
         // Background: train (if new) -> poll -> create video
-        const scriptText = req.body.script || "";
+        const { sanitizeScriptForTTS } = await import("./services/heygen-avatar-iv");
+        const scriptText = sanitizeScriptForTTS(req.body.script || "");
         const voiceId = req.body.voice_id || "";
         const avatarName = req.body.name || "";
 

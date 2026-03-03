@@ -50,6 +50,18 @@ export interface VideoStatusResponse {
   error?: string;
 }
 
+export function sanitizeScriptForTTS(script: string): string {
+  let cleaned = script;
+  cleaned = cleaned.replace(/\[([^\]]*(?:tone|voice|whisper|shout|pause|excited|calm|serious|cheerful|dramatic|soft|loud|slow|fast|emotion|feeling|style|speak|say|read|narrat)[^\]]*)\]/gi, '');
+  cleaned = cleaned.replace(/\(([^)]*(?:tone|voice|whisper|shout|pause|excited|calm|serious|cheerful|dramatic|soft|loud|slow|fast|emotion|feeling|style|speak|say|read|narrat)[^)]*)\)/gi, '');
+  cleaned = cleaned.replace(/\*([^*]*(?:tone|voice|whisper|shout|pause|excited|calm|serious|cheerful|dramatic|soft|loud|slow|fast|emotion|feeling|style|speak|say|read|narrat)[^*]*)\*/gi, '');
+  cleaned = cleaned.replace(/^(?:tone|voice|style|delivery|emotion|feeling|mood)\s*[:=]\s*[^\n]*/gmi, '');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+  cleaned = cleaned.replace(/^\s+|\s+$/g, '');
+  cleaned = cleaned.replace(/  +/g, ' ');
+  return cleaned;
+}
+
 export class HeyGenAvatarIVService {
   private apiKey: string;
   private uploadUrl = "https://upload.heygen.com/v1/asset";
@@ -104,10 +116,16 @@ export class HeyGenAvatarIVService {
     console.log(`  Title: ${options.videoTitle}`);
     console.log(`  Voice ID: ${options.voiceId}`);
 
+    const cleanedScript = sanitizeScriptForTTS(options.script);
+    if (cleanedScript !== options.script) {
+      console.log(`🧹 Script sanitized for TTS (removed tone/direction markers)`);
+      console.log(`  Original length: ${options.script.length}, Cleaned length: ${cleanedScript.length}`);
+    }
+
     const payload: any = {
       image_key: options.imageKey,
       video_title: options.videoTitle,
-      script: options.script,
+      script: cleanedScript,
       voice_id: options.voiceId,
       video_orientation: options.videoOrientation || "landscape",
       fit: options.fit || "cover",

@@ -1,3 +1,5 @@
+import { sanitizeScriptForTTS } from './heygen-avatar-iv';
+
 interface HeyGenAPIResponse {
   code: number;
   message: string;
@@ -242,10 +244,11 @@ export class HeyGenService {
         audio_url: audioUrl,
       };
     } else {
-      // Use text-to-speech
+      // Use text-to-speech — sanitize script to remove tone/direction markers
+      const cleanedScript = sanitizeScriptForTTS(script);
       voice = {
         type: "text" as const,
-        input_text: script.substring(0, 1500), // Limit to 1500 characters as per docs
+        input_text: cleanedScript.substring(0, 1500), // Limit to 1500 characters as per docs
         voice_id: voiceId || "119caed25533477ba63822d5d1552d25", // Default voice from docs
         speed: speed,
       };

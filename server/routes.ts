@@ -1689,14 +1689,30 @@ Return your response in this exact JSON format:
       });
       const rawText = (geminiResponse.text ?? "")
         .replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      result = jsonMatch ? JSON.parse(jsonMatch[0]) : { content: rawText, hashtags: [] };
-      if (result && typeof result.content === "string") {
-        const inner = result.content.trim();
-        if (inner.startsWith("{")) {
-          try { result = JSON.parse(inner); } catch {}
+
+      function parsePromoJSON(text: string): { content: string; hashtags: string[] } {
+        const fallback = { content: `Check out ${appName} at https://www.${appUrl}!`, hashtags: [] };
+        try {
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+          if (parsed && typeof parsed.content === "string") {
+            const inner = parsed.content.trim();
+            if (inner.startsWith("{")) {
+              try {
+                const nested = JSON.parse(inner);
+                if (nested && nested.content) return { content: nested.content, hashtags: nested.hashtags || parsed.hashtags || [] };
+              } catch {
+                // inner isn't valid JSON — use outer content as-is
+              }
+            }
+            return { content: parsed.content, hashtags: parsed.hashtags || [] };
+          }
+          return fallback;
+        } catch {
+          return { content: text.includes("content") ? text : fallback.content, hashtags: [] };
         }
       }
+      result = parsePromoJSON(rawText);
       let content = result.content || `Check out ${appName} at https://www.${appUrl}!`;
       
       content = content.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/#{1,6}\s/g, "").replace(/`([^`]*)`/g, "$1");

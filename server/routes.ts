@@ -1451,16 +1451,63 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
     }
   });
 
+  async function normalizeVideoAudio(inputPath: string, outputPath: string): Promise<boolean> {
+    try {
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+
+      const { stdout, stderr } = await execAsync(
+        `ffmpeg -i "${inputPath}" -af volumedetect -f null - 2>&1`,
+        { timeout: 30000 }
+      );
+      const detectOutput = stdout + stderr;
+
+      const meanMatch = detectOutput.match(/mean_volume:\s*([-\d.]+)\s*dB/);
+      const meanVolume = meanMatch ? parseFloat(meanMatch[1]) : -30;
+      console.log(`🔊 [VEO] Detected mean volume: ${meanVolume} dB`);
+
+      const targetLoudness = -16;
+      const boostDb = Math.min(Math.abs(meanVolume) - Math.abs(targetLoudness), 30);
+
+      if (boostDb > 2) {
+        console.log(`🔊 [VEO] Boosting audio by ${boostDb.toFixed(1)} dB`);
+        await execAsync(
+          `ffmpeg -i "${inputPath}" -c:v copy -af "volume=${boostDb}dB,alimiter=limit=0.95" -c:a aac -b:a 192k -y "${outputPath}"`,
+          { timeout: 60000 }
+        );
+        return true;
+      } else {
+        console.log(`🔊 [VEO] Audio level is acceptable (${meanVolume} dB), no boost needed`);
+        const fsModule = await import("fs");
+        fsModule.copyFileSync(inputPath, outputPath);
+        return true;
+      }
+    } catch (err: any) {
+      console.warn(`⚠️ [VEO] Audio normalization failed, using original: ${err.message}`);
+      const fsModule = await import("fs");
+      fsModule.copyFileSync(inputPath, outputPath);
+      return false;
+    }
+  }
+
   async function uploadVeoVideoToS3(localPath: string, operationId: string, userId: string | number): Promise<string | null> {
     try {
       const fs = await import("fs");
+      const path = await import("path");
+      const os = await import("os");
       const { S3UploadService } = await import("./services/s3Upload");
       const s3Service = new S3UploadService();
-      const videoBuffer = fs.readFileSync(localPath);
+
+      const boostedPath = path.join(os.tmpdir(), `veo-boosted-${operationId}.mp4`);
+      await normalizeVideoAudio(localPath, boostedPath);
+
+      const videoBuffer = fs.readFileSync(boostedPath);
       const s3Key = `ai-videos/${userId}/veo-${operationId}-${Date.now()}.mp4`;
       const publicUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, "video/mp4", true);
       console.log(`✅ [VEO] Uploaded video to S3: ${publicUrl.substring(0, 80)}...`);
       try { fs.unlinkSync(localPath); } catch {}
+      try { fs.unlinkSync(boostedPath); } catch {}
       return publicUrl;
     } catch (err: any) {
       console.error("❌ [VEO] Failed to upload video to S3:", err.message);
@@ -1493,9 +1540,12 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
       const normalizedFiles: string[] = [];
       for (let i = 0; i < downloadedFiles.length; i++) {
+        const detectedPath = path.join(tempDir, `detected_${i}.mp4`);
+        await normalizeVideoAudio(downloadedFiles[i], detectedPath);
+
         const normalizedPath = path.join(tempDir, `normalized_${i}.mp4`);
         await execAsync(
-          `ffmpeg -i "${downloadedFiles[i]}" -c:v libx264 -preset fast -crf 23 -c:a aac -ar 44100 -ac 2 -b:a 128k -r 24 -y "${normalizedPath}"`,
+          `ffmpeg -i "${detectedPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -ar 44100 -ac 2 -b:a 192k -r 24 -y "${normalizedPath}"`,
           { timeout: 60000 }
         );
         normalizedFiles.push(normalizedPath);

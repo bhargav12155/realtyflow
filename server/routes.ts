@@ -1249,8 +1249,9 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         
         const sceneType = isExterior ? "exterior property" : "interior space";
         
+        const promptDuration = Math.min(presetConfig.duration, 8);
         // Compliant prompt that preserves property images without alterations
-        videoPrompt = `Create a realistic ${presetConfig.duration}-second video tour of the ${sceneType} depicted in the attached ${imageCount === 1 ? "image" : `${imageCount} images`}.${
+        videoPrompt = `Create a realistic ${promptDuration}-second video tour of the ${sceneType} depicted in the attached ${imageCount === 1 ? "image" : `${imageCount} images`}.${
           imageCount > 1 ? " Each image is in triangle position starting from left to right with the last being the view from the other side." : ""
         }${roomDescriptions ? `\n\nRoom Details: ${roomDescriptions}` : ""}
 
@@ -1281,35 +1282,58 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         }
       }
 
+      const VEO_MAX_DURATION = 8;
+      const totalDuration = presetConfig.duration;
+      const segmentCount = Math.ceil(totalDuration / VEO_MAX_DURATION);
+      const segmentDuration = Math.min(totalDuration, VEO_MAX_DURATION);
+
       console.log(`🎬 [VEO] Starting video generation with preset: ${preset}`);
-      console.log(`📐 [VEO] Config: ${presetConfig.aspectRatio}, ${presetConfig.duration}s`);
+      console.log(`📐 [VEO] Config: ${presetConfig.aspectRatio}, ${totalDuration}s total (${segmentCount} segment(s) of ${segmentDuration}s)`);
       if (agentPhotoUrl) {
         console.log(`👤 [VEO] Including agent photo: ${agentPhotoUrl}`);
       }
 
-      const result = await veoVideoService.generateVideo({
-        prompt: videoPrompt,
-        imageUrl,
-        aspectRatio: presetConfig.aspectRatio,
-        duration: presetConfig.duration,
-        agentPhotoUrl,
-      });
+      const segmentResults = [];
+      for (let i = 0; i < segmentCount; i++) {
+        const segmentPrompt = segmentCount > 1
+          ? `${videoPrompt}\n\nThis is segment ${i + 1} of ${segmentCount} for a ${totalDuration}-second video. ${
+              i === 0 ? "Start with a wide establishing shot." : 
+              i === segmentCount - 1 ? "This is the final segment — end with a smooth conclusion." :
+              `Continue the smooth camera movement from segment ${i}.`
+            }`
+          : videoPrompt;
 
-      if (!result.success) {
-        return res.status(500).json({ error: result.error || "Failed to start video generation" });
-      }
+        const result = await veoVideoService.generateVideo({
+          prompt: segmentPrompt,
+          imageUrl,
+          aspectRatio: presetConfig.aspectRatio,
+          duration: segmentDuration,
+          agentPhotoUrl: i === segmentCount - 1 ? agentPhotoUrl : undefined,
+        });
 
-      // Track this VEO video for the user
-      if (result.operationId && userId) {
-        aiVeoVideos.set(result.operationId, Number(userId));
+        if (!result.success) {
+          if (segmentResults.length === 0) {
+            return res.status(500).json({ error: result.error || "Failed to start video generation" });
+          }
+          console.warn(`⚠️ [VEO] Segment ${i + 1} failed, returning ${segmentResults.length} successful segment(s)`);
+          break;
+        }
+
+        if (result.operationId && userId) {
+          aiVeoVideos.set(result.operationId, Number(userId));
+        }
+        segmentResults.push(result.operationId);
       }
 
       res.json({
         success: true,
-        operationId: result.operationId,
+        operationId: segmentResults[0],
+        segmentOperationIds: segmentResults.length > 1 ? segmentResults : undefined,
+        segmentCount: segmentResults.length,
         preset,
         aspectRatio: presetConfig.aspectRatio,
-        duration: presetConfig.duration,
+        duration: totalDuration,
+        segmentDuration,
       });
     } catch (error) {
       console.error("VEO start error:", error);

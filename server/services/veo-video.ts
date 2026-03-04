@@ -69,13 +69,17 @@ export class VeoVideoService {
 
       console.log(`📤 [VeoVideo] Sending to VEO 3.1 API...`);
       
+      const VEO_MAX_DURATION = 8;
+      const requestedDuration = request.duration && request.duration > 0 ? request.duration : 8;
+      const segmentDuration = Math.min(requestedDuration, VEO_MAX_DURATION);
+
       const config: Record<string, any> = {
         aspectRatio: request.aspectRatio || "16:9",
         numberOfVideos: 1,
+        durationSeconds: segmentDuration,
       };
-      if (request.duration && request.duration > 0) {
-        config.durationSeconds = request.duration;
-      }
+
+      console.log(`⏱️ [VeoVideo] Requested ${requestedDuration}s, segment duration: ${segmentDuration}s`);
 
       const operation = await client.models.generateVideos({
         model: "veo-3.1-generate-preview",

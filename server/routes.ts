@@ -1491,7 +1491,17 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         downloadedFiles.push(filePath);
       }
 
-      const concatList = downloadedFiles.map(f => `file '${f}'`).join("\n");
+      const normalizedFiles: string[] = [];
+      for (let i = 0; i < downloadedFiles.length; i++) {
+        const normalizedPath = path.join(tempDir, `normalized_${i}.mp4`);
+        await execAsync(
+          `ffmpeg -i "${downloadedFiles[i]}" -c:v libx264 -preset fast -crf 23 -c:a aac -ar 44100 -ac 2 -b:a 128k -r 24 -y "${normalizedPath}"`,
+          { timeout: 60000 }
+        );
+        normalizedFiles.push(normalizedPath);
+      }
+
+      const concatList = normalizedFiles.map(f => `file '${f}'`).join("\n");
       const concatFilePath = path.join(tempDir, "concat.txt");
       await fs.writeFile(concatFilePath, concatList);
 
@@ -1499,11 +1509,11 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       try {
         await execAsync(`ffmpeg -f concat -safe 0 -i "${concatFilePath}" -c copy "${outputPath}"`, { timeout: 60000 });
       } catch {
-        console.log(`⚠️ [VEO] Stream copy concat failed, re-encoding...`);
-        const inputArgs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
-        const filterParts = downloadedFiles.map((_, i) => `[${i}:v:0][${i}:a:0]`).join("");
+        console.log(`⚠️ [VEO] Stream copy concat failed after normalization, re-encoding...`);
+        const inputArgs = normalizedFiles.map(f => `-i "${f}"`).join(" ");
+        const filterParts = normalizedFiles.map((_, i) => `[${i}:v:0][${i}:a:0]`).join("");
         await execAsync(
-          `ffmpeg ${inputArgs} -filter_complex "${filterParts}concat=n=${downloadedFiles.length}:v=1:a=1[outv][outa]" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -c:a aac "${outputPath}"`,
+          `ffmpeg ${inputArgs} -filter_complex "${filterParts}concat=n=${normalizedFiles.length}:v=1:a=1[outv][outa]" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -c:a aac "${outputPath}"`,
           { timeout: 120000 }
         );
       }
@@ -1618,10 +1628,29 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           console.log(`🔗 [VEO] All ${completedUrls.length} segments ready, combining...`);
 
           combineSegmentVideos(completedUrls, operationId, reqUserId)
-            .then((combinedUrl) => {
+            .then(async (combinedUrl) => {
               multiJob.status = "done";
               multiJob.combinedVideoUrl = combinedUrl;
               console.log(`✅ [VEO] Multi-segment video combined successfully: ${combinedUrl.substring(0, 80)}...`);
+              const saveUserId = multiJob.userId && multiJob.userId !== "unknown" ? String(multiJob.userId) : null;
+              if (saveUserId) {
+                try {
+                  await storage.createVideoContent({
+                    userId: saveUserId,
+                    title: `Property Tour (${multiJob.preset}) - ${multiJob.segmentOperationIds.length} rooms`,
+                    script: `VEO 3.1 property tour with ${multiJob.segmentOperationIds.length} rooms`,
+                    videoUrl: combinedUrl,
+                    thumbnailUrl: null,
+                    duration: multiJob.totalDuration,
+                    status: "completed",
+                    videoType: "property_tour",
+                    metadata: { preset: multiJob.preset, aspectRatio: multiJob.aspectRatio, segmentCount: multiJob.segmentOperationIds.length, compositeId: operationId },
+                  });
+                  console.log(`💾 [VEO] Combined video saved to database for user ${saveUserId}`);
+                } catch (dbErr: any) {
+                  console.error(`⚠️ [VEO] Failed to save combined video to DB:`, dbErr.message);
+                }
+              }
             })
             .catch((err) => {
               console.error(`❌ [VEO] Failed to combine segments:`, err);
@@ -1658,6 +1687,25 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         const userId = req.user?.id || "unknown";
         const uploaded = await uploadVeoVideoToS3(status.videoUrl, operationId, userId);
         publicVideoUrl = uploaded || status.videoUrl;
+
+        if (uploaded && req.user?.id) {
+          try {
+            await storage.createVideoContent({
+              userId: String(req.user.id),
+              title: `VEO Video - ${new Date().toLocaleDateString()}`,
+              script: "VEO 3.1 generated video",
+              videoUrl: uploaded,
+              thumbnailUrl: null,
+              duration: 8,
+              status: "completed",
+              videoType: "veo_single",
+              metadata: { operationId, source: "veo" },
+            });
+            console.log(`💾 [VEO] Single-segment video saved to database for user ${req.user.id}`);
+          } catch (dbErr: any) {
+            console.error(`⚠️ [VEO] Failed to save single video to DB:`, dbErr.message);
+          }
+        }
       }
 
       res.json({

@@ -1642,7 +1642,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
                     videoUrl: combinedUrl,
                     thumbnailUrl: null,
                     duration: multiJob.totalDuration,
-                    status: "completed",
+                    status: "ready",
                     videoType: "property_tour",
                     metadata: { preset: multiJob.preset, aspectRatio: multiJob.aspectRatio, segmentCount: multiJob.segmentOperationIds.length, compositeId: operationId },
                   });
@@ -1697,7 +1697,7 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
               videoUrl: uploaded,
               thumbnailUrl: null,
               duration: 8,
-              status: "completed",
+              status: "ready",
               videoType: "veo_single",
               metadata: { operationId, source: "veo" },
             });
@@ -9586,7 +9586,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         script: v.script || "",
         videoUrl: ensureS3Url(v.videoUrl),
         thumbnailUrl: ensureS3Url(v.thumbnailUrl),
-        status: v.status || "draft",
+        status: v.status === "completed" ? "ready" : (v.status || "draft"),
         platform: v.platform,
         createdAt: v.createdAt,
         metadata: { source: "video_content", ...(v.metadata || {}) },

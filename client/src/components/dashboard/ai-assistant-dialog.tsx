@@ -918,9 +918,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         });
       }
 
+      const segmentInfo = data.isMultiSegment 
+        ? ` I'm generating ${data.segmentCount} segments (one per room) and will combine them into a single ${data.duration}-second video.`
+        : "";
       const assistantMessage: Message = {
         role: "assistant",
-        content: "Video generation started! This may take a few minutes. I'll notify you when it's ready...",
+        content: `Video generation started!${segmentInfo} This may take a few minutes. I'll notify you when it's ready...`,
       };
       setMessages(prev => [...prev, assistantMessage]);
 

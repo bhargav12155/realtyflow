@@ -1182,6 +1182,21 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
   // Track VEO videos generated via AI Assistant (operationId -> userId)
   const aiVeoVideos = new Map<string, number>();
 
+  // Track multi-segment jobs: compositeId -> { segments, userId, status, combinedVideoUrl }
+  interface MultiSegmentJob {
+    compositeId: string;
+    segmentOperationIds: string[];
+    segmentVideoUrls: (string | null)[];
+    userId: number | string;
+    preset: string;
+    aspectRatio: string;
+    totalDuration: number;
+    status: "processing" | "combining" | "done" | "error";
+    combinedVideoUrl?: string;
+    error?: string;
+  }
+  const multiSegmentJobs = new Map<string, MultiSegmentJob>();
+
   app.post("/api/ai/veo/start", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;
@@ -1284,28 +1299,108 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
 
       const VEO_MAX_DURATION = 8;
       const totalDuration = presetConfig.duration;
-      const segmentCount = Math.ceil(totalDuration / VEO_MAX_DURATION);
       const segmentDuration = Math.min(totalDuration, VEO_MAX_DURATION);
+      const availableImages = Array.isArray(imageUrls) && imageUrls.length > 0 ? imageUrls : [imageUrl];
+      const roomTypesArray = Array.isArray(roomTypes) ? roomTypes : [];
+      const segmentCount = totalDuration > VEO_MAX_DURATION
+        ? availableImages.length > 1
+          ? availableImages.length
+          : Math.ceil(totalDuration / VEO_MAX_DURATION)
+        : 1;
 
       console.log(`🎬 [VEO] Starting video generation with preset: ${preset}`);
       console.log(`📐 [VEO] Config: ${presetConfig.aspectRatio}, ${totalDuration}s total (${segmentCount} segment(s) of ${segmentDuration}s)`);
+      console.log(`🖼️ [VEO] Available images: ${availableImages.length}, distributing across ${segmentCount} segments`);
       if (agentPhotoUrl) {
         console.log(`👤 [VEO] Including agent photo: ${agentPhotoUrl}`);
       }
 
-      const segmentResults = [];
+      if (segmentCount === 1) {
+        const result = await veoVideoService.generateVideo({
+          prompt: videoPrompt,
+          imageUrl,
+          aspectRatio: presetConfig.aspectRatio,
+          duration: segmentDuration,
+          agentPhotoUrl,
+        });
+
+        if (!result.success) {
+          return res.status(500).json({ error: result.error || "Failed to start video generation" });
+        }
+
+        if (result.operationId && userId) {
+          aiVeoVideos.set(result.operationId, Number(userId));
+        }
+
+        return res.json({
+          success: true,
+          operationId: result.operationId,
+          preset,
+          aspectRatio: presetConfig.aspectRatio,
+          duration: totalDuration,
+        });
+      }
+
+      const roomPromptMapLocal: Record<string, string> = {
+        "living-room": "spacious living room with elegant furnishings",
+        "kitchen": "modern kitchen with premium appliances and countertops",
+        "master-bedroom": "luxurious master bedroom with ample natural light",
+        "bedroom": "comfortable bedroom with quality finishes",
+        "bathroom": "updated bathroom with contemporary fixtures",
+        "master-bath": "spa-like master bathroom with upscale finishes",
+        "dining-room": "elegant dining room perfect for entertaining",
+        "office": "functional home office with natural lighting",
+        "basement": "finished basement with versatile living space",
+        "laundry": "convenient laundry room with modern appliances",
+        "garage": "spacious garage with ample storage",
+        "other": "beautifully finished interior space",
+        "front-yard": "stunning curb appeal with manicured landscaping",
+        "backyard": "private backyard oasis perfect for outdoor living",
+        "patio": "inviting outdoor patio ideal for entertaining",
+        "pool": "sparkling pool with resort-style amenities",
+        "garden": "professionally designed landscaping and garden",
+        "driveway": "welcoming entrance with elegant driveway",
+        "aerial": "expansive property showcasing the full lot",
+        "other-exterior": "impressive outdoor feature",
+      };
+
+      const segmentResults: string[] = [];
+      const compositeId = `composite-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
       for (let i = 0; i < segmentCount; i++) {
-        const segmentPrompt = segmentCount > 1
-          ? `${videoPrompt}\n\nThis is segment ${i + 1} of ${segmentCount} for a ${totalDuration}-second video. ${
-              i === 0 ? "Start with a wide establishing shot." : 
-              i === segmentCount - 1 ? "This is the final segment — end with a smooth conclusion." :
-              `Continue the smooth camera movement from segment ${i}.`
-            }`
-          : videoPrompt;
+        const segmentImageIdx = i < availableImages.length ? i : i % availableImages.length;
+        const segmentImage = availableImages[segmentImageIdx];
+        const segmentRoomType = roomTypesArray[segmentImageIdx] || "";
+        const roomDesc = roomPromptMapLocal[segmentRoomType] || "interior space";
+        const isExterior = spaceType === "exterior";
+        const sceneType = isExterior ? "exterior" : "interior";
+
+        let segmentPrompt = `Create a realistic ${segmentDuration}-second cinematic video tour of this ${roomDesc}. `;
+        segmentPrompt += `This is segment ${i + 1} of ${segmentCount} for a complete ${totalDuration}-second property tour. `;
+
+        if (i === 0) {
+          segmentPrompt += "Begin with a wide establishing shot, then slowly dolly forward into the space. ";
+        } else if (i === segmentCount - 1) {
+          segmentPrompt += "Provide a final sweeping view of this space, ending with a smooth pull-back or wide conclusion shot. ";
+        } else {
+          segmentPrompt += "Start with a medium shot and smoothly pan to reveal the full space, maintaining steady camera movement. ";
+        }
+
+        segmentPrompt += "Compliance: Do not add objects, decor, or features not present in the image. The video must factually represent the space as shown.";
+
+        if (customDescription && typeof customDescription === "string" && customDescription.trim()) {
+          segmentPrompt += `\n\nProperty Details: ${customDescription.trim()}`;
+        }
+
+        if (noSound) {
+          segmentPrompt += "\n\nAudio: This video should be silent with no background music or sound effects.";
+        }
+
+        console.log(`🎬 [VEO] Segment ${i + 1}/${segmentCount}: image=${segmentImageIdx + 1} (${segmentRoomType || "room"})`);
 
         const result = await veoVideoService.generateVideo({
           prompt: segmentPrompt,
-          imageUrl,
+          imageUrl: segmentImage,
           aspectRatio: presetConfig.aspectRatio,
           duration: segmentDuration,
           agentPhotoUrl: i === segmentCount - 1 ? agentPhotoUrl : undefined,
@@ -1315,20 +1410,35 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           if (segmentResults.length === 0) {
             return res.status(500).json({ error: result.error || "Failed to start video generation" });
           }
-          console.warn(`⚠️ [VEO] Segment ${i + 1} failed, returning ${segmentResults.length} successful segment(s)`);
+          console.warn(`⚠️ [VEO] Segment ${i + 1} failed, continuing with ${segmentResults.length} successful segment(s)`);
           break;
         }
 
         if (result.operationId && userId) {
           aiVeoVideos.set(result.operationId, Number(userId));
         }
-        segmentResults.push(result.operationId);
+        segmentResults.push(result.operationId!);
       }
+
+      const job: MultiSegmentJob = {
+        compositeId,
+        segmentOperationIds: segmentResults,
+        segmentVideoUrls: segmentResults.map(() => null),
+        userId: userId || "unknown",
+        preset,
+        aspectRatio: presetConfig.aspectRatio,
+        totalDuration,
+        status: "processing",
+      };
+      multiSegmentJobs.set(compositeId, job);
+      aiVeoVideos.set(compositeId, Number(userId));
+
+      console.log(`📦 [VEO] Multi-segment job created: ${compositeId} with ${segmentResults.length} segments`);
 
       res.json({
         success: true,
-        operationId: segmentResults[0],
-        segmentOperationIds: segmentResults.length > 1 ? segmentResults : undefined,
+        operationId: compositeId,
+        isMultiSegment: true,
         segmentCount: segmentResults.length,
         preset,
         aspectRatio: presetConfig.aspectRatio,
@@ -1341,6 +1451,78 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
     }
   });
 
+  async function uploadVeoVideoToS3(localPath: string, operationId: string, userId: string | number): Promise<string | null> {
+    try {
+      const fs = await import("fs");
+      const { S3UploadService } = await import("./services/s3Upload");
+      const s3Service = new S3UploadService();
+      const videoBuffer = fs.readFileSync(localPath);
+      const s3Key = `ai-videos/${userId}/veo-${operationId}-${Date.now()}.mp4`;
+      const publicUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, "video/mp4", true);
+      console.log(`✅ [VEO] Uploaded video to S3: ${publicUrl.substring(0, 80)}...`);
+      try { fs.unlinkSync(localPath); } catch {}
+      return publicUrl;
+    } catch (err: any) {
+      console.error("❌ [VEO] Failed to upload video to S3:", err.message);
+      return null;
+    }
+  }
+
+  async function combineSegmentVideos(videoUrls: string[], compositeId: string, userId: string | number): Promise<string> {
+    const { exec } = await import("child_process");
+    const { promisify } = await import("util");
+    const execAsync = promisify(exec);
+    const fs = await import("fs/promises");
+    const fsSync = await import("fs");
+    const path = await import("path");
+    const os = await import("os");
+
+    const tempDir = path.join(os.tmpdir(), `veo-combine-${compositeId}`);
+    await fs.mkdir(tempDir, { recursive: true });
+
+    try {
+      const downloadedFiles: string[] = [];
+      for (let i = 0; i < videoUrls.length; i++) {
+        const filePath = path.join(tempDir, `segment_${i}.mp4`);
+        const response = await fetch(videoUrls[i]);
+        if (!response.ok) throw new Error(`Failed to download segment ${i}`);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        await fs.writeFile(filePath, buffer);
+        downloadedFiles.push(filePath);
+      }
+
+      const concatList = downloadedFiles.map(f => `file '${f}'`).join("\n");
+      const concatFilePath = path.join(tempDir, "concat.txt");
+      await fs.writeFile(concatFilePath, concatList);
+
+      const outputPath = path.join(tempDir, `combined-${compositeId}.mp4`);
+      try {
+        await execAsync(`ffmpeg -f concat -safe 0 -i "${concatFilePath}" -c copy "${outputPath}"`, { timeout: 60000 });
+      } catch {
+        console.log(`⚠️ [VEO] Stream copy concat failed, re-encoding...`);
+        const inputArgs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+        const filterParts = downloadedFiles.map((_, i) => `[${i}:v:0][${i}:a:0]`).join("");
+        await execAsync(
+          `ffmpeg ${inputArgs} -filter_complex "${filterParts}concat=n=${downloadedFiles.length}:v=1:a=1[outv][outa]" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -c:a aac "${outputPath}"`,
+          { timeout: 120000 }
+        );
+      }
+
+      const { S3UploadService } = await import("./services/s3Upload");
+      const s3Service = new S3UploadService();
+      const videoBuffer = fsSync.readFileSync(outputPath);
+      const s3Key = `ai-videos/${userId}/veo-combined-${compositeId}-${Date.now()}.mp4`;
+      const publicUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, "video/mp4", true);
+      console.log(`✅ [VEO] Combined video uploaded to S3: ${publicUrl.substring(0, 80)}...`);
+
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      return publicUrl;
+    } catch (err) {
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      throw err;
+    }
+  }
+
   app.get("/api/ai/veo/status/:operationId", requireAuth, async (req, res) => {
     try {
       const { operationId } = req.params;
@@ -1349,29 +1531,133 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         return res.status(400).json({ error: "Operation ID is required" });
       }
 
-      const { veoVideoService } = await import("./services/veo-video");
+      const multiJob = multiSegmentJobs.get(operationId);
+      if (multiJob) {
+        const userId = req.user?.id;
+        if (userId && String(multiJob.userId) !== String(userId)) {
+          return res.status(403).json({ error: "Not authorized to access this video" });
+        }
 
+        if (multiJob.status === "done") {
+          return res.json({
+            operationId,
+            done: true,
+            videoUrl: multiJob.combinedVideoUrl,
+            isMultiSegment: true,
+            segmentCount: multiJob.segmentOperationIds.length,
+          });
+        }
+        if (multiJob.status === "error") {
+          return res.json({
+            operationId,
+            done: true,
+            error: multiJob.error || "Multi-segment video generation failed",
+            isMultiSegment: true,
+          });
+        }
+        if (multiJob.status === "combining") {
+          return res.json({
+            operationId,
+            done: false,
+            isMultiSegment: true,
+            segmentCount: multiJob.segmentOperationIds.length,
+            segmentsCompleted: multiJob.segmentVideoUrls.filter(u => u !== null).length,
+            statusMessage: "Combining video segments...",
+          });
+        }
+
+        const { veoVideoService } = await import("./services/veo-video");
+        const reqUserId = req.user?.id || "unknown";
+        let allDone = true;
+        let anyError = false;
+
+        for (let i = 0; i < multiJob.segmentOperationIds.length; i++) {
+          if (multiJob.segmentVideoUrls[i] !== null) continue;
+
+          const segStatus = await veoVideoService.checkOperationStatus(multiJob.segmentOperationIds[i]);
+          if (segStatus.done && segStatus.videoUrl) {
+            let publicUrl = segStatus.videoUrl;
+            if (publicUrl.startsWith("/tmp/")) {
+              const uploaded = await uploadVeoVideoToS3(publicUrl, multiJob.segmentOperationIds[i], reqUserId);
+              publicUrl = uploaded || publicUrl;
+            }
+            multiJob.segmentVideoUrls[i] = publicUrl;
+            console.log(`✅ [VEO] Segment ${i + 1}/${multiJob.segmentOperationIds.length} complete: ${publicUrl.substring(0, 60)}...`);
+          } else if (segStatus.done && segStatus.error) {
+            anyError = true;
+            console.error(`❌ [VEO] Segment ${i + 1} failed: ${segStatus.error}`);
+          } else {
+            allDone = false;
+          }
+        }
+
+        const completedCount = multiJob.segmentVideoUrls.filter(u => u !== null).length;
+
+        if (anyError && completedCount === 0) {
+          multiJob.status = "error";
+          multiJob.error = "All video segments failed to generate";
+          return res.json({ operationId, done: true, error: multiJob.error, isMultiSegment: true });
+        }
+
+        if (allDone || (anyError && completedCount > 0)) {
+          const completedUrls = multiJob.segmentVideoUrls.filter((u): u is string => u !== null);
+
+          if (completedUrls.length === 1) {
+            multiJob.status = "done";
+            multiJob.combinedVideoUrl = completedUrls[0];
+            return res.json({
+              operationId,
+              done: true,
+              videoUrl: completedUrls[0],
+              isMultiSegment: true,
+              segmentCount: multiJob.segmentOperationIds.length,
+            });
+          }
+
+          multiJob.status = "combining";
+          console.log(`🔗 [VEO] All ${completedUrls.length} segments ready, combining...`);
+
+          combineSegmentVideos(completedUrls, operationId, reqUserId)
+            .then((combinedUrl) => {
+              multiJob.status = "done";
+              multiJob.combinedVideoUrl = combinedUrl;
+              console.log(`✅ [VEO] Multi-segment video combined successfully: ${combinedUrl.substring(0, 80)}...`);
+            })
+            .catch((err) => {
+              console.error(`❌ [VEO] Failed to combine segments:`, err);
+              multiJob.status = "done";
+              multiJob.combinedVideoUrl = completedUrls[0];
+              console.log(`⚠️ [VEO] Falling back to first segment video`);
+            });
+
+          return res.json({
+            operationId,
+            done: false,
+            isMultiSegment: true,
+            segmentCount: multiJob.segmentOperationIds.length,
+            segmentsCompleted: completedUrls.length,
+            statusMessage: "Combining video segments...",
+          });
+        }
+
+        return res.json({
+          operationId,
+          done: false,
+          isMultiSegment: true,
+          segmentCount: multiJob.segmentOperationIds.length,
+          segmentsCompleted: completedCount,
+          statusMessage: `Generating segment ${completedCount + 1} of ${multiJob.segmentOperationIds.length}...`,
+        });
+      }
+
+      const { veoVideoService } = await import("./services/veo-video");
       const status = await veoVideoService.checkOperationStatus(operationId);
 
       let publicVideoUrl = status.videoUrl;
-
       if (status.done && status.videoUrl && status.videoUrl.startsWith("/tmp/")) {
-        try {
-          const fs = await import("fs");
-          const path = await import("path");
-          const { S3UploadService } = await import("./services/s3Upload");
-          const s3Service = new S3UploadService();
-          const userId = req.user?.id || "unknown";
-
-          const videoBuffer = fs.readFileSync(status.videoUrl);
-          const s3Key = `ai-videos/${userId}/veo-${operationId}-${Date.now()}.mp4`;
-          publicVideoUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, "video/mp4", true);
-          console.log(`✅ [VEO] Uploaded AI Assistant video to S3: ${publicVideoUrl.substring(0, 80)}...`);
-
-          try { fs.unlinkSync(status.videoUrl); } catch {}
-        } catch (uploadErr: any) {
-          console.error("❌ [VEO] Failed to upload video to S3:", uploadErr.message);
-        }
+        const userId = req.user?.id || "unknown";
+        const uploaded = await uploadVeoVideoToS3(status.videoUrl, operationId, userId);
+        publicVideoUrl = uploaded || status.videoUrl;
       }
 
       res.json({

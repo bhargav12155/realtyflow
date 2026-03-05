@@ -105,6 +105,25 @@ export class BulkQueueScheduler {
 
     const allRemaining = [...queue.remainingNumbers];
 
+    if (queue.templateName) {
+      try {
+        const wabId = "2690438238000842";
+        const tplRes = await fetch(`https://graph.facebook.com/v25.0/${wabId}/message_templates?fields=name,category&limit=100`, {
+          headers: { "Authorization": `Bearer ${accessToken}` },
+        });
+        const tplData = (await tplRes.json()) as any;
+        const tpl = (tplData.data || []).find((t: any) => t.name === queue.templateName);
+        if (tpl && (tpl.category || "").toUpperCase() === "MARKETING") {
+          const usCount = allRemaining.filter((n: string) => n.startsWith("+1") || n.startsWith("1")).length;
+          if (usCount > 0) {
+            console.warn(`⚠️ Bulk queue ${queue.id}: Template "${queue.templateName}" is MARKETING category. ${usCount} US numbers will likely NOT be delivered due to Meta's US marketing pause (since April 2025). Consider using a UTILITY template instead.`);
+          }
+        }
+      } catch (e) {
+        // non-critical, continue
+      }
+    }
+
     console.log(`📱 Bulk queue ${queue.id}: Starting batch targeting ${dailyLimit} successful deliveries from ${allRemaining.length} remaining`);
 
     this.notifyUser(queue.userId, {

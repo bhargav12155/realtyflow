@@ -309,8 +309,17 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
   };
 
   const categoryIcon = (cat: string) => {
-    if ((cat || "").toUpperCase() === "UTILITY") return "🔧";
+    const upper = (cat || "").toUpperCase();
+    if (upper === "UTILITY") return "🔧";
+    if (upper === "AUTHENTICATION") return "🔑";
     return "📣";
+  };
+
+  const categoryBadge = (cat: string) => {
+    const upper = (cat || "").toUpperCase();
+    if (upper === "UTILITY") return { label: "Utility", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" };
+    if (upper === "AUTHENTICATION") return { label: "Auth", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" };
+    return { label: "Marketing", color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" };
   };
 
   return (
@@ -477,10 +486,15 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
                     {headerText && !previewTemplate?.name && (
                       <p className="text-[9px] text-muted-foreground truncate mt-0.5">{headerText}</p>
                     )}
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border mt-1 ${badge.color}`}>
-                      <span className={`w-1 h-1 rounded-full ${badge.dot}`} />
-                      {badge.label}
-                    </span>
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border ${badge.color}`}>
+                        <span className={`w-1 h-1 rounded-full ${badge.dot}`} />
+                        {badge.label}
+                      </span>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[8px] font-semibold ${categoryBadge(t.category).color}`}>
+                        {categoryBadge(t.category).label}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 {previewTemplate?.name === t.name && (
@@ -504,16 +518,31 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
         </div>
       )}
 
-      {selectedTemplate && selectedTemplate !== "none" && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
-          <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          </span>
-          <p className="text-[11px] text-green-700 dark:text-green-400 font-medium">
-            Template: <span className="font-bold">{formatTemplateName(selectedTemplate)}</span> — sends without 24hr window restriction
-          </p>
-        </div>
-      )}
+      {selectedTemplate && selectedTemplate !== "none" && (() => {
+        const selTpl = templates.find((t: any) => t.name === selectedTemplate);
+        const isMarketing = (selTpl?.category || "").toUpperCase() === "MARKETING";
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+              <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+              <p className="text-[11px] text-green-700 dark:text-green-400 font-medium">
+                Template: <span className="font-bold">{formatTemplateName(selectedTemplate)}</span> ({selTpl?.category || "MARKETING"}) — sends without 24hr window restriction
+              </p>
+            </div>
+            {isMarketing && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-300 dark:border-red-800" data-testid="warning-us-marketing-pause">
+                <span className="text-red-500 text-sm flex-shrink-0 mt-0.5">⚠️</span>
+                <div className="text-[11px] text-red-700 dark:text-red-400">
+                  <p className="font-bold">US Marketing Pause Active</p>
+                  <p className="mt-0.5">Since April 2025, Meta has paused delivery of <strong>Marketing</strong> templates to US (+1) phone numbers. Messages are accepted by the API but NOT delivered. Only <strong>Utility</strong> and <strong>Authentication</strong> templates are delivered to US numbers. Consider switching to a Utility template for US contacts.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2977,6 +3006,12 @@ ${agentName} | ${brokerageName}
                   <div className="flex items-center gap-2 text-sm font-semibold">
                     <Clock className="h-4 w-4 text-amber-500" />
                     <span>Queued Messages</span>
+                  </div>
+                  <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-300 dark:border-red-800" data-testid="warning-bulk-marketing-pause">
+                    <span className="text-red-500 text-sm flex-shrink-0 mt-0.5">⚠️</span>
+                    <div className="text-[10px] text-red-700 dark:text-red-400 leading-relaxed">
+                      <span className="font-bold">US Marketing Pause:</span> Since April 2025, Meta does not deliver <strong>Marketing</strong> template messages to US (+1) numbers. The API accepts them (returns success) but they are silently dropped. Only <strong>Utility</strong> and <strong>Authentication</strong> templates are actually delivered. If your queue uses a Marketing template, consider creating a Utility template instead.
+                    </div>
                   </div>
                   {bulkQueues
                     .filter((q: any) => q.status === "active" || q.status === "paused")

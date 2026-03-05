@@ -104,7 +104,7 @@ import {
   businessLocations as businessLocationsTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "./db";
 
 export interface IStorage {

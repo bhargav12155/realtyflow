@@ -1,0 +1,180 @@
+
+Skip to main content
+Help Center
+Using X
+Managing your account
+Safety and security
+Rules and policies
+Resources
+
+
+Contact Us
+Help Center
+Account settings
+About third-party apps and log in sessions
+About third-party apps and log in sessions
+About
+Connecting or removing
+Available tools
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Instructions for:
+
+How to connect to a third-party app
+Step 1
+On the website of the app you want to connect, find the button/link asking you to connect your Twitter account (usually "Connect to X", "Sign in with X" or something similar).
+
+Step 2
+You’ll be routed to a X website asking you to authorize the app to use your account.
+
+Step 3
+You can review the various permissions you are granting to the app. You will see examples of actions the app will be able to perform with your account.
+
+Step 4
+If you’re already logged in to your account, use the Authorize app button to connect the app.
+
+Step 5
+If you’re not already logged in to your account, you will need to log in. Before you enter your username and password, check that the page is secure by verifying the URL starts with https://x.com. If the page is secure, enter your username and password and use the Sign In button to connect the app.
+
+Step 6
+You can review and revoke access for apps connected to your account at any time by visiting the Apps and sessions section of your account settings.
+
+How to revoke access or remove an app
+Sign in to your account.
+Go to the Apps and sessions section of your account settings. All of the apps connected to your account will be displayed. You can see the specific permissions that each app has to use your account listed under the app name and description.
+
+If you’d like to disconnect an app from your account, click the Revoke access button next to the app or at the bottom of the page after clicking the app’s name.
+
+If an app asks for your password to access your account
+
+If you wish to grant a third-party app access to your account, we recommend that you only do so using X’s OAuth method. OAuth is a secure connection method and doesn’t require you to give your X username and password to the third party. You should be particularly cautious when you're asked to give your username and password to an app or website. When you give your username and password to someone else, they can gain complete control of your account and can lock you out or take actions that cause your account to be suspended.
+
+If you are unsure about whether a login page for a third-party app is using OAuth, go directly to X.com and enter your credentials there, and then navigate back to the app. If the app is using OAuth, the app should not require you to enter your username and password again. You can learn more about how to check that you’re on X.com with our account security tips.
+
+If you previously provided your password to an app that you are now unsure about, revoke its access on the Apps and sessions section of your account settings and change your password.
+
+Note: You should be especially wary of and never provide your username and password to:
+
+Websites claiming to help you “get more followers fast!” (see our following rules and best practices for more information).
+Apps which post affiliate ads to your timeline.
+ 
+If you suspect a bad app is still connected to your account
+
+Immediately revoke its access on the Apps and sessions section of your account settings and change your password. If you are experiencing problems with an app, please read the compromised accounts article for more information.
+
+
+If you’re having issues with a third-party app
+
+Because third-party apps are not owned and operated by X, we're not able to troubleshoot them. It’s best to reach out to the app developer for answers to your questions or to let them know about a problem you're having with their product.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Share this article
+
+Post
+
+X platform
+X.com
+Status
+Accessibility
+Embed a post
+Privacy Center
+Transparency Center
+Download the X app
+Try Grok.com
+X Corp.
+About the company
+Company news
+Brand toolkit
+Jobs and internships
+Investors
+Help
+Help Center
+Using X
+X for creators
+Ads Help Center
+Managing your account
+Email Preference Center
+Rules and policies
+Contact us
+Developer resources
+Developer home
+Documentation
+Forums
+Communities
+Developer blog
+Engineering blog
+Developer terms
+Business resources
+Advertise
+X for business
+Resources and guides
+X for marketers
+Marketing insights
+Brand inspiration
+X Ads Academy
+© 2026 X Corp.
+Cookies
+Privacy
+Terms and conditions
+English 

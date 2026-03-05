@@ -87,17 +87,17 @@ export class BulkQueueScheduler {
       return;
     }
 
-    let dailyLimit = queue.dailyLimit || 2000;
+    let dailyLimit = queue.dailyLimit || 1000;
     try {
-      const limitUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=messaging_limit_tier&access_token=${accessToken}`;
+      const limitUrl = `https://graph.facebook.com/v22.0/${phoneNumberId}?fields=messaging_limit_tier&access_token=${accessToken}`;
       const limitRes = await fetch(limitUrl);
       const limitData = (await limitRes.json()) as any;
       if (limitData.messaging_limit_tier) {
         const tierMap: Record<string, number> = {
           TIER_NOT_SET: 250, TIER_50: 50, TIER_250: 250,
-          TIER_1K: 2000, TIER_10K: 10000, TIER_100K: 100000, TIER_UNLIMITED: 999999,
+          TIER_1K: 1000, TIER_10K: 10000, TIER_100K: 100000, TIER_UNLIMITED: 999999,
         };
-        dailyLimit = tierMap[limitData.messaging_limit_tier] || 2000;
+        dailyLimit = tierMap[limitData.messaging_limit_tier] || 1000;
       }
     } catch (e) {
       console.log(`⚠️ Could not fetch tier for queue ${queue.id}, using ${dailyLimit}`);
@@ -120,9 +120,37 @@ export class BulkQueueScheduler {
 
     let sentCount = 0;
     let failedCount = 0;
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 8;
     const BATCH_DELAY_MS = 2000;
+    const INTRA_BATCH_DELAY_MS = 150;
     const RATE_LIMIT_BACKOFF_MS = 30000;
+
+    const isRetryableError = (errMsg: string) =>
+      errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
+      errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl");
+
+    const sendOneWithRetry = async (phone: string, attempt = 1): Promise<boolean> => {
+      try {
+        if (queue.templateName) {
+          await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, queue.templateName);
+        } else if (queue.messageText) {
+          await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, queue.messageText);
+        }
+        return true;
+      } catch (err: any) {
+        const errMsg = err.message || "";
+        if (errMsg.includes("131056") || errMsg.includes("131049")) {
+          throw err;
+        }
+        if (isRetryableError(errMsg) && attempt <= 2) {
+          const backoff = RATE_LIMIT_BACKOFF_MS * attempt;
+          console.warn(`📱 Queue ${queue.id}: Rate error for ${phone} (attempt ${attempt}), backoff ${backoff / 1000}s`);
+          await new Promise((resolve) => setTimeout(resolve, backoff));
+          return sendOneWithRetry(phone, attempt + 1);
+        }
+        throw err;
+      }
+    };
 
     for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
       const currentQueue = await this.storage.getWhatsappBulkQueueById(queue.id);
@@ -134,37 +162,29 @@ export class BulkQueueScheduler {
       const batch = numbersToSend.slice(i, i + BATCH_SIZE);
 
       const results = await Promise.allSettled(
-        batch.map(async (phone: string) => {
-          try {
-            if (queue.templateName) {
-              await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, queue.templateName);
-            } else if (queue.messageText) {
-              await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, queue.messageText);
-            }
-            return true;
-          } catch (err: any) {
-            const errMsg = err.message || "";
-            if (errMsg.includes("130429") || errMsg.toLowerCase().includes("rate limit")) {
-              await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
-              try {
-                if (queue.templateName) {
-                  await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, queue.templateName);
-                } else if (queue.messageText) {
-                  await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, queue.messageText);
-                }
-                return true;
-              } catch {
-                throw err;
-              }
-            }
-            throw err;
+        batch.map(async (phone: string, idx: number) => {
+          if (idx > 0) {
+            await new Promise((resolve) => setTimeout(resolve, idx * INTRA_BATCH_DELAY_MS));
           }
+          return sendOneWithRetry(phone);
         })
       );
 
+      let rateLimitHit = false;
       for (const r of results) {
         if (r.status === "fulfilled") sentCount++;
-        else failedCount++;
+        else {
+          failedCount++;
+          const reason = (r as PromiseRejectedResult).reason?.message || "";
+          if (isRetryableError(reason)) {
+            rateLimitHit = true;
+          }
+        }
+      }
+
+      if (rateLimitHit) {
+        console.warn(`📱 Queue ${queue.id}: Rate limit detected, adding extra delay`);
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
       }
 
       const processed = sentCount + failedCount;

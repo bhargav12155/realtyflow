@@ -1,0 +1,136 @@
+
+Nav Logo
+Build with us
+
+Docs
+Blog
+Resources
+
+Developer centers
+
+My Apps
+
+
+Docs
+
+Overview
+
+Template previews
+Template previews
+Updated: Nov 4, 2025
+You can generate previews of authentication template text in various languages that include or exclude the security recommendation string and code expiration string using the GET /<WABA_ID>/message_template_previews endpoint.
+Request syntax
+
+GET /<WHATSAPP_BUSINESS_ACCOUNT_ID>/message_template_previews
+  ?category=AUTHENTICATION,
+  &language=<LANGUAGE>, // Optional
+  &add_security_recommendation=<ADD_SECURITY_RECOMMENDATION>, // Optional
+  &code_expiration_minutes=<CODE_EXPIRATION_MINUTES>, // Optional
+  &button_types=<BUTTON_TYPES> // Optional
+
+Request parameters
+
+Placeholder	Description	Example Value
+<LANGUAGE>
+Comma-separated list
+Optional.
+
+Comma-separated list of language and locale codes of language versions you want returned.
+
+If omitted, versions of all supported languages will be returned.
+en_US,es_ES
+<ADD_SECURITY_RECOMMENDATION>
+Boolean
+Optional.
+
+Set to true if you want the security recommendation body string included in the response.
+
+If omitted, the security recommendation string will not be included.
+true
+<CODE_EXPIRATION_MINUTES>
+Int64
+Optional.
+
+Set to an integer if you want the code expiration footer string included in the response.
+
+If omitted, the code expiration footer string will not be included.
+
+Value indicates number of minutes until code expires.
+Minimum 1, maximum 90.
+10
+<BUTTON_TYPES>
+Comma-separated list of strings
+Required.
+
+Comma-separated list of strings indicating button type.
+
+If included, the response will include the button text for each button in the response.
+
+For authentication templates, this value must be OTP.
+OTP
+Example request
+
+curl 'https://graph.facebook.com/v17.0/102290129340398/message_template_previews?category=AUTHENTICATION&languages=en_US,es_ES&add_security_recommendation=true&code_expiration_minutes=10&button_types=OTP' \
+-H 'Authorization: Bearer EAAJB...'
+
+
+Example response
+
+{
+  "data": [
+    {
+      "body": "*{{1}}* is your verification code. For your security, do not share this code.",
+      "buttons": [
+        {
+          "autofill_text": "Autofill",
+          "text": "Copy code"
+        }
+      ],
+      "footer": "This code expires in 10 minutes.",
+      "language": "en_US"
+    },
+    {
+      "body": "Tu código de verificación es *{{1}}*. Por tu seguridad, no lo compartas.",
+      "buttons": [
+        {
+          "autofill_text": "Autocompletar",
+          "text": "Copiar código"
+        }
+      ],
+      "footer": "Este código caduca en 10 minutos.",
+      "language": "es_ES"
+    }
+  ]
+}
+
+
+Did you find this page helpful?
+Thumbs up icon
+Thumbs down icon
+Meta
+FacebookInstagramXLinkedInYouTube
+Build with Meta
+AI
+Meta Horizon
+Social technologies
+Wearables
+News
+Meta for Developers
+Blog
+Success stories
+Support
+Developer Support
+Bug tool
+Platform status
+Developer community forum
+Report an incident
+About us
+About
+Careers
+Terms and policies
+Responsible platform initiatives
+Platform terms
+Developer policies
+Privacy policy
+Cookies
+English (US)

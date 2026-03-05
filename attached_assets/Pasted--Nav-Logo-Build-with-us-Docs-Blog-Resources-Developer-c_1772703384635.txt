@@ -1,0 +1,190 @@
+
+Nav Logo
+Build with us
+
+Docs
+Blog
+Resources
+
+Developer centers
+
+My Apps
+
+
+Docs
+
+Overview
+
+Bulk management
+Bulk management
+Updated: Nov 10, 2025
+Use the POST /<WABA_ID>/upsert_message_templates endpoint to bulk update or create authentication templates in multiple languages that include or exclude the optional security and expiration warnings.
+If a template already exists with a matching name and language, the template will be updated with the contents of the request, otherwise, a new template will be created.
+Request syntax
+
+POST /<WHATSAPP_BUSINESS_ACCOUNT_ID>/upsert_message_templates
+
+
+Post Body
+
+{
+  "name": "<NAME>",
+  "languages": [<LANGUAGES>],
+  "category": "AUTHENTICATION",
+  "components": [
+    {
+      "type": "BODY",
+      "add_security_recommendation": <ADD_SECURITY_RECOMMENDATION> // Optional
+    },
+    {
+      "type": "FOOTER",
+      "code_expiration_minutes": <CODE_EXPIRATION_MINUTES> // Optional
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "OTP",
+          "otp_type": "<OTP_TYPE>",
+          "supported_apps": [
+            {
+              "package_name": "<PACKAGE_NAME>", // One-tap and zero-tap buttons only
+              "signature_hash": "<SIGNATURE_HASH>" // One-tap and zero-tap buttons only
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+
+Properties
+
+All template creation properties are supported, with these exceptions:
+The language property is not supported. Instead, use languages and set its value to an array of language and locale code strings. For example: ["en_US","es_ES","fr"].
+The text property is not supported.
+The autofill_text property is not supported.
+Example copy code request
+
+This example creates three authentication templates in English, Spanish, and French, with copy code buttons. Each template is named “authentication_code_copy_code_button” and includes the security recommendation and expiration time.
+curl 'https://graph.facebook.com/v25.0/102290129340398/upsert_message_templates' \
+-H 'Content-Type: application/json' \
+-H 'Authorization: Bearer EAAJB...' \
+-d '
+{
+  "name": "authentication_code_copy_code_button",
+  "languages": ["en_US","es_ES","fr"],
+  "category": "AUTHENTICATION",
+  "components": [
+    {
+      "type": "BODY",
+      "add_security_recommendation": true
+    },
+    {
+      "type": "FOOTER",
+      "code_expiration_minutes": 10
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "OTP",
+          "otp_type": "COPY_CODE"
+        }
+      ]
+    }
+  ]
+}'
+
+Example one-tap autofill request
+
+This example (1) updates an existing template with the name “authentication_code_autofill_button” and language “en_US”, and (2) creates two new authentication templates in Spanish and French with one-tap autofill buttons. Both newly created templates are named “authentication_code_autofill_button” and include the security recommendation and expiration time.
+curl 'https://graph.facebook.com/v25.0/102290129340398/upsert_message_templates' \
+-H 'Content-Type: application/json' \
+-H 'Authorization: Bearer EAAJB...' \
+-d '
+{
+  "name": "authentication_code_autofill_button",
+  "languages": ["en_US","es_ES","fr"],
+  "category": "AUTHENTICATION",
+  "components": [
+    {
+      "type": "BODY",
+      "add_security_recommendation": true
+    },
+    {
+      "type": "FOOTER",
+      "code_expiration_minutes": 15
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "OTP",
+          "otp_type": "ONE_TAP",
+          "supported_apps": [
+            {
+              "package_name": "com.example.luckyshrub",
+              "signature_hash": "K8a/AINcGX7"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}'
+
+Example response
+
+{
+  "data": [
+    {
+      "id": "954638012257287",
+      "status": "APPROVED",
+      "language": "en_US"
+    },
+    {
+      "id": "969725527415202",
+      "status": "APPROVED",
+      "language": "es_ES"
+    },
+    {
+      "id": "969725530748535",
+      "status": "APPROVED",
+      "language": "fr"
+    }
+  ]
+}
+
+
+Did you find this page helpful?
+Thumbs up icon
+Thumbs down icon
+Meta
+FacebookInstagramXLinkedInYouTube
+Build with Meta
+AI
+Meta Horizon
+Social technologies
+Wearables
+News
+Meta for Developers
+Blog
+Success stories
+Support
+Developer Support
+Bug tool
+Platform status
+Developer community forum
+Report an incident
+About us
+About
+Careers
+Terms and policies
+Responsible platform initiatives
+Platform terms
+Developer policies
+Privacy policy
+Cookies
+English (US)

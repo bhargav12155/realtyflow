@@ -20763,22 +20763,23 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
         res.json({ success: true, messageId: result.messages?.[0]?.id, sent: 1, failed: 0, total: 1 });
       } else {
-        const BATCH_SIZE = 10;
+        const BATCH_SIZE = 8;
         const BATCH_DELAY_MS = 2000;
         const LARGE_BATCH_THRESHOLD = 100;
         const RATE_LIMIT_BACKOFF_MS = 30000;
+        const INTRA_BATCH_DELAY_MS = 150;
 
-        let META_DAILY_LIMIT = 2000;
+        let META_DAILY_LIMIT = 1000;
         try {
-          const limitUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=messaging_limit_tier&access_token=${accessToken}`;
+          const limitUrl = `https://graph.facebook.com/v22.0/${phoneNumberId}?fields=messaging_limit_tier&access_token=${accessToken}`;
           const limitRes = await fetch(limitUrl);
           const limitData = await limitRes.json() as any;
           if (limitData.messaging_limit_tier) {
             const tierMap: Record<string, number> = {
               "TIER_NOT_SET": 250, "TIER_50": 50, "TIER_250": 250,
-              "TIER_1K": 2000, "TIER_10K": 10000, "TIER_100K": 100000, "TIER_UNLIMITED": 999999,
+              "TIER_1K": 1000, "TIER_10K": 10000, "TIER_100K": 100000, "TIER_UNLIMITED": 999999,
             };
-            META_DAILY_LIMIT = tierMap[limitData.messaging_limit_tier] || 2000;
+            META_DAILY_LIMIT = tierMap[limitData.messaging_limit_tier] || 1000;
             console.log(`📱 WhatsApp: Account tier ${limitData.messaging_limit_tier} → daily limit ${META_DAILY_LIMIT}`);
           }
         } catch (e) {
@@ -20832,38 +20833,48 @@ Be helpful, professional, and concise. Always let users know what the platform c
             let failedCount = 0;
             const startTime = Date.now();
 
-            for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
-              const batch = numbersToSend.slice(i, i + BATCH_SIZE);
+            const isRetryableError = (errMsg: string) =>
+              errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
+              errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl");
 
-              const sendOne = async (phone: string) => {
+            const sendOneWithRetry = async (phone: string, attempt = 1): Promise<boolean> => {
+              try {
                 if (templateName) {
                   await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
                 } else {
                   await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
                 }
-              };
+                return true;
+              } catch (err: any) {
+                const errMsg = err.message || "";
+                if (errMsg.includes("131056")) {
+                  console.warn(`📱 WhatsApp: Pair rate limit for ${phone}, skipping`);
+                  throw err;
+                }
+                if (errMsg.includes("131049")) {
+                  console.warn(`📱 WhatsApp: User ${phone} hit frequency cap, skipping`);
+                  throw err;
+                }
+                if (isRetryableError(errMsg) && attempt <= 2) {
+                  const backoff = RATE_LIMIT_BACKOFF_MS * attempt;
+                  console.warn(`📱 WhatsApp: Rate/throttle error for ${phone} (attempt ${attempt}), backing off ${backoff / 1000}s`);
+                  await new Promise((resolve) => setTimeout(resolve, backoff));
+                  return sendOneWithRetry(phone, attempt + 1);
+                }
+                console.error(`WhatsApp bulk send failed for ${phone}:`, err);
+                throw err;
+              }
+            };
+
+            for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
+              const batch = numbersToSend.slice(i, i + BATCH_SIZE);
 
               const results = await Promise.allSettled(
-                batch.map(async (phone: string) => {
-                  try {
-                    await sendOne(phone);
-                    return true;
-                  } catch (err: any) {
-                    const errMsg = err.message || "";
-                    if (errMsg.includes("130429") || errMsg.toLowerCase().includes("rate limit")) {
-                      console.warn(`📱 WhatsApp: Rate limit hit at phone ${phone}, backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s`);
-                      await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
-                      try {
-                        await sendOne(phone);
-                        return true;
-                      } catch (retryErr) {
-                        console.error(`WhatsApp retry also failed for ${phone}:`, retryErr);
-                        throw retryErr;
-                      }
-                    }
-                    console.error(`WhatsApp bulk send failed for ${phone}:`, err);
-                    throw err;
+                batch.map(async (phone: string, idx: number) => {
+                  if (idx > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, idx * INTRA_BATCH_DELAY_MS));
                   }
+                  return sendOneWithRetry(phone);
                 })
               );
 
@@ -20873,7 +20884,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 else {
                   failedCount++;
                   const reason = (r as PromiseRejectedResult).reason?.message || "";
-                  if (reason.includes("130429") || reason.toLowerCase().includes("rate limit")) {
+                  if (isRetryableError(reason)) {
                     rateLimitHit = true;
                   }
                 }
@@ -20900,7 +20911,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
                   percent,
                   elapsed,
                   estimatedRemaining: remaining,
-                  message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} over daily limit` : ''}`,
+                  message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} auto-queued` : ''}`,
                 },
                 timestamp: new Date().toISOString(),
               });
@@ -20945,36 +20956,43 @@ Be helpful, professional, and concise. Always let users know what the platform c
           let sentCount = 0;
           let failedCount = 0;
 
-          for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
-            const batch = numbersToSend.slice(i, i + BATCH_SIZE);
-            const sendOneSync = async (phone: string) => {
+          const isRetryableSync = (errMsg: string) =>
+            errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
+            errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl");
+
+          const sendOneSyncRetry = async (phone: string, attempt = 1): Promise<boolean> => {
+            try {
               if (templateName) {
                 await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
               } else {
                 await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
               }
-            };
+              return true;
+            } catch (err: any) {
+              const errMsg = err.message || "";
+              if (errMsg.includes("131056") || errMsg.includes("131049")) {
+                throw err;
+              }
+              if (isRetryableSync(errMsg) && attempt <= 2) {
+                const backoff = RATE_LIMIT_BACKOFF_MS * attempt;
+                console.warn(`📱 WhatsApp: Rate error for ${phone} (attempt ${attempt}), backoff ${backoff / 1000}s`);
+                await new Promise((resolve) => setTimeout(resolve, backoff));
+                return sendOneSyncRetry(phone, attempt + 1);
+              }
+              console.error(`WhatsApp bulk send failed for ${phone}:`, err);
+              throw err;
+            }
+          };
+
+          for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
+            const batch = numbersToSend.slice(i, i + BATCH_SIZE);
 
             const results = await Promise.allSettled(
-              batch.map(async (phone: string) => {
-                try {
-                  await sendOneSync(phone);
-                  return true;
-                } catch (err: any) {
-                  const errMsg = err.message || "";
-                  if (errMsg.includes("130429") || errMsg.toLowerCase().includes("rate limit")) {
-                    console.warn(`📱 WhatsApp: Rate limit hit for ${phone}, retrying after backoff`);
-                    await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
-                    try {
-                      await sendOneSync(phone);
-                      return true;
-                    } catch (retryErr) {
-                      throw retryErr;
-                    }
-                  }
-                  console.error(`WhatsApp bulk send failed for ${phone}:`, err);
-                  throw err;
+              batch.map(async (phone: string, idx: number) => {
+                if (idx > 0) {
+                  await new Promise((resolve) => setTimeout(resolve, idx * INTRA_BATCH_DELAY_MS));
                 }
+                return sendOneSyncRetry(phone);
               })
             );
 

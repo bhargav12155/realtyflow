@@ -52,6 +52,7 @@ import {
   Megaphone,
   MessageCircle,
   Pause,
+  Play,
   Music,
   Percent,
   Plug,
@@ -590,7 +591,7 @@ const promoApps = [
   },
 ];
 
-function WhatsAppAnalyticsSection() {
+function WhatsAppAnalyticsSection({ bulkProgress }: { bulkProgress?: any }) {
   const [waAnalytics, setWaAnalytics] = useState<any>(null);
   const [waAnalyticsLoading, setWaAnalyticsLoading] = useState(false);
   const [waAnalyticsDays, setWaAnalyticsDays] = useState(7);
@@ -646,37 +647,50 @@ function WhatsAppAnalyticsSection() {
           {(() => {
             const tplTotals = waAnalytics.templateAnalytics?.totals;
             const msgTotals = waAnalytics.messagingAnalytics?.totals;
-            const sent = msgTotals?.sent || tplTotals?.sent || 0;
-            const delivered = msgTotals?.delivered || tplTotals?.delivered || 0;
+            let sent = msgTotals?.sent || tplTotals?.sent || 0;
+            let delivered = msgTotals?.delivered || tplTotals?.delivered || 0;
             const read = tplTotals?.read || 0;
             const hasReadData = tplTotals && !waAnalytics.templateAnalytics?.error;
+
+            let usingBulkFallback = false;
+            if (sent === 0 && bulkProgress && bulkProgress.sent > 0) {
+              sent = bulkProgress.sent;
+              delivered = bulkProgress.sent - (bulkProgress.failed || 0);
+              usingBulkFallback = true;
+            }
+
             const blocked = sent - delivered;
             const deliveryRate = sent > 0 ? Math.round((delivered / sent) * 100) : 0;
             const readRate = hasReadData && delivered > 0 ? Math.round((read / delivered) * 100) : 0;
 
             return (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-sent">
-                  <Send className="h-4 w-4 mx-auto mb-1 text-blue-500" />
-                  <div className="text-lg font-bold">{sent.toLocaleString()}</div>
-                  <div className="text-[10px] text-muted-foreground">Messages Sent</div>
-                </div>
-                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-delivered">
-                  <CheckCircle className="h-4 w-4 mx-auto mb-1 text-green-500" />
-                  <div className="text-lg font-bold">{delivered.toLocaleString()}</div>
-                  <div className="text-[10px] text-muted-foreground">Delivered</div>
-                  {deliveryRate > 0 && <div className="text-[9px] text-green-600 font-medium">{deliveryRate}%</div>}
-                </div>
-                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-read">
-                  <MailOpen className="h-4 w-4 mx-auto mb-1 text-purple-500" />
-                  <div className="text-lg font-bold">{hasReadData ? read.toLocaleString() : "—"}</div>
-                  <div className="text-[10px] text-muted-foreground">Messages Read</div>
-                  {hasReadData && readRate > 0 && <div className="text-[9px] text-purple-600 font-medium">{readRate}%</div>}
-                </div>
-                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-blocked">
-                  <ShieldAlert className="h-4 w-4 mx-auto mb-1 text-red-500" />
-                  <div className="text-lg font-bold">{blocked.toLocaleString()}</div>
-                  <div className="text-[10px] text-muted-foreground">Not Delivered</div>
+              <div className="space-y-1">
+                {usingBulkFallback && (
+                  <div className="text-[9px] text-muted-foreground italic">Based on your recent bulk send — Meta analytics may take a few hours to update</div>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-sent">
+                    <Send className="h-4 w-4 mx-auto mb-1 text-blue-500" />
+                    <div className="text-lg font-bold">{sent.toLocaleString()}</div>
+                    <div className="text-[10px] text-muted-foreground">Messages Sent</div>
+                  </div>
+                  <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-delivered">
+                    <CheckCircle className="h-4 w-4 mx-auto mb-1 text-green-500" />
+                    <div className="text-lg font-bold">{delivered.toLocaleString()}</div>
+                    <div className="text-[10px] text-muted-foreground">Delivered</div>
+                    {deliveryRate > 0 && <div className="text-[9px] text-green-600 font-medium">{deliveryRate}%</div>}
+                  </div>
+                  <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-read">
+                    <MailOpen className="h-4 w-4 mx-auto mb-1 text-purple-500" />
+                    <div className="text-lg font-bold">{hasReadData ? read.toLocaleString() : "—"}</div>
+                    <div className="text-[10px] text-muted-foreground">Messages Read</div>
+                    {hasReadData && readRate > 0 && <div className="text-[9px] text-purple-600 font-medium">{readRate}%</div>}
+                  </div>
+                  <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-blocked">
+                    <ShieldAlert className="h-4 w-4 mx-auto mb-1 text-red-500" />
+                    <div className="text-lg font-bold">{blocked.toLocaleString()}</div>
+                    <div className="text-[10px] text-muted-foreground">Not Delivered</div>
+                  </div>
                 </div>
               </div>
             );
@@ -2946,7 +2960,32 @@ ${agentName} | ${brokerageName}
                       )}
                       <span className="text-muted-foreground">of {bulkProgress.total.toLocaleString()}</span>
                       {(bulkProgress as any).queued > 0 && (
-                        <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} auto-queued for next batch</span>
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} auto-queued for next batch</span>
+                          {bulkProgress.complete && (() => {
+                            const activeQueue = bulkQueues.find((q: any) => q.status === "active" || q.status === "paused");
+                            if (!activeQueue) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await apiRequest("POST", `/api/whatsapp/bulk-queues/${activeQueue.id}/send-now`);
+                                    toast({ title: "Processing Next Batch", description: "Sending next batch of messages now..." });
+                                    queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                  } catch (err: any) {
+                                    toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors"
+                                data-testid="btn-send-next-batch-banner"
+                              >
+                                <Play className="h-3 w-3" />
+                                Send Next Batch Now
+                              </button>
+                            );
+                          })()}
+                        </span>
                       )}
                     </div>
                     <span className="text-muted-foreground font-mono">{bulkProgress.percent}%</span>
@@ -3032,7 +3071,7 @@ ${agentName} | ${brokerageName}
                 </div>
                 );
               })()}
-              <WhatsAppAnalyticsSection />
+              <WhatsAppAnalyticsSection bulkProgress={bulkProgress} />
 
               {(() => {
                 const whatsappPosts = recentPosts.filter((p: any) => p.platform === "whatsapp").slice(0, 5);

@@ -3166,6 +3166,48 @@ ${agentName} | ${brokerageName}
                       </div>
                     </div>
                   )}
+
+                  {bulkProgress.complete && bulkProgress.bulkQueueId && (
+                    <div className="border-t pt-2 flex flex-wrap items-center gap-2" data-testid="bulk-send-downloads">
+                      <span className="text-[10px] font-semibold text-muted-foreground">Download:</span>
+                      {[
+                        { type: "all", label: "Full Report", color: "purple" },
+                        { type: "sent", label: `Sent (${bulkProgress.sent.toLocaleString()})`, color: "green" },
+                        { type: "remaining", label: `Remaining (${(bulkProgress.queued || bulkProgress.total - bulkProgress.sent - bulkProgress.failed).toLocaleString()})`, color: "orange" },
+                      ].map(dl => (
+                        <button
+                          key={dl.type}
+                          onClick={() => {
+                            const token = localStorage.getItem("authToken") || "";
+                            fetch(`/api/whatsapp/bulk-queues/${bulkProgress.bulkQueueId}/download?type=${dl.type}`, {
+                              headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                            })
+                              .then(r => r.blob())
+                              .then(blob => {
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `${dl.type}_contacts.xlsx`;
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                                window.URL.revokeObjectURL(url);
+                              })
+                              .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                          }}
+                          className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded font-medium cursor-pointer transition-colors ${
+                            dl.color === "green" ? "bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300" :
+                            dl.color === "orange" ? "bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300" :
+                            "bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
+                          }`}
+                          data-testid={`btn-banner-download-${dl.type}`}
+                        >
+                          <Download className="h-3 w-3" />
+                          {dl.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 );
               })()}
@@ -3345,33 +3387,42 @@ ${agentName} | ${brokerageName}
                               <Send className="h-3 w-3" />
                               Send Next Batch Now
                             </button>
-                            <a
-                              href={`/api/whatsapp/bulk-queues/${q.id}/download`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                const token = localStorage.getItem("authToken") || "";
-                                fetch(`/api/whatsapp/bulk-queues/${q.id}/download`, {
-                                  headers: token ? { "Authorization": `Bearer ${token}` } : {},
-                                })
-                                  .then(res => res.blob())
-                                  .then(blob => {
-                                    const url = window.URL.createObjectURL(blob);
-                                    const a = document.createElement("a");
-                                    a.href = url;
-                                    a.download = `unsent_contacts_${q.id.slice(0, 8)}_${remaining}.xlsx`;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    a.remove();
-                                    window.URL.revokeObjectURL(url);
+                            {[
+                              { type: "all", label: "Full Report", color: "purple", icon: "all" },
+                              { type: "sent", label: `Sent (${(q.sentCount || 0).toLocaleString()})`, color: "green", icon: "sent" },
+                              { type: "remaining", label: `Remaining (${remaining.toLocaleString()})`, color: "orange", icon: "remaining" },
+                            ].map(dl => (
+                              <button
+                                key={dl.type}
+                                onClick={() => {
+                                  const token = localStorage.getItem("authToken") || "";
+                                  fetch(`/api/whatsapp/bulk-queues/${q.id}/download?type=${dl.type}`, {
+                                    headers: token ? { "Authorization": `Bearer ${token}` } : {},
                                   })
-                                  .catch(() => toast({ title: "Download failed", variant: "destructive" }));
-                              }}
-                              className="flex items-center gap-1 px-2.5 py-1 text-[10px] rounded font-medium bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition-colors cursor-pointer"
-                              data-testid={`btn-download-queue-${q.id}`}
-                            >
-                              <Download className="h-3 w-3" />
-                              Download Unsent ({remaining.toLocaleString()})
-                            </a>
+                                    .then(res => res.blob())
+                                    .then(blob => {
+                                      const url = window.URL.createObjectURL(blob);
+                                      const a = document.createElement("a");
+                                      a.href = url;
+                                      a.download = `${dl.type}_contacts_${q.id.slice(0, 8)}.xlsx`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      a.remove();
+                                      window.URL.revokeObjectURL(url);
+                                    })
+                                    .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded font-medium cursor-pointer transition-colors ${
+                                  dl.color === "green" ? "bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300" :
+                                  dl.color === "orange" ? "bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300" :
+                                  "bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
+                                }`}
+                                data-testid={`btn-download-${dl.type}-${q.id}`}
+                              >
+                                <Download className="h-3 w-3" />
+                                {dl.label}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       );

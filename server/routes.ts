@@ -21061,50 +21061,23 @@ Be helpful, professional, and concise. Always let users know what the platform c
         const RATE_LIMIT_BACKOFF_MS = 30000;
         const INTRA_BATCH_DELAY_MS = 150;
 
-        let META_DAILY_LIMIT = 250;
-        try {
-          const limitUrl = `https://graph.facebook.com/v25.0/${phoneNumberId}?fields=whatsapp_business_manager_messaging_limit&access_token=${accessToken}`;
-          const limitRes = await fetch(limitUrl);
-          const limitData = await limitRes.json() as any;
-          if (limitData.whatsapp_business_manager_messaging_limit) {
-            const tierMap: Record<string, number> = {
-              "TIER_NOT_SET": 250, "TIER_250": 250, "TIER_2K": 2000,
-              "TIER_10K": 10000, "TIER_100K": 100000, "TIER_UNLIMITED": 999999,
-            };
-            META_DAILY_LIMIT = tierMap[limitData.whatsapp_business_manager_messaging_limit] || 250;
-            console.log(`📱 WhatsApp: Portfolio tier ${limitData.whatsapp_business_manager_messaging_limit} → daily limit ${META_DAILY_LIMIT}`);
-          }
-        } catch (e) {
-          console.log(`⚠️ Could not fetch messaging limit, using default ${META_DAILY_LIMIT}`);
-        }
+        const bulkQueue = await storage.createWhatsappBulkQueue({
+          userId: String(userId),
+          status: "active",
+          templateName: templateName || null,
+          messageText: message || null,
+          totalNumbers: phoneNumbers.length,
+          sentCount: 0,
+          failedCount: 0,
+          remainingNumbers: [...phoneNumbers],
+          sentNumbers: [],
+          failedNumbers: [],
+          dailyLimit: 0,
+        });
+        const bulkQueueId = bulkQueue.id;
+        console.log(`📱 WhatsApp: Created bulk queue ${bulkQueueId} for ${phoneNumbers.length} contacts — sending until Meta quota limit`);
 
-        const numbersToSend = phoneNumbers.slice(0, META_DAILY_LIMIT);
-        const queuedCount = phoneNumbers.length > META_DAILY_LIMIT ? phoneNumbers.length - META_DAILY_LIMIT : 0;
-
-        if (queuedCount > 0) {
-          console.log(`📱 WhatsApp: ${phoneNumbers.length} contacts requested, sending first ${META_DAILY_LIMIT} now (${queuedCount} exceed Meta daily limit)`);
-        }
-
-        let bulkQueueId: string | null = null;
-        if (queuedCount > 0) {
-          const overflowNumbers = phoneNumbers.slice(META_DAILY_LIMIT);
-          const tomorrow = new Date();
-          tomorrow.setHours(tomorrow.getHours() + 24);
-          const bulkQueue = await storage.createWhatsappBulkQueue({
-            userId: String(userId),
-            status: "active",
-            templateName: templateName || null,
-            messageText: message || null,
-            totalNumbers: phoneNumbers.length,
-            sentCount: 0,
-            failedCount: 0,
-            remainingNumbers: overflowNumbers,
-            dailyLimit: META_DAILY_LIMIT,
-            nextBatchAt: tomorrow,
-          });
-          bulkQueueId = bulkQueue.id;
-          console.log(`📱 WhatsApp: Created bulk queue ${bulkQueue.id} with ${overflowNumbers.length} overflow contacts, next batch at ${tomorrow.toISOString()}`);
-        }
+        const numbersToSend = phoneNumbers;
 
         if (numbersToSend.length > LARGE_BATCH_THRESHOLD) {
           res.json({
@@ -21112,12 +21085,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
             sent: 0,
             failed: 0,
             total: numbersToSend.length,
-            queued: queuedCount,
+            queued: 0,
             bulkQueueId,
             background: true,
-            message: queuedCount > 0
-              ? `Sending ${numbersToSend.length.toLocaleString()} messages now (Meta daily limit: ${META_DAILY_LIMIT.toLocaleString()}). ${queuedCount.toLocaleString()} contacts auto-queued for next batch.`
-              : `Sending ${numbersToSend.length.toLocaleString()} messages in the background. You'll see live progress updates.`,
+            message: `Sending ${numbersToSend.length.toLocaleString()} messages — will keep going until Meta quota limit is reached.`,
           });
 
           (async () => {
@@ -21125,6 +21096,11 @@ Be helpful, professional, and concise. Always let users know what the platform c
             let failedCount = 0;
             const startTime = Date.now();
             const errorCodes: Record<string, number> = {};
+            const sentNumbersList: string[] = [];
+            const failedNumbersList: string[] = [];
+            const quotaErrorNumbers: string[] = [];
+            let quotaLimitReached = false;
+            let stoppedAtIndex = numbersToSend.length;
 
             const extractErrorCode = (errMsg: string): string => {
               const codes = ["131049", "131056", "131051", "130429", "131047", "131048", "131026", "131053"];
@@ -21136,42 +21112,60 @@ Be helpful, professional, and concise. Always let users know what the platform c
               return "unknown";
             };
 
-            const isRetryableError = (errMsg: string) =>
-              errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
-              errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl");
+            const isQuotaLimitError = (errMsg: string) =>
+              errMsg.includes("130429") || errMsg.includes("131048") ||
+              errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("spam rate limit");
 
-            const sendOneWithRetry = async (phone: string, attempt = 1): Promise<boolean> => {
+            const isEcosystemBlock = (errMsg: string) =>
+              errMsg.includes("131049") || errMsg.includes("131056") || errMsg.includes("130472");
+
+            const isPermanentBlock = (errMsg: string) =>
+              errMsg.includes("131050") || errMsg.includes("131026") || errMsg.includes("131031") ||
+              errMsg.includes("368") || errMsg.includes("130497") || errMsg.includes("132001");
+
+            const isRetryableError = (errMsg: string) =>
+              errMsg.includes("429") || errMsg.includes("503") ||
+              errMsg.includes("131057") || errMsg.includes("131016") || errMsg.includes("133004") ||
+              errMsg.toLowerCase().includes("throttl") || errMsg.toLowerCase().includes("temporarily");
+
+            const sendOneWithRetry = async (phone: string, attempt = 1): Promise<{ success: boolean; phone: string; errorType?: string }> => {
               try {
                 if (templateName) {
                   await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
                 } else {
                   await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
                 }
-                return true;
+                return { success: true, phone };
               } catch (err: any) {
                 const errMsg = err.message || "";
-                if (errMsg.includes("131056")) {
-                  console.warn(`📱 WhatsApp: Pair rate limit for ${phone}, skipping`);
-                  throw err;
+                if (isQuotaLimitError(errMsg)) {
+                  return { success: false, phone, errorType: "quota" };
                 }
-                if (errMsg.includes("131049")) {
-                  console.warn(`📱 WhatsApp: User ${phone} hit frequency cap, skipping`);
-                  throw err;
+                if (isEcosystemBlock(errMsg)) {
+                  return { success: false, phone, errorType: "ecosystem" };
+                }
+                if (isPermanentBlock(errMsg)) {
+                  return { success: false, phone, errorType: "permanent" };
                 }
                 if (isRetryableError(errMsg) && attempt <= 2) {
                   const backoff = RATE_LIMIT_BACKOFF_MS * attempt;
-                  console.warn(`📱 WhatsApp: Rate/throttle error for ${phone} (attempt ${attempt}), backing off ${backoff / 1000}s`);
+                  console.warn(`📱 WhatsApp: Retry error for ${phone} (attempt ${attempt}), backoff ${backoff / 1000}s`);
                   await new Promise((resolve) => setTimeout(resolve, backoff));
                   return sendOneWithRetry(phone, attempt + 1);
                 }
-                console.error(`WhatsApp bulk send failed for ${phone}:`, err);
-                throw err;
+                return { success: false, phone, errorType: "permanent" };
               }
             };
 
-            for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
-              const batch = numbersToSend.slice(i, i + BATCH_SIZE);
+            let consecutiveQuotaErrors = 0;
 
+            for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
+              if (quotaLimitReached) {
+                stoppedAtIndex = i;
+                break;
+              }
+
+              const batch = numbersToSend.slice(i, i + BATCH_SIZE);
               const results = await Promise.allSettled(
                 batch.map(async (phone: string, idx: number) => {
                   if (idx > 0) {
@@ -21181,26 +21175,43 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 })
               );
 
-              let rateLimitHit = false;
+              let batchQuotaHits = 0;
               for (const r of results) {
-                if (r.status === "fulfilled") sentCount++;
-                else {
-                  failedCount++;
-                  const reason = (r as PromiseRejectedResult).reason?.message || "";
-                  const code = extractErrorCode(reason);
-                  errorCodes[code] = (errorCodes[code] || 0) + 1;
-                  if (isRetryableError(reason)) {
-                    rateLimitHit = true;
+                if (r.status === "fulfilled") {
+                  const res = r.value;
+                  if (res.success) {
+                    sentCount++;
+                    sentNumbersList.push(res.phone);
+                    consecutiveQuotaErrors = 0;
+                  } else if (res.errorType === "quota") {
+                    batchQuotaHits++;
+                    consecutiveQuotaErrors++;
+                    quotaErrorNumbers.push(res.phone);
+                    errorCodes["130429"] = (errorCodes["130429"] || 0) + 1;
+                  } else if (res.errorType === "ecosystem") {
+                    failedCount++;
+                    failedNumbersList.push(res.phone);
+                    const code = "131049";
+                    errorCodes[code] = (errorCodes[code] || 0) + 1;
+                  } else {
+                    failedCount++;
+                    failedNumbersList.push(res.phone);
+                    errorCodes["other"] = (errorCodes["other"] || 0) + 1;
                   }
+                } else {
+                  failedCount++;
+                  failedNumbersList.push("unknown");
+                  errorCodes["unknown"] = (errorCodes["unknown"] || 0) + 1;
                 }
               }
 
-              if (rateLimitHit) {
-                console.warn(`📱 WhatsApp: Rate limit detected in batch, adding extra delay`);
-                await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+              if (batchQuotaHits >= Math.ceil(batch.length * 0.5) || consecutiveQuotaErrors >= 10) {
+                quotaLimitReached = true;
+                stoppedAtIndex = i + BATCH_SIZE;
+                console.log(`📱 WhatsApp: Quota limit reached! Sent ${sentCount} messages. Queuing remaining.`);
               }
 
-              const processed = sentCount + failedCount;
+              const processed = i + batch.length;
               const percent = Math.round((processed / numbersToSend.length) * 100);
               const elapsed = Math.round((Date.now() - startTime) / 1000);
               const rate = processed > 0 ? (elapsed / processed) : 0;
@@ -21209,19 +21220,23 @@ Be helpful, professional, and concise. Always let users know what the platform c
               const COST_PER_MARKETING_MSG_USD = 0.025;
               const estimatedCost = parseFloat((sentCount * COST_PER_MARKETING_MSG_USD).toFixed(2));
 
+              const queuedNow = quotaLimitReached ? numbersToSend.length - stoppedAtIndex : 0;
               const progressData = {
                 sent: sentCount,
                 failed: failedCount,
                 total: numbersToSend.length,
-                queued: queuedCount,
+                queued: queuedNow,
                 percent,
                 elapsed,
                 estimatedRemaining: remaining,
-                message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} auto-queued` : ''}`,
+                message: quotaLimitReached
+                  ? `Quota limit reached after ${sentCount.toLocaleString()} sent. ${(numbersToSend.length - stoppedAtIndex).toLocaleString()} contacts queued for next batch.`
+                  : `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)`,
                 complete: false,
                 startedAt: startTime,
                 errorBreakdown: Object.keys(errorCodes).length > 0 ? errorCodes : undefined,
                 estimatedCost,
+                bulkQueueId,
               };
               activeBulkSends.set(String(userId), progressData);
 
@@ -21237,18 +21252,30 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 timestamp: new Date().toISOString(),
               });
 
-              if (i + BATCH_SIZE < numbersToSend.length) {
+              if (!quotaLimitReached && i + BATCH_SIZE < numbersToSend.length) {
                 await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
               }
             }
 
-            if (bulkQueueId) {
-              await storage.updateWhatsappBulkQueue(bulkQueueId, {
-                sentCount,
-                failedCount,
-                lastBatchSentAt: new Date(),
-              });
-            }
+            const unattemptedNumbers = quotaLimitReached
+              ? numbersToSend.slice(stoppedAtIndex)
+              : [];
+            const remainingNumbers = [...quotaErrorNumbers, ...unattemptedNumbers];
+            const queuedCount = remainingNumbers.length;
+
+            const tomorrow = new Date();
+            tomorrow.setHours(tomorrow.getHours() + 24);
+
+            await storage.updateWhatsappBulkQueue(bulkQueueId, {
+              sentCount,
+              failedCount,
+              sentNumbers: sentNumbersList,
+              failedNumbers: failedNumbersList,
+              remainingNumbers: remainingNumbers,
+              lastBatchSentAt: new Date(),
+              nextBatchAt: queuedCount > 0 ? tomorrow : null,
+              status: queuedCount > 0 ? "active" : "completed",
+            });
 
             const COST_PER_MARKETING_MSG_USD = 0.025;
             const finalCost = parseFloat((sentCount * COST_PER_MARKETING_MSG_USD).toFixed(2));
@@ -21261,7 +21288,9 @@ Be helpful, professional, and concise. Always let users know what the platform c
               elapsed: Math.round((Date.now() - startTime) / 1000),
               percent: 100,
               estimatedRemaining: 0,
-              message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts auto-queued for next batch.` : ''}`,
+              message: quotaLimitReached
+                ? `Quota limit reached: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed. ${queuedCount.toLocaleString()} contacts queued for next batch.`
+                : `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}.`,
               complete: true,
               startedAt: startTime,
               errorBreakdown: Object.keys(errorCodes).length > 0 ? errorCodes : undefined,
@@ -21557,33 +21586,84 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!queue) return res.status(404).json({ error: "Queue not found" });
       if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
 
+      const type = (req.query.type as string) || "remaining";
+
       const ExcelJS = (await import("exceljs")).default;
       const workbook = new ExcelJS.Workbook();
 
       workbook.creator = "iMakePage";
       workbook.created = new Date();
 
-      const sheet = workbook.addWorksheet("Unsent Contacts");
-
-      sheet.columns = [
-        { header: "Phone Number", key: "phone", width: 20 },
-        { header: "Status", key: "status", width: 15 },
-        { header: "Queue ID", key: "queueId", width: 40 },
-        { header: "Template", key: "template", width: 25 },
-      ];
-
-      sheet.getRow(1).font = { bold: true };
-      sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4CAF50" } };
-      sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-
       const remaining = queue.remainingNumbers || [];
-      for (const phone of remaining) {
-        sheet.addRow({
-          phone,
-          status: "Pending",
-          queueId: queue.id,
-          template: queue.templateName || "Free text",
-        });
+      const sentNums = (queue as any).sentNumbers || [];
+      const failedNums = (queue as any).failedNumbers || [];
+
+      if (type === "sent") {
+        const sheet = workbook.addWorksheet("Sent Contacts");
+        sheet.columns = [
+          { header: "Phone Number", key: "phone", width: 20 },
+          { header: "Status", key: "status", width: 15 },
+        ];
+        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4CAF50" } };
+        for (const phone of sentNums) {
+          sheet.addRow({ phone, status: "Sent" });
+        }
+      } else if (type === "failed") {
+        const sheet = workbook.addWorksheet("Failed Contacts");
+        sheet.columns = [
+          { header: "Phone Number", key: "phone", width: 20 },
+          { header: "Status", key: "status", width: 15 },
+        ];
+        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF0000" } };
+        for (const phone of failedNums) {
+          sheet.addRow({ phone, status: "Failed" });
+        }
+      } else if (type === "all") {
+        const sentSheet = workbook.addWorksheet("Sent");
+        sentSheet.columns = [
+          { header: "Phone Number", key: "phone", width: 20 },
+          { header: "Status", key: "status", width: 15 },
+        ];
+        sentSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        sentSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4CAF50" } };
+        for (const phone of sentNums) {
+          sentSheet.addRow({ phone, status: "Sent" });
+        }
+
+        const remainSheet = workbook.addWorksheet("Remaining (Not Sent)");
+        remainSheet.columns = [
+          { header: "Phone Number", key: "phone", width: 20 },
+          { header: "Status", key: "status", width: 15 },
+        ];
+        remainSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        remainSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF9800" } };
+        for (const phone of remaining) {
+          remainSheet.addRow({ phone, status: "Pending" });
+        }
+
+        const failedSheet = workbook.addWorksheet("Failed");
+        failedSheet.columns = [
+          { header: "Phone Number", key: "phone", width: 20 },
+          { header: "Status", key: "status", width: 15 },
+        ];
+        failedSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        failedSheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF0000" } };
+        for (const phone of failedNums) {
+          failedSheet.addRow({ phone, status: "Failed" });
+        }
+      } else {
+        const sheet = workbook.addWorksheet("Remaining Contacts");
+        sheet.columns = [
+          { header: "Phone Number", key: "phone", width: 20 },
+          { header: "Status", key: "status", width: 15 },
+        ];
+        sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+        sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFF9800" } };
+        for (const phone of remaining) {
+          sheet.addRow({ phone, status: "Pending" });
+        }
       }
 
       const summarySheet = workbook.addWorksheet("Summary");
@@ -21594,16 +21674,18 @@ Be helpful, professional, and concise. Always let users know what the platform c
       summarySheet.getRow(1).font = { bold: true };
       summarySheet.addRow({ metric: "Queue ID", value: queue.id });
       summarySheet.addRow({ metric: "Template", value: queue.templateName || "Free text" });
-      summarySheet.addRow({ metric: "Total Contacts", value: queue.totalNumbers });
-      summarySheet.addRow({ metric: "Already Sent", value: queue.sentCount || 0 });
-      summarySheet.addRow({ metric: "Failed", value: queue.failedCount || 0 });
-      summarySheet.addRow({ metric: "Remaining (in this file)", value: remaining.length });
+      summarySheet.addRow({ metric: "Total Contacts Uploaded", value: queue.totalNumbers });
+      summarySheet.addRow({ metric: "Successfully Sent", value: sentNums.length });
+      summarySheet.addRow({ metric: "Failed", value: failedNums.length });
+      summarySheet.addRow({ metric: "Remaining (Not Yet Sent)", value: remaining.length });
       summarySheet.addRow({ metric: "Queue Status", value: queue.status });
       summarySheet.addRow({ metric: "Created At", value: queue.createdAt ? new Date(queue.createdAt).toISOString() : "N/A" });
       summarySheet.addRow({ metric: "Last Batch At", value: queue.lastBatchSentAt ? new Date(queue.lastBatchSentAt).toISOString() : "N/A" });
 
+      const filename = type === "all" ? "bulk_send_report" : type === "sent" ? "sent_contacts" : type === "failed" ? "failed_contacts" : "remaining_contacts";
+      const count = type === "sent" ? sentNums.length : type === "failed" ? failedNums.length : type === "all" ? queue.totalNumbers : remaining.length;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename=unsent_contacts_${queue.id.slice(0, 8)}_${remaining.length}.xlsx`);
+      res.setHeader("Content-Disposition", `attachment; filename=${filename}_${queue.id.slice(0, 8)}_${count}.xlsx`);
 
       await workbook.xlsx.write(res);
       res.end();

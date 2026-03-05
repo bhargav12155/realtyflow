@@ -1739,6 +1739,8 @@ export const whatsappBulkQueues = pgTable("whatsapp_bulk_queues", {
   sentCount: integer("sent_count").notNull().default(0),
   failedCount: integer("failed_count").notNull().default(0),
   remainingNumbers: text("remaining_numbers").array().notNull(),
+  sentNumbers: text("sent_numbers").array().notNull().default(sql`'{}'::text[]`),
+  failedNumbers: text("failed_numbers").array().notNull().default(sql`'{}'::text[]`),
   dailyLimit: integer("daily_limit").notNull().default(2000),
   lastBatchSentAt: timestamp("last_batch_sent_at"),
   nextBatchAt: timestamp("next_batch_at"),

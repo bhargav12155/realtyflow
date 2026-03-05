@@ -141,6 +141,8 @@ export class BulkQueueScheduler {
     const ecosystemBlockedNumbers: string[] = [];
     const permanentlyFailedNumbers: string[] = [];
     const unattemptedNumbers: string[] = [];
+    const newlySentNumbers: string[] = [];
+    const quotaBlockedNumbers: string[] = [];
     const BATCH_SIZE = 8;
     const BATCH_DELAY_MS = 2000;
     const INTRA_BATCH_DELAY_MS = 150;
@@ -172,6 +174,10 @@ export class BulkQueueScheduler {
         return { success: true, phone };
       } catch (err: any) {
         const errMsg = err.message || "";
+        if (errMsg.includes("130429") || errMsg.includes("131048") ||
+            errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("spam rate limit")) {
+          return { success: false, phone, errorType: "quota" };
+        }
         if (isEcosystemBlock(errMsg)) {
           return { success: false, phone, errorType: "ecosystem" };
         }
@@ -191,8 +197,14 @@ export class BulkQueueScheduler {
 
     let numberIndex = 0;
     let stopped = false;
+    let quotaLimitReached = false;
+    let consecutiveQuotaErrors = 0;
 
-    while (sentCount < dailyLimit && numberIndex < allRemaining.length && !stopped) {
+    const isQuotaLimitError = (errMsg: string) =>
+      errMsg.includes("130429") || errMsg.includes("131048") ||
+      errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("spam rate limit");
+
+    while (numberIndex < allRemaining.length && !stopped && !quotaLimitReached) {
       const currentQueue = await this.storage.getWhatsappBulkQueueById(queue.id);
       if (!currentQueue || currentQueue.status !== "active") {
         console.log(`📱 Bulk queue ${queue.id}: Status changed to ${currentQueue?.status}, stopping`);
@@ -211,7 +223,6 @@ export class BulkQueueScheduler {
         break;
       }
 
-      const remaining = dailyLimit - sentCount;
       const batchEnd = Math.min(numberIndex + BATCH_SIZE, allRemaining.length);
       const batch = allRemaining.slice(numberIndex, batchEnd);
       numberIndex = batchEnd;
@@ -225,13 +236,19 @@ export class BulkQueueScheduler {
         })
       );
 
-      let rateLimitHit = false;
+      let batchQuotaHits = 0;
       for (const r of results) {
         attemptedCount++;
         if (r.status === "fulfilled") {
           const res = r.value;
           if (res.success) {
             sentCount++;
+            newlySentNumbers.push(res.phone);
+            consecutiveQuotaErrors = 0;
+          } else if (res.errorType === "quota") {
+            batchQuotaHits++;
+            consecutiveQuotaErrors++;
+            quotaBlockedNumbers.push(res.phone);
           } else if (res.errorType === "ecosystem") {
             ecosystemBlockedNumbers.push(res.phone);
           } else {
@@ -239,16 +256,15 @@ export class BulkQueueScheduler {
           }
         } else {
           permanentlyFailedNumbers.push("unknown");
-          const reason = (r as PromiseRejectedResult).reason?.message || "";
-          if (isRetryableError(reason)) {
-            rateLimitHit = true;
-          }
         }
       }
 
-      if (rateLimitHit) {
-        console.warn(`📱 Queue ${queue.id}: Rate limit detected, adding extra delay`);
-        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+      if (batchQuotaHits >= Math.ceil(batch.length * 0.5) || consecutiveQuotaErrors >= 10) {
+        quotaLimitReached = true;
+        console.log(`📱 Queue ${queue.id}: Quota limit reached after ${sentCount} sent. Queuing remaining.`);
+        for (let j = numberIndex; j < allRemaining.length; j++) {
+          unattemptedNumbers.push(allRemaining[j]);
+        }
       }
 
       const totalProcessed = sentCount + ecosystemBlockedNumbers.length + permanentlyFailedNumbers.length;
@@ -266,11 +282,14 @@ export class BulkQueueScheduler {
           remaining: allRemaining.length - numberIndex + ecosystemBlockedNumbers.length,
           percent,
           ecosystemBlocked: ecosystemBlockedNumbers.length,
-          message: `Queue batch: ${sentCount} delivered of ${attemptedCount} attempted (${ecosystemBlockedNumbers.length} ecosystem-blocked, re-queued)`,
+          quotaLimitReached,
+          message: quotaLimitReached
+            ? `Quota limit reached: ${sentCount} sent, ${(allRemaining.length - numberIndex).toLocaleString()} remaining queued for next batch`
+            : `Queue batch: ${sentCount} delivered of ${attemptedCount} attempted (${ecosystemBlockedNumbers.length} ecosystem-blocked, re-queued)`,
         },
       });
 
-      if (numberIndex < allRemaining.length && sentCount < dailyLimit) {
+      if (!quotaLimitReached && numberIndex < allRemaining.length) {
         await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
       }
     }
@@ -281,7 +300,7 @@ export class BulkQueueScheduler {
       }
     }
 
-    const finalRemaining = [...unattemptedNumbers, ...ecosystemBlockedNumbers];
+    const finalRemaining = [...quotaBlockedNumbers, ...unattemptedNumbers, ...ecosystemBlockedNumbers];
 
     const tomorrow = new Date();
     tomorrow.setHours(tomorrow.getHours() + 24);
@@ -290,10 +309,15 @@ export class BulkQueueScheduler {
     const newFailedCount = (queue.failedCount || 0) + permanentlyFailedNumbers.length;
     const isComplete = finalRemaining.length === 0;
 
+    const existingSentNumbers = (queue.sentNumbers || []) as string[];
+    const existingFailedNumbers = (queue.failedNumbers || []) as string[];
+
     await this.storage.updateWhatsappBulkQueue(queue.id, {
       sentCount: newSentCount,
       failedCount: newFailedCount,
       remainingNumbers: finalRemaining,
+      sentNumbers: [...existingSentNumbers, ...newlySentNumbers],
+      failedNumbers: [...existingFailedNumbers, ...permanentlyFailedNumbers],
       lastBatchSentAt: new Date(),
       nextBatchAt: isComplete ? null : tomorrow,
       status: isComplete ? "completed" : "active",

@@ -228,10 +228,10 @@ const documentUpload = multer({
       "application/msword",
       "application/octet-stream",
     ];
-    if (allowedTypes.includes(file.mimetype) || file.originalname.match(/\.(csv|txt|pdf|docx?|doc)$/i)) {
+    if (allowedTypes.includes(file.mimetype) || file.originalname.match(/\.(csv|txt|pdf|docx?|doc|xlsx?|xls|numbers)$/i)) {
       cb(null, true);
     } else {
-      cb(new Error("Only CSV, TXT, PDF, and Word documents are allowed"));
+      cb(new Error("Only CSV, TXT, PDF, Word, Excel, and Apple Numbers files are allowed"));
     }
   },
 });

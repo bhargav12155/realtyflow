@@ -87,17 +87,17 @@ export class BulkQueueScheduler {
       return;
     }
 
-    let dailyLimit = queue.dailyLimit || 1000;
+    let dailyLimit = queue.dailyLimit || 250;
     try {
-      const limitUrl = `https://graph.facebook.com/v22.0/${phoneNumberId}?fields=messaging_limit_tier&access_token=${accessToken}`;
+      const limitUrl = `https://graph.facebook.com/v25.0/${phoneNumberId}?fields=whatsapp_business_manager_messaging_limit&access_token=${accessToken}`;
       const limitRes = await fetch(limitUrl);
       const limitData = (await limitRes.json()) as any;
-      if (limitData.messaging_limit_tier) {
+      if (limitData.whatsapp_business_manager_messaging_limit) {
         const tierMap: Record<string, number> = {
-          TIER_NOT_SET: 250, TIER_50: 50, TIER_250: 250,
-          TIER_1K: 1000, TIER_10K: 10000, TIER_100K: 100000, TIER_UNLIMITED: 999999,
+          TIER_NOT_SET: 250, TIER_250: 250, TIER_2K: 2000,
+          TIER_10K: 10000, TIER_100K: 100000, TIER_UNLIMITED: 999999,
         };
-        dailyLimit = tierMap[limitData.messaging_limit_tier] || 1000;
+        dailyLimit = tierMap[limitData.whatsapp_business_manager_messaging_limit] || 250;
       }
     } catch (e) {
       console.log(`⚠️ Could not fetch tier for queue ${queue.id}, using ${dailyLimit}`);

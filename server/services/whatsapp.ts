@@ -8,7 +8,7 @@ export class WhatsAppService {
   async sendTextMessage(phoneNumberId: string, accessToken: string, to: string, text: string): Promise<any> {
     console.log(`📱 WhatsApp: Sending text to ${to}`);
     const response = await fetch(
-      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
@@ -57,7 +57,7 @@ export class WhatsAppService {
     }
 
     const response = await fetch(
-      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
@@ -95,7 +95,7 @@ export class WhatsAppService {
     }
 
     const response = await fetch(
-      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
@@ -118,7 +118,7 @@ export class WhatsAppService {
   async getMessageTemplates(wabId: string, accessToken: string): Promise<any[]> {
     console.log(`📱 WhatsApp: Fetching message templates for WABA ${wabId}`);
     const response = await fetch(
-      `https://graph.facebook.com/v22.0/${wabId}/message_templates?fields=name,status,category,language,components&limit=100`,
+      `https://graph.facebook.com/v25.0/${wabId}/message_templates?fields=name,status,category,language,components&limit=100`,
       {
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -142,7 +142,7 @@ export class WhatsAppService {
   // Mark a message as read
   async markAsRead(phoneNumberId: string, accessToken: string, messageId: string): Promise<void> {
     await fetch(
-      `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {

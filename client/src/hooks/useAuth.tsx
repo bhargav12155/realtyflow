@@ -71,6 +71,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             error: null,
           });
         } else {
+          clearAuthToken();
           setAuthState({
             user: null,
             isAuthenticated: false,
@@ -79,6 +80,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           });
         }
       } else {
+        clearAuthToken();
         setAuthState({
           user: null,
           isAuthenticated: false,
@@ -88,6 +90,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       }
     } catch (error) {
       console.error("Auth check failed:", error);
+      clearAuthToken();
       setAuthState({
         user: null,
         isAuthenticated: false,

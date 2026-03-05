@@ -1465,7 +1465,8 @@ ${agentName} | ${brokerageName}
       );
     }
 
-    if (!content && !isTikTokOnly) {
+    const isWhatsAppTemplate = selectedPlatforms.includes("whatsapp") && whatsappTemplateName && whatsappTemplateName !== "none";
+    if (!content && !isTikTokOnly && !isWhatsAppTemplate) {
       toast({
         title: "Content Required",
         description:
@@ -2428,7 +2429,7 @@ ${agentName} | ${brokerageName}
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground hover:text-foreground"
-                    disabled={!postContent.trim()}
+                    disabled={!postContent.trim() && !(selectedPlatforms.includes("whatsapp") && whatsappTemplateName && whatsappTemplateName !== "none")}
                     data-testid="button-preview-post"
                   >
                     <Eye className="h-4 w-4" />
@@ -2567,7 +2568,7 @@ ${agentName} | ${brokerageName}
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground hover:text-foreground"
-                    disabled={isTikTokOnly ? !tiktokVideoUrl : !postContent.trim()}
+                    disabled={isTikTokOnly ? !tiktokVideoUrl : (!postContent.trim() && !(selectedPlatforms.includes("whatsapp") && whatsappTemplateName && whatsappTemplateName !== "none"))}
                     data-testid="button-schedule"
                   >
                     <Calendar className="h-4 w-4" />

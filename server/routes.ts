@@ -21031,24 +21031,35 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const allMatches = [...rawMatches, ...plainMatches];
 
-      const cleanedAll = allMatches
-        .map((n: string) => {
-          let cleaned = n.replace(/[\s\-().+]/g, "");
-          if (cleaned.length === 10 && !cleaned.startsWith("1")) {
-            cleaned = "1" + cleaned;
-          }
-          return cleaned;
-        })
-        .filter((n: string) => /^\d{10,15}$/.test(n));
+      const invalidList: string[] = [];
+      const cleanedAll: string[] = [];
 
-      const validBeforeDedup = cleanedAll.length;
-      const uniqueSet = new Set(cleanedAll);
-      const numbers = [...uniqueSet];
-      const duplicateCount = validBeforeDedup - numbers.length;
+      for (const n of allMatches) {
+        let cleaned = n.replace(/[\s\-().+]/g, "");
+        if (cleaned.length === 10 && !cleaned.startsWith("1")) {
+          cleaned = "1" + cleaned;
+        }
+        if (/^\d{10,15}$/.test(cleaned)) {
+          cleanedAll.push(cleaned);
+        } else {
+          invalidList.push(n.trim());
+        }
+      }
+
+      const seenOnce = new Set<string>();
+      const duplicateList: string[] = [];
+      for (const n of cleanedAll) {
+        if (seenOnce.has(n)) {
+          duplicateList.push(n);
+        } else {
+          seenOnce.add(n);
+        }
+      }
+
+      const numbers = [...seenOnce];
       const emptyRows = totalLines - allMatches.length;
-      const invalidCount = allMatches.length - validBeforeDedup;
 
-      console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName} (${emptyRows} empty, ${duplicateCount} dupes, ${invalidCount} invalid)`);
+      console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName} (${emptyRows} empty, ${duplicateList.length} dupes, ${invalidList.length} invalid)`);
       res.json({
         numbers,
         count: numbers.length,
@@ -21057,8 +21068,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
           totalRows: totalLines,
           emptyRows,
           validNumbers: numbers.length,
-          invalidNumbers: invalidCount,
-          duplicates: duplicateCount,
+          invalidNumbers: invalidList.length,
+          duplicates: duplicateList.length,
+          invalidList: invalidList.slice(0, 50),
+          duplicateList: [...new Set(duplicateList)].slice(0, 50),
         },
       });
     } catch (error: any) {

@@ -606,6 +606,8 @@ export function SocialMediaManager() {
     validNumbers: number;
     invalidNumbers: number;
     duplicates: number;
+    invalidList?: string[];
+    duplicateList?: string[];
   } | null>(null);
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
@@ -2452,17 +2454,69 @@ ${agentName} | ${brokerageName}
                         data-testid="button-dismiss-breakdown"
                       >✕</button>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
-                      <span className="text-muted-foreground">Total rows in file:</span>
-                      <span className="font-medium text-foreground text-right">{fileBreakdown.totalRows.toLocaleString()}</span>
-                      <span className="text-muted-foreground">Empty/blank rows:</span>
-                      <span className={`font-medium text-right ${fileBreakdown.emptyRows > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>{fileBreakdown.emptyRows.toLocaleString()}</span>
-                      <span className="text-muted-foreground">Valid phone numbers:</span>
-                      <span className="font-medium text-green-600 dark:text-green-400 text-right">{fileBreakdown.validNumbers.toLocaleString()}</span>
-                      <span className="text-muted-foreground">Invalid numbers:</span>
-                      <span className={`font-medium text-right ${fileBreakdown.invalidNumbers > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}>{fileBreakdown.invalidNumbers.toLocaleString()}</span>
-                      <span className="text-muted-foreground">Duplicates removed:</span>
-                      <span className={`font-medium text-right ${fileBreakdown.duplicates > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>{fileBreakdown.duplicates.toLocaleString()}</span>
+                    <div className="text-[10px] space-y-0.5">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total rows in file:</span>
+                        <span className="font-medium text-foreground">{fileBreakdown.totalRows.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Empty/blank rows:</span>
+                        <span className={`font-medium ${fileBreakdown.emptyRows > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>{fileBreakdown.emptyRows.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Valid phone numbers:</span>
+                        <span className="font-medium text-green-600 dark:text-green-400">{fileBreakdown.validNumbers.toLocaleString()}</span>
+                      </div>
+
+                      {fileBreakdown.invalidNumbers > 0 ? (
+                        <details className="group" data-testid="details-invalid-numbers">
+                          <summary className="flex justify-between cursor-pointer list-none hover:bg-red-50 dark:hover:bg-red-950/20 rounded px-1 -mx-1">
+                            <span className="text-muted-foreground flex items-center gap-1">
+                              Invalid numbers
+                              <svg className="w-2.5 h-2.5 text-red-400 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </span>
+                            <span className="font-medium text-red-600 dark:text-red-400">{fileBreakdown.invalidNumbers.toLocaleString()}</span>
+                          </summary>
+                          {fileBreakdown.invalidList && fileBreakdown.invalidList.length > 0 && (
+                            <div className="mt-1 ml-1 p-1.5 rounded bg-red-50/50 dark:bg-red-950/10 border border-red-100 dark:border-red-900/30 max-h-[80px] overflow-y-auto">
+                              <div className="text-[9px] text-red-600 dark:text-red-400 font-mono space-y-0.5">
+                                {fileBreakdown.invalidList.map((n, i) => <div key={i}>{n}</div>)}
+                                {fileBreakdown.invalidNumbers > 50 && <div className="text-red-400">...and {fileBreakdown.invalidNumbers - 50} more</div>}
+                              </div>
+                            </div>
+                          )}
+                        </details>
+                      ) : (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Invalid numbers:</span>
+                          <span className="font-medium text-foreground">0</span>
+                        </div>
+                      )}
+
+                      {fileBreakdown.duplicates > 0 ? (
+                        <details className="group" data-testid="details-duplicate-numbers">
+                          <summary className="flex justify-between cursor-pointer list-none hover:bg-amber-50 dark:hover:bg-amber-950/20 rounded px-1 -mx-1">
+                            <span className="text-muted-foreground flex items-center gap-1">
+                              Duplicates removed
+                              <svg className="w-2.5 h-2.5 text-amber-400 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </span>
+                            <span className="font-medium text-amber-600 dark:text-amber-400">{fileBreakdown.duplicates.toLocaleString()}</span>
+                          </summary>
+                          {fileBreakdown.duplicateList && fileBreakdown.duplicateList.length > 0 && (
+                            <div className="mt-1 ml-1 p-1.5 rounded bg-amber-50/50 dark:bg-amber-950/10 border border-amber-100 dark:border-amber-900/30 max-h-[80px] overflow-y-auto">
+                              <div className="text-[9px] text-amber-600 dark:text-amber-400 font-mono space-y-0.5">
+                                {fileBreakdown.duplicateList.map((n, i) => <div key={i}>{n}</div>)}
+                                {fileBreakdown.duplicates > 50 && <div className="text-amber-400">...and {fileBreakdown.duplicates - 50} more</div>}
+                              </div>
+                            </div>
+                          )}
+                        </details>
+                      ) : (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Duplicates removed:</span>
+                          <span className="font-medium text-foreground">0</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

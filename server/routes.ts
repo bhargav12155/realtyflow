@@ -20547,9 +20547,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
+      const DEFAULT_WABA_ID = "2690438238000842";
       const settings = await storage.getWhatsappSettingsByUserId(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "").trim();
+      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID).trim();
 
       if (!accessToken) {
         return res.status(400).json({ error: "WhatsApp access token not configured" });
@@ -20582,9 +20583,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const safeName = name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 512);
       const safeCategory = ["MARKETING", "UTILITY"].includes(category) ? category : "MARKETING";
 
+      const DEFAULT_WABA_ID_POST = "2690438238000842";
       const settings = await storage.getWhatsappSettingsByUserId(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "").trim();
+      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID_POST).trim();
 
       if (!accessToken || !wabaId) {
         return res.status(400).json({ error: "WhatsApp Business Account not configured" });

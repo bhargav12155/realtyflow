@@ -20585,6 +20585,115 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/whatsapp/analytics", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const DEFAULT_WABA_ID = "2690438238000842";
+      const DEFAULT_PHONE_NUMBER_ID = "1009337698927791";
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID).trim();
+      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || DEFAULT_PHONE_NUMBER_ID).trim();
+
+      if (!accessToken) {
+        return res.status(400).json({ error: "WhatsApp access token not configured" });
+      }
+
+      const days = parseInt(req.query.days as string) || 7;
+      const endDate = Math.floor(Date.now() / 1000);
+      const startDate = endDate - (days * 86400);
+
+      const results: any = {
+        period: { days, startDate, endDate },
+        templateAnalytics: null,
+        phoneQuality: null,
+        accountInfo: null,
+      };
+
+      try {
+        const templates = await whatsappService.getMessageTemplates(wabaId, accessToken);
+        const templateIds = templates
+          .filter((t: any) => t.id)
+          .map((t: any) => t.id)
+          .slice(0, 10);
+
+        if (templateIds.length > 0) {
+          const analytics = await whatsappService.getTemplateAnalytics(wabaId, accessToken, templateIds, startDate, endDate);
+          const dataPoints = analytics?.data || [];
+
+          let totalSent = 0, totalDelivered = 0, totalRead = 0, totalClicked = 0;
+          const dailyData: any[] = [];
+          const templateBreakdown: any[] = [];
+
+          for (const tp of dataPoints) {
+            const templateName = tp.template?.name || "Unknown";
+            let tSent = 0, tDelivered = 0, tRead = 0, tClicked = 0;
+
+            for (const dp of (tp.data_points || [])) {
+              const s = dp.sent || 0;
+              const d = dp.delivered || 0;
+              const r = dp.read || 0;
+              const c = dp.clicked || 0;
+              tSent += s; tDelivered += d; tRead += r; tClicked += c;
+              totalSent += s; totalDelivered += d; totalRead += r; totalClicked += c;
+
+              dailyData.push({
+                date: dp.start ? new Date(dp.start * 1000).toISOString().split("T")[0] : null,
+                sent: s, delivered: d, read: r, clicked: c, template: templateName,
+              });
+            }
+
+            templateBreakdown.push({ name: templateName, sent: tSent, delivered: tDelivered, read: tRead, clicked: tClicked });
+          }
+
+          results.templateAnalytics = {
+            totals: { sent: totalSent, delivered: totalDelivered, read: totalRead, clicked: totalClicked },
+            deliveryRate: totalSent > 0 ? Math.round((totalDelivered / totalSent) * 100) : 0,
+            readRate: totalDelivered > 0 ? Math.round((totalRead / totalDelivered) * 100) : 0,
+            ecosystemBlocked: totalSent - totalDelivered,
+            dailyData,
+            templateBreakdown,
+          };
+        }
+      } catch (err: any) {
+        console.error("Template analytics error:", err.message);
+        results.templateAnalytics = { error: err.message };
+      }
+
+      try {
+        const phoneData = await whatsappService.getPhoneNumberAnalytics(phoneNumberId, accessToken);
+        results.phoneQuality = {
+          qualityRating: phoneData.quality_rating || "UNKNOWN",
+          messagingLimitTier: phoneData.messaging_limit_tier || "UNKNOWN",
+          verifiedName: phoneData.verified_name || "",
+          displayPhoneNumber: phoneData.display_phone_number || "",
+          status: phoneData.status || "UNKNOWN",
+        };
+      } catch (err: any) {
+        console.error("Phone quality error:", err.message);
+        results.phoneQuality = { error: err.message };
+      }
+
+      try {
+        const accountData = await whatsappService.getMessagingLimits(wabaId, accessToken);
+        results.accountInfo = {
+          templateCount: accountData.message_template_count || 0,
+          reviewStatus: accountData.account_review_status || "UNKNOWN",
+        };
+      } catch (err: any) {
+        console.error("Account info error:", err.message);
+        results.accountInfo = { error: err.message };
+      }
+
+      res.json(results);
+    } catch (error: any) {
+      console.error("Error fetching WhatsApp analytics:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch analytics" });
+    }
+  });
+
   app.get("/api/whatsapp/templates", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;

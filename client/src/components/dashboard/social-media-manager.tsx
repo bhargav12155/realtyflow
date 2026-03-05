@@ -29,6 +29,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { MenuItem } from "@shared/schema";
 import {
+  BarChart3,
   Brain,
   AlertTriangle,
   Calendar,
@@ -46,6 +47,8 @@ import {
   Instagram,
   Linkedin,
   Loader2,
+  Mail,
+  MailOpen,
   Megaphone,
   MessageCircle,
   Pause,
@@ -55,7 +58,9 @@ import {
   PlugZap,
   RefreshCw,
   Repeat,
+  Send,
   Settings,
+  ShieldAlert,
   ShoppingBag,
   Sparkles,
   Star,
@@ -555,6 +560,140 @@ const promoApps = [
     features: ["Market Analysis", "Property Comparables", "Automated Reports", "Valuation Tools"],
   },
 ];
+
+function WhatsAppAnalyticsSection() {
+  const [waAnalytics, setWaAnalytics] = useState<any>(null);
+  const [waAnalyticsLoading, setWaAnalyticsLoading] = useState(false);
+  const [waAnalyticsDays, setWaAnalyticsDays] = useState(7);
+
+  const fetchAnalytics = async (days: number) => {
+    setWaAnalyticsLoading(true);
+    try {
+      const token = localStorage.getItem("authToken") || "";
+      const res = await fetch(`/api/whatsapp/analytics?days=${days}`, {
+        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWaAnalytics(data);
+      }
+    } catch {}
+    setWaAnalyticsLoading(false);
+  };
+
+  useEffect(() => { fetchAnalytics(waAnalyticsDays); }, [waAnalyticsDays]);
+
+  return (
+    <div className="space-y-3" data-testid="whatsapp-analytics-section">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <BarChart3 className="h-4 w-4 text-green-500" />
+          <span>WhatsApp Analytics</span>
+        </div>
+        <div className="flex items-center gap-1">
+          {[7, 14, 30].map(d => (
+            <button
+              key={d}
+              onClick={() => setWaAnalyticsDays(d)}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${waAnalyticsDays === d ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+              data-testid={`btn-wa-analytics-${d}d`}
+            >
+              {d}d
+            </button>
+          ))}
+          <button onClick={() => fetchAnalytics(waAnalyticsDays)} className="ml-1 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700" data-testid="btn-wa-analytics-refresh">
+            <RefreshCw className={`h-3 w-3 text-muted-foreground ${waAnalyticsLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {waAnalyticsLoading && !waAnalytics ? (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="h-5 w-5 animate-spin text-green-500" />
+          <span className="ml-2 text-xs text-muted-foreground">Loading analytics from Meta...</span>
+        </div>
+      ) : waAnalytics?.templateAnalytics?.totals ? (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-sent">
+              <Send className="h-4 w-4 mx-auto mb-1 text-blue-500" />
+              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.totals.sent || 0).toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">Messages Sent</div>
+            </div>
+            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-delivered">
+              <CheckCircle className="h-4 w-4 mx-auto mb-1 text-green-500" />
+              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.totals.delivered || 0).toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">Delivered</div>
+              {waAnalytics.templateAnalytics.deliveryRate > 0 && (
+                <div className="text-[9px] text-green-600 font-medium">{waAnalytics.templateAnalytics.deliveryRate}%</div>
+              )}
+            </div>
+            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-read">
+              <MailOpen className="h-4 w-4 mx-auto mb-1 text-purple-500" />
+              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.totals.read || 0).toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">Messages Read</div>
+              {waAnalytics.templateAnalytics.readRate > 0 && (
+                <div className="text-[9px] text-purple-600 font-medium">{waAnalytics.templateAnalytics.readRate}%</div>
+              )}
+            </div>
+            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-blocked">
+              <ShieldAlert className="h-4 w-4 mx-auto mb-1 text-red-500" />
+              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.ecosystemBlocked || 0).toLocaleString()}</div>
+              <div className="text-[10px] text-muted-foreground">Ecosystem Blocked</div>
+            </div>
+          </div>
+
+          {waAnalytics.phoneQuality && !waAnalytics.phoneQuality.error && (
+            <div className="rounded-lg border p-2.5 flex items-center justify-between text-xs" data-testid="wa-phone-quality">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-3.5 w-3.5 text-green-500" />
+                <span className="font-medium">{waAnalytics.phoneQuality.displayPhoneNumber || "Phone"}</span>
+                <span className="text-muted-foreground">({waAnalytics.phoneQuality.verifiedName})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                  waAnalytics.phoneQuality.qualityRating === "GREEN" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300" :
+                  waAnalytics.phoneQuality.qualityRating === "YELLOW" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300" :
+                  "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
+                }`}>
+                  Quality: {waAnalytics.phoneQuality.qualityRating}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 text-[9px] font-medium">
+                  Tier: {waAnalytics.phoneQuality.messagingLimitTier?.replace("TIER_", "")?.replace("_", ",")}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {waAnalytics.templateAnalytics.templateBreakdown?.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-semibold text-muted-foreground">Template Performance</div>
+              {waAnalytics.templateAnalytics.templateBreakdown.map((t: any, i: number) => (
+                <div key={i} className="flex items-center justify-between rounded border px-2.5 py-1.5 text-[10px]" data-testid={`wa-template-row-${i}`}>
+                  <span className="font-medium truncate max-w-[140px]">{t.name}</span>
+                  <div className="flex items-center gap-3 text-muted-foreground">
+                    <span title="Sent">{t.sent.toLocaleString()} sent</span>
+                    <span title="Delivered" className="text-green-600">{t.delivered.toLocaleString()} delivered</span>
+                    <span title="Read" className="text-purple-600">{t.read.toLocaleString()} read</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : waAnalytics?.templateAnalytics?.error ? (
+        <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 text-xs text-red-600 dark:text-red-400">
+          <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
+          {waAnalytics.templateAnalytics.error}
+        </div>
+      ) : (
+        <div className="rounded-lg border p-3 text-xs text-muted-foreground text-center">
+          No analytics data available for this period.
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function SocialMediaManager() {
   const { user } = useAuth();
@@ -2787,6 +2926,8 @@ ${agentName} | ${brokerageName}
                 </div>
                 );
               })()}
+              <WhatsAppAnalyticsSection />
+
               {(() => {
                 const whatsappPosts = recentPosts.filter((p: any) => p.platform === "whatsapp").slice(0, 5);
                 if (whatsappPosts.length === 0) return null;

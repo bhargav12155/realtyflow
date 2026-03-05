@@ -243,6 +243,87 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
     }
   }
 
+  async getTemplateAnalytics(wabaId: string, accessToken: string, templateIds: string[], startDate: number, endDate: number): Promise<any> {
+    const url = new URL(`https://graph.facebook.com/v25.0/${wabaId}/template_analytics`);
+    url.searchParams.set("start", String(startDate));
+    url.searchParams.set("end", String(endDate));
+    url.searchParams.set("granularity", "DAILY");
+    url.searchParams.set("template_ids", JSON.stringify(templateIds));
+    url.searchParams.set("metric_types", JSON.stringify(["sent", "delivered", "read", "clicked"]));
+
+    console.log(`📊 WhatsApp: Fetching template analytics for WABA ${wabaId}`);
+    const response = await fetch(url.toString(), {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Template Analytics Error:", error);
+      throw new Error(`WhatsApp Analytics API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    return await response.json();
+  }
+
+  async getConversationAnalytics(wabaId: string, accessToken: string, startTimestamp: number, endTimestamp: number): Promise<any> {
+    const url = new URL(`https://graph.facebook.com/v25.0/${wabaId}/analytics`);
+    url.searchParams.set("start", String(startTimestamp));
+    url.searchParams.set("end", String(endTimestamp));
+    url.searchParams.set("granularity", "DAILY");
+    url.searchParams.set("phone_numbers", "[]");
+    url.searchParams.set("metric_types", JSON.stringify(["sent", "delivered"]));
+    url.searchParams.set("country_codes", "[]");
+
+    console.log(`📊 WhatsApp: Fetching conversation analytics for WABA ${wabaId}`);
+    const response = await fetch(url.toString(), {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Conversation Analytics Error:", error);
+      throw new Error(`WhatsApp Analytics API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    return await response.json();
+  }
+
+  async getPhoneNumberAnalytics(phoneNumberId: string, accessToken: string): Promise<any> {
+    console.log(`📊 WhatsApp: Fetching phone number quality for ${phoneNumberId}`);
+    const response = await fetch(
+      `https://graph.facebook.com/v25.0/${phoneNumberId}?fields=quality_rating,messaging_limit_tier,verified_name,display_phone_number,status`,
+      {
+        headers: { "Authorization": `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Phone Analytics Error:", error);
+      throw new Error(`WhatsApp Phone API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    return await response.json();
+  }
+
+  async getMessagingLimits(wabaId: string, accessToken: string): Promise<any> {
+    console.log(`📊 WhatsApp: Fetching messaging limits for WABA ${wabaId}`);
+    const response = await fetch(
+      `https://graph.facebook.com/v25.0/${wabaId}?fields=message_template_count,messaging_limit_tier,account_review_status`,
+      {
+        headers: { "Authorization": `Bearer ${accessToken}` },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Limits Error:", error);
+      throw new Error(`WhatsApp Limits API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    return await response.json();
+  }
+
   // Verify webhook signature from Meta
   verifyWebhookSignature(payload: string, signature: string, appSecret: string): boolean {
     const crypto = require("crypto");

@@ -270,14 +270,7 @@ export function SocialMediaManager() {
   const { businessType, terms } = useBusinessType();
   const postTypes = POST_TYPES_BY_BUSINESS[businessType] ?? POST_TYPES_BY_BUSINESS.real_estate;
   const isRealEstate = terms.features.mlsSearch;
-  const APP_PROMO_EMAILS = [
-    "bhargav12155@gmail.com",
-    "sudha@mygoldenbrick.com",
-    "sgarikap@gmail.com",
-    "mikebjork@mygoldenbrick.com",
-    "mike.bjork@bhhsamb.com",
-  ];
-  const isAppPromoUser = APP_PROMO_EMAILS.includes(user?.email || "");
+  const isAppPromoUser = !!user;
   const [postContent, setPostContent] = useState("");
   const [aiPrompt, setAiPrompt] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);

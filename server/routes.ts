@@ -2407,9 +2407,15 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         try {
           const sharp = (await import("sharp")).default;
           
-          // Fetch the generated image
-          const imageResponse = await fetch(imageUrl);
-          const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+          // Get the generated image as a buffer (handle both URLs and base64 data URIs)
+          let imageBuffer: Buffer;
+          if (imageUrl.startsWith("data:")) {
+            const base64Data = imageUrl.split(",")[1];
+            imageBuffer = Buffer.from(base64Data, "base64");
+          } else {
+            const imageResponse = await fetch(imageUrl);
+            imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+          }
           
           // Get image dimensions
           const metadata = await sharp(imageBuffer).metadata();

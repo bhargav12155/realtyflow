@@ -1,0 +1,90 @@
+Meta for Business (formerly Facebook for Business)
+Get started
+Advertise
+Learn
+Support
+
+
+Start Now
+Business Help Center
+
+Get support
+Tips for Driving High-quality Conversations and Improving Quality Rating on WhatsApp
+
+This article is intended for businesses and Business Solution Providers (BSP) that use the WhatsApp Business Platform. Understand the differences between the WhatsApp Business Platform and WhatsApp Business App.
+
+Explore our help content library to find answers and troubleshoot issues.
+You can help to improve your quality rating when you send high-quality messages to your customers on the WhatsApp Business platform. Your business can become eligible for more features and reach more customers on the WhatsApp Business Platform when you consistently demonstrate a record of sending high-quality messages with a minimum of 1,000 conversations over 30 consecutive days. Follow the best practices below to send high-quality messages.
+
+How to create high-quality business-initiated conversations
+Business-initiated conversations should be expected, timely and relevant:
+
+Expected: Make sure that your customers have opted in to receive this information from your business on WhatsApp.
+Timely: Ensure that your conversation is connected to time-bound topics, such as:
+A seasonal or other recurring event related to previous purchases.
+A product recently browsed or purchased within a specific interval of time.
+Relevant: Share the personalized information with your customers based on a previous signal that is related to their interests with a clear call-to-action, such as:
+Additional information that is related to a product browsed or related to a valuable offer.
+Add-on products, features, or upgrades that relate to previous purchases or services used.
+You can also increase your business’s visibility on WhatsApp and generate more conversations with customers by participating in WhatsApp Business search.
+
+How to improve the quality rating
+Optimize the user experience for opt-in: Only send messages to customers who have opted in to receiving messages from your business and provide a clear way to opt-out in the message. If you don’t provide this information at specific entry points, you may harm the user experience and the quality rating of your business.
+Create engaging messages: Create messages that are timely and relevant for your target set of customers.
+Be mindful of how frequently you send messages: Avoid sending numerous messages to your customers in a short time period.
+Monitor quality-related insights: Track the 30-day quality history, quality reasons provided for low and medium quality and template quality. These tools can help pinpoint when the quality dropped and the potential reasons.
+Develop and improve your outreach strategy: Develop a well-defined outreach strategy and an experiment-based approach to see what resonates with your customers. Refine your strategy based on your quality rating trends and other performance metrics.
+Check if your business has added new templates: Check if you or anyone from your business has added new templates within the last 7 days. This may help identify the problematic template.
+Follow WhatsApp policies: Make sure that your messages follow the WhatsApp Business and Commerce Policies.
+Note: While business-initiated conversations can be a driver of the phone number quality rating, other factors may also influence user sentiment and this rating, such as the business’s overall reputation, the bot functionality and how quickly questions and other inquiries are resolved.
+
+Learn more
+Capacity, quality rating, and messaging limits (WhatsApp Developer Documentation)
+About your WhatsApp Business message template’s quality rating
+About your WhatsApp Business phone number’s quality rating
+Start messaging customers on WhatsApp Business Platform
+
+Help chosen for you
+
+About advertising restrictions
+Business Help Center
+
+Troubleshoot a disabled or restricted account
+Business Help Center
+
+About Meta Business Support Home
+Business Help Center
+
+Fix a failed payment issue on Meta
+Business Help Center
+
+
+PermalinkShare
+Was this information helpful?
+
+Yes
+
+No
+
+
+Feedback
+More in this section: CREATE & MANAGE ACCOUNTS
+
+Basics
+Create
+Manage
+Advertise
+Create ads that click to WhatsApp
+Create a new template for ads
+Select an existing template for ads
+Results
+Get the latest updates from Meta for Business.
+
+Provide your email address to receive the latest updates from Meta for Business, including news, events and product updates.
+
+
+By submitting this form, you agree to receive marketing related electronic communications from Meta, including news, events, updates and promotional emails. You may withdraw your consent and unsubscribe from these at any time, for example, by clicking the unsubscribe link included on our emails. For more information about how Meta handles your data please read our Data Policy.
+Subscribe
+© 2026 Meta
+AboutDevelopersCareersPrivacyCookiesTermsHelp Center
+English (US)English (UK)EspañolPortuguês (Brasil)Français (France)Español (España)More languages

@@ -133,7 +133,11 @@ export class WhatsAppService {
     }
 
     const result = await response.json();
-    return (result.data || []).filter((t: any) => t.status === "APPROVED");
+    const activeStatuses = ["APPROVED", "approved", "ACTIVE", "active"];
+    return (result.data || []).filter((t: any) => {
+      const status = (t.status || "").toUpperCase();
+      return status === "APPROVED" || status.startsWith("ACTIVE");
+    });
   }
 
   // Mark a message as read

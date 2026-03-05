@@ -20568,7 +20568,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         "TIER_NOT_SET": 250,
         "TIER_50": 50,
         "TIER_250": 250,
-        "TIER_1K": 1000,
+        "TIER_1K": 2000,
         "TIER_10K": 10000,
         "TIER_100K": 100000,
         "TIER_UNLIMITED": 999999,
@@ -20776,7 +20776,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
           if (limitData.messaging_limit_tier) {
             const tierMap: Record<string, number> = {
               "TIER_NOT_SET": 250, "TIER_50": 50, "TIER_250": 250,
-              "TIER_1K": 1000, "TIER_10K": 10000, "TIER_100K": 100000, "TIER_UNLIMITED": 999999,
+              "TIER_1K": 2000, "TIER_10K": 10000, "TIER_100K": 100000, "TIER_UNLIMITED": 999999,
             };
             META_DAILY_LIMIT = tierMap[limitData.messaging_limit_tier] || 2000;
             console.log(`📱 WhatsApp: Account tier ${limitData.messaging_limit_tier} → daily limit ${META_DAILY_LIMIT}`);

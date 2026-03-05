@@ -20569,6 +20569,58 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.post("/api/whatsapp/templates", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const { name, body, category } = req.body;
+      if (!name || !body) {
+        return res.status(400).json({ error: "Template name and body are required" });
+      }
+
+      const safeName = name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 512);
+      const safeCategory = ["MARKETING", "UTILITY"].includes(category) ? category : "MARKETING";
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "").trim();
+
+      if (!accessToken || !wabaId) {
+        return res.status(400).json({ error: "WhatsApp Business Account not configured" });
+      }
+
+      const response = await fetch(
+        `https://graph.facebook.com/v22.0/${wabaId}/message_templates`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: safeName,
+            category: safeCategory,
+            language: "en_US",
+            components: [{ type: "body", text: body.slice(0, 1024) }],
+          }),
+        }
+      );
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error("WhatsApp Template Create Error:", result);
+        return res.status(response.status).json({ error: result.error?.message || "Failed to create template" });
+      }
+
+      console.log(`📱 WhatsApp: Template "${safeName}" created, id: ${result.id}, status: ${result.status}`);
+      res.json({ success: true, id: result.id, status: result.status, name: safeName });
+    } catch (error: any) {
+      console.error("Error creating WhatsApp template:", error);
+      res.status(500).json({ error: error.message || "Failed to create template" });
+    }
+  });
+
   // Send WhatsApp message (for marketing/posting) - supports bulk recipients
   app.post("/api/whatsapp/send", requireAuth, async (req, res) => {
     try {

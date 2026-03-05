@@ -223,12 +223,50 @@ const stockPhotos = [
 ];
 
 function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { selectedTemplate: string; onSelectTemplate: (name: string) => void }) {
-  const { data, isLoading } = useQuery<{ templates: any[] }>({
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [newCategory, setNewCategory] = useState("MARKETING");
+  const [creating, setCreating] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState<any>(null);
+  const { toast } = useToast();
+
+  const { data, isLoading, refetch } = useQuery<{ templates: any[] }>({
     queryKey: ["/api/whatsapp/templates"],
     staleTime: 5 * 60 * 1000,
   });
 
   const templates = data?.templates || [];
+
+  const handleCreate = async () => {
+    if (!newName.trim() || !newBody.trim()) {
+      toast({ title: "Missing fields", description: "Please enter a template name and message body.", variant: "destructive" });
+      return;
+    }
+    const safeName = newName.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 512);
+    if (!safeName) {
+      toast({ title: "Invalid name", description: "Template name must contain letters, numbers, or underscores.", variant: "destructive" });
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await apiRequest("POST", "/api/whatsapp/templates", {
+        name: safeName,
+        body: newBody.trim(),
+        category: newCategory,
+      });
+      const result = await res.json();
+      toast({ title: "Template Created", description: `"${safeName}" submitted for Meta review. It will appear as active once approved.` });
+      setNewName("");
+      setNewBody("");
+      setShowCreate(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/templates"] });
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message || "Could not create template.", variant: "destructive" });
+    } finally {
+      setCreating(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -239,13 +277,77 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
     );
   }
 
-  if (templates.length === 0) {
-    return null;
-  }
+  const statusBadge = (status: string) => {
+    const s = (status || "").toUpperCase();
+    if (s === "APPROVED" || s.startsWith("ACTIVE")) return { label: "Active", color: "text-green-600 bg-green-50" };
+    if (s === "PENDING") return { label: "Pending", color: "text-amber-600 bg-amber-50" };
+    if (s === "REJECTED") return { label: "Rejected", color: "text-red-600 bg-red-50" };
+    return { label: status, color: "text-gray-600 bg-gray-50" };
+  };
 
   return (
-    <div className="mt-2 space-y-1">
-      <Label className="text-xs">WhatsApp Template (Optional)</Label>
+    <div className="mt-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs">WhatsApp Template (Optional)</Label>
+        <button
+          type="button"
+          onClick={() => setShowCreate(!showCreate)}
+          className="text-[10px] font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+          data-testid="button-create-whatsapp-template"
+        >
+          {showCreate ? "Cancel" : "+ Create Template"}
+        </button>
+      </div>
+
+      {showCreate && (
+        <div className="border border-border rounded-md p-3 space-y-2 bg-muted/30">
+          <div>
+            <Label className="text-[10px] text-muted-foreground">Template Name</Label>
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. lunch_special"
+              className="h-7 text-xs mt-0.5"
+              data-testid="input-template-name"
+            />
+            <p className="text-[9px] text-muted-foreground mt-0.5">Lowercase letters, numbers, and underscores only</p>
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">Category</Label>
+            <Select value={newCategory} onValueChange={setNewCategory}>
+              <SelectTrigger className="h-7 text-xs mt-0.5" data-testid="select-template-category">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="MARKETING">Marketing — Promotions, offers, updates</SelectItem>
+                <SelectItem value="UTILITY">Utility — Order updates, confirmations, reminders</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">Message Body</Label>
+            <textarea
+              value={newBody}
+              onChange={(e) => setNewBody(e.target.value)}
+              placeholder="Write your template message here..."
+              className="text-xs min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1.5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring mt-0.5"
+              data-testid="input-template-body"
+            />
+            <p className="text-[9px] text-muted-foreground">{newBody.length}/1024 characters</p>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleCreate}
+            disabled={creating || !newName.trim() || !newBody.trim()}
+            className="h-7 text-xs w-full"
+            data-testid="button-submit-template"
+          >
+            {creating ? "Submitting..." : "Submit for Meta Review"}
+          </Button>
+          <p className="text-[9px] text-muted-foreground text-center">Templates are reviewed by Meta (usually within 24 hours)</p>
+        </div>
+      )}
+
       <Select value={selectedTemplate} onValueChange={onSelectTemplate}>
         <SelectTrigger className="h-8 text-xs" data-testid="select-whatsapp-template">
           <SelectValue placeholder="Send as free text (no template)" />
@@ -254,14 +356,47 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
           <SelectItem value="none">Send as free text (no template)</SelectItem>
           {templates.map((t: any) => {
             const isPending = (t.status || "").toUpperCase() === "PENDING";
+            const badge = statusBadge(t.status);
             return (
               <SelectItem key={t.name} value={t.name} data-testid={`template-${t.name}`} disabled={isPending}>
-                {t.name} ({t.category?.toLowerCase()}) — {t.language}{isPending ? " ⏳ Pending review" : ""}
+                {t.name} ({t.category?.toLowerCase()}) — {badge.label}{isPending ? " ⏳" : ""}
               </SelectItem>
             );
           })}
         </SelectContent>
       </Select>
+
+      {templates.length > 0 && (
+        <div className="space-y-1">
+          {templates.map((t: any) => {
+            const badge = statusBadge(t.status);
+            const bodyComp = t.components?.find((c: any) => c.type === "BODY");
+            const bodyText = bodyComp?.text || "";
+            const isSelected = selectedTemplate === t.name;
+            return (
+              <div
+                key={t.name}
+                className={`text-[10px] p-2 rounded border cursor-pointer transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border/50 hover:border-border"}`}
+                onClick={() => {
+                  const isPending = (t.status || "").toUpperCase() === "PENDING";
+                  if (!isPending) onSelectTemplate(t.name);
+                  setPreviewTemplate(previewTemplate?.name === t.name ? null : t);
+                }}
+                data-testid={`template-card-${t.name}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{t.name}</span>
+                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.color}`}>{badge.label}</span>
+                </div>
+                {previewTemplate?.name === t.name && bodyText && (
+                  <p className="mt-1 text-muted-foreground leading-relaxed">{bodyText}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {selectedTemplate && selectedTemplate !== "none" && (
         <p className="text-[10px] text-green-600">
           Using template: {selectedTemplate} — This will be sent as a template message (works without 24hr window)

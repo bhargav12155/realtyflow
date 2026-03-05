@@ -103,44 +103,50 @@ export class BulkQueueScheduler {
       console.log(`⚠️ Could not fetch tier for queue ${queue.id}, using ${dailyLimit}`);
     }
 
-    const numbersToSend = queue.remainingNumbers.slice(0, dailyLimit);
-    const leftover = queue.remainingNumbers.slice(dailyLimit);
+    const allRemaining = [...queue.remainingNumbers];
 
-    console.log(`📱 Bulk queue ${queue.id}: Sending batch of ${numbersToSend.length} (${leftover.length} remaining after this batch)`);
+    console.log(`📱 Bulk queue ${queue.id}: Starting batch targeting ${dailyLimit} successful deliveries from ${allRemaining.length} remaining`);
 
     this.notifyUser(queue.userId, {
       type: "whatsapp_queue_batch_start",
       data: {
         queueId: queue.id,
-        batchSize: numbersToSend.length,
-        remaining: leftover.length,
-        message: `Starting batch: ${numbersToSend.length} messages (${leftover.length} still queued)`,
+        batchSize: Math.min(dailyLimit, allRemaining.length),
+        remaining: allRemaining.length,
+        message: `Starting batch: targeting ${Math.min(dailyLimit, allRemaining.length)} successful deliveries`,
       },
     });
 
     let sentCount = 0;
-    let failedCount = 0;
+    let attemptedCount = 0;
+    const ecosystemBlockedNumbers: string[] = [];
+    const permanentlyFailedNumbers: string[] = [];
+    const unattemptedNumbers: string[] = [];
     const BATCH_SIZE = 8;
     const BATCH_DELAY_MS = 2000;
     const INTRA_BATCH_DELAY_MS = 150;
     const RATE_LIMIT_BACKOFF_MS = 30000;
+    const MAX_ECOSYSTEM_RATIO = 0.5;
 
     const isRetryableError = (errMsg: string) =>
       errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
       errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl");
 
-    const sendOneWithRetry = async (phone: string, attempt = 1): Promise<boolean> => {
+    const isEcosystemBlock = (errMsg: string) =>
+      errMsg.includes("131049") || errMsg.includes("131056");
+
+    const sendOneWithRetry = async (phone: string, attempt = 1): Promise<{ success: boolean; phone: string; errorType?: string }> => {
       try {
         if (queue.templateName) {
           await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, queue.templateName);
         } else if (queue.messageText) {
           await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, queue.messageText);
         }
-        return true;
+        return { success: true, phone };
       } catch (err: any) {
         const errMsg = err.message || "";
-        if (errMsg.includes("131056") || errMsg.includes("131049")) {
-          throw err;
+        if (isEcosystemBlock(errMsg)) {
+          return { success: false, phone, errorType: "ecosystem" };
         }
         if (isRetryableError(errMsg) && attempt <= 2) {
           const backoff = RATE_LIMIT_BACKOFF_MS * attempt;
@@ -148,18 +154,36 @@ export class BulkQueueScheduler {
           await new Promise((resolve) => setTimeout(resolve, backoff));
           return sendOneWithRetry(phone, attempt + 1);
         }
-        throw err;
+        return { success: false, phone, errorType: "permanent" };
       }
     };
 
-    for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
+    let numberIndex = 0;
+    let stopped = false;
+
+    while (sentCount < dailyLimit && numberIndex < allRemaining.length && !stopped) {
       const currentQueue = await this.storage.getWhatsappBulkQueueById(queue.id);
       if (!currentQueue || currentQueue.status !== "active") {
         console.log(`📱 Bulk queue ${queue.id}: Status changed to ${currentQueue?.status}, stopping`);
+        for (let j = numberIndex; j < allRemaining.length; j++) {
+          unattemptedNumbers.push(allRemaining[j]);
+        }
+        stopped = true;
         break;
       }
 
-      const batch = numbersToSend.slice(i, i + BATCH_SIZE);
+      if (attemptedCount > 0 && ecosystemBlockedNumbers.length / attemptedCount > MAX_ECOSYSTEM_RATIO && ecosystemBlockedNumbers.length > 50) {
+        console.warn(`📱 Queue ${queue.id}: Too many ecosystem blocks (${ecosystemBlockedNumbers.length}/${attemptedCount}), stopping to avoid further penalties`);
+        for (let j = numberIndex; j < allRemaining.length; j++) {
+          unattemptedNumbers.push(allRemaining[j]);
+        }
+        break;
+      }
+
+      const remaining = dailyLimit - sentCount;
+      const batchEnd = Math.min(numberIndex + BATCH_SIZE, allRemaining.length);
+      const batch = allRemaining.slice(numberIndex, batchEnd);
+      numberIndex = batchEnd;
 
       const results = await Promise.allSettled(
         batch.map(async (phone: string, idx: number) => {
@@ -172,9 +196,18 @@ export class BulkQueueScheduler {
 
       let rateLimitHit = false;
       for (const r of results) {
-        if (r.status === "fulfilled") sentCount++;
-        else {
-          failedCount++;
+        attemptedCount++;
+        if (r.status === "fulfilled") {
+          const res = r.value;
+          if (res.success) {
+            sentCount++;
+          } else if (res.errorType === "ecosystem") {
+            ecosystemBlockedNumbers.push(res.phone);
+          } else {
+            permanentlyFailedNumbers.push(res.phone);
+          }
+        } else {
+          permanentlyFailedNumbers.push("unknown");
           const reason = (r as PromiseRejectedResult).reason?.message || "";
           if (isRetryableError(reason)) {
             rateLimitHit = true;
@@ -187,40 +220,49 @@ export class BulkQueueScheduler {
         await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
       }
 
-      const processed = sentCount + failedCount;
-      const percent = Math.round((processed / numbersToSend.length) * 100);
+      const totalProcessed = sentCount + ecosystemBlockedNumbers.length + permanentlyFailedNumbers.length;
+      const percent = allRemaining.length > 0 ? Math.round((totalProcessed / allRemaining.length) * 100) : 0;
 
       this.notifyUser(queue.userId, {
         type: "whatsapp_queue_progress",
         data: {
           queueId: queue.id,
           sent: (queue.sentCount || 0) + sentCount,
-          failed: (queue.failedCount || 0) + failedCount,
+          failed: (queue.failedCount || 0) + permanentlyFailedNumbers.length,
           total: queue.totalNumbers,
           batchSent: sentCount,
-          batchTotal: numbersToSend.length,
-          remaining: leftover.length,
+          attempted: attemptedCount,
+          remaining: allRemaining.length - numberIndex + ecosystemBlockedNumbers.length,
           percent,
-          message: `Queue batch: ${sentCount} of ${numbersToSend.length} sent (${percent}%)`,
+          ecosystemBlocked: ecosystemBlockedNumbers.length,
+          message: `Queue batch: ${sentCount} delivered of ${attemptedCount} attempted (${ecosystemBlockedNumbers.length} ecosystem-blocked, re-queued)`,
         },
       });
 
-      if (i + BATCH_SIZE < numbersToSend.length) {
+      if (numberIndex < allRemaining.length && sentCount < dailyLimit) {
         await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
       }
     }
+
+    for (let j = numberIndex; j < allRemaining.length; j++) {
+      if (!unattemptedNumbers.includes(allRemaining[j])) {
+        unattemptedNumbers.push(allRemaining[j]);
+      }
+    }
+
+    const finalRemaining = [...unattemptedNumbers, ...ecosystemBlockedNumbers];
 
     const tomorrow = new Date();
     tomorrow.setHours(tomorrow.getHours() + 24);
 
     const newSentCount = (queue.sentCount || 0) + sentCount;
-    const newFailedCount = (queue.failedCount || 0) + failedCount;
-    const isComplete = leftover.length === 0;
+    const newFailedCount = (queue.failedCount || 0) + permanentlyFailedNumbers.length;
+    const isComplete = finalRemaining.length === 0;
 
     await this.storage.updateWhatsappBulkQueue(queue.id, {
       sentCount: newSentCount,
       failedCount: newFailedCount,
-      remainingNumbers: leftover,
+      remainingNumbers: finalRemaining,
       lastBatchSentAt: new Date(),
       nextBatchAt: isComplete ? null : tomorrow,
       status: isComplete ? "completed" : "active",
@@ -234,15 +276,17 @@ export class BulkQueueScheduler {
         sent: newSentCount,
         failed: newFailedCount,
         total: queue.totalNumbers,
-        remaining: leftover.length,
+        remaining: finalRemaining.length,
+        ecosystemBlocked: ecosystemBlockedNumbers.length,
+        permanentlyFailed: permanentlyFailedNumbers.length,
         nextBatchAt: isComplete ? null : tomorrow.toISOString(),
         message: isComplete
           ? `Queue complete: ${newSentCount} delivered, ${newFailedCount} failed out of ${queue.totalNumbers}`
-          : `Batch done: ${sentCount} sent this batch. ${leftover.length} remaining, next batch at ${tomorrow.toLocaleString()}`,
+          : `Batch done: ${sentCount} sent, ${ecosystemBlockedNumbers.length} ecosystem-blocked (re-queued), ${permanentlyFailedNumbers.length} permanently failed. ${finalRemaining.length} remaining, next batch at ${tomorrow.toLocaleString()}`,
       },
     });
 
-    console.log(`📱 Bulk queue ${queue.id}: Batch done - ${sentCount} sent, ${failedCount} failed. ${leftover.length} remaining.`);
+    console.log(`📱 Bulk queue ${queue.id}: Batch done - ${sentCount} sent, ${ecosystemBlockedNumbers.length} ecosystem-blocked (re-queued), ${permanentlyFailedNumbers.length} permanently failed. ${finalRemaining.length} remaining.`);
   }
 
   private notifyUser(userId: string, payload: any) {

@@ -3076,8 +3076,54 @@ ${agentName} | ${brokerageName}
                             </div>
                           </div>
                           {totalFailed > 0 && (
-                            <p className="text-[10px] text-red-600">{totalFailed.toLocaleString()} failed</p>
+                            <p className="text-[10px] text-red-600">{totalFailed.toLocaleString()} failed (ecosystem-blocked contacts are re-queued automatically)</p>
                           )}
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest("POST", `/api/whatsapp/bulk-queues/${q.id}/send-now`);
+                                  queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                  toast({ title: "Next batch triggered!", description: "Processing will start within 60 seconds." });
+                                } catch (err: any) {
+                                  toast({ title: "Error", description: err.message || "Failed to trigger batch", variant: "destructive" });
+                                }
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1 text-[10px] rounded font-medium bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300 dark:hover:bg-green-900 transition-colors"
+                              data-testid={`btn-send-now-queue-${q.id}`}
+                            >
+                              <Send className="h-3 w-3" />
+                              Send Next Batch Now
+                            </button>
+                            <a
+                              href={`/api/whatsapp/bulk-queues/${q.id}/download`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                const token = localStorage.getItem("authToken") || "";
+                                fetch(`/api/whatsapp/bulk-queues/${q.id}/download`, {
+                                  headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                                })
+                                  .then(res => res.blob())
+                                  .then(blob => {
+                                    const url = window.URL.createObjectURL(blob);
+                                    const a = document.createElement("a");
+                                    a.href = url;
+                                    a.download = `unsent_contacts_${q.id.slice(0, 8)}_${remaining}.xlsx`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+                                    window.URL.revokeObjectURL(url);
+                                  })
+                                  .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1 text-[10px] rounded font-medium bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900 transition-colors cursor-pointer"
+                              data-testid={`btn-download-queue-${q.id}`}
+                            >
+                              <Download className="h-3 w-3" />
+                              Download Unsent ({remaining.toLocaleString()})
+                            </a>
+                          </div>
                         </div>
                       );
                     })}

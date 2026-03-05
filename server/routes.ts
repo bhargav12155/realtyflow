@@ -21383,6 +21383,95 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.post("/api/whatsapp/bulk-queues/:id/send-now", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queue = await storage.getWhatsappBulkQueueById(req.params.id);
+      if (!queue) return res.status(404).json({ error: "Queue not found" });
+      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      if (queue.status !== "active" && queue.status !== "paused") {
+        return res.status(400).json({ error: `Queue is ${queue.status}, cannot send now` });
+      }
+      if (!queue.remainingNumbers || queue.remainingNumbers.length === 0) {
+        return res.status(400).json({ error: "No remaining numbers to send" });
+      }
+
+      await storage.updateWhatsappBulkQueue(req.params.id, {
+        status: "active",
+        nextBatchAt: new Date(Date.now() - 1000),
+      });
+
+      res.json({ success: true, message: `Next batch triggered for ${queue.remainingNumbers.length} remaining contacts. Processing will start within 60 seconds.` });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/whatsapp/bulk-queues/:id/download", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queue = await storage.getWhatsappBulkQueueById(req.params.id);
+      if (!queue) return res.status(404).json({ error: "Queue not found" });
+      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+
+      workbook.creator = "iMakePage";
+      workbook.created = new Date();
+
+      const sheet = workbook.addWorksheet("Unsent Contacts");
+
+      sheet.columns = [
+        { header: "Phone Number", key: "phone", width: 20 },
+        { header: "Status", key: "status", width: 15 },
+        { header: "Queue ID", key: "queueId", width: 40 },
+        { header: "Template", key: "template", width: 25 },
+      ];
+
+      sheet.getRow(1).font = { bold: true };
+      sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4CAF50" } };
+      sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+
+      const remaining = queue.remainingNumbers || [];
+      for (const phone of remaining) {
+        sheet.addRow({
+          phone,
+          status: "Pending",
+          queueId: queue.id,
+          template: queue.templateName || "Free text",
+        });
+      }
+
+      const summarySheet = workbook.addWorksheet("Summary");
+      summarySheet.columns = [
+        { header: "Metric", key: "metric", width: 30 },
+        { header: "Value", key: "value", width: 20 },
+      ];
+      summarySheet.getRow(1).font = { bold: true };
+      summarySheet.addRow({ metric: "Queue ID", value: queue.id });
+      summarySheet.addRow({ metric: "Template", value: queue.templateName || "Free text" });
+      summarySheet.addRow({ metric: "Total Contacts", value: queue.totalNumbers });
+      summarySheet.addRow({ metric: "Already Sent", value: queue.sentCount || 0 });
+      summarySheet.addRow({ metric: "Failed", value: queue.failedCount || 0 });
+      summarySheet.addRow({ metric: "Remaining (in this file)", value: remaining.length });
+      summarySheet.addRow({ metric: "Queue Status", value: queue.status });
+      summarySheet.addRow({ metric: "Created At", value: queue.createdAt ? new Date(queue.createdAt).toISOString() : "N/A" });
+      summarySheet.addRow({ metric: "Last Batch At", value: queue.lastBatchSentAt ? new Date(queue.lastBatchSentAt).toISOString() : "N/A" });
+
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=unsent_contacts_${queue.id.slice(0, 8)}_${remaining.length}.xlsx`);
+
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error: any) {
+      console.error("Error generating Excel download:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/whatsapp/bulk-queues/:id/cancel", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;

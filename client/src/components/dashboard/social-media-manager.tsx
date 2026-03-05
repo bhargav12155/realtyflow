@@ -353,6 +353,71 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
             <span className="w-5 h-5 rounded-md bg-green-600 flex items-center justify-center text-white text-[10px]">+</span>
             Create New Template
           </h4>
+
+          <div className="space-y-1.5">
+            <Label className="text-[10px] text-muted-foreground font-medium">Quick Templates</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {[
+                {
+                  label: "Anniversary Full (Marketing)",
+                  name: "anniversary_celebration_15yr",
+                  category: "MARKETING",
+                  header: "Flavors Indian Cuisine",
+                  body: "Dear Family & Friends \u2764\uFE0F\nWe're overjoyed to celebrate 15 Years of Flavors Indian Cuisine, and it's all because of your love and support! Visit us for our Anniversary Unlimited Mega Grand Lunch & Dinner Buffet:\n\n\uD83D\uDCC5 March 4\u20137, 2026 \u2013 Mega Grand Lunch & Dinner Buffet\n\uD83D\uDCC5 March 8, 2026 \u2013 Mega Grand Special Lunch Buffet\n\nPlease share this message with your friends and family and help us make this celebration even more special! \u2764\uFE0F\n\nPlease consider this message as my personal invitation and your presence makes me happy. See you at the buffet!",
+                  footer: "Flavors Indian Cuisine | flavorsic.com",
+                  icon: "\uD83C\uDF89",
+                },
+                {
+                  label: "Anniversary Short (Utility)",
+                  name: "anniversary_event_update",
+                  category: "UTILITY",
+                  header: "Event Update",
+                  body: "Hi! Your reservation-eligible event at Flavors Indian Cuisine is happening soon.\n\n15th Anniversary Buffet:\nMar 4\u20137 \u2013 Lunch & Dinner\nMar 8 \u2013 Special Lunch\n\nUnlimited Grand Buffet. Walk-ins welcome.\nCall to reserve your spot.",
+                  footer: "Flavors Indian Cuisine",
+                  icon: "\uD83D\uDD14",
+                },
+                {
+                  label: "Order Confirmation (Utility)",
+                  name: "order_confirmation",
+                  category: "UTILITY",
+                  header: "Order Confirmed",
+                  body: "Your order has been confirmed! We're preparing it now.\n\nEstimated ready time: 25-35 minutes.\n\nThank you for choosing us!",
+                  footer: "",
+                  icon: "\u2705",
+                },
+                {
+                  label: "Reservation Reminder (Utility)",
+                  name: "reservation_reminder",
+                  category: "UTILITY",
+                  header: "Reservation Reminder",
+                  body: "Hi! This is a reminder about your upcoming reservation.\n\nPlease arrive on time. If you need to modify or cancel, reply to this message or call us.\n\nWe look forward to seeing you!",
+                  footer: "",
+                  icon: "\uD83D\uDCC5",
+                },
+              ].map((qt) => (
+                <button
+                  key={qt.name}
+                  type="button"
+                  onClick={() => {
+                    setNewName(qt.name);
+                    setNewCategory(qt.category);
+                    setNewHeader(qt.header);
+                    setNewBody(qt.body);
+                    setNewFooter(qt.footer);
+                  }}
+                  className="flex items-start gap-2 p-2 rounded-lg border border-border/60 hover:border-green-300 dark:hover:border-green-700 hover:bg-green-50/30 dark:hover:bg-green-950/20 transition-all text-left"
+                  data-testid={`quick-template-${qt.name}`}
+                >
+                  <span className="text-sm mt-0.5">{qt.icon}</span>
+                  <div>
+                    <div className="text-[10px] font-semibold">{qt.label}</div>
+                    <div className="text-[9px] text-muted-foreground line-clamp-2 mt-0.5">{qt.body.substring(0, 80)}...</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-[10px] text-muted-foreground font-medium">Template Name</Label>
@@ -376,6 +441,12 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
                   <SelectItem value="UTILITY">🔧 Utility</SelectItem>
                 </SelectContent>
               </Select>
+              {newCategory === "MARKETING" && (
+                <p className="text-[9px] text-red-600 dark:text-red-400 mt-0.5 font-medium">⚠️ Marketing templates won't deliver to US numbers</p>
+              )}
+              {newCategory === "UTILITY" && (
+                <p className="text-[9px] text-green-600 dark:text-green-400 mt-0.5 font-medium">✅ Utility templates deliver to all numbers</p>
+              )}
             </div>
           </div>
           <div>

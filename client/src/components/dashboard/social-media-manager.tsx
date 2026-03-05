@@ -1131,10 +1131,12 @@ export function SocialMediaManager() {
       }
 
       if (data?.background) {
-        setBulkProgress({ sent: 0, failed: 0, total: data.total, percent: 0, message: data.message });
+        setBulkProgress({ sent: 0, failed: 0, total: data.total, queued: data.queued || 0, percent: 0, message: data.message });
         toast({
           title: `Sending ${data.total.toLocaleString()} Messages`,
-          description: "Messages are being sent in the background. You'll see a live progress bar below.",
+          description: data.queued > 0
+            ? `Sending first ${data.total.toLocaleString()} now (Meta daily limit). ${data.queued.toLocaleString()} contacts exceed today's limit.`
+            : "Messages are being sent in the background. You'll see a live progress bar below.",
         });
         setPostContent("");
         setSelectedMediaIds([]);
@@ -2313,6 +2315,39 @@ ${agentName} | ${brokerageName}
                 <MessageCircle className="h-4 w-4 text-green-600" />
                 <span className="text-sm font-semibold">WhatsApp Message</span>
               </div>
+
+              <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    <span className="text-[11px] font-semibold text-blue-800 dark:text-blue-300">Messaging Limit: 2,000 / 24hrs</span>
+                  </div>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">Current Tier</span>
+                </div>
+                <div className="flex gap-1">
+                  {[250, 2000, 10000, 100000].map((tier, i) => (
+                    <div key={tier} className={`flex-1 h-1.5 rounded-full ${tier <= 2000 ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
+                  ))}
+                </div>
+                <p className="text-[10px] text-blue-700/80 dark:text-blue-400/80 leading-relaxed">
+                  You can initiate up to <strong>2,000</strong> conversations per rolling 24-hour window. Only the first 2,000 contacts will be sent — any beyond that will be skipped. Reach <strong>1,000 quality conversations</strong> in 7 days to unlock 10,000/day.
+                </p>
+                <details className="group">
+                  <summary className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 cursor-pointer hover:text-blue-900 flex items-center gap-1">
+                    <svg className="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    Meta Quality Best Practices
+                  </summary>
+                  <div className="mt-2 space-y-1.5 text-[10px] text-blue-700/70 dark:text-blue-400/70 pl-4 border-l-2 border-blue-200 dark:border-blue-700">
+                    <p><strong>Expected:</strong> Only message customers who opted in to receive messages from your business.</p>
+                    <p><strong>Timely:</strong> Connect messages to time-bound topics — seasonal events, recent purchases, browsed products.</p>
+                    <p><strong>Relevant:</strong> Personalize content based on customer interests with a clear call-to-action.</p>
+                    <p><strong>Frequency:</strong> Avoid sending too many messages in a short period — spread campaigns out.</p>
+                    <p><strong>Opt-out:</strong> Always provide a clear way for customers to unsubscribe.</p>
+                    <p className="text-[9px] italic pt-1">Following these guidelines improves your quality rating and unlocks higher messaging tiers faster.</p>
+                  </div>
+                </details>
+              </div>
+
               <div className="space-y-1">
                 <Label className="text-xs font-medium">Recipient Phone Numbers</Label>
                 <textarea
@@ -2326,10 +2361,26 @@ ${agentName} | ${brokerageName}
                   }}
                   className="text-sm min-h-[50px] w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-muted-foreground">
-                    {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length.toLocaleString()} / 30,000 numbers
-                  </p>
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  {(() => {
+                    const recipientCount = whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
+                    const dailyLimit = 2000;
+                    const daysNeeded = Math.ceil(recipientCount / dailyLimit);
+                    return (
+                      <div className="flex flex-col gap-0.5">
+                        <p className={`text-[10px] ${recipientCount > dailyLimit ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground'}`}>
+                          {recipientCount.toLocaleString()} recipients
+                          {recipientCount > dailyLimit && ` — only first ${dailyLimit.toLocaleString()} will be sent (Meta daily limit)`}
+                        </p>
+                        {recipientCount > dailyLimit && (
+                          <p className="text-[9px] text-amber-500/80 dark:text-amber-400/60">
+                            Meta limits: {dailyLimit.toLocaleString()}/day. {(recipientCount - dailyLimit).toLocaleString()} contacts will be skipped.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+                
                   <label className="cursor-pointer inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80">
                     <input
                       type="file"
@@ -2419,12 +2470,15 @@ ${agentName} | ${brokerageName}
                     />
                   </div>
                   <div className="flex items-center justify-between text-[11px]">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-green-700 dark:text-green-400 font-medium">{bulkProgress.sent.toLocaleString()} sent</span>
                       {bulkProgress.failed > 0 && (
                         <span className="text-red-600 font-medium">{bulkProgress.failed.toLocaleString()} failed</span>
                       )}
                       <span className="text-muted-foreground">of {bulkProgress.total.toLocaleString()}</span>
+                      {(bulkProgress as any).queued > 0 && (
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} over daily limit</span>
+                      )}
                     </div>
                     <span className="text-muted-foreground font-mono">{bulkProgress.percent}%</span>
                   </div>

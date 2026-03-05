@@ -20706,15 +20706,26 @@ Be helpful, professional, and concise. Always let users know what the platform c
         const BATCH_SIZE = 10;
         const BATCH_DELAY_MS = 1500;
         const LARGE_BATCH_THRESHOLD = 100;
+        const META_DAILY_LIMIT = 2000;
 
-        if (phoneNumbers.length > LARGE_BATCH_THRESHOLD) {
+        const numbersToSend = phoneNumbers.slice(0, META_DAILY_LIMIT);
+        const queuedCount = phoneNumbers.length > META_DAILY_LIMIT ? phoneNumbers.length - META_DAILY_LIMIT : 0;
+
+        if (queuedCount > 0) {
+          console.log(`📱 WhatsApp: ${phoneNumbers.length} contacts requested, sending first ${META_DAILY_LIMIT} now (${queuedCount} exceed Meta daily limit)`);
+        }
+
+        if (numbersToSend.length > LARGE_BATCH_THRESHOLD) {
           res.json({
             success: true,
             sent: 0,
             failed: 0,
-            total: phoneNumbers.length,
+            total: numbersToSend.length,
+            queued: queuedCount,
             background: true,
-            message: `Sending ${phoneNumbers.length} messages in the background. You'll see live progress updates.`,
+            message: queuedCount > 0
+              ? `Sending ${numbersToSend.length.toLocaleString()} messages now (Meta daily limit: ${META_DAILY_LIMIT.toLocaleString()}). ${queuedCount.toLocaleString()} contacts exceed today's limit.`
+              : `Sending ${numbersToSend.length.toLocaleString()} messages in the background. You'll see live progress updates.`,
           });
 
           (async () => {
@@ -20722,8 +20733,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
             let failedCount = 0;
             const startTime = Date.now();
 
-            for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
-              const batch = phoneNumbers.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
+              const batch = numbersToSend.slice(i, i + BATCH_SIZE);
               const results = await Promise.allSettled(
                 batch.map(async (phone: string) => {
                   try {
@@ -20746,26 +20757,27 @@ Be helpful, professional, and concise. Always let users know what the platform c
               }
 
               const processed = sentCount + failedCount;
-              const percent = Math.round((processed / phoneNumbers.length) * 100);
+              const percent = Math.round((processed / numbersToSend.length) * 100);
               const elapsed = Math.round((Date.now() - startTime) / 1000);
               const rate = processed > 0 ? (elapsed / processed) : 0;
-              const remaining = Math.round(rate * (phoneNumbers.length - processed));
+              const remaining = Math.round(rate * (numbersToSend.length - processed));
 
               realtimeService.sendToUser(String(userId), {
                 type: "whatsapp_bulk_progress",
                 data: {
                   sent: sentCount,
                   failed: failedCount,
-                  total: phoneNumbers.length,
+                  total: numbersToSend.length,
+                  queued: queuedCount,
                   percent,
                   elapsed,
                   estimatedRemaining: remaining,
-                  message: `Sent ${sentCount.toLocaleString()} of ${phoneNumbers.length.toLocaleString()} messages (${percent}%)`,
+                  message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} over daily limit` : ''}`,
                 },
                 timestamp: new Date().toISOString(),
               });
 
-              if (i + BATCH_SIZE < phoneNumbers.length) {
+              if (i + BATCH_SIZE < numbersToSend.length) {
                 await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
               }
             }
@@ -20775,19 +20787,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
               data: {
                 sent: sentCount,
                 failed: failedCount,
-                total: phoneNumbers.length,
+                total: numbersToSend.length,
+                queued: queuedCount,
                 elapsed: Math.round((Date.now() - startTime) / 1000),
-                message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${phoneNumbers.length.toLocaleString()}`,
+                message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts exceeded Meta's daily limit of ${META_DAILY_LIMIT.toLocaleString()} and were not sent.` : ''}`,
               },
               timestamp: new Date().toISOString(),
             });
 
-            console.log(`📱 WhatsApp bulk send complete for user ${userId}: ${sentCount} sent, ${failedCount} failed out of ${phoneNumbers.length}`);
+            console.log(`📱 WhatsApp bulk send complete for user ${userId}: ${sentCount} sent, ${failedCount} failed out of ${numbersToSend.length}${queuedCount > 0 ? ` (${queuedCount} exceeded daily limit)` : ''}`);
           })().catch((err) => {
             console.error("WhatsApp background bulk send error:", err);
             realtimeService.sendToUser(String(userId), {
               type: "whatsapp_bulk_complete",
-              data: { sent: 0, failed: phoneNumbers.length, total: phoneNumbers.length, error: err.message, message: `Bulk send failed: ${err.message}` },
+              data: { sent: 0, failed: numbersToSend.length, total: numbersToSend.length, queued: queuedCount, error: err.message, message: `Bulk send failed: ${err.message}` },
               timestamp: new Date().toISOString(),
             });
           });
@@ -20795,8 +20808,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
           let sentCount = 0;
           let failedCount = 0;
 
-          for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
-            const batch = phoneNumbers.slice(i, i + BATCH_SIZE);
+          for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
+            const batch = numbersToSend.slice(i, i + BATCH_SIZE);
             const results = await Promise.allSettled(
               batch.map(async (phone: string) => {
                 try {
@@ -20818,7 +20831,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
               else failedCount++;
             }
 
-            if (i + BATCH_SIZE < phoneNumbers.length) {
+            if (i + BATCH_SIZE < numbersToSend.length) {
               await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
             }
           }
@@ -20827,7 +20840,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
             success: sentCount > 0,
             sent: sentCount,
             failed: failedCount,
-            total: phoneNumbers.length,
+            total: numbersToSend.length,
+            queued: queuedCount,
           });
         }
       }

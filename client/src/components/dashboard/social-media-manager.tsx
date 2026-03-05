@@ -222,6 +222,52 @@ const stockPhotos = [
   },
 ];
 
+function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { selectedTemplate: string; onSelectTemplate: (name: string) => void }) {
+  const { data, isLoading } = useQuery<{ templates: any[] }>({
+    queryKey: ["/api/whatsapp/templates"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const templates = data?.templates || [];
+
+  if (isLoading) {
+    return (
+      <div className="mt-2">
+        <Label className="text-xs">WhatsApp Template (Optional)</Label>
+        <p className="text-xs text-muted-foreground mt-1">Loading templates...</p>
+      </div>
+    );
+  }
+
+  if (templates.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <Label className="text-xs">WhatsApp Template (Optional)</Label>
+      <Select value={selectedTemplate} onValueChange={onSelectTemplate}>
+        <SelectTrigger className="h-8 text-xs" data-testid="select-whatsapp-template">
+          <SelectValue placeholder="Send as free text (no template)" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Send as free text (no template)</SelectItem>
+          {templates.map((t: any) => (
+            <SelectItem key={t.name} value={t.name} data-testid={`template-${t.name}`}>
+              {t.name} ({t.category?.toLowerCase()}) — {t.language}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {selectedTemplate && selectedTemplate !== "none" && (
+        <p className="text-[10px] text-green-600">
+          Using template: {selectedTemplate} — This will be sent as a template message (works without 24hr window)
+        </p>
+      )}
+    </div>
+  );
+}
+
 const promoApps = [
   {
     id: "imakepage",
@@ -308,6 +354,7 @@ export function SocialMediaManager() {
   const [scheduleGenerateUnique, setScheduleGenerateUnique] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [whatsappTo, setWhatsappTo] = useState("");
+  const [whatsappTemplateName, setWhatsappTemplateName] = useState<string>("");
   const [isExtractingNumbers, setIsExtractingNumbers] = useState(false);
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
@@ -749,15 +796,19 @@ export function SocialMediaManager() {
 
         return response.json();
       } else if (data.platforms.includes("whatsapp")) {
-        const whatsappResponse = await apiRequest(
-          "POST",
-          "/api/whatsapp/send",
-          {
+        const whatsappPayload: any = {
             to: data.whatsappTo || "",
             message: data.content,
             ...(usePropertyPhoto ? { imageUrl: data.propertyPhotoUrl } : {}),
             ...(data.mediaIds?.length ? { imageUrl: data.mediaIds[0] } : {}),
-          },
+          };
+        if (whatsappTemplateName && whatsappTemplateName !== "none") {
+          whatsappPayload.templateName = whatsappTemplateName;
+        }
+        const whatsappResponse = await apiRequest(
+          "POST",
+          "/api/whatsapp/send",
+          whatsappPayload,
         );
         return whatsappResponse.json();
       } else {
@@ -2191,6 +2242,10 @@ ${agentName} | ${brokerageName}
               <p className="text-[10px] text-muted-foreground/70 mt-0.5">
                 Supported files: Excel/CSV (.csv), PDF (.pdf), Word (.docx), or plain text (.txt) containing phone numbers
               </p>
+              <WhatsAppTemplateSelector
+                selectedTemplate={whatsappTemplateName}
+                onSelectTemplate={(name) => setWhatsappTemplateName(name)}
+              />
             </div>
           )}
           {selectedPlatforms.length > 0 && (

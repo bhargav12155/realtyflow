@@ -115,6 +115,27 @@ export class WhatsAppService {
     return await response.json();
   }
 
+  async getMessageTemplates(wabId: string, accessToken: string): Promise<any[]> {
+    console.log(`📱 WhatsApp: Fetching message templates for WABA ${wabId}`);
+    const response = await fetch(
+      `https://graph.facebook.com/v22.0/${wabId}/message_templates?fields=name,status,category,language,components&limit=100`,
+      {
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Templates Fetch Error:", error);
+      throw new Error(`WhatsApp API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    const result = await response.json();
+    return (result.data || []).filter((t: any) => t.status === "APPROVED");
+  }
+
   // Mark a message as read
   async markAsRead(phoneNumberId: string, accessToken: string, messageId: string): Promise<void> {
     await fetch(

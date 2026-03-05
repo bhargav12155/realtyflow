@@ -47,6 +47,7 @@ import {
   Loader2,
   Megaphone,
   MessageCircle,
+  Pause,
   Music,
   Percent,
   Plug,
@@ -643,6 +644,11 @@ export function SocialMediaManager() {
     enabled: !isRealEstate,
   });
 
+  const { data: bulkQueues = [] } = useQuery<any[]>({
+    queryKey: ["/api/whatsapp/bulk-queues"],
+    refetchInterval: 30000,
+  });
+
   const { data: mediaAssets = [] } = useQuery<any[]>({
     queryKey: ["/api/media"],
   });
@@ -682,6 +688,15 @@ export function SocialMediaManager() {
               description: msg.data.message,
               variant: msg.data.failed > 0 ? "destructive" : "default",
             });
+            queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+          } else if (msg.type === "whatsapp_queue_progress" || msg.type === "whatsapp_queue_batch_start" || msg.type === "whatsapp_queue_batch_complete" || msg.type === "whatsapp_queue_complete") {
+            queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+            if (msg.type === "whatsapp_queue_complete") {
+              toast({
+                title: "Queue Complete",
+                description: msg.data.message,
+              });
+            }
           }
         } catch {}
       };
@@ -2576,7 +2591,7 @@ ${agentName} | ${brokerageName}
                       )}
                       <span className="text-muted-foreground">of {bulkProgress.total.toLocaleString()}</span>
                       {(bulkProgress as any).queued > 0 && (
-                        <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} over daily limit</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} auto-queued for next batch</span>
                       )}
                     </div>
                     <span className="text-muted-foreground font-mono">{bulkProgress.percent}%</span>
@@ -2586,6 +2601,117 @@ ${agentName} | ${brokerageName}
                       Estimated time remaining: {bulkProgress.estimatedRemaining > 60 ? `${Math.round(bulkProgress.estimatedRemaining / 60)}m` : `${bulkProgress.estimatedRemaining}s`}
                     </p>
                   )}
+                </div>
+              )}
+              {bulkQueues.filter((q: any) => q.status === "active" || q.status === "paused").length > 0 && (
+                <div className="space-y-2" data-testid="whatsapp-bulk-queue-dashboard">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Clock className="h-4 w-4 text-amber-500" />
+                    <span>Queued Messages</span>
+                  </div>
+                  {bulkQueues
+                    .filter((q: any) => q.status === "active" || q.status === "paused")
+                    .map((q: any) => {
+                      const remaining = q.remainingNumbers?.length || 0;
+                      const totalSent = q.sentCount || 0;
+                      const totalFailed = q.failedCount || 0;
+                      const overallPercent = q.totalNumbers > 0
+                        ? Math.round(((totalSent + totalFailed) / q.totalNumbers) * 100)
+                        : 0;
+                      const nextBatch = q.nextBatchAt ? new Date(q.nextBatchAt) : null;
+                      const renewalTime = nextBatch
+                        ? nextBatch.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                        : "—";
+
+                      return (
+                        <div
+                          key={q.id}
+                          className={`rounded-lg border p-3 space-y-2 ${q.status === "paused" ? "border-yellow-300 bg-yellow-50/50 dark:bg-yellow-950/20" : "border-amber-300 bg-amber-50/50 dark:bg-amber-950/20"}`}
+                          data-testid={`bulk-queue-${q.id}`}
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              {q.status === "paused" ? (
+                                <Pause className="h-3.5 w-3.5 text-yellow-600" />
+                              ) : (
+                                <RefreshCw className="h-3.5 w-3.5 text-amber-600 animate-spin" />
+                              )}
+                              <span className="font-medium">
+                                {q.templateName ? `Template: ${q.templateName}` : "Text message"}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${q.status === "paused" ? "bg-yellow-200 text-yellow-800" : "bg-amber-200 text-amber-800"}`}>
+                                {q.status}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {q.status === "active" ? (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await apiRequest("POST", `/api/whatsapp/bulk-queues/${q.id}/pause`);
+                                    queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                  }}
+                                  className="px-2 py-0.5 text-[10px] rounded bg-yellow-100 hover:bg-yellow-200 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 dark:hover:bg-yellow-900"
+                                  data-testid={`btn-pause-queue-${q.id}`}
+                                >
+                                  Pause
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await apiRequest("POST", `/api/whatsapp/bulk-queues/${q.id}/resume`);
+                                    queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                  }}
+                                  className="px-2 py-0.5 text-[10px] rounded bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300 dark:hover:bg-green-900"
+                                  data-testid={`btn-resume-queue-${q.id}`}
+                                >
+                                  Resume
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await apiRequest("POST", `/api/whatsapp/bulk-queues/${q.id}/cancel`);
+                                  queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                }}
+                                className="px-2 py-0.5 text-[10px] rounded bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-900/50 dark:text-red-300 dark:hover:bg-red-900"
+                                data-testid={`btn-cancel-queue-${q.id}`}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                              style={{ width: `${overallPercent}%` }}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                            <div>
+                              <span className="text-muted-foreground">Sent</span>
+                              <p className="font-semibold text-green-700 dark:text-green-400">{totalSent.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Remaining</span>
+                              <p className="font-semibold text-amber-700 dark:text-amber-400">{remaining.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Quota/Day</span>
+                              <p className="font-semibold">{(q.dailyLimit || 2000).toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Next Batch</span>
+                              <p className="font-semibold text-xs">{renewalTime}</p>
+                            </div>
+                          </div>
+                          {totalFailed > 0 && (
+                            <p className="text-[10px] text-red-600">{totalFailed.toLocaleString()} failed</p>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>

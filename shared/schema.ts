@@ -1722,3 +1722,35 @@ export const insertBusinessLocationSchema = createInsertSchema(businessLocations
 
 export type BusinessLocation = typeof businessLocations.$inferSelect;
 export type InsertBusinessLocation = z.infer<typeof insertBusinessLocationSchema>;
+
+// =====================================================
+// WHATSAPP BULK SEND QUEUES
+// Auto-queue remaining contacts for next-day delivery
+// =====================================================
+export const whatsappBulkQueues = pgTable("whatsapp_bulk_queues", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  status: text("status").notNull().default("active"),
+  templateName: text("template_name"),
+  messageText: text("message_text"),
+  totalNumbers: integer("total_numbers").notNull(),
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  remainingNumbers: text("remaining_numbers").array().notNull(),
+  dailyLimit: integer("daily_limit").notNull().default(2000),
+  lastBatchSentAt: timestamp("last_batch_sent_at"),
+  nextBatchAt: timestamp("next_batch_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertWhatsappBulkQueueSchema = createInsertSchema(whatsappBulkQueues).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type WhatsappBulkQueue = typeof whatsappBulkQueues.$inferSelect;
+export type InsertWhatsappBulkQueue = z.infer<typeof insertWhatsappBulkQueueSchema>;

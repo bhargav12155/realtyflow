@@ -114,6 +114,11 @@ app.use((req, res, next) => {
   const postScheduler = new PostScheduler(storage, socialMediaService);
   postScheduler.start();
 
+  // Initialize WhatsApp bulk queue scheduler
+  const { BulkQueueScheduler } = await import("./services/bulk-queue-scheduler");
+  const bulkQueueScheduler = new BulkQueueScheduler(storage, realtimeService);
+  bulkQueueScheduler.start();
+
   // Initialize background video job worker
   const { startVideoJobWorker } = await import("./services/videoJobWorker.js");
   startVideoJobWorker();

@@ -20792,6 +20792,27 @@ Be helpful, professional, and concise. Always let users know what the platform c
           console.log(`📱 WhatsApp: ${phoneNumbers.length} contacts requested, sending first ${META_DAILY_LIMIT} now (${queuedCount} exceed Meta daily limit)`);
         }
 
+        let bulkQueueId: string | null = null;
+        if (queuedCount > 0) {
+          const overflowNumbers = phoneNumbers.slice(META_DAILY_LIMIT);
+          const tomorrow = new Date();
+          tomorrow.setHours(tomorrow.getHours() + 24);
+          const bulkQueue = await storage.createWhatsappBulkQueue({
+            userId: String(userId),
+            status: "active",
+            templateName: templateName || null,
+            messageText: message || null,
+            totalNumbers: phoneNumbers.length,
+            sentCount: 0,
+            failedCount: 0,
+            remainingNumbers: overflowNumbers,
+            dailyLimit: META_DAILY_LIMIT,
+            nextBatchAt: tomorrow,
+          });
+          bulkQueueId = bulkQueue.id;
+          console.log(`📱 WhatsApp: Created bulk queue ${bulkQueue.id} with ${overflowNumbers.length} overflow contacts, next batch at ${tomorrow.toISOString()}`);
+        }
+
         if (numbersToSend.length > LARGE_BATCH_THRESHOLD) {
           res.json({
             success: true,
@@ -20799,9 +20820,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
             failed: 0,
             total: numbersToSend.length,
             queued: queuedCount,
+            bulkQueueId,
             background: true,
             message: queuedCount > 0
-              ? `Sending ${numbersToSend.length.toLocaleString()} messages now (Meta daily limit: ${META_DAILY_LIMIT.toLocaleString()}). ${queuedCount.toLocaleString()} contacts exceed today's limit.`
+              ? `Sending ${numbersToSend.length.toLocaleString()} messages now (Meta daily limit: ${META_DAILY_LIMIT.toLocaleString()}). ${queuedCount.toLocaleString()} contacts auto-queued for next batch.`
               : `Sending ${numbersToSend.length.toLocaleString()} messages in the background. You'll see live progress updates.`,
           });
 
@@ -20888,6 +20910,14 @@ Be helpful, professional, and concise. Always let users know what the platform c
               }
             }
 
+            if (bulkQueueId) {
+              await storage.updateWhatsappBulkQueue(bulkQueueId, {
+                sentCount,
+                failedCount,
+                lastBatchSentAt: new Date(),
+              });
+            }
+
             realtimeService.sendToUser(String(userId), {
               type: "whatsapp_bulk_complete",
               data: {
@@ -20895,13 +20925,14 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 failed: failedCount,
                 total: numbersToSend.length,
                 queued: queuedCount,
+                bulkQueueId,
                 elapsed: Math.round((Date.now() - startTime) / 1000),
-                message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts exceeded Meta's daily limit of ${META_DAILY_LIMIT.toLocaleString()} and were not sent.` : ''}`,
+                message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts auto-queued for next batch.` : ''}`,
               },
               timestamp: new Date().toISOString(),
             });
 
-            console.log(`📱 WhatsApp bulk send complete for user ${userId}: ${sentCount} sent, ${failedCount} failed out of ${numbersToSend.length}${queuedCount > 0 ? ` (${queuedCount} exceeded daily limit)` : ''}`);
+            console.log(`📱 WhatsApp bulk send complete for user ${userId}: ${sentCount} sent, ${failedCount} failed out of ${numbersToSend.length}${queuedCount > 0 ? ` (${queuedCount} auto-queued)` : ''}`);
           })().catch((err) => {
             console.error("WhatsApp background bulk send error:", err);
             realtimeService.sendToUser(String(userId), {
@@ -21077,6 +21108,78 @@ Be helpful, professional, and concise. Always let users know what the platform c
     } catch (error: any) {
       console.error("Error extracting phone numbers:", error);
       res.status(500).json({ error: "Failed to extract phone numbers from file" });
+    }
+  });
+
+  // WhatsApp Bulk Queue Management
+  app.get("/api/whatsapp/bulk-queues", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queues = await storage.getWhatsappBulkQueuesByUserId(String(userId));
+      res.json(queues);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/whatsapp/bulk-queues/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queue = await storage.getWhatsappBulkQueueById(req.params.id);
+      if (!queue) return res.status(404).json({ error: "Queue not found" });
+      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      res.json(queue);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/whatsapp/bulk-queues/:id/pause", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queue = await storage.getWhatsappBulkQueueById(req.params.id);
+      if (!queue) return res.status(404).json({ error: "Queue not found" });
+      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      if (queue.status !== "active") return res.status(400).json({ error: "Queue is not active" });
+      const updated = await storage.updateWhatsappBulkQueue(req.params.id, { status: "paused" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/whatsapp/bulk-queues/:id/resume", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queue = await storage.getWhatsappBulkQueueById(req.params.id);
+      if (!queue) return res.status(404).json({ error: "Queue not found" });
+      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      if (queue.status !== "paused") return res.status(400).json({ error: "Queue is not paused" });
+      const updated = await storage.updateWhatsappBulkQueue(req.params.id, { status: "active" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/whatsapp/bulk-queues/:id/cancel", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+      const queue = await storage.getWhatsappBulkQueueById(req.params.id);
+      if (!queue) return res.status(404).json({ error: "Queue not found" });
+      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      if (queue.status === "completed" || queue.status === "cancelled") {
+        return res.status(400).json({ error: `Queue is already ${queue.status}` });
+      }
+      const updated = await storage.updateWhatsappBulkQueue(req.params.id, { status: "cancelled" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

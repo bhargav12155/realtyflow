@@ -89,9 +89,12 @@ import {
   type InsertWhatsappConversation,
   type WhatsappMessage,
   type InsertWhatsappMessage,
+  type WhatsappBulkQueue,
+  type InsertWhatsappBulkQueue,
   whatsappSettings as whatsappSettingsTable,
   whatsappConversations as whatsappConversationsTable,
   whatsappMessages as whatsappMessagesTable,
+  whatsappBulkQueues as whatsappBulkQueuesTable,
   type MenuItem,
   type InsertMenuItem,
   menuItems as menuItemsTable,
@@ -403,6 +406,13 @@ export interface IStorage {
   // WhatsApp Messages
   createWhatsappMessage(data: InsertWhatsappMessage): Promise<WhatsappMessage>;
   getWhatsappMessagesByConversationId(conversationId: string): Promise<WhatsappMessage[]>;
+
+  // WhatsApp Bulk Queues
+  createWhatsappBulkQueue(data: InsertWhatsappBulkQueue): Promise<WhatsappBulkQueue>;
+  getWhatsappBulkQueuesByUserId(userId: string): Promise<WhatsappBulkQueue[]>;
+  getWhatsappBulkQueueById(id: string): Promise<WhatsappBulkQueue | undefined>;
+  updateWhatsappBulkQueue(id: string, updates: Partial<WhatsappBulkQueue>): Promise<WhatsappBulkQueue | undefined>;
+  getActiveWhatsappBulkQueues(): Promise<WhatsappBulkQueue[]>;
 
   // Menu Items (multi-vertical catalog)
   getMenuItems(userId: string, businessType?: string): Promise<MenuItem[]>;
@@ -2682,6 +2692,40 @@ export class MemStorage implements IStorage {
   async deleteBusinessLocation(id: string): Promise<boolean> {
     await db.delete(businessLocationsTable).where(eq(businessLocationsTable.id, id));
     return true;
+  }
+
+  async createWhatsappBulkQueue(data: InsertWhatsappBulkQueue): Promise<WhatsappBulkQueue> {
+    const [created] = await db.insert(whatsappBulkQueuesTable).values(data).returning();
+    return created;
+  }
+
+  async getWhatsappBulkQueuesByUserId(userId: string): Promise<WhatsappBulkQueue[]> {
+    return await db
+      .select()
+      .from(whatsappBulkQueuesTable)
+      .where(eq(whatsappBulkQueuesTable.userId, userId))
+      .orderBy(sql`created_at DESC`);
+  }
+
+  async getWhatsappBulkQueueById(id: string): Promise<WhatsappBulkQueue | undefined> {
+    const [queue] = await db.select().from(whatsappBulkQueuesTable).where(eq(whatsappBulkQueuesTable.id, id));
+    return queue;
+  }
+
+  async updateWhatsappBulkQueue(id: string, updates: Partial<WhatsappBulkQueue>): Promise<WhatsappBulkQueue | undefined> {
+    const [updated] = await db
+      .update(whatsappBulkQueuesTable)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(whatsappBulkQueuesTable.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getActiveWhatsappBulkQueues(): Promise<WhatsappBulkQueue[]> {
+    return await db
+      .select()
+      .from(whatsappBulkQueuesTable)
+      .where(eq(whatsappBulkQueuesTable.status, "active"));
   }
 }
 

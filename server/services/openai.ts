@@ -95,18 +95,20 @@ function createGeminiCompatibleClient() {
     images: {
       async generate(params: any): Promise<any> {
         try {
-          const response = await genAI.models.generateImages({
-            model: "imagen-3.0-generate-002",
-            prompt: params.prompt,
-            config: { numberOfImages: 1 },
+          const response = await genAI.models.generateContent({
+            model: "gemini-2.0-flash-exp-image-generation",
+            contents: [{ role: "user", parts: [{ text: params.prompt }] }],
+            config: { responseModalities: ["TEXT", "IMAGE"] },
           });
-          const img = response.generatedImages?.[0]?.image?.imageBytes;
-          if (img) {
-            return { data: [{ url: `data:image/png;base64,${img}` }] };
+          const parts = response.candidates?.[0]?.content?.parts || [];
+          const imgPart = parts.find((p: any) => p.inlineData);
+          if (imgPart?.inlineData?.data) {
+            const mime = imgPart.inlineData.mimeType || "image/png";
+            return { data: [{ url: `data:${mime};base64,${imgPart.inlineData.data}` }] };
           }
           return { data: [{ url: null }] };
         } catch (err: any) {
-          console.error("⚠️ [Gemini] Imagen generation error:", err?.message);
+          console.error("⚠️ [Gemini] Image generation error:", err?.message);
           return { data: [{ url: null }] };
         }
       },
@@ -591,42 +593,44 @@ RULES:
   async generateImage({ prompt, size = "1024x1024" }: { prompt: string; size?: string }): Promise<string | null> {
     try {
       const genAI = getGeminiClient();
-      console.log(`🎨 [Imagen] Generating image with prompt: "${prompt.substring(0, 100)}..."`);
+      console.log(`🎨 [ImageGen] Generating image with prompt: "${prompt.substring(0, 100)}..."`);
 
-      const response = await genAI.models.generateImages({
-        model: "imagen-3.0-generate-002",
-        prompt,
-        config: {
-          numberOfImages: 1,
-        },
+      const response = await genAI.models.generateContent({
+        model: "gemini-2.0-flash-exp-image-generation",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: { responseModalities: ["TEXT", "IMAGE"] },
       });
 
-      const images = response.generatedImages;
-      if (!images || images.length === 0 || !images[0].image?.imageBytes) {
-        console.warn("⚠️ [Imagen] No image returned from Imagen 3");
+      const parts = response.candidates?.[0]?.content?.parts || [];
+      const imgPart = parts.find((p: any) => p.inlineData);
+
+      if (!imgPart?.inlineData?.data) {
+        console.warn("⚠️ [ImageGen] No image returned from Gemini image generation");
         return null;
       }
 
-      const imageBytes = images[0].image.imageBytes;
-      const imageBuffer = Buffer.from(imageBytes, "base64");
-      const filename = `ai-generated-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+      const imageBase64 = imgPart.inlineData.data;
+      const mimeType = imgPart.inlineData.mimeType || "image/png";
+      const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+      const imageBuffer = Buffer.from(imageBase64, "base64");
+      const filename = `ai-generated-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
       try {
         const { persistImageBuffer } = await import("../objectStorage");
-        const storedUrl = await persistImageBuffer(imageBuffer, filename, "image/png");
+        const storedUrl = await persistImageBuffer(imageBuffer, filename, mimeType);
         if (storedUrl) {
-          console.log(`✅ [Imagen] Image generated and stored: ${storedUrl}`);
+          console.log(`✅ [ImageGen] Image generated and stored: ${storedUrl}`);
           return storedUrl;
         }
       } catch (storageError: any) {
-        console.warn(`⚠️ [Imagen] Object storage failed, using base64 fallback:`, storageError?.message);
+        console.warn(`⚠️ [ImageGen] Object storage failed, using base64 fallback:`, storageError?.message);
       }
 
-      const base64DataUri = `data:image/png;base64,${imageBytes}`;
-      console.log(`✅ [Imagen] Image generated (base64 fallback, ${imageBuffer.length} bytes)`);
+      const base64DataUri = `data:${mimeType};base64,${imageBase64}`;
+      console.log(`✅ [ImageGen] Image generated (base64 fallback, ${imageBuffer.length} bytes)`);
       return base64DataUri;
     } catch (error: any) {
-      console.error("❌ [Imagen] Image generation error:", error?.message || error);
+      console.error("❌ [ImageGen] Image generation error:", error?.message || error);
       return null;
     }
   }

@@ -285,91 +285,122 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
 
   const statusBadge = (status: string) => {
     const s = (status || "").toUpperCase();
-    if (s === "APPROVED" || s.startsWith("ACTIVE")) return { label: "Active", color: "text-green-600 bg-green-50" };
-    if (s === "PENDING") return { label: "Pending", color: "text-amber-600 bg-amber-50" };
-    if (s === "REJECTED") return { label: "Rejected", color: "text-red-600 bg-red-50" };
-    return { label: status, color: "text-gray-600 bg-gray-50" };
+    if (s === "APPROVED" || s.startsWith("ACTIVE")) return { label: "Active", color: "text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 border-green-200 dark:border-green-800", dot: "bg-green-500" };
+    if (s === "PENDING") return { label: "Pending", color: "text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800", dot: "bg-amber-500" };
+    if (s === "REJECTED") return { label: "Rejected", color: "text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900/40 border-red-200 dark:border-red-800", dot: "bg-red-500" };
+    return { label: status, color: "text-gray-600 bg-gray-100 border-gray-200", dot: "bg-gray-400" };
+  };
+
+  const activeTemplates = templates.filter((t: any) => {
+    const s = (t.status || "").toUpperCase();
+    return s === "APPROVED" || s.startsWith("ACTIVE");
+  });
+  const pendingTemplates = templates.filter((t: any) => (t.status || "").toUpperCase() === "PENDING");
+
+  const formatTemplateName = (name: string) => {
+    return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const categoryIcon = (cat: string) => {
+    if ((cat || "").toUpperCase() === "UTILITY") return "🔧";
+    return "📣";
   };
 
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-3 space-y-3">
       <div className="flex items-center justify-between">
-        <Label className="text-xs">WhatsApp Template (Optional)</Label>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs font-semibold">Message Templates</Label>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-medium">
+            {activeTemplates.length} active
+          </span>
+          {pendingTemplates.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium">
+              {pendingTemplates.length} pending
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setShowCreate(!showCreate)}
-          className="text-[10px] font-medium text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+          className="text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all"
           data-testid="button-create-whatsapp-template"
         >
-          {showCreate ? "Cancel" : "+ Create Template"}
+          {showCreate ? "Cancel" : "+ New Template"}
         </button>
       </div>
 
       {showCreate && (
-        <div className="border border-border rounded-md p-3 space-y-2 bg-muted/30">
-          <div>
-            <Label className="text-[10px] text-muted-foreground">Template Name</Label>
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. lunch_special"
-              className="h-7 text-xs mt-0.5"
-              data-testid="input-template-name"
-            />
-            <p className="text-[9px] text-muted-foreground mt-0.5">Lowercase letters, numbers, and underscores only</p>
+        <div className="border border-green-200 dark:border-green-800 rounded-xl p-4 space-y-3 bg-gradient-to-br from-green-50/50 to-white dark:from-green-950/20 dark:to-background shadow-sm">
+          <h4 className="text-xs font-semibold text-green-800 dark:text-green-300 flex items-center gap-1.5">
+            <span className="w-5 h-5 rounded-md bg-green-600 flex items-center justify-center text-white text-[10px]">+</span>
+            Create New Template
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-[10px] text-muted-foreground font-medium">Template Name</Label>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. lunch_special"
+                className="h-8 text-xs mt-0.5"
+                data-testid="input-template-name"
+              />
+              <p className="text-[9px] text-muted-foreground mt-0.5">Lowercase, numbers, underscores</p>
+            </div>
+            <div>
+              <Label className="text-[10px] text-muted-foreground font-medium">Category</Label>
+              <Select value={newCategory} onValueChange={setNewCategory}>
+                <SelectTrigger className="h-8 text-xs mt-0.5" data-testid="select-template-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="MARKETING">📣 Marketing</SelectItem>
+                  <SelectItem value="UTILITY">🔧 Utility</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div>
-            <Label className="text-[10px] text-muted-foreground">Category</Label>
-            <Select value={newCategory} onValueChange={setNewCategory}>
-              <SelectTrigger className="h-7 text-xs mt-0.5" data-testid="select-template-category">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="MARKETING">Marketing — Promotions, offers, updates</SelectItem>
-                <SelectItem value="UTILITY">Utility — Order updates, confirmations, reminders</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-[10px] text-muted-foreground">Header (Optional)</Label>
+            <Label className="text-[10px] text-muted-foreground font-medium">Header (Optional)</Label>
             <Input
               value={newHeader}
               onChange={(e) => setNewHeader(e.target.value)}
               placeholder="e.g. Namaste Indian Restaurant"
-              className="h-7 text-xs mt-0.5"
+              className="h-8 text-xs mt-0.5"
               maxLength={60}
               data-testid="input-template-header"
             />
-            <p className="text-[9px] text-muted-foreground">{newHeader.length}/60 — short title at the top of the message</p>
+            <p className="text-[9px] text-muted-foreground">{newHeader.length}/60</p>
           </div>
           <div>
-            <Label className="text-[10px] text-muted-foreground">Message Body</Label>
+            <Label className="text-[10px] text-muted-foreground font-medium">Message Body</Label>
             <textarea
               value={newBody}
               onChange={(e) => setNewBody(e.target.value)}
               placeholder="Write your template message here..."
-              className="text-xs min-h-[60px] w-full rounded-md border border-input bg-background px-2 py-1.5 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring mt-0.5"
+              className="text-xs min-h-[70px] w-full rounded-lg border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 mt-0.5"
               data-testid="input-template-body"
             />
             <p className="text-[9px] text-muted-foreground">{newBody.length}/1024 characters</p>
           </div>
           <div>
-            <Label className="text-[10px] text-muted-foreground">Footer (Optional)</Label>
+            <Label className="text-[10px] text-muted-foreground font-medium">Footer (Optional)</Label>
             <Input
               value={newFooter}
               onChange={(e) => setNewFooter(e.target.value)}
-              placeholder="e.g. Order: (402) 320-4775 | namasteomaha.com"
-              className="h-7 text-xs mt-0.5"
+              placeholder="e.g. Order: (479) 346-0255 | namaste28.com"
+              className="h-8 text-xs mt-0.5"
               maxLength={60}
               data-testid="input-template-footer"
             />
-            <p className="text-[9px] text-muted-foreground">{newFooter.length}/60 — small text at the bottom</p>
+            <p className="text-[9px] text-muted-foreground">{newFooter.length}/60</p>
           </div>
           <Button
             size="sm"
             onClick={handleCreate}
             disabled={creating || !newName.trim() || !newBody.trim()}
-            className="h-7 text-xs w-full"
+            className="h-8 text-xs w-full bg-green-600 hover:bg-green-700 text-white rounded-lg"
             data-testid="button-submit-template"
           >
             {creating ? "Submitting..." : "Submit for Meta Review"}
@@ -379,17 +410,16 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
       )}
 
       <Select value={selectedTemplate} onValueChange={onSelectTemplate}>
-        <SelectTrigger className="h-8 text-xs" data-testid="select-whatsapp-template">
+        <SelectTrigger className="h-9 text-xs rounded-lg border-green-200 dark:border-green-800 focus:ring-green-500" data-testid="select-whatsapp-template">
           <SelectValue placeholder="Send as free text (no template)" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="none">Send as free text (no template)</SelectItem>
           {templates.map((t: any) => {
             const isPending = (t.status || "").toUpperCase() === "PENDING";
-            const badge = statusBadge(t.status);
             return (
               <SelectItem key={t.name} value={t.name} data-testid={`template-${t.name}`} disabled={isPending}>
-                {t.name} ({t.category?.toLowerCase()}) — {badge.label}{isPending ? " ⏳" : ""}
+                {categoryIcon(t.category)} {formatTemplateName(t.name)}{isPending ? " (pending)" : ""}
               </SelectItem>
             );
           })}
@@ -397,7 +427,7 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
       </Select>
 
       {templates.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
           {templates.map((t: any) => {
             const badge = statusBadge(t.status);
             const headerComp = t.components?.find((c: any) => c.type === "HEADER");
@@ -407,32 +437,54 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
             const bodyText = bodyComp?.text || "";
             const footerText = footerComp?.text || "";
             const isSelected = selectedTemplate === t.name;
+            const isPending = (t.status || "").toUpperCase() === "PENDING";
             return (
               <div
                 key={t.name}
-                className={`text-[10px] p-2 rounded border cursor-pointer transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border/50 hover:border-border"}`}
+                className={`text-[11px] rounded-xl border transition-all duration-200 cursor-pointer overflow-hidden ${
+                  isSelected
+                    ? "border-green-500 bg-green-50/50 dark:bg-green-950/20 shadow-sm shadow-green-200/50 dark:shadow-green-900/30"
+                    : isPending
+                      ? "border-amber-200/60 dark:border-amber-800/40 hover:border-amber-300 bg-amber-50/20 dark:bg-amber-950/10"
+                      : "border-border/60 hover:border-green-300 dark:hover:border-green-700 hover:shadow-sm"
+                }`}
                 onClick={() => {
-                  const isPending = (t.status || "").toUpperCase() === "PENDING";
                   if (!isPending) onSelectTemplate(t.name);
                   setPreviewTemplate(previewTemplate?.name === t.name ? null : t);
                 }}
                 data-testid={`template-card-${t.name}`}
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{t.name}</span>
-                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.color}`}>{badge.label}</span>
+                <div className="flex items-center gap-2.5 px-3 py-2.5">
+                  <span className="text-sm flex-shrink-0">{categoryIcon(t.category)}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold text-foreground">{formatTemplateName(t.name)}</span>
+                    {headerText && !previewTemplate?.name && (
+                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">{headerText}</p>
+                    )}
+                  </div>
+                  <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold border ${badge.color}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+                    {badge.label}
+                  </span>
+                  {isSelected && (
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                      <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </span>
+                  )}
                 </div>
                 {previewTemplate?.name === t.name && (
-                  <div className="mt-1 space-y-1">
-                    {headerText && (
-                      <p className="font-semibold text-foreground">{headerText}</p>
-                    )}
-                    {bodyText && (
-                      <p className="text-muted-foreground leading-relaxed">{bodyText}</p>
-                    )}
-                    {footerText && (
-                      <p className="text-muted-foreground/70 italic text-[9px]">{footerText}</p>
-                    )}
+                  <div className="px-3 pb-3 pt-0 border-t border-border/30">
+                    <div className="mt-2 rounded-lg bg-white dark:bg-background p-3 space-y-1.5 shadow-inner border border-border/20">
+                      {headerText && (
+                        <p className="font-bold text-foreground text-xs">{headerText}</p>
+                      )}
+                      {bodyText && (
+                        <p className="text-muted-foreground text-[11px] leading-relaxed">{bodyText}</p>
+                      )}
+                      {footerText && (
+                        <p className="text-muted-foreground/60 text-[10px] italic pt-1 border-t border-dashed border-border/30">{footerText}</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -442,9 +494,14 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
       )}
 
       {selectedTemplate && selectedTemplate !== "none" && (
-        <p className="text-[10px] text-green-600">
-          Using template: {selectedTemplate} — This will be sent as a template message (works without 24hr window)
-        </p>
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+          <span className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </span>
+          <p className="text-[11px] text-green-700 dark:text-green-400 font-medium">
+            Template: <span className="font-bold">{formatTemplateName(selectedTemplate)}</span> — sends without 24hr window restriction
+          </p>
+        </div>
       )}
     </div>
   );

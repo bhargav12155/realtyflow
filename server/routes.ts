@@ -20549,38 +20549,17 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const settings = await storage.getWhatsappSettingsByUserId(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
-      const wabId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "";
+      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || "").trim();
 
       if (!accessToken) {
         return res.status(400).json({ error: "WhatsApp access token not configured" });
       }
 
-      let lookupId = wabId.trim();
-      if (!lookupId && phoneNumberId) {
-        try {
-          const phoneRes = await fetch(
-            `https://graph.facebook.com/v22.0/${phoneNumberId}?fields=id,display_phone_number`,
-            { headers: { "Authorization": `Bearer ${accessToken}` } }
-          );
-          if (phoneRes.ok) {
-            const appRes = await fetch(
-              `https://graph.facebook.com/v22.0/${phoneNumberId}/whatsapp_business_account`,
-              { headers: { "Authorization": `Bearer ${accessToken}` } }
-            );
-            if (appRes.ok) {
-              const appData = await appRes.json();
-              lookupId = appData.id;
-            }
-          }
-        } catch (err) {
-          console.log("Could not auto-discover WABA ID from phone number");
-        }
+      if (!wabaId) {
+        return res.json({ templates: [], message: "WhatsApp Business Account ID (WABA ID) not configured in settings" });
       }
 
-      if (!lookupId) {
-        return res.json({ templates: [], message: "Set WHATSAPP_BUSINESS_ACCOUNT_ID to load templates" });
-      }
+      const lookupId = wabaId;
 
       const templates = await whatsappService.getMessageTemplates(lookupId, accessToken);
       res.json({ templates });

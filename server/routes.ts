@@ -20659,7 +20659,15 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "WhatsApp not configured. Please set up your WhatsApp Business settings or set WHATSAPP_PHONE_NUMBER_ID environment variable." });
       }
 
-      const rawNumbers = to.split(/[\n,]+/).map((n: string) => n.replace(/\D/g, "")).filter((n: string) => n.length > 0);
+      const rawNumbers = to.split(/[\n,]+/)
+        .map((n: string) => {
+          let cleaned = n.replace(/\D/g, "");
+          if (cleaned.length === 10 && !cleaned.startsWith("1")) {
+            cleaned = "1" + cleaned;
+          }
+          return cleaned;
+        })
+        .filter((n: string) => n.length >= 10 && n.length <= 15);
       const phoneNumbers = [...new Set(rawNumbers)].slice(0, 30000);
       const duplicatesRemoved = rawNumbers.length - phoneNumbers.length;
       if (duplicatesRemoved > 0) {
@@ -20930,8 +20938,23 @@ Be helpful, professional, and concise. Always let users know what the platform c
           const buffer = await fsPromises.readFile(filePath);
           const result = await mammoth.extractRawText({ buffer });
           text = result.value;
+        } else if (originalName.endsWith(".numbers") || originalName.endsWith(".xlsx") || originalName.endsWith(".xls")) {
+          const fsPromises = await import("fs/promises");
+          const XLSX = await import("xlsx");
+          const buffer = await fsPromises.readFile(filePath);
+          const workbook = XLSX.read(buffer, { type: "buffer" });
+          const allText: string[] = [];
+          for (const sheetName of workbook.SheetNames) {
+            const sheet = workbook.Sheets[sheetName];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as any[][];
+            for (const row of rows) {
+              allText.push(row.map((cell: any) => String(cell || "")).join(" "));
+            }
+          }
+          text = allText.join("\n");
+          console.log(`📱 Parsed spreadsheet "${originalName}": ${workbook.SheetNames.length} sheet(s), ${allText.length} rows`);
         } else {
-          return res.status(400).json({ error: "Unsupported file type. Please upload CSV, PDF, TXT, or Word (.docx) files." });
+          return res.status(400).json({ error: "Unsupported file type. Please upload CSV, TXT, PDF, Word (.docx), Excel (.xlsx), or Apple Numbers (.numbers) files." });
         }
       } finally {
         const fsPromises = await import("fs/promises");
@@ -20943,8 +20966,17 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const numbers = [...new Set(
         rawMatches
-          .map((n: string) => n.replace(/[\s\-().]/g, ""))
-          .filter((n: string) => n.length >= 7 && n.length <= 15)
+          .map((n: string) => {
+            let cleaned = n.replace(/[\s\-().]/g, "");
+            if (cleaned.startsWith("+")) {
+              cleaned = cleaned.substring(1);
+            }
+            if (cleaned.length === 10 && !cleaned.startsWith("1")) {
+              cleaned = "1" + cleaned;
+            }
+            return cleaned;
+          })
+          .filter((n: string) => n.length >= 10 && n.length <= 15)
       )];
 
       console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName}`);

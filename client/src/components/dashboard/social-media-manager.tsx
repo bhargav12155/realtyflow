@@ -2373,7 +2373,7 @@ ${agentName} | ${brokerageName}
                   <label className="cursor-pointer inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80">
                     <input
                       type="file"
-                      accept=".csv,.txt,.pdf,.docx"
+                      accept=".csv,.txt,.pdf,.docx,.xlsx,.xls,.numbers"
                       className="hidden"
                       data-testid="input-upload-contacts-compact"
                       disabled={isExtractingNumbers}

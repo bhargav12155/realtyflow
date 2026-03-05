@@ -1,0 +1,1069 @@
+WhatsApp Manager
+Template library
+Select a WhatsApp Business account
+​
+
+Category
+
+Utility (154)
+
+Authentication (19)
+Industry
+Feature
+Account or product protection
+Account updates
+Call permissions
+Customer Feedback
+Event reminder
+Group invite link
+Legal / regulatory compliance
+Order management
+Payments
+Public disruption
+Public safety
+Public service
+Showing 154 of 154 results
+Finalize account set-up
+Hi {{text}},
+
+Your new account has been created successfully. 
+
+Please verify {{text}} to complete your profile.
+10:33 PM
+Verify account
+account_creation_confirmation_3
+Address update
+Hi {{text}}, your delivery address has been successfully updated to {{text}}. Contact {{text}} for any inquiries.
+10:33 PM
+address_update
+Your appointment was canceled
+Hello {{text}},
+
+Your upcoming appointment with {{business name}} on {{date}} at {{text}} has been canceled.
+
+Let us know if you have any questions or need to reschedule.
+10:33 PM
+View details
+appointment_cancellation_1
+Appointment cancelled
+Hi {{text}},
+Your appointment on {{text}} has been cancelled. We hope to see you another time.
+10:33 PM
+appointment_cancelled
+Your appointment is booked
+Hello {{text}},
+
+Thank you for booking with {{business name}}.
+
+Your appointment for {{text}} on {{date}} at {{text}} is confirmed.
+10:33 PM
+View details
+appointment_confirmation_1
+Appointment confirmed
+Hi {{text}},
+
+Your appointment is scheduled for {{text}}.
+Service: {{text}}
+Confirmation number: {{text}}
+
+We're looking forward to your visit.
+10:33 PM
+appointment_confirmed
+Reminder: Our technician will visit your location on {{date}} at {{text}} for your broadband installation. Please be available.
+10:33 PM
+appointment_reminder
+You have an upcoming appointment
+Hello {{text}},
+
+This is a reminder about your upcoming appointment with {{business name}} on {{date}} at {{text}}.
+
+We look forward to seeing you!
+10:33 PM
+View details
+appointment_reminder_2
+Your appointment was rescheduled
+Hello {{text}},
+
+Your upcoming appointment with {{business name}} has been rescheduled for {{date}} at {{text}}. 
+
+We look forward to seeing you!
+10:33 PM
+View details
+appointment_reschedule_1
+Appointment rescheduled
+Hi {{text}}, Your appointment has been rescheduled to {{text}}. Service: {{text}} Confirmation number: {{text}} We're looking forward to your visit.
+10:33 PM
+appointment_rescheduled
+Technician visit
+Hi {{text}}, we're scheduling a technician visit for your {{text}} on {{date}} between {{text}} and {{text}}. Please confirm if this time slot works for you.
+10:33 PM
+Confirm
+Reschedule
+appointment_scheduling
+Technician visit
+Hi {{text}}, we're scheduling a technician visit to {{address}} on {{date}} between {{text}} and {{text}}. Please confirm if this time slot works for you.
+10:33 PM
+Confirm
+Reschedule
+appointment_scheduling_address
+Upcoming automatic payment
+Hi {{text}}, 
+
+Your automatic payment for {{text}} is scheduled on {{date}} for {{amount}}.
+
+Kindly ensure your balance is sufficient to avoid {{text}} fees.
+10:33 PM
+View account
+auto_pay_reminder_1
+Upcoming automatic payment
+Hi {{text}}, this is to remind you of your upcoming auto-pay: 
+
+Date: {{date}}
+Account: {{text}}
+Amount: {{amount}}
+
+Thank you and have a nice day.
+10:33 PM
+View details
+auto_pay_reminder_2
+Reminder: 
+
+Your scheduled payment for your {{text}} card ending in {{number}} is scheduled for {{date}}. 
+
+Thank you.
+10:33 PM
+auto_pay_reminder_3
+Would you like to receive a call from one of our representatives?
+10:33 PM
+Can {BIZ_NAME} call you?
+You can update your preference anytime in the business profile.
+10:33 PM
+Choose preference
+call_permission_request_1
+Hi {{text}}, we've received a cancellation request for your {{text}}. Reply with YES to be assigned a new agent or NO to cancel.
+10:33 PM
+Yes
+No
+cancellation_confirmation
+This is to notify you that your {{text}} card ending in {{number}} was charged {{amount}} by {{text}}.
+10:33 PM
+card_transaction_alert_1
+Thank you for using your {{text}} card. This confirms your purchase on {{date}} for {{amount}} at {{text}}.
+10:33 PM
+card_transaction_alert_2
+We activated support services for the {{text}} in the {{text}} area. Please take the following precautions if you live in {{text}} or surrounding areas: {{text}}, {{text}}, {{text}}.
+10:33 PM
+crisis_response_1
+There is an active {{text}} in the {{text}} area. For live updates on the {{text}} alert in the {{text}} area, visit our website {{url}}.
+10:33 PM
+crisis_response_2
+Hi {{text}}, your order {{text}} was delivered successfully. 
+
+You can manage your order below.
+10:33 PM
+Manage order
+delivery_confirmation_1
+Order delivered
+Hi {{text}}, your order {{text}} was delivered. 
+
+Need to return or replace an item?
+Click to manage your order.
+10:33 PM
+Manage order
+delivery_confirmation_2
+{{text}}, your order {{text}} was delivered on {{date}}.
+
+If you need to return or replace item(s), please click below.
+10:33 PM
+Start return
+delivery_confirmation_3
+{{text}}, your order was successfully delivered on {{date}}.
+
+Thank you for your purchase.
+10:33 PM
+delivery_confirmation_4
+Order delivered
+Hi {{text}},
+
+Great news! Your order {{text}} was delivered.
+10:33 PM
+View order
+delivery_confirmation_5
+Could not deliver your order
+Hi {{text}}, 
+
+We attempted to deliver your order on {{date}} but were not successful. 
+
+Please contact us at {{phone}} to arrange re-delivery. 
+
+Thank you.
+10:33 PM
+Manage delivery
+Call us
+delivery_failed_1
+We were unable to deliver order {{text}} today. 
+
+Please {{text}} to schedule another delivery attempt.
+10:33 PM
+Schedule delivery
+delivery_failed_2
+We were unable to deliver order {{text}} today. 
+
+Please {{text}} to schedule another delivery attempt.
+10:33 PM
+Reschedule
+delivery_failed_form_1
+​
+Flow
+Hi {{text}}, your order {{text}} is on its way and should arrive soon.
+
+Estimated delivery:  {{text}}
+
+We will provide an update when your order is delivered.
+An adult must be home to accept this package.
+10:33 PM
+Track order
+delivery_update_1
+Hi {{text}}, our order {{text}} is out for delivery! 
+
+It should be delivered {{text}} between {{text}} and {{text}}.
+10:33 PM
+Track order
+delivery_update_2
+Your order {{text}} is out for delivery! 
+
+It should arrive by {{date}}. 
+
+Thank you for your business.
+10:33 PM
+Track order
+delivery_update_3
+Your order {{text}} is out for delivery and is expected to arrive by {{date}}.
+
+Thank you for your business.
+10:33 PM
+delivery_update_4
+Device return
+Hi {{text}}, your broadband connection has been disconnected. To return your device, please follow these steps: 
+{{text}} 
+You can also contact us at {{text}} for assistance.
+10:33 PM
+device_recovery
+Your {{text}} disbursement balance is {{amount}}. Kindly note it will expire on {{date}}. New {{text}} disbursements will be announced on a monthly basis. Use the URL below to review the disbursement schedule and to register or change your enrollment status.
+10:33 PM
+View Schedule
+disbursement_balance_1
+{{text}} vouchers are here! You are eligible to claim your voucher at {{text}} or online via our website {{url}}. Vouchers are valid until {{date}}. Vouchers can be used at many locations. Refer to our website {{url}} for a comprehensive list of all locations that accept vouchers.
+10:33 PM
+disbursement_voucher_1
+You have an upcoming event
+You have an upcoming event
+Reminder: You RSVP’ed to {{text}} by {{text}}.
+
+
+The event starts on {{date}} at {{text}} at {{address}} location.
+10:33 PM
+event_details_reminder_1
+Reminder: {{text}} is coming up and you have RSVP’ed to this event by {{text}}. 
+
+See you at {{text}} at {{text}} local time.
+10:33 PM
+event_details_reminder_2
+Thank you for RSVP’ing to {{text}} by {{text}}. 
+
+See you on {{date}} at {{text}} local time.
+10:33 PM
+event_rsvp_confirmation_1
+Your RSVP for {{text}} by {{text}} is confirmed!
+
+Thanks!
+10:33 PM
+event_rsvp_confirmation_2
+Hi {{text}}, the service request we completed on {{date}} is now closed. Please rate your experience from 1-5 and share any feedback to help us improve.
+10:33 PM
+feedback_collection
+Hi {{text}},
+
+Thank you for your recent {{text}} on {{date}}.
+
+We value your feedback and would appreciate you sharing more about your experience with us at the link below.
+
+This should only take {{number}} minutes. We appreciate your time.
+10:33 PM
+Leave feedback
+feedback_survey_1
+How did we do?
+Thank you for visiting us at {{address}} on {{date}}. 
+
+We value your feedback.
+
+Please fill out this short survey to let us know how we can continue to improve.
+10:33 PM
+Fill out survey
+feedback_survey_2
+Rate your experience
+Your feedback is important to us. 
+
+Please take a quick survey about your recent {{text}} experience.
+10:33 PM
+Take survey
+feedback_survey_form_1
+​
+Flow
+At {{text}}, we value customer feedback and use it to continually improve our {{text}}. 
+
+Please fill out a short {{text}}, linked below, to let us know more about your recent {{text}} with us. 
+
+Thank you in advance.
+10:33 PM
+Take survey
+feedback_survey_form_2
+​
+Flow
+Missed call
+Hi {{text}}, we missed your call. Please let us know if you're available to reschedule.
+10:33 PM
+Reschedule Call
+followup_missed_calls
+Hello {{text}},
+
+We noticed a {{text}} transaction on your {{text}} from {{text}} for {{amount}}.
+
+If you didn't make this transaction, please call us {{text}} at {{phone}}. 
+
+You can also click below to freeze your {{text}}.
+
+Thank you!
+10:33 PM
+Call us
+Freeze card
+fraud_alert_1
+Hi {{text}},
+
+This is {{text}}.
+
+We identified a {{text}} transaction on your {{text}} card ending in {{number}}:
+
+Date: {{date}}
+Merchant: {{text}}
+Amount: {{amount}}
+
+Did you make this purchase?
+10:33 PM
+Yes
+No
+fraud_alert_2
+Hi {{text}},
+
+We noticed a {{text}} charge on your {{text}} account. 
+
+Please verify the details of this transaction.
+10:33 PM
+Verify transaction
+fraud_alert_3
+Suspicious transaction
+Hello {{text}},
+
+We detected a suspicious transaction on your {{text}} card ending in {{number}}.
+
+Please verify if this was you.
+10:33 PM
+Verify transaction
+fraud_alert_4
+We have detected an increase in {{text}}. To protect your card ending in {{card number}}, please consider updating your PIN. Click below to see the step-by-step. Do not click on unofficial links. {{business name}} will never send you SMS messages asking for your personal information or banking details.
+10:33 PM
+Security Guide
+fraud_awareness_1
+Hi {{text}}, your request for {{text}} service from {{text}} was successfully received!
+
+You can start the service by clicking and joining the group below.
+{{group_id}}
+
+Thank you!
+10:33 PM
+group_invite_link
+Your {{text}} request with {{text}} is confirmed. Please join the WhatsApp group to start:
+{{group_id}} Thank you!
+10:33 PM
+group_invite_link_concise
+Hi {{text}},
+We are pleased to inform you that your request for {{text}} from {{text}} has been successfully received.
+
+To facilitate your session, we have created a dedicated WhatsApp group. Please join the group using the link below to proceed with your request:
+{{group_id}}
+
+Thank you for using our service!
+10:33 PM
+group_invite_link_detailed
+Stay up-to-date with your health. Stop by {{text}} by {{date}} to get your free {{text}}. Bring your {{text}} and {{text}}.
+10:33 PM
+health_awareness_1
+The {{text}} has just declared a health emergency due to {{text}}. To learn more about {{text}} and precautions to take, use the URL below. We will follow up with more details once available.
+10:33 PM
+Learn More
+health_emergency_1
+A health emergency due to {{text}} has been declared in the {{text}} area. Live updates available on our website {{url}}.
+10:33 PM
+health_emergency_2
+This is to notify you that you need to upgrade to a {{text}} by {{date}}. To avoid any inconveniences when travelling, please ensure you make an appointment at your local {{text}}. To find the office closest to you, use our website {{url}}.
+10:33 PM
+identity_compliance_1
+Upgraded {{text}} are now required when traveling at airports. For more information on how to upgrade, use the link below.
+10:33 PM
+Learn More
+identity_compliance_2
+Installation complete
+Hi {{text}}, your {{text}} installation is complete! Our technician has configured your connection, and you're now ready to go online. If you have any issues, feel free to reply or contact {{text}} for assistance.
+10:33 PM
+installation_complete
+Low account balance
+Hi {{text}}, 
+
+This is to notify you that your {{text}} in your {{text}} account ending in {{number}} is below your pre-set {{text}} of {{amount}}. 
+
+Click below to add funds or call us.
+10:33 PM
+Make a deposit
+Call us
+low_balance_warning_1
+Hi {{text}}, 
+
+Available funds in your {{text}} account ending in {{number}} are below your pre-set {{amount}} limit.
+10:33 PM
+Make a deposit
+Call us
+low_balance_warning_2
+Low balance notification
+Hi {{text}}, your mobile balance is {{amount}}. Please recharge to avoid interruption.
+10:33 PM
+Recharge
+low_balance_warning_3
+Missed visit
+Hi {{text}}, we missed you at your scheduled {{text}} appointment on {{date}}. Please reply to reschedule or contact {{text}} to book a new appointment.
+10:33 PM
+Reschedule
+missed_appointment
+Network troubleshooting steps
+Hi, we understand you might be experiencing network troubles at {{text}}. 
+You can try these simple steps: 
+Step 1: {{text}}, 
+Step 2: {{text}}, 
+Step 3: {{text}}. 
+Need more help? Contact: {{text}} or view details.
+10:33 PM
+View details
+network_troubleshooting
+This is to notify you that {{text}} at our {{text}} station are halted due to {{text}}. Please avoid the area as we work to rectify. Click the URL below to see alternate {{text}} and/or {{text}} where service is available and running. Live updates on our site, available below.
+10:33 PM
+View Updates
+operation_disruption_1
+Regular maintenance for {{text}} is scheduled for {{date}} and the station in the {{text}} area will be closed until {{date}}. Please plan to use an alternate station if you plan to travel. Click the URL below to see alternate {{text}} and/or {{text}} where service will be available and running.
+10:33 PM
+View Alternatives
+operation_disruption_2
+Hi {{text}}, before we can process your order {{text}}, we need to verify some information.
+
+Please contact us at your earliest convenience.
+
+Thank you.
+10:33 PM
+Call us
+order_action_required_1
+We were unable to process your order {{text}}. 
+
+Please call us at {{phone}} for next steps.
+10:33 PM
+Call us
+order_action_required_2
+Order canceled
+{{text}}, your order {{text}} has been successfully canceled. 
+
+Your refund will be processed in {{number}} business days. 
+
+Thank you.
+10:33 PM
+View order details
+order_canceled_1
+{{text}}, per your request, we have canceled your order {{text}}. 
+
+Your {{text}} will be processed in {{number}} business days. 
+
+You can track this below.
+10:33 PM
+View order details
+order_canceled_2
+Hi, this is to confirm we have successfully canceled your recent order {{text}}. 
+
+Thank you.
+10:33 PM
+View order details
+order_canceled_3
+Order canceled
+Hello {{text}}, 
+
+Your order {{text}} has been canceled. 
+
+A refund will be issued to your original payment method soon.
+10:33 PM
+Order details
+order_canceled_4
+Hi {{text}}, your {{text}} order has been successfully placed! We've scheduled an appointment for {{date}} at your preferred location. Please confirm if this time slot works for you.
+10:33 PM
+Confirm
+Reschedule
+order_confirm_auto_schedule
+Hi {{text}}, your {{text}} order is placed! Reply *Schedule* to pick a time slot for your appointment.
+10:33 PM
+Schedule
+order_confirm_manual_schedule
+Order confirmed
+Hi {{text}}, We're getting your order {{text}} ready and will let you know when it's on the way.
+10:33 PM
+order_confirmed
+Hi {{text}}, there is a {{text}} in {{text}} your order {{text}}. 
+
+We're working to resolve it as soon as possible. 
+
+We will follow up with an update. 
+
+We apologize for any inconvenience.
+We'll send you an updated delivery status when we can.
+10:33 PM
+Track my order
+View order details
+order_delay_1
+Item(s) out-of-stock
+Hi {{text}}, 
+
+Item(s) from your recent order {{text}} are out-of-stock. We will notify you as soon as your item(s) ship. 
+
+If you prefer not to wait, please click below to {{text}} your order. 
+
+We apologize for any inconvenience.
+10:33 PM
+Manage order
+order_delay_2
+Order delivered
+Hi {{text}}, Your {{text}} has been delivered. Thank you for shopping with us.
+10:33 PM
+order_delivered
+Order confirmed
+Hi {{text}},
+
+Thank you for your {{text}}! Your order number is {{text}}.
+
+We'll start getting {{text}} ready to ship.
+
+Estimated delivery: {{date}} 
+
+We will let you know when your order ships.
+10:33 PM
+View order details
+order_management_1
+Order confirmed
+Hi {{text}}, your order is confirmed and your order number is {{text}}. 
+
+Estimated delivery: {{date}}. 
+
+We will follow up with more details as we prepare your order for shipment.
+10:33 PM
+View order details
+order_management_2
+Order confirmed
+Hi {{text}}, we've received your order. 
+
+Your order number is {{text}}. 
+
+Estimated delivery: {{date}}.
+
+Click below to manage your order.
+10:33 PM
+Manage order
+order_management_3
+Order confirmed!
+Hi {{text}},
+Your order has been successfully placed and is being processed. Your order number is {{text}}. You can view order details below.
+10:33 PM
+View order
+order_management_4
+Order received
+Hello {{text}},
+
+We received your order {{text}}. We’ll send you a status update once your payment is approved.
+
+Thank you for shopping with us!
+10:33 PM
+Order details
+order_management_5
+Order confirmed
+Hi {{text}},
+
+Your order {{text}} has been successfully placed with {{text}} and is being processed.
+10:33 PM
+View order
+order_management_6
+Order received
+Hello {{text}},
+
+We received your order {{text}}. We’ll send you a status update once your payment is approved.
+
+Thank you for shopping with us!
+10:33 PM
+order_management_no_cta_5
+Ready for pick up!
+Hi {{text}}, your order {{text}} is ready for pick up at {{address}}.
+When you arrive, tap the button below and we will bring your order to you. 
+See you soon!
+10:33 PM
+I've arrived
+order_pick_up_1
+Great news! Your order {{text}} is now ready for pick up at {{address}}. 
+
+Click "I'm here" when you arrive and we will meet you with your products. 
+
+See you soon!
+10:33 PM
+I'm here
+order_pick_up_3
+It’s time to pick up your order
+Hello {{text}},
+
+Your order {{text}} is now ready for pickup at {{address}}.
+
+Please remember to bring a photo ID with you.
+
+See you soon!
+10:33 PM
+Order details
+order_pick_up_4
+It’s time to pick up your order
+Hello {{text}},
+
+Your order {{text}} is now ready for pickup at {{address}}.
+
+Please remember to bring a photo ID with you.
+
+See you soon!
+10:33 PM
+order_pick_up_no_cta_4
+Order shipped
+Hi {{text}}, Your order {{text}} has been shipped and is on the way.
+10:33 PM
+order_shipped
+Your order is being prepared
+Hi {{text}},
+
+We’re preparing your order {{text}} and will let you know when it’s ready.
+10:33 PM
+Order details
+order_update_1
+Your order is being prepared
+Hi {{text}},
+
+We’re preparing your order {{text}} and will let you know when it’s ready.
+10:33 PM
+order_update_no_cta_1
+Verify your payment info
+Hi {{text}}, 
+
+Payment for your {{text}} card ending in {{number}} is coming due. 
+
+Verify your information to avoid {{text}} fees.
+Please ignore this message if you've already paid.
+10:33 PM
+Verify
+payment_action_required_1
+Review a recent transaction
+Hi {{text}},
+
+We encountered an issue with your recent transaction for {{amount}} at {{text}}. 
+
+Please contact us at {{phone}} for assistance.
+10:33 PM
+Call us
+payment_action_required_2
+Could not process payment
+Your scheduled payment of {{amount}} for {{text}} could not be processed. 
+
+Please contact us at {{phone}} for assistance.
+10:33 PM
+Call us
+payment_action_required_3
+Hi {{text}},
+
+We have received your payment of {{amount}} for {{text}}. 
+
+Thank you for your payment.
+10:33 PM
+View payment details
+payment_confirmation_1
+Successful payment
+Your payment of {{amount}} for {{text}} has been processed successfully. 
+
+We appreciate your business.
+10:33 PM
+View details
+payment_confirmation_2
+Payment confirmation:
+
+Account: {{text}}
+Amount: {{amount}}
+Date: {{date}}
+
+Thank you and have a nice day.
+10:33 PM
+View details
+payment_confirmation_3
+Order approved
+Hello {{text}},
+
+Your payment of {{amount}} for order {{text}} has been approved.
+10:33 PM
+Order details
+payment_confirmation_4
+Payment due
+Hi {{text}}, your {{text}} bill of {{amount}} is due on {{date}}. Pay now to avoid service disruption.
+Ignore if already paid.
+10:33 PM
+Pay now
+payment_due_reminder
+Hi {{text}}, your recent payment of {{amount}} for your {{text}} account has failed. 
+
+Please check your account and try again.
+10:33 PM
+View account
+payment_failed_1
+Hi {{text}},
+
+We were unable to process your payment of {{amount}} for {{text}}. 
+
+Please update your payment method or contact us for assistance.
+10:33 PM
+View account
+Call us
+payment_failed_2
+Your payment was rejected. 
+
+Account: {{text}}
+Amount: {{amount}}
+Date: {{date}}
+
+Please check your account and try again.
+10:33 PM
+View account
+payment_failed_3
+Payment failed
+Hi {{text}}, we were unable to process your {{text}} bill payment. Please try again or contact our support team.
+10:33 PM
+Pay now
+payment_failed_4
+Your payment for {{amount}} will be processed on {{date}}. 
+
+Thank you!
+10:33 PM
+payment_notice_1
+Thank you for scheduling your payment of {{amount}}. 
+
+We will {{text}} on {{date}}.
+10:33 PM
+payment_notice_2
+This is to {{text}} your payment of {{amount}} for {{text}} will be processed on {{date}}.
+10:33 PM
+payment_notice_3
+Payment overdue
+Your {{text}} payment of {{amount}} is overdue by {{number}} days. 
+
+Please pay now to avoid {{text}}. Contact us if you need assistance.
+10:33 PM
+Pay now
+Contact us
+payment_overdue_1
+Hi {{text}}, you have a payment overdue:
+
+Account: {{text}}
+Amount due: {{amount}}
+Due date: {{date}}
+
+Use the button below to complete payment via our website.
+Please ignore this message if you've already paid.
+Please ignore this message if you've already paid.
+10:33 PM
+Pay now
+payment_overdue_2
+Payment is overdue for your {{text}} card ending in {{number}} for {{amount}}. 
+
+Please click to pay now and avoid {{text}} fees.
+10:33 PM
+Pay now
+payment_overdue_3
+Hello! Your {{text}} expires in {{text}}.
+You can top up your number {{text}} - {{text}} - with {{amount}} to avoid interruptions.
+
+Or click the link below to top up with another amount of your choice.
+
+If you have already topped up, please disregard this message. Thank you!
+10:33 PM
+Review and Pay
+payment_recharge_reminder_01
+Payment due soon
+Hello {{text}}, 
+
+Your payment of {{amount}} is due on {{date}}.
+
+Please ignore this message if you've already paid.
+10:33 PM
+Pay now
+payment_reminder_1
+Your payment of {{amount}} is due on {{date}}. 
+
+Pay now to avoid {{text}}.
+
+If you already paid, please ignore this message.
+10:33 PM
+Pay now
+payment_reminder_2
+Payment due
+Payment reminder:
+
+Account: {{text}}
+Amount due: {{amount}}
+Due date: {{date}}
+
+Pay now to avoid {{text}}.
+
+Please ignore this if you have already paid.
+10:33 PM
+Pay now
+payment_reminder_3
+Payment of {{amount}} due
+Hi {{text}},
+
+Payment of {{amount}} for your {{text}} card ending in {{number}} is due on {{date}}.
+
+Pay now to avoid late fees.
+Please ignore this message if you've already paid.
+Please ignore this message if you've already paid.
+10:33 PM
+Pay now
+payment_reminder_4
+Your payment of {{amount}} for your {{text}} account is scheduled for {{date}}. 
+
+Please ensure you have sufficient funds to avoid generating any {{text}} fees.
+10:33 PM
+Manage payment
+payment_scheduled_1
+Upcoming scheduled payment
+Hi {{text}},
+
+Thank you for scheduling your payment of {{amount}} for your {{text}} account on {{date}}. 
+
+Please visit your account if you would like to make any changes ahead of this date.
+10:33 PM
+Manage payment
+payment_scheduled_2
+Hi {{text}}, this is to remind you of your upcoming scheduled payment: 
+
+Date: {{date}}
+Account: {{text}}
+Amount: {{amount}}
+
+Thank you and have a nice day.
+10:33 PM
+Manage payment
+payment_scheduled_3
+Payment received
+Hi {{text}}, your {{text}} bill payment of {{amount}} has been successfully received. Your payment date was {{date}}. Thank you!
+10:33 PM
+Receipt
+payment_successful
+We updated our privacy policy on {{date}}. Please click the button below to learn more.
+10:33 PM
+View Policy
+privacy_disclosure_1
+The {{text}} you ordered on {{date}} has been recalled. Please click below to let us know how you would like to proceed.
+10:33 PM
+View Options
+product_recall_1
+Thank you for your purchase of {{amount}} from {{address}}. Your {{text}} PDF is attached.
+10:33 PM
+purchase_receipt_1
+Thank you for using your {{text}} card at {{text}}. Your {{text}} is attached as a PDF.
+10:33 PM
+purchase_receipt_2
+Hello {{text}},
+
+Your invoice for order {{text}} is attached.
+
+Thank you for shopping with us!
+10:33 PM
+Order details
+purchase_receipt_3
+This message is to confirm your {{text}} for {{amount}} from {{text}} on {{date}}.
+10:33 PM
+purchase_transaction_alert
+Recharge failed
+Hi {{text}}, we were unable to process your mobile recharge. Please try again or contact our support team.
+10:33 PM
+Recharge
+recharge_failure
+Pack expiry reminder
+Hi {{text}}, your {{text}} is ending tonight. To continue using without interruption, please recharge.
+10:33 PM
+Recharge
+recharge_reminder
+Recharge successful
+Hi {{text}}, your mobile recharge of {{amount}} has been successful! Your new balance is {{amount}}.
+10:33 PM
+recharge_successful
+You were refunded for {{amount}}
+Hi {{text}},
+
+Your refund for {{amount}} has been processed for order {{text}}. You'll be credited back to your original payment method in 3-5 business days.
+10:33 PM
+refund_confirmation_1
+Service renewal reminder
+Your {{text}} plan is scheduled to renew on {{date}}. Please maintain sufficient balance to keep the service active.
+10:33 PM
+renewal_reminder
+Hi {{text}}, 
+
+Your {{text}} plan has been successfully renewed. 
+Your new plan details are: 
+
+Plan name: {{text}} 
+Data limit: {{text}} 
+Validity: {{text}}
+
+Thank you for choosing us!
+10:33 PM
+renewal_successful
+Hi {{text}}, we need to reschedule your {{text}}. Reply *Reschedule* to pick a new time.
+10:33 PM
+Reschedule
+rescheduling_request
+Hi {{text}}, thank you for returning product(s) from your order {{text}}. 
+
+We are currently processing your return and will notify you of your {{text}} status.
+10:33 PM
+Manage order
+return_confirmation_1
+Return received
+We have received item(s) from your order {{text}}. 
+
+Your return is complete, and we have processed your {{text}} for {{amount}}. 
+
+Thank you for your business.
+10:33 PM
+Manage order
+return_confirmation_2
+Roaming cost advisory
+Hi {{text}}, your number is currently on a network outside {{text}}. To avoid high pay-as-you-go charges, you can activate an international roaming pack.
+10:33 PM
+Activate
+roaming_reminder
+Dear Customer, we have scheduled network updates on {{date}} between {{text}} and {{text}}. You may experience temporary service disruption. Thank you for your understanding.
+10:33 PM
+service_disruption
+There is a {{text}} alert in the {{text}} area. We recommend you remain indoors until {{date}}. If you are facing issues related to {{text}} or {{text}}, you can inform us by using the button below and we will follow up for an on-site inspection. We will follow up with key updates and any recommended precautions. For more information on {{text}} preparedness, click the URL below.
+10:33 PM
+Learn More
+severe_weather_alert_1
+There is a {{text}} alert in the {{text}} area. For more information on precautions to take during a {{text}} click the URL below. For live updates on the {{text}} alert in the {{text}} area, visit our website {{url}}.
+10:33 PM
+View Precautions
+severe_weather_alert_2
+Hi {{text}}, your broadband connection shifting request is being processed! We'll keep you updated on the status.
+10:33 PM
+Track Status
+shifting_journey
+Order shipped
+Hi {{text}}, your order has shipped! 
+
+Your tracking number is {{text}}. 
+
+Estimated delivery is {{date}}.
+We will continue to provide updates on this shipment until it is delivered.
+10:33 PM
+Track shipment
+shipment_confirmation_1
+Hi {{text}}, great news! Your order {{text}} has shipped.
+
+Tracking #: {{text}}
+Estimated delivery: {{date}}
+
+We will provide updates until delivery.
+10:33 PM
+Track shipment
+shipment_confirmation_2
+Hi {{text}}, your order {{text}} has left our {{text}} and is on its way to you! 
+
+Your tracking ID is {{text}}. 
+
+Click below to track your package.
+10:33 PM
+Track my order
+shipment_confirmation_3
+Your order is en route!
+Hi {{text}},
+
+We're happy to inform you that your order {{text}} has shipped! Click view order details to view the status of your shipment.
+10:33 PM
+View order details
+shipment_confirmation_4
+Order shipped
+Hi {{text}},
+
+We’re happy to inform you that your order {{text}} has shipped! Click below to view the status of your shipment.
+10:33 PM
+View order
+shipment_confirmation_5
+Statement available
+Hi {{text}}, 
+
+Your {{text}} statement for your account ending in {{number}} is now available. 
+
+Click below to see your statement.
+10:33 PM
+View statement
+statement_available_1
+Statement available
+This is to notify you that your latest statement for your {{text}} account is now available. 
+
+Please log into your account to view your statement.
+10:33 PM
+View statement
+statement_available_2
+Your request {{number}} is registered. We will contact you within {{number}} hours.
+10:33 PM
+support_ticket_acknowledgement
+We have detected a system outage that impacts zip code {{text}}. We expect to restore service by {{date}}. We apologize for the inconvenience.
+10:33 PM
+system_outage_1
+The system outage has been restored for zip code {{text}}. If you are still experiencing an outage in zip code {{text}}, click the button below to alert us.
+10:33 PM
+Report Outage
+system_outage_2
+Hi {{text}}, our technician will arrive at your location within the next {{text}}. Tap to track real-time location.
+10:33 PM
+Track Location
+technician_arrival
+Speed-upgrade notice
+We are pleased to inform you that your internet speed has been upgraded to {{number}} Mbps. Thank you for choosing our services.
+10:33 PM
+upgrade_confirmation
+To vote on {{date}}, please ensure your voter {{text}} is active. Please click the URL below to understand steps required to renew, if needed.
+10:33 PM
+Check Registration
+voting_registration_1
+Thank you for your purchase of {{text}}. Your warranty is active as of {{date}}. Our {{text}} are below, for your reference.
+10:33 PM
+warranty_alert_1
+Meta Business Suite
+Links
+All tools
+
+Search
+Links
+Settings
+
+Help

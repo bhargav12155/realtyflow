@@ -1,0 +1,324 @@
+
+Nav Logo
+Build with us
+
+Docs
+Blog
+Resources
+
+Developer centers
+
+My Apps
+
+
+Docs
+
+Overview
+
+WhatsApp Business Message History Events API
+WhatsApp Business Message History Events API
+Version
+
+API for retrieving WhatsApp Business Message History Events and delivery status occurrences.
+This endpoint allows businesses to retrieve detailed message delivery status events
+for specific message history entries, including delivery status transitions,
+timestamps, and application information.
+Base URL
+
+https://graph.facebook.com
+Endpoints
+
+GET
+/{Version}/{Message-History-ID}/events
+GET /{Version}/{Message-History-ID}/events
+
+Retrieve paginated message delivery status events for a specific message history entry,
+including delivery status occurrences, timestamps, and application information.
+
+
+Use Cases:
+Track detailed message delivery status events and transitions
+Monitor delivery status occurrence timestamps
+Retrieve application information for delivery events
+Debug message delivery issues and status changes
+
+
+Rate Limiting:
+Standard Graph API rate limits apply. Use appropriate retry logic with exponential backoff.
+
+
+Caching:
+Message history events can be cached for short periods, but delivery status events
+may change frequently. Implement appropriate cache invalidation strategies.
+
+
+Pagination:
+This endpoint supports cursor-based pagination. Use the after and before cursors
+from the response to navigate through results.
+Request Syntax
+GET /{Version}/{Message-History-ID}/events
+Header Parameters
+User-Agent
+string
+The user agent string identifying the client software making the request.
+Authorization
+string
+·
+required
+Bearer token for API authentication. This should be a valid access token obtained through the appropriate OAuth flow or system user token.
+Path Parameters
+Version
+string
+·
+required
+Graph API version to use for this request. Determines the API behavior and available features.
+Message-History-ID
+string
+·
+required
+Your WhatsApp Business Message History ID. This ID is provided when you retrieve
+message history and can be found through message history APIs.
+Query Parameters
+status_filter
+WhatsAppMessageDeliveryStatus
+Filter results by specific delivery status. When provided,
+only events with this delivery status will be returned.
+fields
+string
+Comma-separated list of fields to include in the response. If not specified,
+default fields will be returned (cursor, node{id,delivery_status,occurrence_timestamp}).
+Available fields: cursor, node{id,delivery_status,error_description,occurrence_timestamp,status_timestamp,application}
+limit
+integer [min: 1, max: 100]
+Maximum number of message history events to return per page.
+Default is 25, maximum is 100.
+after
+string
+Cursor for pagination. Use this to get the next page of results.
+This value comes from the paging.cursors.after field in previous responses.
+before
+string
+Cursor for pagination. Use this to get the previous page of results.
+This value comes from the paging.cursors.before field in previous responses.
+Responses
+Retrieve paginated message delivery status events for a specific message history entry,
+including delivery status occurrences, timestamps, and application information.
+
+
+Use Cases:
+Track detailed message delivery status events and transitions
+Monitor delivery status occurrence timestamps
+Retrieve application information for delivery events
+Debug message delivery issues and status changes
+
+
+Rate Limiting:
+Standard Graph API rate limits apply. Use appropriate retry logic with exponential backoff.
+
+
+Caching:
+Message history events can be cached for short periods, but delivery status events
+may change frequently. Implement appropriate cache invalidation strategies.
+
+
+Pagination:
+This endpoint supports cursor-based pagination. Use the after and before cursors
+from the response to navigate through results.
+200
+Successfully retrieved WhatsApp message history events
+Content Type:
+application/json
+Schema:
+MessageHistoryEventsResponse
+Show child attributes
+
+400
+Bad Request - Invalid parameters or malformed request
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+401
+Unauthorized - Invalid or missing access token
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+403
+Forbidden - Insufficient permissions or access denied
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+404
+Not Found - Message History ID does not exist or is not accessible
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+422
+Unprocessable Entity - Request parameters are valid but cannot be processed
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+429
+Too Many Requests - Rate limit exceeded
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+500
+Internal Server Error - Unexpected server error
+Content Type:
+application/json
+Schema:
+GraphAPIError
+Show child attributes
+
+Select language
+
+curl --request GET \
+  --url 'https://graph.facebook.com/{Version}/{Message-History-ID}/events' \
+  --header 'Authorization: Bearer <Token>' \
+  --header 'Content-Type: application/json' \
+  --data '{}'
+Select status code
+
+{
+  "message_history_events": {
+    "summary": "Message history events with delivery status occurrences",
+    "value": {
+      "data": [
+        {
+          "cursor": "MTAxNTExOTQ1MjAwNzI5NDE=",
+          "node": {
+            "id": "2345678901234567",
+            "delivery_status": "SENT",
+            "occurrence_timestamp": 1640995200,
+            "status_timestamp": 1640995205,
+            "application": {
+              "id": "9876543210987654",
+              "name": "WhatsApp Business API Client"
+            }
+          }
+        },
+        {
+          "cursor": "MTAxNTExOTQ1MjAwNzI5NDI=",
+          "node": {
+            "id": "3456789012345678",
+            "delivery_status": "DELIVERED",
+            "occurrence_timestamp": 1640995260,
+            "status_timestamp": 1640995265,
+            "application": {
+              "id": "9876543210987654",
+              "name": "WhatsApp Business API Client"
+            }
+          }
+        },
+        {
+          "cursor": "MTAxNTExOTQ1MjAwNzI5NDM=",
+          "node": {
+            "id": "4567890123456789",
+            "delivery_status": "READ",
+            "occurrence_timestamp": 1640995320,
+            "status_timestamp": 1640995325,
+            "application": {
+              "id": "9876543210987654",
+              "name": "WhatsApp Business API Client"
+            }
+          }
+        }
+      ],
+      "paging": {
+        "cursors": {
+          "after": "MTAxNTExOTQ1MjAwNzI5NDM=",
+          "before": "MTAxNTExOTQ1MjAwNzI5NDE="
+        },
+        "next": "https://graph.facebook.com/v23.0/1234567890123456/events?after=MTAxNTExOTQ1MjAwNzI5NDM"
+      }
+    }
+  },
+  "filtered_by_status": {
+    "summary": "Message history events filtered by delivery status",
+    "value": {
+      "data": [
+        {
+          "cursor": "MTAxNTExOTQ1MjAwNzI5NDI=",
+          "node": {
+            "id": "3456789012345678",
+            "delivery_status": "DELIVERED",
+            "occurrence_timestamp": 1640995260,
+            "status_timestamp": 1640995265,
+            "application": {
+              "id": "9876543210987654",
+              "name": "WhatsApp Business API Client"
+            }
+          }
+        }
+      ],
+      "paging": {
+        "cursors": {
+          "after": "MTAxNTExOTQ1MjAwNzI5NDI=",
+          "before": "MTAxNTExOTQ1MjAwNzI5NDI="
+        }
+      }
+    }
+  }
+}
+Authentication
+
+Scheme
+Type
+Location
+bearerAuth
+HTTP Bearer
+Header: Authorization
+Usage Examples
+bearerAuth:
+Include Authorization: Bearer your-token-here in request headers
+Global Authentication Requirements
+All endpoints require:
+bearerAuth
+Did you find this page helpful?
+Thumbs up icon
+Thumbs down icon
+Meta
+FacebookInstagramXLinkedInYouTube
+Build with Meta
+AI
+Meta Horizon
+Social technologies
+Wearables
+News
+Meta for Developers
+Blog
+Success stories
+Support
+Developer Support
+Bug tool
+Platform status
+Developer community forum
+Report an incident
+About us
+About
+Careers
+Terms and policies
+Responsible platform initiatives
+Platform terms
+Developer policies
+Privacy policy
+Cookies
+English (US)

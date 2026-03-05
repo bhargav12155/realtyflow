@@ -20552,37 +20552,37 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
 
       if (!accessToken || !phoneNumberId) {
-        return res.json({ limit: 2000, tier: "TIER_1K", source: "default" });
+        return res.json({ limit: 1000, tier: "TIER_1K", source: "default" });
       }
 
-      const url = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=messaging_limit_tier,quality_score&access_token=${accessToken}`;
+      const url = `https://graph.facebook.com/v22.0/${phoneNumberId}?fields=messaging_limit_tier,quality_score&access_token=${accessToken}`;
       const response = await fetch(url);
       const data = await response.json() as any;
 
       if (data.error) {
         console.log(`⚠️ WhatsApp messaging limit fetch failed: ${data.error.message}`);
-        return res.json({ limit: 2000, tier: "TIER_1K", source: "default" });
+        return res.json({ limit: 1000, tier: "TIER_1K", source: "default" });
       }
 
       const tierMap: Record<string, number> = {
         "TIER_NOT_SET": 250,
         "TIER_50": 50,
         "TIER_250": 250,
-        "TIER_1K": 2000,
+        "TIER_1K": 1000,
         "TIER_10K": 10000,
         "TIER_100K": 100000,
         "TIER_UNLIMITED": 999999,
       };
 
       const tier = data.messaging_limit_tier || "TIER_1K";
-      const limit = tierMap[tier] || 2000;
+      const limit = tierMap[tier] || 1000;
       const qualityScore = data.quality_score?.score || "UNKNOWN";
 
       console.log(`📱 WhatsApp messaging limit for phone ${phoneNumberId}: ${tier} (${limit}/day), quality: ${qualityScore}`);
       res.json({ limit, tier, qualityScore, source: "meta_api" });
     } catch (error: any) {
       console.error("Error fetching WhatsApp messaging limit:", error);
-      res.json({ limit: 2000, tier: "TIER_1K", source: "default" });
+      res.json({ limit: 1000, tier: "TIER_1K", source: "default" });
     }
   });
 

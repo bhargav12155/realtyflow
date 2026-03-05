@@ -2344,37 +2344,25 @@ ${agentName} | ${brokerageName}
                 <span className="text-sm font-semibold">WhatsApp Message</span>
               </div>
 
-              <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-2">
-                <div className="flex items-center justify-between">
+              <details className="group rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/10">
+                <summary className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none">
                   <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                    <span className="text-[11px] font-semibold text-blue-800 dark:text-blue-300">Messaging Limit: 2,000 / 24hrs</span>
+                    <Info className="h-3 w-3 text-blue-500" />
+                    <span className="text-[10px] text-blue-700 dark:text-blue-400">Meta limit: <strong>2,000</strong>/day</span>
                   </div>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">Current Tier</span>
-                </div>
-                <div className="flex gap-1">
-                  {[250, 2000, 10000, 100000].map((tier, i) => (
-                    <div key={tier} className={`flex-1 h-1.5 rounded-full ${tier <= 2000 ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
-                  ))}
-                </div>
-                <p className="text-[10px] text-blue-700/80 dark:text-blue-400/80 leading-relaxed">
-                  You can initiate up to <strong>2,000</strong> conversations per rolling 24-hour window. Only the first 2,000 contacts will be sent — any beyond that will be skipped. Reach <strong>1,000 quality conversations</strong> in 7 days to unlock 10,000/day.
-                </p>
-                <details className="group">
-                  <summary className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 cursor-pointer hover:text-blue-900 flex items-center gap-1">
-                    <svg className="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                    Meta Quality Best Practices
-                  </summary>
-                  <div className="mt-2 space-y-1.5 text-[10px] text-blue-700/70 dark:text-blue-400/70 pl-4 border-l-2 border-blue-200 dark:border-blue-700">
-                    <p><strong>Expected:</strong> Only message customers who opted in to receive messages from your business.</p>
-                    <p><strong>Timely:</strong> Connect messages to time-bound topics — seasonal events, recent purchases, browsed products.</p>
-                    <p><strong>Relevant:</strong> Personalize content based on customer interests with a clear call-to-action.</p>
-                    <p><strong>Frequency:</strong> Avoid sending too many messages in a short period — spread campaigns out.</p>
-                    <p><strong>Opt-out:</strong> Always provide a clear way for customers to unsubscribe.</p>
-                    <p className="text-[9px] italic pt-1">Following these guidelines improves your quality rating and unlocks higher messaging tiers faster.</p>
+                  <svg className="w-3 h-3 text-blue-400 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </summary>
+                <div className="px-3 pb-2.5 pt-1 space-y-2 border-t border-blue-100 dark:border-blue-800/50">
+                  <div className="flex gap-1">
+                    {[250, 2000, 10000, 100000].map((tier) => (
+                      <div key={tier} className={`flex-1 h-1 rounded-full ${tier <= 2000 ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
+                    ))}
                   </div>
-                </details>
-              </div>
+                  <p className="text-[10px] text-blue-700/70 dark:text-blue-400/70 leading-relaxed">
+                    Up to 2,000 conversations per 24hrs. Reach 1,000 quality conversations in 7 days to unlock 10,000/day. Only send to opted-in contacts using approved templates.
+                  </p>
+                </div>
+              </details>
 
               <div className="space-y-1">
                 <Label className="text-xs font-medium">Recipient Phone Numbers</Label>

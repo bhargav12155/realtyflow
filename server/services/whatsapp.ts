@@ -133,10 +133,9 @@ export class WhatsAppService {
     }
 
     const result = await response.json();
-    const activeStatuses = ["APPROVED", "approved", "ACTIVE", "active"];
     return (result.data || []).filter((t: any) => {
       const status = (t.status || "").toUpperCase();
-      return status === "APPROVED" || status.startsWith("ACTIVE");
+      return status === "APPROVED" || status.startsWith("ACTIVE") || status === "PENDING";
     });
   }
 

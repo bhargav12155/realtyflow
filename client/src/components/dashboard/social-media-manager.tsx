@@ -252,11 +252,14 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="none">Send as free text (no template)</SelectItem>
-          {templates.map((t: any) => (
-            <SelectItem key={t.name} value={t.name} data-testid={`template-${t.name}`}>
-              {t.name} ({t.category?.toLowerCase()}) — {t.language}
-            </SelectItem>
-          ))}
+          {templates.map((t: any) => {
+            const isPending = (t.status || "").toUpperCase() === "PENDING";
+            return (
+              <SelectItem key={t.name} value={t.name} data-testid={`template-${t.name}`} disabled={isPending}>
+                {t.name} ({t.category?.toLowerCase()}) — {t.language}{isPending ? " ⏳ Pending review" : ""}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
       {selectedTemplate && selectedTemplate !== "none" && (

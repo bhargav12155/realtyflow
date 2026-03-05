@@ -85,7 +85,7 @@ const holidayRecommendations = {
       {
         type: "Blog",
         title: "Community Spotlight",
-        description: "Highlight diverse Omaha neighborhoods",
+        description: "Highlight diverse local neighborhoods",
         color: "bg-purple-500"
       }
     ]
@@ -120,7 +120,7 @@ const holidayRecommendations = {
       {
         type: "Blog",
         title: "Presidential Homes Tour",
-        description: "Historic homes in Omaha area",
+        description: "Historic homes in your area",
         color: "bg-blue-500"
       }
     ]
@@ -168,7 +168,7 @@ const holidayRecommendations = {
       {
         type: "Blog",
         title: "Eco-Friendly Homes",
-        description: "Green features in Omaha homes",
+        description: "Green features in local homes",
         color: "bg-emerald-600"
       }
     ]
@@ -344,7 +344,7 @@ const initialScheduledContent = [
     time: "10:00 AM",
     color: "bg-primary",
     platform: "Facebook",
-    content: "🏘️ Dundee Market Update - January 2025\n\nThe Dundee neighborhood continues to show strong market activity! Here's what we're seeing:\n\n📈 Average home price: $425,000 (+8% YoY)\n🏠 Days on market: 18 days\n📊 Inventory: 45 active listings\n\nDundee's historic charm and walkability make it one of Omaha's most desirable neighborhoods. Perfect for buyers seeking character homes with modern updates.\n\nLooking to buy or sell in Dundee? Let's chat about current opportunities!\n\n#OmahaRealEstate #DundeeNeighborhood #MarketUpdate",
+    content: "🏘️ Neighborhood Market Update\n\nThe local market continues to show strong activity! Here's what we're seeing:\n\n📈 Average home price trending upward\n🏠 Days on market: competitive\n📊 Active listings available\n\nHistoric charm and walkability make this one of the most desirable neighborhoods. Perfect for buyers seeking character homes with modern updates.\n\nLooking to buy or sell? Let's chat about current opportunities!\n\n#RealEstate #MarketUpdate",
   },
   {
     id: 2,
@@ -354,7 +354,7 @@ const initialScheduledContent = [
     time: "2:00 PM",
     color: "bg-accent",
     platform: "Instagram",
-    content: "✨ JUST LISTED in Aksarben Village! ✨\n\n🏡 4BR/3BA Contemporary Home\n💰 $485,000\n📍 Prime Aksarben location\n\n▫️ Open concept living\n▫️ Gourmet kitchen with granite counters\n▫️ Master suite with walk-in closet\n▫️ Private backyard oasis\n▫️ 2-car garage\n\nWalkable to shops, restaurants, and the new development! This won't last long in today's market.\n\nDM me for a private showing! 📲\n\n#AksarbenVillage #OmahaHomes #JustListed #RealEstateExpert",
+    content: "✨ JUST LISTED! ✨\n\n🏡 4BR/3BA Contemporary Home\n💰 Competitively Priced\n📍 Prime Location\n\n▫️ Open concept living\n▫️ Gourmet kitchen with granite counters\n▫️ Master suite with walk-in closet\n▫️ Private backyard oasis\n▫️ 2-car garage\n\nWalkable to shops, restaurants, and local amenities! This won't last long in today's market.\n\nDM me for a private showing! 📲\n\n#JustListed #RealEstateExpert #HomesForSale",
   },
   {
     id: 3,
@@ -364,7 +364,7 @@ const initialScheduledContent = [
     time: "9:00 AM",
     color: "bg-chart-3",
     platform: "YouTube",
-    content: "🎥 First-Time Home Buyer Tips for Omaha Market\n\nIn this video, I share the essential steps every first-time buyer should know when purchasing in the Omaha metro area.\n\n📋 What's covered:\n• Pre-approval process and local lenders\n• Neighborhood selection guide\n• Inspection priorities in Omaha homes\n• Closing cost expectations\n• Market timing strategies\n\nAs your local Omaha expert, I've helped hundreds of first-time buyers navigate this exciting journey. Let me help you find your dream home!\n\n💬 Questions? Drop them in the comments below!\n\n#FirstTimeBuyer #OmahaRealEstate #HomeBuyingTips #RealEstateEducation",
+    content: "🎥 First-Time Home Buyer Tips\n\nIn this video, I share the essential steps every first-time buyer should know when purchasing a home.\n\n📋 What's covered:\n• Pre-approval process and local lenders\n• Neighborhood selection guide\n• Home inspection priorities\n• Closing cost expectations\n• Market timing strategies\n\nAs your local expert, I've helped hundreds of first-time buyers navigate this exciting journey. Let me help you find your dream home!\n\n💬 Questions? Drop them in the comments below!\n\n#FirstTimeBuyer #RealEstate #HomeBuyingTips #RealEstateEducation",
   },
   {
     id: 4,
@@ -374,7 +374,7 @@ const initialScheduledContent = [
     time: "11:00 AM",
     color: "bg-green-500",
     platform: "Facebook",
-    content: "🏠 OPEN HOUSE THIS WEEKEND! 🏠\n\n📍 123 Maple Street, Benson\n⏰ Saturday & Sunday 1-4 PM\n💰 $385,000\n\n✨ Features:\n• 3BR/2BA Craftsman style\n• Updated kitchen & baths\n• Hardwood floors throughout\n• Large fenced backyard\n• Walking distance to shops\n\nPerfect starter home or investment property! See you there!\n\n#OpenHouse #BensonNeighborhood #OmahaRealEstate",
+    content: "🏠 OPEN HOUSE THIS WEEKEND! 🏠\n\n📍 Beautiful Craftsman Home\n⏰ Saturday & Sunday 1-4 PM\n💰 Competitively Priced\n\n✨ Features:\n• 3BR/2BA Craftsman style\n• Updated kitchen & baths\n• Hardwood floors throughout\n• Large fenced backyard\n• Walking distance to shops\n\nPerfect starter home or investment property! See you there!\n\n#OpenHouse #RealEstate #HomesForSale",
   },
   {
     id: 5,
@@ -384,7 +384,7 @@ const initialScheduledContent = [
     time: "3:00 PM",
     color: "bg-indigo-500",
     platform: "LinkedIn",
-    content: "📊 Omaha Real Estate Market Trends - January 2025\n\nAs we move through the first quarter, here's what we're seeing in the Omaha metro area:\n\n🏠 INVENTORY: Up 12% from last month\n💰 MEDIAN PRICE: $425K (+6% YoY)\n📈 SALES VOLUME: Strong activity despite winter\n⏱️ DAYS ON MARKET: Averaging 22 days\n\nKey insights for buyers and sellers:\n• Inventory increasing gives buyers more options\n• Interest rates stabilizing around 6.8%\n• Spring market prep should start now\n\nThinking of making a move? Let's discuss your strategy.\n\n#OmahaRealEstate #MarketTrends #RealEstateExpert",
+    content: "📊 Real Estate Market Trends\n\nAs we move through the first quarter, here's what we're seeing in the local market:\n\n🏠 INVENTORY: Up 12% from last month\n💰 MEDIAN PRICE: Trending upward YoY\n📈 SALES VOLUME: Strong activity despite winter\n⏱️ DAYS ON MARKET: Competitive\n\nKey insights for buyers and sellers:\n• Inventory increasing gives buyers more options\n• Interest rates stabilizing\n• Spring market prep should start now\n\nThinking of making a move? Let's discuss your strategy.\n\n#RealEstate #MarketTrends #RealEstateExpert",
   }
 ];
 
@@ -1396,7 +1396,7 @@ export function ContentCalendar() {
                       </div>
                       <div>
                         <div className="font-semibold text-sm">mikebjork_realtor</div>
-                        <div className="text-xs text-gray-500">Omaha, Nebraska</div>
+                        <div className="text-xs text-gray-500">Real Estate</div>
                       </div>
                     </div>
                     <MoreHorizontal className="h-4 w-4" />
@@ -1495,7 +1495,7 @@ export function ContentCalendar() {
                     </div>
                     <div>
                       <div className="font-semibold text-sm">{userName} Real Estate</div>
-                      <div className="text-xs text-gray-500">Omaha Real Estate Expert</div>
+                      <div className="text-xs text-gray-500">Real Estate Expert</div>
                     </div>
                   </div>
                   

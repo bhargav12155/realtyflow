@@ -88,7 +88,7 @@ export class AIContentCalendarGenerator {
 
     const days = weeks * 7;
     const today = new Date();
-    const areasText = serviceAreas.length > 0 ? serviceAreas.join(', ') : 'Omaha metro area';
+    const areasText = serviceAreas.length > 0 ? serviceAreas.join(', ') : 'the local area';
     const audienceText = targetAudience || 'home buyers and sellers';
     const specialtiesText = specialties && specialties.length > 0 
       ? ` Specialties: ${specialties.join(', ')}.` 
@@ -114,12 +114,12 @@ export class AIContentCalendarGenerator {
       }
     }
 
-    const prompt = `You are a social media content strategist for real estate agents. Create a ${weeks}-week (${days}-day) content calendar for a real estate agent in Omaha, Nebraska.
+    const prompt = `You are a social media content strategist for real estate agents. Create a ${weeks}-week (${days}-day) content calendar for a real estate agent.
 
 **Agent Profile:**
 - Service Areas: ${areasText}
 - Target Audience: ${audienceText}${specialtiesText}
-- Current Market Data: ${marketInsights || 'Strong Omaha market'}
+- Current Market Data: ${marketInsights || 'Strong local market'}
 
 **Research-Backed Posting Schedule (FOLLOW EXACTLY):**
 Do NOT post to every platform every day. Use this platform-specific frequency based on engagement research:
@@ -170,7 +170,7 @@ TIKTOK:
 - "neighborhood_spotlight": Highlight neighborhoods with amenities
 - "buyer_tips": First-time buyer advice, financing, inspections
 - "seller_tips": Staging, pricing strategy, market timing
-- "community": Local events, businesses, Omaha lifestyle
+- "community": Local events, businesses, local lifestyle
 
 Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
 [
@@ -290,7 +290,7 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
    * Generate fallback content plan following the same platform frequency rules
    */
   getFallbackContentPlan(serviceAreas: string[], marketData: MarketData[], weeks: number = 4): GeneratedContentPlan {
-    const areas = serviceAreas.length > 0 ? serviceAreas : ['Omaha'];
+    const areas = serviceAreas.length > 0 ? serviceAreas : ['your area'];
     const today = new Date();
     const days = weeks * 7;
 
@@ -309,11 +309,11 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
       },
       x: {
         type: 'buyer_tips',
-        content: `Buyer tip: Get pre-approved before house hunting. It shows sellers you're serious and helps you know your budget. #OmahaRealEstate`,
+        content: `Buyer tip: Get pre-approved before house hunting. It shows sellers you're serious and helps you know your budget. #RealEstate`,
       },
       tiktok: {
         type: 'community',
-        content: `Love living in Omaha! 🌽 Local gems, great neighborhoods, and an amazing community await. Ask me anything about buying or selling here!`,
+        content: `Love living here! 🏡 Local gems, great neighborhoods, and an amazing community await. Ask me anything about buying or selling here!`,
       },
     };
 
@@ -334,7 +334,7 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
           platform,
           postType: template.type,
           content: template.content,
-          hashtags: platform === 'instagram' ? ['OmahaRealEstate', 'NebraskaHomes'] : [],
+          hashtags: platform === 'instagram' ? ['RealEstate', 'HomesForSale'] : [],
           scheduledFor: scheduleDate,
           status: 'pending',
           isEdited: false,

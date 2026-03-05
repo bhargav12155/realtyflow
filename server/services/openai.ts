@@ -270,7 +270,7 @@ function getBusinessContext(businessType: string, companyProfile?: CompanyProfil
     real_estate: {
       industryContext: `${loc} real estate${name ? ` — ${name}` : ""}${person ? `, represented by ${person}` : ""}`,
       roleLabel: "real estate",
-      fallbackHashtags: ["RealEstate", "HomesForSale", "DreamHome", ...(cityTag ? [`${cityTag}RealEstate`, `${cityTag}Homes`] : ["OmahaRealEstate"]), ...(stateTag ? [`${stateTag}RealEstate`] : [])],
+      fallbackHashtags: ["RealEstate", "HomesForSale", "DreamHome", ...(cityTag ? [`${cityTag}RealEstate`, `${cityTag}Homes`] : []), ...(stateTag ? [`${stateTag}RealEstate`] : [])],
     },
     general: {
       industryContext: `${name || "a local business"}${person ? ` with ${person}` : ""}${hasLocation ? ` in ${loc}` : ""}`,
@@ -340,13 +340,16 @@ export class OpenAIService {
       const agentName = request.companyProfile?.agentName || profile.agentName || "[Your Name]";
       const businessName = request.companyProfile?.businessName || profile.businessName || profile.brokerageName || "[Your Business]";
       const agentTitle = request.companyProfile?.agentTitle || profile.agentTitle || "real estate professional";
+      const city = (request.companyProfile as any)?.city || (profile as any)?.city || "";
+      const state = (request.companyProfile as any)?.state || (profile as any)?.state || "";
+      const locationStr = city && state ? `${city}, ${state}` : city || state || "the local market";
 
       const genAI = getGeminiClient();
       const response = await genAI.models.generateContent({
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: `You are an expert real estate content writer and SEO specialist focused on the Omaha, Nebraska market. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in Omaha. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON only — no markdown, no code blocks.`,
+          systemInstruction: `You are an expert real estate content writer and SEO specialist focused on ${locationStr}. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in ${locationStr}. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON only — no markdown, no code blocks.`,
           maxOutputTokens: 2000,
         },
       });
@@ -370,10 +373,9 @@ export class OpenAIService {
     let prompt = `Generate ${request.type} content about "${request.topic}"`;
 
     if (request.neighborhood) {
-      prompt += ` focusing on the ${request.neighborhood} neighborhood in Omaha, Nebraska`;
-    } else {
-      prompt += ` for the Omaha, Nebraska real estate market`;
+      prompt += ` focusing on the ${request.neighborhood} neighborhood`;
     }
+    prompt += ` for the local real estate market`;
 
     if (request.aiPrompt && request.aiPrompt.trim()) {
       prompt += `\n\nCustom Instructions: ${request.aiPrompt.trim()}`;
@@ -411,7 +413,7 @@ export class OpenAIService {
     if (request.seoOptimized) {
       prompt += `
       - Optimize for SEO with natural keyword integration (aim for 80%+ SEO score)
-      - Include relevant long-tail keywords for Omaha real estate
+      - Include relevant long-tail keywords for local real estate
       - Use proper heading structure (H1, H2, H3) for blog posts`;
     }
 
@@ -535,7 +537,10 @@ export class OpenAIService {
       const { topic, neighborhood, duration = 30, platform = "Instagram Reel", videoType = "market update", customPrompt, companyProfile } = params;
       const agentName = companyProfile?.agentName || "your real estate agent";
       const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "our brokerage";
-      const locationText = neighborhood ? `${neighborhood}, Omaha` : "Omaha, Nebraska";
+      const city = (companyProfile as any)?.city || "";
+      const state = (companyProfile as any)?.state || "";
+      const defaultLoc = city && state ? `${city}, ${state}` : city || state || "the local area";
+      const locationText = neighborhood ? `${neighborhood}, ${defaultLoc}` : defaultLoc;
 
       const prompt = `Create a ${duration}-second video script for ${agentName} with ${businessName} in ${locationText}.
 Platform: ${platform}
@@ -562,9 +567,11 @@ RULES:
       return response.text || "Script generation failed";
     } catch (error) {
       console.error("Gemini video script error:", error);
-      const agentName = params.companyProfile?.agentName || "Mike Bjork";
-      const businessName = params.companyProfile?.businessName || params.companyProfile?.brokerageName || "Berkshire Hathaway HomeServices";
-      return `Hi, I'm ${agentName} with ${businessName} here in Omaha. Today I want to talk to you about ${params.topic} in ${params.neighborhood || "Omaha"}. I'd love to help you navigate these opportunities. Give me a call — I'm ${agentName} and I'm here to make your real estate dreams a reality.`;
+      const agentName = params.companyProfile?.agentName || "your agent";
+      const businessName = params.companyProfile?.businessName || params.companyProfile?.brokerageName || "our team";
+      const fbCity = (params.companyProfile as any)?.city || "";
+      const fbLoc = params.neighborhood || fbCity || "our area";
+      return `Hi, I'm ${agentName} with ${businessName}. Today I want to talk to you about ${params.topic} in ${fbLoc}. I'd love to help you navigate these opportunities. Give me a call — I'm ${agentName} and I'm here to make your real estate dreams a reality.`;
     }
   }
 
@@ -618,7 +625,7 @@ Post Type: ${postType}
 
 Requirements:
 - Maintain the professional brand voice
-- Include relevant Omaha, Nebraska local SEO keywords
+- Include relevant local SEO keywords
 - Optimize for ${platform} platform best practices
 - Keep content engaging and authentic
 - Ensure call-to-action is clear
@@ -630,7 +637,7 @@ Please enhance this content while keeping the same core message and format. Retu
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are an expert content optimizer specializing in real estate social media and SEO for the Omaha, Nebraska market.",
+          systemInstruction: "You are an expert content optimizer specializing in real estate social media and SEO.",
           maxOutputTokens: 500,
         },
       });
@@ -647,15 +654,16 @@ Please enhance this content while keeping the same core message and format. Retu
     const agentName = request.companyProfile?.agentName || "your local real estate agent";
     const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our brokerage";
 
+    const loc = neighborhood || "your area";
     const content = type === "social"
-      ? `🏡 Thinking about ${topic.toLowerCase()} in ${neighborhood || "Omaha"}? Contact ${agentName} with ${businessName} for expert real estate guidance! #OmahaRealEstate`
-      : `Looking for expert real estate guidance in ${neighborhood || "Omaha"}? Contact ${agentName} with ${businessName} for professional service and local market expertise.`;
+      ? `🏡 Thinking about ${topic.toLowerCase()} in ${loc}? Contact ${agentName} with ${businessName} for expert real estate guidance! #RealEstate`
+      : `Looking for expert real estate guidance in ${loc}? Contact ${agentName} with ${businessName} for professional service and local market expertise.`;
 
     return {
-      title: `${topic} - ${neighborhood || "Omaha"} Real Estate`,
+      title: `${topic} - ${loc} Real Estate`,
       content,
-      keywords: ["Omaha real estate", neighborhood ? `${neighborhood} homes` : "Nebraska homes", topic],
-      metaDescription: `${topic} in ${neighborhood || "Omaha"} with ${agentName}`,
+      keywords: ["real estate", neighborhood ? `${neighborhood} homes` : "local homes", topic],
+      metaDescription: `${topic} in ${loc} with ${agentName}`,
       seoScore: 45,
       wordCount: content.split(" ").length,
     };

@@ -1055,7 +1055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { geminiService } = await import("./services/gemini");
         
         // Build Gemini system prompt with location context
-        const geminiSystemPrompt = `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
+        const geminiSystemPrompt = `You are a helpful AI assistant for real estate professionals. 
 You help with:
 - Creating social media posts and marketing content
 - Writing blog articles and property descriptions
@@ -1084,7 +1084,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
       const messages = [
         {
           role: "system" as const,
-          content: `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
+          content: `You are a helpful AI assistant for real estate professionals. 
 You help with:
 - Creating social media posts and marketing content
 - Writing blog articles and property descriptions
@@ -7355,7 +7355,9 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         .filter(Boolean);
 
       if (serviceAreas.length === 0) {
-        serviceAreas.push("Omaha"); // Default to Omaha
+        const companyProfile = await storage.getCompanyProfile(userId);
+        const city = (companyProfile as any)?.city || "";
+        serviceAreas.push(city || "the local area");
       }
 
       // Import and initialize AI content calendar generator

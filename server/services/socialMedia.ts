@@ -180,7 +180,7 @@ export class SocialMediaService {
         snippet: {
           title: title,
           description: description,
-          tags: ["real estate", "Omaha", "property", "home", "marketing"],
+          tags: ["real estate", "property", "home", "marketing"],
           categoryId: "28", // Science & Technology category
         },
         status: {

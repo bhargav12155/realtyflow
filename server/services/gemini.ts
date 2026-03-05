@@ -44,7 +44,7 @@ export class GeminiService {
     try {
       console.log(`💬 [Gemini] Processing chat message with gemini-2.5-flash`);
 
-      const systemPrompt = customSystemPrompt || `You are a helpful AI assistant for real estate professionals in the Omaha, Nebraska area. 
+      const systemPrompt = customSystemPrompt || `You are a helpful AI assistant for real estate professionals. 
 You help with:
 - Creating social media posts and marketing content
 - Writing blog articles and property descriptions

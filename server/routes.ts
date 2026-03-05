@@ -20608,9 +20608,22 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const results: any = {
         period: { days, startDate, endDate },
         templateAnalytics: null,
+        messagingAnalytics: null,
+        conversationAnalytics: null,
+        pricingAnalytics: null,
         phoneQuality: null,
         accountInfo: null,
       };
+
+      const insightsCacheKey = `insights_enabled_${wabaId}`;
+      if (!(global as any)[insightsCacheKey]) {
+        try {
+          await whatsappService.enableTemplateInsights(wabaId, accessToken);
+          (global as any)[insightsCacheKey] = Date.now();
+        } catch (e: any) {
+          console.warn("⚠️ Failed to enable template insights:", e.message?.substring(0, 100));
+        }
+      }
 
       try {
         const templates = await whatsappService.getMessageTemplates(wabaId, accessToken);
@@ -20619,37 +20632,64 @@ Be helpful, professional, and concise. Always let users know what the platform c
           .map((t: any) => t.id)
           .slice(0, 10);
 
+        const templateMap = new Map<string, any>();
+        for (const t of templates) {
+          templateMap.set(t.id, { name: t.name, category: t.category });
+        }
+
         if (templateIds.length > 0) {
           const analytics = await whatsappService.getTemplateAnalytics(wabaId, accessToken, templateIds, startDate, endDate);
           const dataPoints = analytics?.data || [];
 
           let totalSent = 0, totalDelivered = 0, totalRead = 0, totalClicked = 0;
+          let totalCost = 0;
           const dailyData: any[] = [];
           const templateBreakdown: any[] = [];
 
           for (const tp of dataPoints) {
-            const templateName = tp.template?.name || "Unknown";
-            let tSent = 0, tDelivered = 0, tRead = 0, tClicked = 0;
-
             for (const dp of (tp.data_points || [])) {
+              const tplInfo = templateMap.get(dp.template_id) || { name: "Unknown", category: "MARKETING" };
               const s = dp.sent || 0;
               const d = dp.delivered || 0;
               const r = dp.read || 0;
-              const c = dp.clicked || 0;
-              tSent += s; tDelivered += d; tRead += r; tClicked += c;
+              let c = 0;
+              if (Array.isArray(dp.clicked)) {
+                c = dp.clicked.reduce((sum: number, click: any) => sum + (click.count || 0), 0);
+              } else {
+                c = dp.clicked || 0;
+              }
+              let cost = 0;
+              if (Array.isArray(dp.cost)) {
+                const amountSpent = dp.cost.find((co: any) => co.type === "amount_spent");
+                cost = amountSpent?.value || 0;
+              }
+
               totalSent += s; totalDelivered += d; totalRead += r; totalClicked += c;
+              totalCost += cost;
 
               dailyData.push({
                 date: dp.start ? new Date(dp.start * 1000).toISOString().split("T")[0] : null,
-                sent: s, delivered: d, read: r, clicked: c, template: templateName,
+                sent: s, delivered: d, read: r, clicked: c, cost,
+                template: tplInfo.name,
+                category: tplInfo.category,
               });
-            }
 
-            templateBreakdown.push({ name: templateName, sent: tSent, delivered: tDelivered, read: tRead, clicked: tClicked });
+              const existing = templateBreakdown.find((b: any) => b.templateId === dp.template_id);
+              if (existing) {
+                existing.sent += s; existing.delivered += d; existing.read += r; existing.clicked += c; existing.cost += cost;
+              } else {
+                templateBreakdown.push({
+                  templateId: dp.template_id,
+                  name: tplInfo.name,
+                  category: tplInfo.category,
+                  sent: s, delivered: d, read: r, clicked: c, cost,
+                });
+              }
+            }
           }
 
           results.templateAnalytics = {
-            totals: { sent: totalSent, delivered: totalDelivered, read: totalRead, clicked: totalClicked },
+            totals: { sent: totalSent, delivered: totalDelivered, read: totalRead, clicked: totalClicked, cost: Math.round(totalCost * 100) / 100 },
             deliveryRate: totalSent > 0 ? Math.round((totalDelivered / totalSent) * 100) : 0,
             readRate: totalDelivered > 0 ? Math.round((totalRead / totalDelivered) * 100) : 0,
             ecosystemBlocked: totalSent - totalDelivered,
@@ -20660,6 +20700,104 @@ Be helpful, professional, and concise. Always let users know what the platform c
       } catch (err: any) {
         console.error("Template analytics error:", err.message);
         results.templateAnalytics = { error: err.message };
+      }
+
+      try {
+        const msgData = await whatsappService.getMessagingAnalytics(wabaId, accessToken, startDate, endDate);
+        const analytics = msgData?.analytics;
+        if (analytics?.data_points) {
+          let totalSent = 0, totalDelivered = 0;
+          for (const dp of analytics.data_points) {
+            totalSent += dp.sent || 0;
+            totalDelivered += dp.delivered || 0;
+          }
+          results.messagingAnalytics = {
+            totals: { sent: totalSent, delivered: totalDelivered },
+            deliveryRate: totalSent > 0 ? Math.round((totalDelivered / totalSent) * 100) : 0,
+            notDelivered: totalSent - totalDelivered,
+            phoneNumbers: analytics.phone_numbers || [],
+            countries: analytics.country_codes || [],
+            dailyData: analytics.data_points.map((dp: any) => ({
+              date: dp.start ? new Date(dp.start * 1000).toISOString().split("T")[0] : null,
+              sent: dp.sent || 0,
+              delivered: dp.delivered || 0,
+            })),
+          };
+        }
+      } catch (err: any) {
+        console.error("Messaging analytics error:", err.message);
+        results.messagingAnalytics = { error: err.message };
+      }
+
+      try {
+        const convData = await whatsappService.getConversationAnalytics(wabaId, accessToken, startDate, endDate);
+        const convAnalytics = convData?.conversation_analytics;
+        if (convAnalytics?.data?.[0]?.data_points) {
+          const dataPoints = convAnalytics.data[0].data_points;
+          const categoryTotals: Record<string, { conversations: number; cost: number }> = {};
+          const countryTotals: Record<string, { conversations: number; cost: number }> = {};
+          let totalConversations = 0, totalCost = 0;
+
+          for (const dp of dataPoints) {
+            const cat = dp.conversation_category || "UNKNOWN";
+            const country = dp.country || "UNKNOWN";
+            const conv = dp.conversation || 0;
+            const cost = dp.cost || 0;
+
+            totalConversations += conv;
+            totalCost += cost;
+
+            if (!categoryTotals[cat]) categoryTotals[cat] = { conversations: 0, cost: 0 };
+            categoryTotals[cat].conversations += conv;
+            categoryTotals[cat].cost += cost;
+
+            if (!countryTotals[country]) countryTotals[country] = { conversations: 0, cost: 0 };
+            countryTotals[country].conversations += conv;
+            countryTotals[country].cost += cost;
+          }
+
+          results.conversationAnalytics = {
+            totalConversations,
+            totalCost: Math.round(totalCost * 100) / 100,
+            byCategory: categoryTotals,
+            byCountry: countryTotals,
+          };
+        }
+      } catch (err: any) {
+        console.error("Conversation analytics error:", err.message);
+        results.conversationAnalytics = { error: err.message };
+      }
+
+      try {
+        const pricingData = await whatsappService.getPricingAnalytics(wabaId, accessToken, startDate, endDate);
+        const pricingAnalytics = pricingData?.pricing_analytics;
+        if (pricingAnalytics?.data?.[0]?.data_points) {
+          const dataPoints = pricingAnalytics.data[0].data_points;
+          const categoryTotals: Record<string, { volume: number; cost: number }> = {};
+          let totalVolume = 0, totalCost = 0;
+
+          for (const dp of dataPoints) {
+            const cat = dp.pricing_category || "UNKNOWN";
+            const volume = dp.volume || 0;
+            const cost = dp.cost || 0;
+
+            totalVolume += volume;
+            totalCost += cost;
+
+            if (!categoryTotals[cat]) categoryTotals[cat] = { volume: 0, cost: 0 };
+            categoryTotals[cat].volume += volume;
+            categoryTotals[cat].cost += cost;
+          }
+
+          results.pricingAnalytics = {
+            totalVolume,
+            totalCost: Math.round(totalCost * 100) / 100,
+            byCategory: categoryTotals,
+          };
+        }
+      } catch (err: any) {
+        console.error("Pricing analytics error:", err.message);
+        results.pricingAnalytics = { error: err.message };
       }
 
       try {
@@ -20677,10 +20815,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       try {
-        const accountData = await whatsappService.getMessagingLimits(wabaId, accessToken);
+        const accountData = await whatsappService.getAccountInfo(wabaId, accessToken);
         results.accountInfo = {
-          templateCount: accountData.message_template_count || 0,
           reviewStatus: accountData.account_review_status || "UNKNOWN",
+          insightsEnabled: accountData.is_enabled_for_insights || false,
         };
       } catch (err: any) {
         console.error("Account info error:", err.message);

@@ -149,10 +149,18 @@ export class BulkQueueScheduler {
 
     const isRetryableError = (errMsg: string) =>
       errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
-      errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl");
+      errMsg.includes("131057") || errMsg.includes("131016") || errMsg.includes("133004") ||
+      errMsg.includes("80007") || errMsg.includes("2494100") ||
+      errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("throttl") ||
+      errMsg.toLowerCase().includes("temporarily") || errMsg.toLowerCase().includes("maintenance");
 
     const isEcosystemBlock = (errMsg: string) =>
-      errMsg.includes("131049") || errMsg.includes("131056");
+      errMsg.includes("131049") || errMsg.includes("131056") || errMsg.includes("130472");
+
+    const isPermanentBlock = (errMsg: string) =>
+      errMsg.includes("131050") || errMsg.includes("131026") || errMsg.includes("131031") ||
+      errMsg.includes("368") || errMsg.includes("130497") || errMsg.includes("131021") ||
+      errMsg.includes("132001") || errMsg.includes("132015") || errMsg.includes("132016");
 
     const sendOneWithRetry = async (phone: string, attempt = 1): Promise<{ success: boolean; phone: string; errorType?: string }> => {
       try {
@@ -166,6 +174,10 @@ export class BulkQueueScheduler {
         const errMsg = err.message || "";
         if (isEcosystemBlock(errMsg)) {
           return { success: false, phone, errorType: "ecosystem" };
+        }
+        if (isPermanentBlock(errMsg)) {
+          console.warn(`📱 Queue ${queue.id}: Permanent block for ${phone}: ${errMsg.substring(0, 100)}`);
+          return { success: false, phone, errorType: "permanent" };
         }
         if (isRetryableError(errMsg) && attempt <= 2) {
           const backoff = RATE_LIMIT_BACKOFF_MS * attempt;

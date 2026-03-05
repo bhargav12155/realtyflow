@@ -641,36 +641,98 @@ function WhatsAppAnalyticsSection() {
           <Loader2 className="h-5 w-5 animate-spin text-green-500" />
           <span className="ml-2 text-xs text-muted-foreground">Loading analytics from Meta...</span>
         </div>
-      ) : waAnalytics?.templateAnalytics?.totals ? (
+      ) : waAnalytics ? (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-sent">
-              <Send className="h-4 w-4 mx-auto mb-1 text-blue-500" />
-              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.totals.sent || 0).toLocaleString()}</div>
-              <div className="text-[10px] text-muted-foreground">Messages Sent</div>
-            </div>
-            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-delivered">
-              <CheckCircle className="h-4 w-4 mx-auto mb-1 text-green-500" />
-              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.totals.delivered || 0).toLocaleString()}</div>
-              <div className="text-[10px] text-muted-foreground">Delivered</div>
-              {waAnalytics.templateAnalytics.deliveryRate > 0 && (
-                <div className="text-[9px] text-green-600 font-medium">{waAnalytics.templateAnalytics.deliveryRate}%</div>
+          {(() => {
+            const tplTotals = waAnalytics.templateAnalytics?.totals;
+            const msgTotals = waAnalytics.messagingAnalytics?.totals;
+            const sent = msgTotals?.sent || tplTotals?.sent || 0;
+            const delivered = msgTotals?.delivered || tplTotals?.delivered || 0;
+            const read = tplTotals?.read || 0;
+            const hasReadData = tplTotals && !waAnalytics.templateAnalytics?.error;
+            const blocked = sent - delivered;
+            const deliveryRate = sent > 0 ? Math.round((delivered / sent) * 100) : 0;
+            const readRate = hasReadData && delivered > 0 ? Math.round((read / delivered) * 100) : 0;
+
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-sent">
+                  <Send className="h-4 w-4 mx-auto mb-1 text-blue-500" />
+                  <div className="text-lg font-bold">{sent.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">Messages Sent</div>
+                </div>
+                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-delivered">
+                  <CheckCircle className="h-4 w-4 mx-auto mb-1 text-green-500" />
+                  <div className="text-lg font-bold">{delivered.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">Delivered</div>
+                  {deliveryRate > 0 && <div className="text-[9px] text-green-600 font-medium">{deliveryRate}%</div>}
+                </div>
+                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-read">
+                  <MailOpen className="h-4 w-4 mx-auto mb-1 text-purple-500" />
+                  <div className="text-lg font-bold">{hasReadData ? read.toLocaleString() : "—"}</div>
+                  <div className="text-[10px] text-muted-foreground">Messages Read</div>
+                  {hasReadData && readRate > 0 && <div className="text-[9px] text-purple-600 font-medium">{readRate}%</div>}
+                </div>
+                <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-blocked">
+                  <ShieldAlert className="h-4 w-4 mx-auto mb-1 text-red-500" />
+                  <div className="text-lg font-bold">{blocked.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">Not Delivered</div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {waAnalytics.conversationAnalytics && !waAnalytics.conversationAnalytics.error && (
+            <div className="space-y-1.5" data-testid="wa-conversation-breakdown">
+              <div className="text-[11px] font-semibold text-muted-foreground">Conversations by Category</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+                {Object.entries(waAnalytics.conversationAnalytics.byCategory || {}).map(([cat, data]: [string, any]) => {
+                  const catColors: Record<string, string> = {
+                    MARKETING: "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20",
+                    UTILITY: "border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20",
+                    SERVICE: "border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-950/20",
+                    AUTHENTICATION: "border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20",
+                  };
+                  const catTextColors: Record<string, string> = {
+                    MARKETING: "text-red-700 dark:text-red-400",
+                    UTILITY: "text-blue-700 dark:text-blue-400",
+                    SERVICE: "text-gray-700 dark:text-gray-400",
+                    AUTHENTICATION: "text-purple-700 dark:text-purple-400",
+                  };
+                  return (
+                    <div key={cat} className={`rounded-lg border p-2 text-center ${catColors[cat] || "border-border"}`}>
+                      <div className={`text-[9px] font-bold uppercase ${catTextColors[cat] || "text-muted-foreground"}`}>{cat}</div>
+                      <div className="text-sm font-bold">{(data.conversations || 0).toLocaleString()}</div>
+                      {data.cost > 0 && <div className="text-[9px] text-muted-foreground">${data.cost.toFixed(2)}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+              {waAnalytics.conversationAnalytics.totalCost > 0 && (
+                <div className="text-[10px] text-right text-muted-foreground">
+                  Total: {waAnalytics.conversationAnalytics.totalConversations?.toLocaleString()} conversations | ${waAnalytics.conversationAnalytics.totalCost?.toFixed(2)}
+                </div>
               )}
             </div>
-            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-read">
-              <MailOpen className="h-4 w-4 mx-auto mb-1 text-purple-500" />
-              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.totals.read || 0).toLocaleString()}</div>
-              <div className="text-[10px] text-muted-foreground">Messages Read</div>
-              {waAnalytics.templateAnalytics.readRate > 0 && (
-                <div className="text-[9px] text-purple-600 font-medium">{waAnalytics.templateAnalytics.readRate}%</div>
-              )}
+          )}
+
+          {waAnalytics.pricingAnalytics && !waAnalytics.pricingAnalytics.error && (
+            <div className="space-y-1.5" data-testid="wa-pricing-breakdown">
+              <div className="text-[11px] font-semibold text-muted-foreground">Pricing Breakdown</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                {Object.entries(waAnalytics.pricingAnalytics.byCategory || {}).map(([cat, data]: [string, any]) => (
+                  <div key={cat} className="rounded-lg border p-2 text-center">
+                    <div className="text-[9px] font-bold uppercase text-muted-foreground">{cat.replace(/_/g, " ")}</div>
+                    <div className="text-sm font-bold">{(data.volume || 0).toLocaleString()}</div>
+                    <div className="text-[9px] text-muted-foreground">${(data.cost || 0).toFixed(2)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="text-[10px] text-right text-muted-foreground">
+                Total: {waAnalytics.pricingAnalytics.totalVolume?.toLocaleString()} messages | ${waAnalytics.pricingAnalytics.totalCost?.toFixed(2)}
+              </div>
             </div>
-            <div className="rounded-lg border p-2.5 text-center" data-testid="wa-metric-blocked">
-              <ShieldAlert className="h-4 w-4 mx-auto mb-1 text-red-500" />
-              <div className="text-lg font-bold">{(waAnalytics.templateAnalytics.ecosystemBlocked || 0).toLocaleString()}</div>
-              <div className="text-[10px] text-muted-foreground">Ecosystem Blocked</div>
-            </div>
-          </div>
+          )}
 
           {waAnalytics.phoneQuality && !waAnalytics.phoneQuality.error && (
             <div className="rounded-lg border p-2.5 flex items-center justify-between text-xs" data-testid="wa-phone-quality">
@@ -694,27 +756,42 @@ function WhatsAppAnalyticsSection() {
             </div>
           )}
 
-          {waAnalytics.templateAnalytics.templateBreakdown?.length > 0 && (
+          {waAnalytics.templateAnalytics?.templateBreakdown?.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-[11px] font-semibold text-muted-foreground">Template Performance</div>
               {waAnalytics.templateAnalytics.templateBreakdown.map((t: any, i: number) => (
                 <div key={i} className="flex items-center justify-between rounded border px-2.5 py-1.5 text-[10px]" data-testid={`wa-template-row-${i}`}>
-                  <span className="font-medium truncate max-w-[140px]">{t.name}</span>
-                  <div className="flex items-center gap-3 text-muted-foreground">
-                    <span title="Sent">{t.sent.toLocaleString()} sent</span>
-                    <span title="Delivered" className="text-green-600">{t.delivered.toLocaleString()} delivered</span>
-                    <span title="Read" className="text-purple-600">{t.read.toLocaleString()} read</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="font-medium truncate max-w-[120px]">{t.name?.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+                    <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${
+                      (t.category || "").toUpperCase() === "UTILITY" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
+                      (t.category || "").toUpperCase() === "AUTHENTICATION" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" :
+                      "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                    }`}>{(t.category || "MARKETING").toUpperCase()}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground flex-shrink-0">
+                    <span title="Sent">{(t.sent || 0).toLocaleString()} sent</span>
+                    <span title="Delivered" className="text-green-600">{(t.delivered || 0).toLocaleString()} del</span>
+                    <span title="Read" className="text-purple-600">{(t.read || 0).toLocaleString()} read</span>
+                    {t.cost > 0 && <span title="Cost" className="text-amber-600">${t.cost.toFixed(2)}</span>}
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          {(waAnalytics.templateAnalytics?.error || waAnalytics.conversationAnalytics?.error || waAnalytics.pricingAnalytics?.error || waAnalytics.messagingAnalytics?.error) && (
+            <div className="rounded-lg border border-yellow-200 dark:border-yellow-800 bg-yellow-50/50 dark:bg-yellow-950/20 p-2 text-[10px] text-yellow-700 dark:text-yellow-400" data-testid="wa-analytics-errors">
+              <span className="font-semibold">Some analytics unavailable:</span>{" "}
+              {[
+                waAnalytics.templateAnalytics?.error && "Template insights",
+                waAnalytics.conversationAnalytics?.error && "Conversations",
+                waAnalytics.pricingAnalytics?.error && "Pricing",
+                waAnalytics.messagingAnalytics?.error && "Messaging",
+              ].filter(Boolean).join(", ")}
+            </div>
+          )}
         </>
-      ) : waAnalytics?.templateAnalytics?.error ? (
-        <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 text-xs text-red-600 dark:text-red-400">
-          <AlertTriangle className="h-3.5 w-3.5 inline mr-1" />
-          {waAnalytics.templateAnalytics.error}
-        </div>
       ) : (
         <div className="rounded-lg border p-3 text-xs text-muted-foreground text-center">
           No analytics data available for this period.

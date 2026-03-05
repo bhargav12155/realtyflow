@@ -249,9 +249,9 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
     url.searchParams.set("end", String(endDate));
     url.searchParams.set("granularity", "DAILY");
     url.searchParams.set("template_ids", JSON.stringify(templateIds));
-    url.searchParams.set("metric_types", JSON.stringify(["sent", "delivered", "read", "clicked"]));
+    url.searchParams.set("metric_types", JSON.stringify(["SENT", "DELIVERED", "READ", "CLICKED", "COST"]));
 
-    console.log(`📊 WhatsApp: Fetching template analytics for WABA ${wabaId}`);
+    console.log(`📊 WhatsApp: Fetching template analytics for WABA ${wabaId} (${templateIds.length} templates)`);
     const response = await fetch(url.toString(), {
       headers: { "Authorization": `Bearer ${accessToken}` },
     });
@@ -265,24 +265,75 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
     return await response.json();
   }
 
+  async enableTemplateInsights(wabaId: string, accessToken: string): Promise<boolean> {
+    try {
+      console.log(`📊 WhatsApp: Enabling template insights for WABA ${wabaId}`);
+      const response = await fetch(
+        `https://graph.facebook.com/v25.0/${wabaId}?is_enabled_for_insights=true`,
+        {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${accessToken}` },
+        }
+      );
+      if (response.ok) {
+        console.log(`✅ Template insights enabled for WABA ${wabaId}`);
+        return true;
+      }
+      const error = await response.json();
+      console.warn(`⚠️ Template insights enable response:`, error);
+      return false;
+    } catch (err) {
+      console.warn("Could not enable template insights:", err);
+      return false;
+    }
+  }
+
+  async getMessagingAnalytics(wabaId: string, accessToken: string, startTimestamp: number, endTimestamp: number): Promise<any> {
+    const url = `https://graph.facebook.com/v25.0/${wabaId}?fields=analytics.start(${startTimestamp}).end(${endTimestamp}).granularity(DAY)&access_token=${accessToken}`;
+
+    console.log(`📊 WhatsApp: Fetching messaging analytics for WABA ${wabaId}`);
+    const response = await fetch(url, {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Messaging Analytics Error:", error);
+      throw new Error(`WhatsApp Messaging Analytics API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    return await response.json();
+  }
+
   async getConversationAnalytics(wabaId: string, accessToken: string, startTimestamp: number, endTimestamp: number): Promise<any> {
-    const url = new URL(`https://graph.facebook.com/v25.0/${wabaId}/analytics`);
-    url.searchParams.set("start", String(startTimestamp));
-    url.searchParams.set("end", String(endTimestamp));
-    url.searchParams.set("granularity", "DAILY");
-    url.searchParams.set("phone_numbers", "[]");
-    url.searchParams.set("metric_types", JSON.stringify(["sent", "delivered"]));
-    url.searchParams.set("country_codes", "[]");
+    const url = `https://graph.facebook.com/v25.0/${wabaId}?fields=conversation_analytics.start(${startTimestamp}).end(${endTimestamp}).granularity(DAILY).phone_numbers([]).dimensions(["CONVERSATION_CATEGORY","CONVERSATION_TYPE","COUNTRY"])&access_token=${accessToken}`;
 
     console.log(`📊 WhatsApp: Fetching conversation analytics for WABA ${wabaId}`);
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       headers: { "Authorization": `Bearer ${accessToken}` },
     });
 
     if (!response.ok) {
       const error = await response.json();
       console.error("WhatsApp Conversation Analytics Error:", error);
-      throw new Error(`WhatsApp Analytics API error: ${error.error?.message || "Unknown error"}`);
+      throw new Error(`WhatsApp Conversation Analytics API error: ${error.error?.message || "Unknown error"}`);
+    }
+
+    return await response.json();
+  }
+
+  async getPricingAnalytics(wabaId: string, accessToken: string, startTimestamp: number, endTimestamp: number): Promise<any> {
+    const url = `https://graph.facebook.com/v25.0/${wabaId}?fields=pricing_analytics.start(${startTimestamp}).end(${endTimestamp}).granularity(DAILY).dimensions(["PRICING_CATEGORY","PRICING_TYPE","COUNTRY"])&access_token=${accessToken}`;
+
+    console.log(`📊 WhatsApp: Fetching pricing analytics for WABA ${wabaId}`);
+    const response = await fetch(url, {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("WhatsApp Pricing Analytics Error:", error);
+      throw new Error(`WhatsApp Pricing Analytics API error: ${error.error?.message || "Unknown error"}`);
     }
 
     return await response.json();
@@ -306,10 +357,10 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
     return await response.json();
   }
 
-  async getMessagingLimits(wabaId: string, accessToken: string): Promise<any> {
-    console.log(`📊 WhatsApp: Fetching messaging limits for WABA ${wabaId}`);
+  async getAccountInfo(wabaId: string, accessToken: string): Promise<any> {
+    console.log(`📊 WhatsApp: Fetching account info for WABA ${wabaId}`);
     const response = await fetch(
-      `https://graph.facebook.com/v25.0/${wabaId}?fields=message_template_count,messaging_limit_tier,account_review_status`,
+      `https://graph.facebook.com/v25.0/${wabaId}?fields=account_review_status,is_enabled_for_insights`,
       {
         headers: { "Authorization": `Bearer ${accessToken}` },
       }
@@ -317,8 +368,8 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
 
     if (!response.ok) {
       const error = await response.json();
-      console.error("WhatsApp Limits Error:", error);
-      throw new Error(`WhatsApp Limits API error: ${error.error?.message || "Unknown error"}`);
+      console.error("WhatsApp Account Info Error:", error);
+      throw new Error(`WhatsApp Account API error: ${error.error?.message || "Unknown error"}`);
     }
 
     return await response.json();

@@ -948,6 +948,7 @@ export function SocialMediaManager() {
     sent: number; failed: number; total: number; percent: number;
     queued?: number; estimatedRemaining?: number; message: string; complete?: boolean;
     errorBreakdown?: Record<string, number>; estimatedCost?: number;
+    bulkQueueId?: string;
   } | null>(null);
   const { toast } = useToast();
 
@@ -1025,6 +1026,7 @@ export function SocialMediaManager() {
               complete: data.complete || false,
               errorBreakdown: data.errorBreakdown,
               estimatedCost: data.estimatedCost,
+              bulkQueueId: data.bulkQueueId,
             });
           }
         }
@@ -3031,9 +3033,28 @@ ${agentName} | ${brokerageName}
                       )}
                       <span className="text-muted-foreground">of {bulkProgress.total.toLocaleString()}</span>
                       {(bulkProgress as any).queued > 0 && (
-                        <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center gap-2 flex-wrap">
                           <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} auto-queued for next batch</span>
-                          {bulkProgress.complete && (() => {
+                          {bulkProgress.complete && (bulkProgress as any).bulkQueueId && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest("POST", `/api/whatsapp/bulk-queues/${(bulkProgress as any).bulkQueueId}/send-now`);
+                                  toast({ title: "Processing Next Batch", description: "Sending next batch of messages now..." });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                } catch (err: any) {
+                                  toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
+                              data-testid="btn-send-next-batch-banner"
+                            >
+                              <Play className="h-3 w-3" />
+                              Send Next Batch Now
+                            </button>
+                          )}
+                          {bulkProgress.complete && !(bulkProgress as any).bulkQueueId && (() => {
                             const activeQueue = bulkQueues.find((q: any) => q.status === "active" || q.status === "paused");
                             if (!activeQueue) return null;
                             return (
@@ -3048,8 +3069,8 @@ ${agentName} | ${brokerageName}
                                     toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
                                   }
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors"
-                                data-testid="btn-send-next-batch-banner"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
+                                data-testid="btn-send-next-batch-fallback"
                               >
                                 <Play className="h-3 w-3" />
                                 Send Next Batch Now

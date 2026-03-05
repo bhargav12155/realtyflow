@@ -249,7 +249,7 @@ Return your response as JSON: {"response": "your message", "extractedInfo": {"na
     url.searchParams.set("end", String(endDate));
     url.searchParams.set("granularity", "DAILY");
     url.searchParams.set("template_ids", JSON.stringify(templateIds));
-    url.searchParams.set("metric_types", JSON.stringify(["SENT", "DELIVERED", "READ", "CLICKED", "COST"]));
+    url.searchParams.set("metric_types", JSON.stringify(["SENT", "DELIVERED", "READ", "REPLIED", "CLICKED", "COST"]));
 
     console.log(`📊 WhatsApp: Fetching template analytics for WABA ${wabaId} (${templateIds.length} templates)`);
     const response = await fetch(url.toString(), {

@@ -841,24 +841,45 @@ function WhatsAppAnalyticsSection({ bulkProgress }: { bulkProgress?: any }) {
             </div>
           )}
 
+          {waAnalytics.templateAnalytics?.totals && (
+            <div className="grid grid-cols-3 gap-1.5 rounded-lg border p-2.5" data-testid="wa-template-totals">
+              <div className="text-center">
+                <div className="text-[10px] text-muted-foreground">Amount Spent</div>
+                <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400">${(waAnalytics.templateAnalytics.totals.cost || 0).toFixed(2)}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-[10px] text-muted-foreground">Cost / Delivered</div>
+                <div className="text-sm font-bold">${(waAnalytics.templateAnalytics.totals.costPerDelivered || 0).toFixed(2)}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-[10px] text-muted-foreground">Unique Replies</div>
+                <div className="text-sm font-bold text-blue-600">{(waAnalytics.templateAnalytics.totals.replied || 0).toLocaleString()}</div>
+              </div>
+            </div>
+          )}
+
           {waAnalytics.templateAnalytics?.templateBreakdown?.length > 0 && (
             <div className="space-y-1.5">
               <div className="text-[11px] font-semibold text-muted-foreground">Template Performance</div>
               {waAnalytics.templateAnalytics.templateBreakdown.map((t: any, i: number) => (
-                <div key={i} className="flex items-center justify-between rounded border px-2.5 py-1.5 text-[10px]" data-testid={`wa-template-row-${i}`}>
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-medium truncate max-w-[120px]">{t.name?.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
-                    <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${
-                      (t.category || "").toUpperCase() === "UTILITY" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
-                      (t.category || "").toUpperCase() === "AUTHENTICATION" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" :
-                      "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
-                    }`}>{(t.category || "MARKETING").toUpperCase()}</span>
+                <div key={i} className="rounded-lg border px-2.5 py-2 text-[10px] space-y-1" data-testid={`wa-template-row-${i}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-semibold truncate max-w-[140px]">{t.name?.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+                      <span className={`px-1 py-0.5 rounded text-[8px] font-bold ${
+                        (t.category || "").toUpperCase() === "UTILITY" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
+                        (t.category || "").toUpperCase() === "AUTHENTICATION" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" :
+                        "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                      }`}>{(t.category || "MARKETING").toUpperCase()}</span>
+                    </div>
+                    {t.cost > 0 && <span className="text-emerald-600 font-medium">${t.cost.toFixed(2)}</span>}
                   </div>
-                  <div className="flex items-center gap-2 text-muted-foreground flex-shrink-0">
+                  <div className="flex items-center gap-3 text-muted-foreground">
                     <span title="Sent">{(t.sent || 0).toLocaleString()} sent</span>
                     <span title="Delivered" className="text-green-600">{(t.delivered || 0).toLocaleString()} del</span>
                     <span title="Read" className="text-purple-600">{(t.read || 0).toLocaleString()} read</span>
-                    {t.cost > 0 && <span title="Cost" className="text-amber-600">${t.cost.toFixed(2)}</span>}
+                    {(t.replied || 0) > 0 && <span title="Replies" className="text-blue-600">{t.replied} replies</span>}
+                    {t.costPerDelivered > 0 && <span title="Cost per delivered" className="text-muted-foreground">${t.costPerDelivered.toFixed(3)}/msg</span>}
                   </div>
                 </div>
               ))}
@@ -3035,46 +3056,31 @@ ${agentName} | ${brokerageName}
                       {(bulkProgress as any).queued > 0 && (
                         <span className="inline-flex items-center gap-2 flex-wrap">
                           <span className="text-amber-600 dark:text-amber-400 font-medium">{((bulkProgress as any).queued).toLocaleString()} auto-queued for next batch</span>
-                          {bulkProgress.complete && (bulkProgress as any).bulkQueueId && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await apiRequest("POST", `/api/whatsapp/bulk-queues/${(bulkProgress as any).bulkQueueId}/send-now`);
-                                  toast({ title: "Processing Next Batch", description: "Sending next batch of messages now..." });
-                                  queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
-                                } catch (err: any) {
-                                  toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
-                              data-testid="btn-send-next-batch-banner"
-                            >
-                              <Play className="h-3 w-3" />
-                              Send Next Batch Now
-                            </button>
-                          )}
-                          {bulkProgress.complete && !(bulkProgress as any).bulkQueueId && (() => {
-                            const activeQueue = bulkQueues.find((q: any) => q.status === "active" || q.status === "paused");
-                            if (!activeQueue) return null;
+                          {bulkProgress.complete && (() => {
+                            const queueId = bulkProgress.bulkQueueId || bulkQueues.find((q: any) => q.status === "active" || q.status === "paused")?.id;
+                            if (queueId) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      await apiRequest("POST", `/api/whatsapp/bulk-queues/${queueId}/send-now`);
+                                      toast({ title: "Processing Next Batch", description: "Sending next batch of messages now..." });
+                                      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                    } catch (err: any) {
+                                      toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
+                                  data-testid="btn-send-next-batch-banner"
+                                >
+                                  <Play className="h-3 w-3" />
+                                  Send Next Batch Now
+                                </button>
+                              );
+                            }
                             return (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  try {
-                                    await apiRequest("POST", `/api/whatsapp/bulk-queues/${activeQueue.id}/send-now`);
-                                    toast({ title: "Processing Next Batch", description: "Sending next batch of messages now..." });
-                                    queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
-                                  } catch (err: any) {
-                                    toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
-                                data-testid="btn-send-next-batch-fallback"
-                              >
-                                <Play className="h-3 w-3" />
-                                Send Next Batch Now
-                              </button>
+                              <span className="text-[9px] text-muted-foreground italic">(Re-upload contacts to send remaining)</span>
                             );
                           })()}
                         </span>

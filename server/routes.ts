@@ -20641,7 +20641,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
           const analytics = await whatsappService.getTemplateAnalytics(wabaId, accessToken, templateIds, startDate, endDate);
           const dataPoints = analytics?.data || [];
 
-          let totalSent = 0, totalDelivered = 0, totalRead = 0, totalClicked = 0;
+          let totalSent = 0, totalDelivered = 0, totalRead = 0, totalClicked = 0, totalReplied = 0;
           let totalCost = 0;
           const dailyData: any[] = [];
           const templateBreakdown: any[] = [];
@@ -20652,6 +20652,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
               const s = dp.sent || 0;
               const d = dp.delivered || 0;
               const r = dp.read || 0;
+              const replied = dp.replied || 0;
               let c = 0;
               if (Array.isArray(dp.clicked)) {
                 c = dp.clicked.reduce((sum: number, click: any) => sum + (click.count || 0), 0);
@@ -20663,33 +20664,35 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 const amountSpent = dp.cost.find((co: any) => co.type === "amount_spent");
                 cost = amountSpent?.value || 0;
               }
+              const costPerDelivered = d > 0 ? cost / d : 0;
 
-              totalSent += s; totalDelivered += d; totalRead += r; totalClicked += c;
+              totalSent += s; totalDelivered += d; totalRead += r; totalClicked += c; totalReplied += replied;
               totalCost += cost;
 
               dailyData.push({
                 date: dp.start ? new Date(dp.start * 1000).toISOString().split("T")[0] : null,
-                sent: s, delivered: d, read: r, clicked: c, cost,
+                sent: s, delivered: d, read: r, replied, clicked: c, cost,
                 template: tplInfo.name,
                 category: tplInfo.category,
               });
 
               const existing = templateBreakdown.find((b: any) => b.templateId === dp.template_id);
               if (existing) {
-                existing.sent += s; existing.delivered += d; existing.read += r; existing.clicked += c; existing.cost += cost;
+                existing.sent += s; existing.delivered += d; existing.read += r; existing.replied += replied; existing.clicked += c; existing.cost += cost;
+                existing.costPerDelivered = existing.delivered > 0 ? existing.cost / existing.delivered : 0;
               } else {
                 templateBreakdown.push({
                   templateId: dp.template_id,
                   name: tplInfo.name,
                   category: tplInfo.category,
-                  sent: s, delivered: d, read: r, clicked: c, cost,
+                  sent: s, delivered: d, read: r, replied, clicked: c, cost, costPerDelivered,
                 });
               }
             }
           }
 
           results.templateAnalytics = {
-            totals: { sent: totalSent, delivered: totalDelivered, read: totalRead, clicked: totalClicked, cost: Math.round(totalCost * 100) / 100 },
+            totals: { sent: totalSent, delivered: totalDelivered, read: totalRead, replied: totalReplied, clicked: totalClicked, cost: Math.round(totalCost * 100) / 100, costPerDelivered: totalDelivered > 0 ? Math.round((totalCost / totalDelivered) * 100) / 100 : 0 },
             deliveryRate: totalSent > 0 ? Math.round((totalDelivered / totalSent) * 100) : 0,
             readRate: totalDelivered > 0 ? Math.round((totalRead / totalDelivered) * 100) : 0,
             ecosystemBlocked: totalSent - totalDelivered,

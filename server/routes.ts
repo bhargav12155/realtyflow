@@ -20660,7 +20660,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       const rawNumbers = to.split(/[\n,]+/).map((n: string) => n.replace(/\D/g, "")).filter((n: string) => n.length > 0);
-      const phoneNumbers = rawNumbers.slice(0, 5000);
+      const phoneNumbers = rawNumbers.slice(0, 30000);
       const isBulk = phoneNumbers.length > 1;
 
       if (phoneNumbers.length === 0) {
@@ -20703,47 +20703,133 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
         res.json({ success: true, messageId: result.messages?.[0]?.id, sent: 1, failed: 0, total: 1 });
       } else {
-        let sentCount = 0;
-        let failedCount = 0;
         const BATCH_SIZE = 10;
+        const BATCH_DELAY_MS = 1500;
+        const LARGE_BATCH_THRESHOLD = 100;
 
-        for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
-          const batch = phoneNumbers.slice(i, i + BATCH_SIZE);
-          const results = await Promise.allSettled(
-            batch.map(async (phone: string) => {
-              try {
-                if (templateName) {
-                  await whatsappService.sendTemplateMessage(
-                    phoneNumberId, accessToken, phone, templateName
-                  );
-                } else {
-                  await whatsappService.sendTextMessage(
-                    phoneNumberId, accessToken, phone, message
-                  );
-                }
-                return true;
-              } catch (err) {
-                console.error(`WhatsApp bulk send failed for ${phone}:`, err);
-                throw err;
+        if (phoneNumbers.length > LARGE_BATCH_THRESHOLD) {
+          res.json({
+            success: true,
+            sent: 0,
+            failed: 0,
+            total: phoneNumbers.length,
+            background: true,
+            message: `Sending ${phoneNumbers.length} messages in the background. You'll see live progress updates.`,
+          });
+
+          (async () => {
+            let sentCount = 0;
+            let failedCount = 0;
+            const startTime = Date.now();
+
+            for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
+              const batch = phoneNumbers.slice(i, i + BATCH_SIZE);
+              const results = await Promise.allSettled(
+                batch.map(async (phone: string) => {
+                  try {
+                    if (templateName) {
+                      await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                    } else {
+                      await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
+                    }
+                    return true;
+                  } catch (err) {
+                    console.error(`WhatsApp bulk send failed for ${phone}:`, err);
+                    throw err;
+                  }
+                })
+              );
+
+              for (const r of results) {
+                if (r.status === "fulfilled") sentCount++;
+                else failedCount++;
               }
-            })
-          );
 
-          for (const r of results) {
-            if (r.status === "fulfilled") {
-              sentCount++;
-            } else {
-              failedCount++;
+              const processed = sentCount + failedCount;
+              const percent = Math.round((processed / phoneNumbers.length) * 100);
+              const elapsed = Math.round((Date.now() - startTime) / 1000);
+              const rate = processed > 0 ? (elapsed / processed) : 0;
+              const remaining = Math.round(rate * (phoneNumbers.length - processed));
+
+              realtimeService.sendToUser(String(userId), {
+                type: "whatsapp_bulk_progress",
+                data: {
+                  sent: sentCount,
+                  failed: failedCount,
+                  total: phoneNumbers.length,
+                  percent,
+                  elapsed,
+                  estimatedRemaining: remaining,
+                  message: `Sent ${sentCount.toLocaleString()} of ${phoneNumbers.length.toLocaleString()} messages (${percent}%)`,
+                },
+                timestamp: new Date().toISOString(),
+              });
+
+              if (i + BATCH_SIZE < phoneNumbers.length) {
+                await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+              }
+            }
+
+            realtimeService.sendToUser(String(userId), {
+              type: "whatsapp_bulk_complete",
+              data: {
+                sent: sentCount,
+                failed: failedCount,
+                total: phoneNumbers.length,
+                elapsed: Math.round((Date.now() - startTime) / 1000),
+                message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${phoneNumbers.length.toLocaleString()}`,
+              },
+              timestamp: new Date().toISOString(),
+            });
+
+            console.log(`📱 WhatsApp bulk send complete for user ${userId}: ${sentCount} sent, ${failedCount} failed out of ${phoneNumbers.length}`);
+          })().catch((err) => {
+            console.error("WhatsApp background bulk send error:", err);
+            realtimeService.sendToUser(String(userId), {
+              type: "whatsapp_bulk_complete",
+              data: { sent: 0, failed: phoneNumbers.length, total: phoneNumbers.length, error: err.message, message: `Bulk send failed: ${err.message}` },
+              timestamp: new Date().toISOString(),
+            });
+          });
+        } else {
+          let sentCount = 0;
+          let failedCount = 0;
+
+          for (let i = 0; i < phoneNumbers.length; i += BATCH_SIZE) {
+            const batch = phoneNumbers.slice(i, i + BATCH_SIZE);
+            const results = await Promise.allSettled(
+              batch.map(async (phone: string) => {
+                try {
+                  if (templateName) {
+                    await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                  } else {
+                    await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
+                  }
+                  return true;
+                } catch (err) {
+                  console.error(`WhatsApp bulk send failed for ${phone}:`, err);
+                  throw err;
+                }
+              })
+            );
+
+            for (const r of results) {
+              if (r.status === "fulfilled") sentCount++;
+              else failedCount++;
+            }
+
+            if (i + BATCH_SIZE < phoneNumbers.length) {
+              await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
             }
           }
-        }
 
-        res.json({
-          success: sentCount > 0,
-          sent: sentCount,
-          failed: failedCount,
-          total: phoneNumbers.length,
-        });
+          res.json({
+            success: sentCount > 0,
+            sent: sentCount,
+            failed: failedCount,
+            total: phoneNumbers.length,
+          });
+        }
       }
     } catch (error: any) {
       console.error("Error sending WhatsApp message:", error);

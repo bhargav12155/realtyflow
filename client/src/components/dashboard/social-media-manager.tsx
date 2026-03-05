@@ -598,6 +598,10 @@ export function SocialMediaManager() {
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<{
+    sent: number; failed: number; total: number; percent: number;
+    estimatedRemaining?: number; message: string; complete?: boolean;
+  } | null>(null);
   const { toast } = useToast();
 
   // Fetch company profile for dynamic content
@@ -630,6 +634,43 @@ export function SocialMediaManager() {
       setSelectedPropertyPhotoUrl(null);
     }
   }, [selectedProperty]);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws?userId=${user?.id || ""}`;
+    if (!user?.id) return;
+
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "whatsapp_bulk_progress") {
+            setBulkProgress({ ...msg.data, complete: false });
+          } else if (msg.type === "whatsapp_bulk_complete") {
+            setBulkProgress({ ...msg.data, complete: true });
+            toast({
+              title: msg.data.failed > 0 ? "Bulk Send Finished" : "All Messages Sent!",
+              description: msg.data.message,
+              variant: msg.data.failed > 0 ? "destructive" : "default",
+            });
+          }
+        } catch {}
+      };
+      ws.onclose = () => {
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+    };
+
+    connect();
+    return () => {
+      clearTimeout(reconnectTimer);
+      ws?.close();
+    };
+  }, [user?.id]);
 
   // OAuth-enabled platforms (only platforms with full OAuth backend support)
   const oauthPlatforms = [
@@ -1086,6 +1127,21 @@ export function SocialMediaManager() {
         setPostContent("");
         setSelectedMediaIds([]);
         setSelectedPropertyPhotoUrl(null);
+        return;
+      }
+
+      if (data?.background) {
+        setBulkProgress({ sent: 0, failed: 0, total: data.total, percent: 0, message: data.message });
+        toast({
+          title: `Sending ${data.total.toLocaleString()} Messages`,
+          description: "Messages are being sent in the background. You'll see a live progress bar below.",
+        });
+        setPostContent("");
+        setSelectedMediaIds([]);
+        setSelectedPropertyPhotoUrl(null);
+        if (selectedPlatforms.includes("whatsapp")) {
+          setWhatsappTo("");
+        }
         return;
       }
 
@@ -2266,13 +2322,13 @@ ${agentName} | ${brokerageName}
                   onChange={(e) => {
                     const val = e.target.value;
                     const count = val.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
-                    if (count <= 5000) setWhatsappTo(val);
+                    if (count <= 30000) setWhatsappTo(val);
                   }}
                   className="text-sm min-h-[50px] w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] text-muted-foreground">
-                    {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length} / 5,000 numbers
+                    {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length.toLocaleString()} / 30,000 numbers
                   </p>
                   <label className="cursor-pointer inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80">
                     <input
@@ -2329,6 +2385,54 @@ ${agentName} | ${brokerageName}
                     className="min-h-[60px] text-sm"
                     data-testid="textarea-whatsapp-message"
                   />
+                </div>
+              )}
+              {bulkProgress && (
+                <div className={`rounded-xl border p-4 space-y-3 ${bulkProgress.complete ? (bulkProgress.failed > 0 ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20') : 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20'}`} data-testid="whatsapp-bulk-progress">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {!bulkProgress.complete ? (
+                        <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+                      ) : bulkProgress.failed > 0 ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      ) : (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      )}
+                      <span className="text-sm font-semibold">
+                        {bulkProgress.complete ? "Bulk Send Complete" : "Sending Messages..."}
+                      </span>
+                    </div>
+                    {bulkProgress.complete && (
+                      <button
+                        type="button"
+                        onClick={() => setBulkProgress(null)}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Dismiss
+                      </button>
+                    )}
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ease-out ${bulkProgress.complete ? (bulkProgress.failed > 0 ? 'bg-amber-500' : 'bg-green-500') : 'bg-blue-500'}`}
+                      style={{ width: `${bulkProgress.percent}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-3">
+                      <span className="text-green-700 dark:text-green-400 font-medium">{bulkProgress.sent.toLocaleString()} sent</span>
+                      {bulkProgress.failed > 0 && (
+                        <span className="text-red-600 font-medium">{bulkProgress.failed.toLocaleString()} failed</span>
+                      )}
+                      <span className="text-muted-foreground">of {bulkProgress.total.toLocaleString()}</span>
+                    </div>
+                    <span className="text-muted-foreground font-mono">{bulkProgress.percent}%</span>
+                  </div>
+                  {!bulkProgress.complete && bulkProgress.estimatedRemaining && bulkProgress.estimatedRemaining > 0 && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Estimated time remaining: {bulkProgress.estimatedRemaining > 60 ? `${Math.round(bulkProgress.estimatedRemaining / 60)}m` : `${bulkProgress.estimatedRemaining}s`}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2495,7 +2599,7 @@ ${agentName} | ${brokerageName}
                 onChange={(e) => {
                   const val = e.target.value;
                   const count = val.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
-                  if (count <= 5000) {
+                  if (count <= 30000) {
                     setWhatsappTo(val);
                   }
                 }}
@@ -2503,7 +2607,7 @@ ${agentName} | ${brokerageName}
               />
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">
-                  {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length} / 5,000 numbers — Enter with country code, one per line or comma-separated
+                  {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length.toLocaleString()} / 30,000 numbers — Enter with country code, one per line or comma-separated
                 </p>
                 <label className="cursor-pointer inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
                   <input

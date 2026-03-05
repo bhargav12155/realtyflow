@@ -20671,10 +20671,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "No valid phone numbers provided" });
       }
 
-      if (isBulk && !templateName) {
-        return res.status(400).json({ 
-          error: "Template required for bulk messages. Meta requires approved templates when initiating business conversations with multiple recipients. Please select a template before sending." 
-        });
+      if (isBulk && !templateName && message) {
+        console.log(`📱 WhatsApp: Bulk send with text message (no template) — sending as text to ${phoneNumbers.length} recipients`);
       }
 
       if (!isBulk) {
@@ -20746,10 +20744,19 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
             for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
               const batch = numbersToSend.slice(i, i + BATCH_SIZE);
+
+              const sendOne = async (phone: string) => {
+                if (templateName) {
+                  await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                } else {
+                  await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
+                }
+              };
+
               const results = await Promise.allSettled(
                 batch.map(async (phone: string) => {
                   try {
-                    await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                    await sendOne(phone);
                     return true;
                   } catch (err: any) {
                     const errMsg = err.message || "";
@@ -20757,7 +20764,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
                       console.warn(`📱 WhatsApp: Rate limit hit at phone ${phone}, backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s`);
                       await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
                       try {
-                        await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                        await sendOne(phone);
                         return true;
                       } catch (retryErr) {
                         console.error(`WhatsApp retry also failed for ${phone}:`, retryErr);
@@ -20841,10 +20848,18 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
           for (let i = 0; i < numbersToSend.length; i += BATCH_SIZE) {
             const batch = numbersToSend.slice(i, i + BATCH_SIZE);
+            const sendOneSync = async (phone: string) => {
+              if (templateName) {
+                await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+              } else {
+                await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
+              }
+            };
+
             const results = await Promise.allSettled(
               batch.map(async (phone: string) => {
                 try {
-                  await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                  await sendOneSync(phone);
                   return true;
                 } catch (err: any) {
                   const errMsg = err.message || "";
@@ -20852,7 +20867,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
                     console.warn(`📱 WhatsApp: Rate limit hit for ${phone}, retrying after backoff`);
                     await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
                     try {
-                      await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                      await sendOneSync(phone);
                       return true;
                     } catch (retryErr) {
                       throw retryErr;

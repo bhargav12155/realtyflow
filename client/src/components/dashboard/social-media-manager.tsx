@@ -602,8 +602,6 @@ export function SocialMediaManager() {
     sent: number; failed: number; total: number; percent: number;
     queued?: number; estimatedRemaining?: number; message: string; complete?: boolean;
   } | null>(null);
-  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
-  const [pendingBulkPayload, setPendingBulkPayload] = useState<any>(null);
   const { toast } = useToast();
 
   // Fetch company profile for dynamic content
@@ -1629,19 +1627,6 @@ ${agentName} | ${brokerageName}
 
     const isWhatsAppTemplate = selectedPlatforms.includes("whatsapp") && whatsappTemplateName && whatsappTemplateName !== "none";
 
-    if (isWhatsAppOnly) {
-      const recipientCount = whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
-      if (recipientCount > 1 && !isWhatsAppTemplate) {
-        toast({
-          title: "Template Required for Bulk Messages",
-          description: "Meta requires approved templates when initiating business conversations with multiple recipients. Please select a template.",
-          variant: "destructive",
-          duration: 6000,
-        });
-        return;
-      }
-    }
-
     if (!content && !isTikTokOnly && !isWhatsAppTemplate) {
       toast({
         title: "Content Required",
@@ -1696,25 +1681,13 @@ ${agentName} | ${brokerageName}
       return;
     }
 
-    const payload = {
+    postMutation.mutate({
       content,
       platforms: selectedPlatforms,
       mediaIds: selectedMediaIds,
       propertyPhotoUrl: selectedPropertyPhotoUrl,
       whatsappTo,
-    };
-
-    const whatsappRecipientCount = isWhatsAppOnly
-      ? whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length
-      : 0;
-
-    if (isWhatsAppOnly && whatsappRecipientCount > 10) {
-      setPendingBulkPayload(payload);
-      setShowBulkConfirm(true);
-      return;
-    }
-
-    postMutation.mutate(payload);
+    });
   };
 
   const handlePlatformToggle = (platform: string, isConnected: boolean) => {
@@ -2420,8 +2393,11 @@ ${agentName} | ${brokerageName}
                           const data = await response.json();
                           if (data.numbers?.length > 0) {
                             const existing = whatsappTo.trim();
-                            setWhatsappTo(existing ? existing + "\n" + data.numbers.join("\n") : data.numbers.join("\n"));
-                            toast({ title: "Numbers Imported", description: `Extracted ${data.count} phone numbers` });
+                            const existingNums = new Set(existing.split(/[\n,]+/).map((n: string) => n.replace(/\D/g, "")).filter(Boolean));
+                            const newNums = data.numbers.filter((n: string) => !existingNums.has(n.replace(/\D/g, "")));
+                            const dupes = data.numbers.length - newNums.length;
+                            setWhatsappTo(existing ? existing + "\n" + newNums.join("\n") : newNums.join("\n"));
+                            toast({ title: "Numbers Imported", description: `${newNums.length} new numbers added${dupes > 0 ? ` (${dupes} duplicates removed)` : ""}` });
                           } else {
                             toast({ title: "No Numbers Found", description: "No phone numbers found in the file.", variant: "destructive" });
                           }
@@ -2444,74 +2420,14 @@ ${agentName} | ${brokerageName}
               />
               {(!whatsappTemplateName || whatsappTemplateName === "none") && (
                 <div className="space-y-1">
-                  <Label className="text-xs font-medium">Message (required if no template)</Label>
+                  <Label className="text-xs font-medium">Message</Label>
                   <Textarea
-                    placeholder="Type your WhatsApp message..."
+                    placeholder="Type your message here..."
                     value={postContent}
                     onChange={(e) => setPostContent(e.target.value)}
                     className="min-h-[60px] text-sm"
                     data-testid="textarea-whatsapp-message"
                   />
-                </div>
-              )}
-              {showBulkConfirm && pendingBulkPayload && (
-                <div className="rounded-xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/30 p-4 space-y-3" data-testid="whatsapp-bulk-confirm">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                    <span className="text-sm font-bold text-amber-800 dark:text-amber-300">Bulk Send Confirmation</span>
-                  </div>
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    You're about to send to <strong>{pendingBulkPayload.whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length.toLocaleString()}</strong> recipients. Please confirm Meta's compliance requirements:
-                  </p>
-                  <div className="space-y-1.5 text-[11px] text-amber-800/80 dark:text-amber-300/80">
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
-                      <span>All recipients have <strong>opted in</strong> to receive messages from your business</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
-                      <span>Using an <strong>approved template</strong> (required for business-initiated conversations)</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
-                      <span>Message is <strong>timely and relevant</strong> — connected to events, offers, or recent activity</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
-                      <span>Not sending duplicate campaigns to the same recipients in a short period</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
-                      <span>Max <strong>2,000</strong> per 24-hour window (current tier) — excess contacts will be skipped</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <Button
-                      size="sm"
-                      variant="default"
-                      className="bg-green-600 hover:bg-green-700 text-white text-xs"
-                      data-testid="button-confirm-bulk-send"
-                      onClick={() => {
-                        setShowBulkConfirm(false);
-                        postMutation.mutate(pendingBulkPayload);
-                        setPendingBulkPayload(null);
-                      }}
-                    >
-                      Confirm & Send
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs"
-                      data-testid="button-cancel-bulk-send"
-                      onClick={() => {
-                        setShowBulkConfirm(false);
-                        setPendingBulkPayload(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
                 </div>
               )}
               {bulkProgress && (

@@ -2669,7 +2669,16 @@ ${agentName} | ${brokerageName}
                       {bulkProgress.complete && (
                         <button
                           type="button"
-                          onClick={() => setBulkProgress(null)}
+                          onClick={async () => {
+                            setBulkProgress(null);
+                            try {
+                              const token = localStorage.getItem("authToken") || "";
+                              await fetch("/api/whatsapp/bulk-send-status/dismiss", {
+                                method: "POST",
+                                headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                              });
+                            } catch {}
+                          }}
                           className="text-xs text-muted-foreground hover:text-foreground"
                           data-testid="btn-dismiss-progress"
                         >

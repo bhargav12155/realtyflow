@@ -20687,8 +20687,35 @@ Be helpful, professional, and concise. Always let users know what the platform c
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: "Authentication required" });
     const status = activeBulkSends.get(String(userId));
-    if (!status) return res.json({ active: false });
-    res.json({ active: true, ...status });
+    if (status) return res.json({ active: true, ...status });
+
+    try {
+      const dbResult = await storage.getLatestWhatsappBulkSendResult(String(userId));
+      if (dbResult && dbResult.message !== "dismissed") {
+        const ageMs = Date.now() - new Date(dbResult.updatedAt || dbResult.createdAt).getTime();
+        if (ageMs < 24 * 60 * 60 * 1000) {
+          return res.json({ active: true, ...dbResult });
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching bulk send result from DB:", err);
+    }
+    res.json({ active: false });
+  });
+
+  app.post("/api/whatsapp/bulk-send-status/dismiss", requireAuth, async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+    activeBulkSends.delete(String(userId));
+    try {
+      const result = await storage.getLatestWhatsappBulkSendResult(String(userId));
+      if (result && result.id) {
+        await storage.saveWhatsappBulkSendResult(String(userId), { ...result, complete: true, sent: result.sent, failed: result.failed, total: result.total, queued: result.queued, percent: 100, elapsed: result.elapsed, message: "dismissed" });
+      }
+    } catch (err) {
+      console.error("Error dismissing bulk send result:", err);
+    }
+    res.json({ success: true });
   });
 
   // Send WhatsApp message (for marketing/posting) - supports bulk recipients
@@ -20948,6 +20975,12 @@ Be helpful, professional, and concise. Always let users know what the platform c
               };
               activeBulkSends.set(String(userId), progressData);
 
+              try {
+                await storage.saveWhatsappBulkSendResult(String(userId), progressData);
+              } catch (dbErr) {
+                console.error("Failed to persist bulk send progress:", dbErr);
+              }
+
               realtimeService.sendToUser(String(userId), {
                 type: "whatsapp_bulk_progress",
                 data: progressData,
@@ -20986,6 +21019,12 @@ Be helpful, professional, and concise. Always let users know what the platform c
             };
             activeBulkSends.set(String(userId), completeData);
             setTimeout(() => activeBulkSends.delete(String(userId)), 5 * 60 * 1000);
+
+            try {
+              await storage.saveWhatsappBulkSendResult(String(userId), completeData);
+            } catch (dbErr) {
+              console.error("Failed to persist bulk send completion:", dbErr);
+            }
 
             realtimeService.sendToUser(String(userId), {
               type: "whatsapp_bulk_complete",

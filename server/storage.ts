@@ -95,6 +95,7 @@ import {
   whatsappConversations as whatsappConversationsTable,
   whatsappMessages as whatsappMessagesTable,
   whatsappBulkQueues as whatsappBulkQueuesTable,
+  whatsappBulkSendResults as whatsappBulkSendResultsTable,
   type MenuItem,
   type InsertMenuItem,
   menuItems as menuItemsTable,
@@ -413,6 +414,10 @@ export interface IStorage {
   getWhatsappBulkQueueById(id: string): Promise<WhatsappBulkQueue | undefined>;
   updateWhatsappBulkQueue(id: string, updates: Partial<WhatsappBulkQueue>): Promise<WhatsappBulkQueue | undefined>;
   getActiveWhatsappBulkQueues(): Promise<WhatsappBulkQueue[]>;
+
+  // WhatsApp Bulk Send Results
+  saveWhatsappBulkSendResult(userId: string, data: any): Promise<any>;
+  getLatestWhatsappBulkSendResult(userId: string): Promise<any | null>;
 
   // Menu Items (multi-vertical catalog)
   getMenuItems(userId: string, businessType?: string): Promise<MenuItem[]>;
@@ -2726,6 +2731,71 @@ export class MemStorage implements IStorage {
       .select()
       .from(whatsappBulkQueuesTable)
       .where(eq(whatsappBulkQueuesTable.status, "active"));
+  }
+
+  async saveWhatsappBulkSendResult(userId: string, data: any): Promise<any> {
+    const existing = await db
+      .select()
+      .from(whatsappBulkSendResultsTable)
+      .where(eq(whatsappBulkSendResultsTable.userId, userId))
+      .orderBy(sql`created_at DESC`)
+      .limit(1);
+
+    if (existing.length > 0 && !existing[0].complete) {
+      const [updated] = await db
+        .update(whatsappBulkSendResultsTable)
+        .set({
+          sent: data.sent ?? 0,
+          failed: data.failed ?? 0,
+          total: data.total ?? 0,
+          queued: data.queued ?? 0,
+          percent: data.percent ?? 0,
+          elapsed: data.elapsed ?? 0,
+          estimatedCost: data.estimatedCost ? String(data.estimatedCost) : null,
+          errorBreakdown: data.errorBreakdown ? JSON.stringify(data.errorBreakdown) : null,
+          complete: data.complete ?? false,
+          message: data.message ?? null,
+          bulkQueueId: data.bulkQueueId ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(whatsappBulkSendResultsTable.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db
+      .insert(whatsappBulkSendResultsTable)
+      .values({
+        userId,
+        sent: data.sent ?? 0,
+        failed: data.failed ?? 0,
+        total: data.total ?? 0,
+        queued: data.queued ?? 0,
+        percent: data.percent ?? 0,
+        elapsed: data.elapsed ?? 0,
+        estimatedCost: data.estimatedCost ? String(data.estimatedCost) : null,
+        errorBreakdown: data.errorBreakdown ? JSON.stringify(data.errorBreakdown) : null,
+        complete: data.complete ?? false,
+        message: data.message ?? null,
+        bulkQueueId: data.bulkQueueId ?? null,
+      })
+      .returning();
+    return created;
+  }
+
+  async getLatestWhatsappBulkSendResult(userId: string): Promise<any | null> {
+    const [result] = await db
+      .select()
+      .from(whatsappBulkSendResultsTable)
+      .where(eq(whatsappBulkSendResultsTable.userId, userId))
+      .orderBy(sql`created_at DESC`)
+      .limit(1);
+    if (!result) return null;
+    return {
+      ...result,
+      errorBreakdown: result.errorBreakdown ? JSON.parse(result.errorBreakdown) : null,
+      estimatedCost: result.estimatedCost ? parseFloat(result.estimatedCost) : 0,
+    };
   }
 }
 

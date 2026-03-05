@@ -1754,3 +1754,25 @@ export const insertWhatsappBulkQueueSchema = createInsertSchema(whatsappBulkQueu
 
 export type WhatsappBulkQueue = typeof whatsappBulkQueues.$inferSelect;
 export type InsertWhatsappBulkQueue = z.infer<typeof insertWhatsappBulkQueueSchema>;
+
+export const whatsappBulkSendResults = pgTable("whatsapp_bulk_send_results", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  sent: integer("sent").notNull().default(0),
+  failed: integer("failed").notNull().default(0),
+  total: integer("total").notNull().default(0),
+  queued: integer("queued").notNull().default(0),
+  percent: integer("percent").notNull().default(0),
+  elapsed: integer("elapsed").notNull().default(0),
+  estimatedCost: text("estimated_cost"),
+  errorBreakdown: text("error_breakdown"),
+  complete: boolean("complete").notNull().default(false),
+  message: text("message"),
+  bulkQueueId: varchar("bulk_queue_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type WhatsappBulkSendResult = typeof whatsappBulkSendResults.$inferSelect;

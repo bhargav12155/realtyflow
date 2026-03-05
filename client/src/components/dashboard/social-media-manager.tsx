@@ -599,6 +599,14 @@ export function SocialMediaManager() {
   const [whatsappTo, setWhatsappTo] = useState("");
   const [whatsappTemplateName, setWhatsappTemplateName] = useState<string>("");
   const [isExtractingNumbers, setIsExtractingNumbers] = useState(false);
+  const [fileBreakdown, setFileBreakdown] = useState<{
+    filename: string;
+    totalRows: number;
+    emptyRows: number;
+    validNumbers: number;
+    invalidNumbers: number;
+    duplicates: number;
+  } | null>(null);
   const [selectedPromoApp, setSelectedPromoApp] = useState<string | null>(null);
   const [isGeneratingPromo, setIsGeneratingPromo] = useState(false);
   const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
@@ -2410,6 +2418,12 @@ ${agentName} | ${brokerageName}
                             const newNums = data.numbers.filter((n: string) => !existingNums.has(n.replace(/\D/g, "")));
                             const dupes = data.numbers.length - newNums.length;
                             setWhatsappTo(existing ? existing + "\n" + newNums.join("\n") : newNums.join("\n"));
+                            if (data.breakdown) {
+                              setFileBreakdown({
+                                filename: data.filename || "file",
+                                ...data.breakdown,
+                              });
+                            }
                             toast({ title: "Numbers Imported", description: `${newNums.length} new numbers added${dupes > 0 ? ` (${dupes} duplicates removed)` : ""}` });
                           } else {
                             toast({ title: "No Numbers Found", description: "No phone numbers found in the file.", variant: "destructive" });
@@ -2426,6 +2440,32 @@ ${agentName} | ${brokerageName}
                     {isExtractingNumbers ? "Extracting..." : "Import File"}
                   </label>
                 </div>
+
+                {fileBreakdown && (
+                  <div className="mt-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-950/20 px-3 py-2">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-semibold text-blue-800 dark:text-blue-300">File Analysis: {fileBreakdown.filename}</span>
+                      <button
+                        type="button"
+                        onClick={() => setFileBreakdown(null)}
+                        className="text-[9px] text-blue-400 hover:text-blue-600 dark:hover:text-blue-300"
+                        data-testid="button-dismiss-breakdown"
+                      >✕</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
+                      <span className="text-muted-foreground">Total rows in file:</span>
+                      <span className="font-medium text-foreground text-right">{fileBreakdown.totalRows.toLocaleString()}</span>
+                      <span className="text-muted-foreground">Empty/blank rows:</span>
+                      <span className={`font-medium text-right ${fileBreakdown.emptyRows > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>{fileBreakdown.emptyRows.toLocaleString()}</span>
+                      <span className="text-muted-foreground">Valid phone numbers:</span>
+                      <span className="font-medium text-green-600 dark:text-green-400 text-right">{fileBreakdown.validNumbers.toLocaleString()}</span>
+                      <span className="text-muted-foreground">Invalid numbers:</span>
+                      <span className={`font-medium text-right ${fileBreakdown.invalidNumbers > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground'}`}>{fileBreakdown.invalidNumbers.toLocaleString()}</span>
+                      <span className="text-muted-foreground">Duplicates removed:</span>
+                      <span className={`font-medium text-right ${fileBreakdown.duplicates > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>{fileBreakdown.duplicates.toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
               </div>
               <WhatsAppTemplateSelector
                 selectedTemplate={whatsappTemplateName}

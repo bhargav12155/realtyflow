@@ -21021,6 +21021,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
         await fsPromises.unlink(filePath).catch(() => {});
       }
 
+      const totalLines = text.split("\n").length;
+
       const phoneRegex = /(?:\+?\d[\d\s\-().]{6,}\d)/g;
       const rawMatches = text.match(phoneRegex) || [];
 
@@ -21029,20 +21031,36 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const allMatches = [...rawMatches, ...plainMatches];
 
-      const numbers = [...new Set(
-        allMatches
-          .map((n: string) => {
-            let cleaned = n.replace(/[\s\-().+]/g, "");
-            if (cleaned.length === 10 && !cleaned.startsWith("1")) {
-              cleaned = "1" + cleaned;
-            }
-            return cleaned;
-          })
-          .filter((n: string) => /^\d{10,15}$/.test(n))
-      )];
+      const cleanedAll = allMatches
+        .map((n: string) => {
+          let cleaned = n.replace(/[\s\-().+]/g, "");
+          if (cleaned.length === 10 && !cleaned.startsWith("1")) {
+            cleaned = "1" + cleaned;
+          }
+          return cleaned;
+        })
+        .filter((n: string) => /^\d{10,15}$/.test(n));
 
-      console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName}`);
-      res.json({ numbers, count: numbers.length, filename: req.file.originalname });
+      const validBeforeDedup = cleanedAll.length;
+      const uniqueSet = new Set(cleanedAll);
+      const numbers = [...uniqueSet];
+      const duplicateCount = validBeforeDedup - numbers.length;
+      const emptyRows = totalLines - allMatches.length;
+      const invalidCount = allMatches.length - validBeforeDedup;
+
+      console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName} (${emptyRows} empty, ${duplicateCount} dupes, ${invalidCount} invalid)`);
+      res.json({
+        numbers,
+        count: numbers.length,
+        filename: req.file.originalname,
+        breakdown: {
+          totalRows: totalLines,
+          emptyRows,
+          validNumbers: numbers.length,
+          invalidNumbers: invalidCount,
+          duplicates: duplicateCount,
+        },
+      });
     } catch (error: any) {
       console.error("Error extracting phone numbers:", error);
       res.status(500).json({ error: "Failed to extract phone numbers from file" });

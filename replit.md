@@ -15,7 +15,8 @@ The frontend is built using React, TypeScript, and Vite. It leverages `shadcn/ui
 The backend is developed with Express.js and TypeScript (ESM). Authentication is handled via Replit OpenID Connect. The system utilizes a RESTful API architecture with robust middleware and WebSocket support for dynamic interactions. OAuth 2.0 with PKCE (S256) is implemented for secure social media integrations.
 
 Key features include:
-- **AI Content Generator Wizard**: Integrates OpenAI GPT-5 for generating diverse marketing content.
+- **AI Content Generator Wizard**: Integrates Gemini 2.5 Flash for generating diverse marketing content.
+- **AI Image Generation**: The AI chat assistant detects image generation requests and generates images using Google Imagen 3 (`imagen-3.0-generate-002`) via `@google/genai` SDK. Images are stored in object storage with base64 data URI fallback. Detection uses regex pattern matching on user messages. Images display inline in chat with download and open-in-new-tab links.
 - **Video Studio**: Supports avatar generation with gestures and voice extraction (using `ffmpeg` and HeyGen), and advanced video generation capabilities through SJinn AI (supporting `auto`, `veo3`, and `sora2` models) and Kling AI for motion videos.
 - **Social Media Management**: Features an automatic post scheduler for Twitter/X, Facebook, Instagram, LinkedIn, TikTok, YouTube, and WhatsApp, along with comprehensive dashboards for tracking post activity.
 - **WhatsApp Bulk Queue System**: Sends until Meta quota limit is reached (130429/131048 errors) rather than pre-slicing to a daily limit. Tracks every sent, failed, and remaining phone number in the `whatsapp_bulk_queues` table (`sentNumbers`, `failedNumbers`, `remainingNumbers` arrays). Ecosystem-blocked (131049/131056) contacts are re-queued. Safety valve: if ecosystem-block ratio exceeds 50% after 50+ attempts, batch stops. Quota detection: if 50%+ of a batch returns quota errors or 10 consecutive quota errors, sending stops and remaining numbers are queued. Excel downloads via GET `/api/whatsapp/bulk-queues/:id/download?type=all|sent|remaining|failed` (exceljs). "Send Next Batch Now" button (POST `/api/whatsapp/bulk-queues/:id/send-now`) triggers immediate processing.
@@ -31,7 +32,7 @@ Key features include:
 
 ## External Dependencies
 - **Database**: PostgreSQL (Neon)
-- **AI Services**: OpenAI GPT-5, Kling AI, ElevenLabs, Gemini VEO 3.1
+- **AI Services**: Gemini 2.5 Flash (text), Google Imagen 3 (images), Kling AI, ElevenLabs, Gemini VEO 3.1
 - **Authentication**: Replit OpenID Connect
 - **Social Media APIs**: Twitter/X OAuth 2.0, YouTube OAuth, Meta Graph API (for Facebook, Instagram, WhatsApp)
 - **UI Components**: Radix UI, Tailwind CSS

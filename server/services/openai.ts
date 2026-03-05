@@ -93,9 +93,22 @@ function createGeminiCompatibleClient() {
       },
     },
     images: {
-      async generate(_params: any): Promise<any> {
-        console.warn("⚠️ [Gemini] Image generation (DALL-E) not available — returning null");
-        return { data: [{ url: null }] };
+      async generate(params: any): Promise<any> {
+        try {
+          const response = await genAI.models.generateImages({
+            model: "imagen-3.0-generate-002",
+            prompt: params.prompt,
+            config: { numberOfImages: 1 },
+          });
+          const img = response.generatedImages?.[0]?.image?.imageBytes;
+          if (img) {
+            return { data: [{ url: `data:image/png;base64,${img}` }] };
+          }
+          return { data: [{ url: null }] };
+        } catch (err: any) {
+          console.error("⚠️ [Gemini] Imagen generation error:", err?.message);
+          return { data: [{ url: null }] };
+        }
       },
     },
   };
@@ -576,8 +589,46 @@ RULES:
   }
 
   async generateImage({ prompt, size = "1024x1024" }: { prompt: string; size?: string }): Promise<string | null> {
-    console.warn("⚠️ [Gemini] Image generation not available with Gemini API. Returning null.");
-    return null;
+    try {
+      const genAI = getGeminiClient();
+      console.log(`🎨 [Imagen] Generating image with prompt: "${prompt.substring(0, 100)}..."`);
+
+      const response = await genAI.models.generateImages({
+        model: "imagen-3.0-generate-002",
+        prompt,
+        config: {
+          numberOfImages: 1,
+        },
+      });
+
+      const images = response.generatedImages;
+      if (!images || images.length === 0 || !images[0].image?.imageBytes) {
+        console.warn("⚠️ [Imagen] No image returned from Imagen 3");
+        return null;
+      }
+
+      const imageBytes = images[0].image.imageBytes;
+      const imageBuffer = Buffer.from(imageBytes, "base64");
+      const filename = `ai-generated-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+
+      try {
+        const { persistImageBuffer } = await import("../objectStorage");
+        const storedUrl = await persistImageBuffer(imageBuffer, filename, "image/png");
+        if (storedUrl) {
+          console.log(`✅ [Imagen] Image generated and stored: ${storedUrl}`);
+          return storedUrl;
+        }
+      } catch (storageError: any) {
+        console.warn(`⚠️ [Imagen] Object storage failed, using base64 fallback:`, storageError?.message);
+      }
+
+      const base64DataUri = `data:image/png;base64,${imageBytes}`;
+      console.log(`✅ [Imagen] Image generated (base64 fallback, ${imageBuffer.length} bytes)`);
+      return base64DataUri;
+    } catch (error: any) {
+      console.error("❌ [Imagen] Image generation error:", error?.message || error);
+      return null;
+    }
   }
 
   async analyzeImage(imageUrl: string, prompt: string): Promise<string | null> {

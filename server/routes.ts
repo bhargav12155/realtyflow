@@ -1073,10 +1073,24 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
           return res.status(500).json({ error: result.error || "Gemini chat failed" });
         }
 
+        const geminiImagePatterns = /\b(generate|create|make|draw|design|produce|show me|give me)\b.*\b(image|photo|picture|illustration|graphic|visual|artwork|poster|flyer|banner)\b|\b(image|photo|picture|illustration|graphic|visual|artwork|poster|flyer|banner)\b.*\b(of|for|showing|featuring|with)\b/i;
+        let geminiImageUrl: string | null = null;
+
+        if (geminiImagePatterns.test(message)) {
+          console.log("🎨 [AI Chat/Gemini] Image generation request detected");
+          try {
+            const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing.`;
+            geminiImageUrl = await openaiService.generateImage({ prompt: imagePrompt });
+          } catch (imgError: any) {
+            console.error("❌ [AI Chat/Gemini] Image generation failed:", imgError?.message);
+          }
+        }
+
         return res.json({ 
           message: result.message,
           role: "assistant",
-          provider: "gemini"
+          provider: "gemini",
+          imageUrl: geminiImageUrl || undefined
         });
       }
 
@@ -1151,10 +1165,27 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         assistantMessage = "I'm having trouble processing your request right now. Could you try rephrasing your question or try again in a moment?";
       }
 
+      const imagePatterns = /\b(generate|create|make|draw|design|produce|show me|give me)\b.*\b(image|photo|picture|illustration|graphic|visual|artwork|poster|flyer|banner)\b|\b(image|photo|picture|illustration|graphic|visual|artwork|poster|flyer|banner)\b.*\b(of|for|showing|featuring|with)\b/i;
+      let imageUrl: string | null = null;
+
+      if (imagePatterns.test(message)) {
+        console.log("🎨 [AI Chat] Image generation request detected, generating with Imagen 3...");
+        try {
+          const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing.`;
+          imageUrl = await openaiService.generateImage({ prompt: imagePrompt });
+          if (imageUrl) {
+            console.log(`✅ [AI Chat] Image generated successfully: ${imageUrl.substring(0, 80)}...`);
+          }
+        } catch (imgError: any) {
+          console.error("❌ [AI Chat] Image generation failed:", imgError?.message);
+        }
+      }
+
       res.json({ 
         message: assistantMessage,
         role: "assistant",
-        provider: "openai"
+        provider: "openai",
+        imageUrl: imageUrl || undefined
       });
     } catch (error) {
       console.error("AI chat error:", error);

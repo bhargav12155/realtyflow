@@ -37,6 +37,7 @@ import {
   Plus,
   Trash2,
   ChevronLeft,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
@@ -59,6 +60,7 @@ interface Message {
   content: string;
   attachments?: Attachment[];
   videoUrl?: string;
+  imageUrl?: string;
 }
 
 interface QuickAction {
@@ -1036,6 +1038,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       const assistantMessage: Message = {
         role: "assistant",
         content: data.assistantMessage?.content || data.response || data.message || "I apologize, but I couldn't generate a response. Please try again.",
+        imageUrl: data.imageUrl || undefined,
       };
       
       const finalMessages = [...updatedMessages, assistantMessage];
@@ -1744,6 +1747,36 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       </div>
                     )}
                     <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.imageUrl && (
+                      <div className="mt-3">
+                        <img
+                          src={message.imageUrl}
+                          alt="AI generated image"
+                          className="max-w-full rounded-lg shadow-md"
+                          data-testid={`img-generated-${index}`}
+                        />
+                        <div className="flex gap-2 mt-2">
+                          <a
+                            href={message.imageUrl}
+                            download={`ai-image-${index}.png`}
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            data-testid={`btn-download-image-${index}`}
+                          >
+                            <Download className="h-3 w-3" />
+                            Download
+                          </a>
+                          <a
+                            href={message.imageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary hover:underline"
+                            data-testid={`link-open-image-${index}`}
+                          >
+                            Open in new tab
+                          </a>
+                        </div>
+                      </div>
+                    )}
                     {message.videoUrl && (
                       <div className="mt-3">
                         <video

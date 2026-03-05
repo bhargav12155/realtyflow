@@ -613,6 +613,17 @@ export function SocialMediaManager() {
     queryKey: ["/api/company/profile"],
   });
 
+  const { data: messagingLimitData } = useQuery<{
+    limit: number;
+    tier: string;
+    qualityScore?: string;
+    source: string;
+  }>({
+    queryKey: ["/api/whatsapp/messaging-limit"],
+  });
+  const metaDailyLimit = messagingLimitData?.limit || 2000;
+  const metaTier = messagingLimitData?.tier || "TIER_1K";
+
   const { data: menuItemsList } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items"],
     enabled: !isRealEstate,
@@ -2321,18 +2332,18 @@ ${agentName} | ${brokerageName}
                 <summary className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none">
                   <div className="flex items-center gap-1.5">
                     <Info className="h-3 w-3 text-blue-500" />
-                    <span className="text-[10px] text-blue-700 dark:text-blue-400">Meta limit: <strong>2,000</strong>/day</span>
+                    <span className="text-[10px] text-blue-700 dark:text-blue-400">Meta limit: <strong>{metaDailyLimit.toLocaleString()}</strong>/day {messagingLimitData?.qualityScore && messagingLimitData.qualityScore !== "UNKNOWN" && <span className="text-blue-400">· Quality: {messagingLimitData.qualityScore}</span>}</span>
                   </div>
                   <svg className="w-3 h-3 text-blue-400 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                 </summary>
                 <div className="px-3 pb-2.5 pt-1 space-y-2 border-t border-blue-100 dark:border-blue-800/50">
                   <div className="flex gap-1">
-                    {[250, 2000, 10000, 100000].map((tier) => (
-                      <div key={tier} className={`flex-1 h-1 rounded-full ${tier <= 2000 ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
+                    {[250, 1000, 10000, 100000].map((tier) => (
+                      <div key={tier} className={`flex-1 h-1 rounded-full ${metaDailyLimit >= tier ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
                     ))}
                   </div>
                   <p className="text-[10px] text-blue-700/70 dark:text-blue-400/70 leading-relaxed">
-                    Up to 2,000 conversations per 24hrs. Reach 1,000 quality conversations in 7 days to unlock 10,000/day. Only send to opted-in contacts using approved templates.
+                    Your account tier: {metaTier.replace("TIER_", "").replace("_", ",")} ({metaDailyLimit.toLocaleString()}/day). Maintain quality conversations to unlock higher tiers. Only send to opted-in contacts using approved templates.
                   </p>
                 </div>
               </details>
@@ -2353,17 +2364,15 @@ ${agentName} | ${brokerageName}
                 <div className="flex items-center justify-between flex-wrap gap-1">
                   {(() => {
                     const recipientCount = whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
-                    const dailyLimit = 2000;
-                    const daysNeeded = Math.ceil(recipientCount / dailyLimit);
                     return (
                       <div className="flex flex-col gap-0.5">
-                        <p className={`text-[10px] ${recipientCount > dailyLimit ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground'}`}>
+                        <p className={`text-[10px] ${recipientCount > metaDailyLimit ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-muted-foreground'}`}>
                           {recipientCount.toLocaleString()} recipients
-                          {recipientCount > dailyLimit && ` — only first ${dailyLimit.toLocaleString()} will be sent (Meta daily limit)`}
+                          {recipientCount > metaDailyLimit && ` — only first ${metaDailyLimit.toLocaleString()} will be sent (Meta daily limit)`}
                         </p>
-                        {recipientCount > dailyLimit && (
+                        {recipientCount > metaDailyLimit && (
                           <p className="text-[9px] text-amber-500/80 dark:text-amber-400/60">
-                            Meta limits: {dailyLimit.toLocaleString()}/day. {(recipientCount - dailyLimit).toLocaleString()} contacts will be skipped.
+                            Account tier: {metaDailyLimit.toLocaleString()}/day. {(recipientCount - metaDailyLimit).toLocaleString()} contacts will be skipped.
                           </p>
                         )}
                       </div>

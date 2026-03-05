@@ -20542,6 +20542,50 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/whatsapp/messaging-limit", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
+
+      if (!accessToken || !phoneNumberId) {
+        return res.json({ limit: 2000, tier: "TIER_1K", source: "default" });
+      }
+
+      const url = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=messaging_limit_tier,quality_score&access_token=${accessToken}`;
+      const response = await fetch(url);
+      const data = await response.json() as any;
+
+      if (data.error) {
+        console.log(`⚠️ WhatsApp messaging limit fetch failed: ${data.error.message}`);
+        return res.json({ limit: 2000, tier: "TIER_1K", source: "default" });
+      }
+
+      const tierMap: Record<string, number> = {
+        "TIER_NOT_SET": 250,
+        "TIER_50": 50,
+        "TIER_250": 250,
+        "TIER_1K": 1000,
+        "TIER_10K": 10000,
+        "TIER_100K": 100000,
+        "TIER_UNLIMITED": 999999,
+      };
+
+      const tier = data.messaging_limit_tier || "TIER_1K";
+      const limit = tierMap[tier] || 2000;
+      const qualityScore = data.quality_score?.score || "UNKNOWN";
+
+      console.log(`📱 WhatsApp messaging limit for phone ${phoneNumberId}: ${tier} (${limit}/day), quality: ${qualityScore}`);
+      res.json({ limit, tier, qualityScore, source: "meta_api" });
+    } catch (error: any) {
+      console.error("Error fetching WhatsApp messaging limit:", error);
+      res.json({ limit: 2000, tier: "TIER_1K", source: "default" });
+    }
+  });
+
   app.get("/api/whatsapp/templates", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;
@@ -20722,8 +20766,24 @@ Be helpful, professional, and concise. Always let users know what the platform c
         const BATCH_SIZE = 10;
         const BATCH_DELAY_MS = 2000;
         const LARGE_BATCH_THRESHOLD = 100;
-        const META_DAILY_LIMIT = 2000;
         const RATE_LIMIT_BACKOFF_MS = 30000;
+
+        let META_DAILY_LIMIT = 2000;
+        try {
+          const limitUrl = `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=messaging_limit_tier&access_token=${accessToken}`;
+          const limitRes = await fetch(limitUrl);
+          const limitData = await limitRes.json() as any;
+          if (limitData.messaging_limit_tier) {
+            const tierMap: Record<string, number> = {
+              "TIER_NOT_SET": 250, "TIER_50": 50, "TIER_250": 250,
+              "TIER_1K": 1000, "TIER_10K": 10000, "TIER_100K": 100000, "TIER_UNLIMITED": 999999,
+            };
+            META_DAILY_LIMIT = tierMap[limitData.messaging_limit_tier] || 2000;
+            console.log(`📱 WhatsApp: Account tier ${limitData.messaging_limit_tier} → daily limit ${META_DAILY_LIMIT}`);
+          }
+        } catch (e) {
+          console.log(`⚠️ Could not fetch messaging limit, using default ${META_DAILY_LIMIT}`);
+        }
 
         const numbersToSend = phoneNumbers.slice(0, META_DAILY_LIMIT);
         const queuedCount = phoneNumbers.length > META_DAILY_LIMIT ? phoneNumbers.length - META_DAILY_LIMIT : 0;

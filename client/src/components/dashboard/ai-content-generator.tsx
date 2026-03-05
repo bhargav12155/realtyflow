@@ -275,6 +275,7 @@ const neighborhoods = [
   "Blackstone",
   "Elkhorn",
   "Millard",
+  "Custom",
 ];
 
 interface PlatformSuggestion {
@@ -369,6 +370,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     "Create engaging, SEO-optimized content for Omaha real estate that drives leads and builds trust with potential clients."
   );
   const [neighborhood, setNeighborhood] = useState("All Omaha Areas");
+  const [customLocation, setCustomLocation] = useState("");
   const [seoOptimized, setSeoOptimized] = useState(true);
   const [longTailKeywords, setLongTailKeywords] = useState(true);
 
@@ -1233,7 +1235,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       topic: topic.trim(),
       aiPrompt: enhancedPrompt,
       neighborhood:
-        neighborhood === "All Omaha Areas" ? undefined : neighborhood,
+        neighborhood === "All Omaha Areas" ? undefined : (neighborhood === "Custom" ? (customLocation.trim() || undefined) : neighborhood),
       seoOptimized,
       longTailKeywords,
       localSeoFocus: true,
@@ -1751,6 +1753,16 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                         ))}
                       </SelectContent>
                     </Select>
+                    {neighborhood === "Custom" && (
+                      <input
+                        type="text"
+                        data-testid="input-custom-location"
+                        placeholder="Enter your city, area, or neighborhood..."
+                        value={customLocation}
+                        onChange={(e) => setCustomLocation(e.target.value)}
+                        className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                    )}
                   </div>
 
                   <div>

@@ -20589,13 +20589,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
             phoneNumberId, accessToken, singlePhone, imageUrl, message
           );
         } else {
-          await whatsappService.sendTemplateMessage(
-            phoneNumberId, accessToken, singlePhone, "hello_world", "en_US"
-          );
-          await new Promise((r) => setTimeout(r, 1000));
-          result = await whatsappService.sendTextMessage(
-            phoneNumberId, accessToken, singlePhone, message
-          );
+          try {
+            result = await whatsappService.sendTextMessage(
+              phoneNumberId, accessToken, singlePhone, message
+            );
+          } catch (textErr: any) {
+            console.log("📱 WhatsApp: Text failed (no active window), sending template first...");
+            await whatsappService.sendTemplateMessage(
+              phoneNumberId, accessToken, singlePhone, "hello_world", "en_US"
+            );
+            await new Promise((r) => setTimeout(r, 1500));
+            result = await whatsappService.sendTextMessage(
+              phoneNumberId, accessToken, singlePhone, message
+            );
+          }
         }
 
         let conversation = await storage.getWhatsappConversationByWaId(String(userId), singlePhone);
@@ -20626,13 +20633,19 @@ Be helpful, professional, and concise. Always let users know what the platform c
           const results = await Promise.allSettled(
             batch.map(async (phone: string) => {
               try {
-                await whatsappService.sendTemplateMessage(
-                  phoneNumberId, accessToken, phone, "hello_world", "en_US"
-                );
-                await new Promise((r) => setTimeout(r, 1000));
-                await whatsappService.sendTextMessage(
-                  phoneNumberId, accessToken, phone, message
-                );
+                try {
+                  await whatsappService.sendTextMessage(
+                    phoneNumberId, accessToken, phone, message
+                  );
+                } catch (textErr: any) {
+                  await whatsappService.sendTemplateMessage(
+                    phoneNumberId, accessToken, phone, "hello_world", "en_US"
+                  );
+                  await new Promise((r) => setTimeout(r, 1500));
+                  await whatsappService.sendTextMessage(
+                    phoneNumberId, accessToken, phone, message
+                  );
+                }
                 return true;
               } catch (err) {
                 console.error(`WhatsApp bulk send failed for ${phone}:`, err);

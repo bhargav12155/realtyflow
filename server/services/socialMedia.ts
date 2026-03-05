@@ -2020,22 +2020,31 @@ export async function postToWhatsApp(
       return { success: false, error: "Invalid phone number" };
     }
 
-    await whatsappService.sendTemplateMessage(
-      resolvedPhoneNumberId,
-      resolvedAccessToken,
-      cleanedPhone,
-      "hello_world",
-      "en_US"
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const result = await whatsappService.sendTextMessage(
-      resolvedPhoneNumberId,
-      resolvedAccessToken,
-      cleanedPhone,
-      content
-    );
+    let result;
+    try {
+      result = await whatsappService.sendTextMessage(
+        resolvedPhoneNumberId,
+        resolvedAccessToken,
+        cleanedPhone,
+        content
+      );
+    } catch (textError: any) {
+      console.log("📱 WhatsApp: Text message failed (no active window), sending template first...");
+      await whatsappService.sendTemplateMessage(
+        resolvedPhoneNumberId,
+        resolvedAccessToken,
+        cleanedPhone,
+        "hello_world",
+        "en_US"
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      result = await whatsappService.sendTextMessage(
+        resolvedPhoneNumberId,
+        resolvedAccessToken,
+        cleanedPhone,
+        content
+      );
+    }
 
     return {
       success: true,

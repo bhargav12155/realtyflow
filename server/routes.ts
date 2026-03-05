@@ -20964,19 +20964,21 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const phoneRegex = /(?:\+?\d[\d\s\-().]{6,}\d)/g;
       const rawMatches = text.match(phoneRegex) || [];
 
+      const plainNumberRegex = /\b\d{10,15}\b/g;
+      const plainMatches = text.match(plainNumberRegex) || [];
+
+      const allMatches = [...rawMatches, ...plainMatches];
+
       const numbers = [...new Set(
-        rawMatches
+        allMatches
           .map((n: string) => {
-            let cleaned = n.replace(/[\s\-().]/g, "");
-            if (cleaned.startsWith("+")) {
-              cleaned = cleaned.substring(1);
-            }
+            let cleaned = n.replace(/[\s\-().+]/g, "");
             if (cleaned.length === 10 && !cleaned.startsWith("1")) {
               cleaned = "1" + cleaned;
             }
             return cleaned;
           })
-          .filter((n: string) => n.length >= 10 && n.length <= 15)
+          .filter((n: string) => /^\d{10,15}$/.test(n))
       )];
 
       console.log(`📱 Extracted ${numbers.length} phone numbers from ${originalName}`);

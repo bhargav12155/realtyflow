@@ -20660,11 +20660,21 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       const rawNumbers = to.split(/[\n,]+/).map((n: string) => n.replace(/\D/g, "")).filter((n: string) => n.length > 0);
-      const phoneNumbers = rawNumbers.slice(0, 30000);
+      const phoneNumbers = [...new Set(rawNumbers)].slice(0, 30000);
+      const duplicatesRemoved = rawNumbers.length - phoneNumbers.length;
+      if (duplicatesRemoved > 0) {
+        console.log(`📱 WhatsApp: Removed ${duplicatesRemoved} duplicate numbers (${rawNumbers.length} → ${phoneNumbers.length})`);
+      }
       const isBulk = phoneNumbers.length > 1;
 
       if (phoneNumbers.length === 0) {
         return res.status(400).json({ error: "No valid phone numbers provided" });
+      }
+
+      if (isBulk && !templateName) {
+        return res.status(400).json({ 
+          error: "Template required for bulk messages. Meta requires approved templates when initiating business conversations with multiple recipients. Please select a template before sending." 
+        });
       }
 
       if (!isBulk) {
@@ -20704,9 +20714,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
         res.json({ success: true, messageId: result.messages?.[0]?.id, sent: 1, failed: 0, total: 1 });
       } else {
         const BATCH_SIZE = 10;
-        const BATCH_DELAY_MS = 1500;
+        const BATCH_DELAY_MS = 2000;
         const LARGE_BATCH_THRESHOLD = 100;
         const META_DAILY_LIMIT = 2000;
+        const RATE_LIMIT_BACKOFF_MS = 30000;
 
         const numbersToSend = phoneNumbers.slice(0, META_DAILY_LIMIT);
         const queuedCount = phoneNumbers.length > META_DAILY_LIMIT ? phoneNumbers.length - META_DAILY_LIMIT : 0;
@@ -20738,22 +20749,42 @@ Be helpful, professional, and concise. Always let users know what the platform c
               const results = await Promise.allSettled(
                 batch.map(async (phone: string) => {
                   try {
-                    if (templateName) {
-                      await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
-                    } else {
-                      await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
-                    }
+                    await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
                     return true;
-                  } catch (err) {
+                  } catch (err: any) {
+                    const errMsg = err.message || "";
+                    if (errMsg.includes("130429") || errMsg.toLowerCase().includes("rate limit")) {
+                      console.warn(`📱 WhatsApp: Rate limit hit at phone ${phone}, backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s`);
+                      await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+                      try {
+                        await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                        return true;
+                      } catch (retryErr) {
+                        console.error(`WhatsApp retry also failed for ${phone}:`, retryErr);
+                        throw retryErr;
+                      }
+                    }
                     console.error(`WhatsApp bulk send failed for ${phone}:`, err);
                     throw err;
                   }
                 })
               );
 
+              let rateLimitHit = false;
               for (const r of results) {
                 if (r.status === "fulfilled") sentCount++;
-                else failedCount++;
+                else {
+                  failedCount++;
+                  const reason = (r as PromiseRejectedResult).reason?.message || "";
+                  if (reason.includes("130429") || reason.toLowerCase().includes("rate limit")) {
+                    rateLimitHit = true;
+                  }
+                }
+              }
+
+              if (rateLimitHit) {
+                console.warn(`📱 WhatsApp: Rate limit detected in batch, adding extra delay`);
+                await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
               }
 
               const processed = sentCount + failedCount;
@@ -20813,13 +20844,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
             const results = await Promise.allSettled(
               batch.map(async (phone: string) => {
                 try {
-                  if (templateName) {
-                    await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
-                  } else {
-                    await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
-                  }
+                  await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
                   return true;
-                } catch (err) {
+                } catch (err: any) {
+                  const errMsg = err.message || "";
+                  if (errMsg.includes("130429") || errMsg.toLowerCase().includes("rate limit")) {
+                    console.warn(`📱 WhatsApp: Rate limit hit for ${phone}, retrying after backoff`);
+                    await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+                    try {
+                      await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName);
+                      return true;
+                    } catch (retryErr) {
+                      throw retryErr;
+                    }
+                  }
                   console.error(`WhatsApp bulk send failed for ${phone}:`, err);
                   throw err;
                 }

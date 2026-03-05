@@ -20574,7 +20574,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const { name, body, category } = req.body;
+      const { name, body, category, header, footer } = req.body;
       if (!name || !body) {
         return res.status(400).json({ error: "Template name and body are required" });
       }
@@ -20590,6 +20590,15 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "WhatsApp Business Account not configured" });
       }
 
+      const components: any[] = [];
+      if (header?.trim()) {
+        components.push({ type: "HEADER", format: "TEXT", text: header.trim().slice(0, 60) });
+      }
+      components.push({ type: "BODY", text: body.slice(0, 1024) });
+      if (footer?.trim()) {
+        components.push({ type: "FOOTER", text: footer.trim().slice(0, 60) });
+      }
+
       const response = await fetch(
         `https://graph.facebook.com/v22.0/${wabaId}/message_templates`,
         {
@@ -20602,7 +20611,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
             name: safeName,
             category: safeCategory,
             language: "en_US",
-            components: [{ type: "body", text: body.slice(0, 1024) }],
+            components,
           }),
         }
       );

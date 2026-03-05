@@ -225,7 +225,9 @@ const stockPhotos = [
 function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { selectedTemplate: string; onSelectTemplate: (name: string) => void }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newHeader, setNewHeader] = useState("");
   const [newBody, setNewBody] = useState("");
+  const [newFooter, setNewFooter] = useState("");
   const [newCategory, setNewCategory] = useState("MARKETING");
   const [creating, setCreating] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
@@ -252,13 +254,17 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
     try {
       const res = await apiRequest("POST", "/api/whatsapp/templates", {
         name: safeName,
+        header: newHeader.trim(),
         body: newBody.trim(),
+        footer: newFooter.trim(),
         category: newCategory,
       });
       const result = await res.json();
       toast({ title: "Template Created", description: `"${safeName}" submitted for Meta review. It will appear as active once approved.` });
       setNewName("");
+      setNewHeader("");
       setNewBody("");
+      setNewFooter("");
       setShowCreate(false);
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/templates"] });
     } catch (err: any) {
@@ -325,6 +331,18 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
             </Select>
           </div>
           <div>
+            <Label className="text-[10px] text-muted-foreground">Header (Optional)</Label>
+            <Input
+              value={newHeader}
+              onChange={(e) => setNewHeader(e.target.value)}
+              placeholder="e.g. Namaste Indian Restaurant"
+              className="h-7 text-xs mt-0.5"
+              maxLength={60}
+              data-testid="input-template-header"
+            />
+            <p className="text-[9px] text-muted-foreground">{newHeader.length}/60 — short title at the top of the message</p>
+          </div>
+          <div>
             <Label className="text-[10px] text-muted-foreground">Message Body</Label>
             <textarea
               value={newBody}
@@ -334,6 +352,18 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
               data-testid="input-template-body"
             />
             <p className="text-[9px] text-muted-foreground">{newBody.length}/1024 characters</p>
+          </div>
+          <div>
+            <Label className="text-[10px] text-muted-foreground">Footer (Optional)</Label>
+            <Input
+              value={newFooter}
+              onChange={(e) => setNewFooter(e.target.value)}
+              placeholder="e.g. Order: (402) 320-4775 | namasteomaha.com"
+              className="h-7 text-xs mt-0.5"
+              maxLength={60}
+              data-testid="input-template-footer"
+            />
+            <p className="text-[9px] text-muted-foreground">{newFooter.length}/60 — small text at the bottom</p>
           </div>
           <Button
             size="sm"
@@ -370,8 +400,12 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
         <div className="space-y-1">
           {templates.map((t: any) => {
             const badge = statusBadge(t.status);
+            const headerComp = t.components?.find((c: any) => c.type === "HEADER");
             const bodyComp = t.components?.find((c: any) => c.type === "BODY");
+            const footerComp = t.components?.find((c: any) => c.type === "FOOTER");
+            const headerText = headerComp?.text || "";
             const bodyText = bodyComp?.text || "";
+            const footerText = footerComp?.text || "";
             const isSelected = selectedTemplate === t.name;
             return (
               <div
@@ -388,8 +422,18 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
                   <span className="font-medium">{t.name}</span>
                   <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${badge.color}`}>{badge.label}</span>
                 </div>
-                {previewTemplate?.name === t.name && bodyText && (
-                  <p className="mt-1 text-muted-foreground leading-relaxed">{bodyText}</p>
+                {previewTemplate?.name === t.name && (
+                  <div className="mt-1 space-y-1">
+                    {headerText && (
+                      <p className="font-semibold text-foreground">{headerText}</p>
+                    )}
+                    {bodyText && (
+                      <p className="text-muted-foreground leading-relaxed">{bodyText}</p>
+                    )}
+                    {footerText && (
+                      <p className="text-muted-foreground/70 italic text-[9px]">{footerText}</p>
+                    )}
+                  </div>
                 )}
               </div>
             );

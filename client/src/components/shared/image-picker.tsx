@@ -378,8 +378,21 @@ export function ImagePicker({
     if (!generatedImage) return;
     
     try {
-      const response = await fetch(generatedImage);
-      const blob = await response.blob();
+      let blob: Blob;
+      if (generatedImage.startsWith("data:")) {
+        const [header, base64Data] = generatedImage.split(",");
+        const mimeMatch = header.match(/data:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : "image/png";
+        const byteString = atob(base64Data);
+        const bytes = new Uint8Array(byteString.length);
+        for (let i = 0; i < byteString.length; i++) {
+          bytes[i] = byteString.charCodeAt(i);
+        }
+        blob = new Blob([bytes], { type: mime });
+      } else {
+        const response = await fetch(generatedImage);
+        blob = await response.blob();
+      }
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -473,7 +486,9 @@ export function ImagePicker({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium mb-2">Selected Image</p>
-                <p className="text-xs text-muted-foreground truncate mb-3">{previewImage}</p>
+                <p className="text-xs text-muted-foreground truncate mb-3">
+                  {previewImage.startsWith("data:") ? "AI Generated Image" : previewImage}
+                </p>
                 <div className="flex gap-2">
                   <Button
                     size="sm"

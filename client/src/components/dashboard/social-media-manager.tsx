@@ -636,8 +636,8 @@ export function SocialMediaManager() {
   }>({
     queryKey: ["/api/whatsapp/messaging-limit"],
   });
-  const metaDailyLimit = messagingLimitData?.limit || 2000;
-  const metaTier = messagingLimitData?.tier || "TIER_1K";
+  const metaDailyLimit = messagingLimitData?.limit || 250;
+  const metaTier = messagingLimitData?.tier || "TIER_250";
 
   const { data: menuItemsList } = useQuery<MenuItem[]>({
     queryKey: ["/api/menu-items"],
@@ -665,6 +665,34 @@ export function SocialMediaManager() {
       setSelectedPropertyPhotoUrl(null);
     }
   }, [selectedProperty]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const checkActiveSend = async () => {
+      try {
+        const token = localStorage.getItem("authToken") || "";
+        const res = await fetch("/api/whatsapp/bulk-send-status", {
+          headers: token ? { "Authorization": `Bearer ${token}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.active) {
+            setBulkProgress({
+              sent: data.sent,
+              failed: data.failed,
+              total: data.total,
+              queued: data.queued || 0,
+              percent: data.percent,
+              estimatedRemaining: data.estimatedRemaining,
+              message: data.message,
+              complete: data.complete || false,
+            });
+          }
+        }
+      } catch {}
+    };
+    checkActiveSend();
+  }, [user?.id]);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";

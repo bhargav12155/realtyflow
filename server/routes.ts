@@ -20675,6 +20675,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  const activeBulkSends = new Map<string, {
+    sent: number; failed: number; total: number; queued: number;
+    percent: number; elapsed: number; estimatedRemaining: number;
+    message: string; complete: boolean; startedAt: number;
+  }>();
+
+  app.get("/api/whatsapp/bulk-send-status", requireAuth, async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: "Authentication required" });
+    const status = activeBulkSends.get(String(userId));
+    if (!status) return res.json({ active: false });
+    res.json({ active: true, ...status });
+  });
+
   // Send WhatsApp message (for marketing/posting) - supports bulk recipients
   app.post("/api/whatsapp/send", requireAuth, async (req, res) => {
     try {
@@ -20900,18 +20914,23 @@ Be helpful, professional, and concise. Always let users know what the platform c
               const rate = processed > 0 ? (elapsed / processed) : 0;
               const remaining = Math.round(rate * (numbersToSend.length - processed));
 
+              const progressData = {
+                sent: sentCount,
+                failed: failedCount,
+                total: numbersToSend.length,
+                queued: queuedCount,
+                percent,
+                elapsed,
+                estimatedRemaining: remaining,
+                message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} auto-queued` : ''}`,
+                complete: false,
+                startedAt: startTime,
+              };
+              activeBulkSends.set(String(userId), progressData);
+
               realtimeService.sendToUser(String(userId), {
                 type: "whatsapp_bulk_progress",
-                data: {
-                  sent: sentCount,
-                  failed: failedCount,
-                  total: numbersToSend.length,
-                  queued: queuedCount,
-                  percent,
-                  elapsed,
-                  estimatedRemaining: remaining,
-                  message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} auto-queued` : ''}`,
-                },
+                data: progressData,
                 timestamp: new Date().toISOString(),
               });
 
@@ -20928,26 +20947,35 @@ Be helpful, professional, and concise. Always let users know what the platform c
               });
             }
 
+            const completeData = {
+              sent: sentCount,
+              failed: failedCount,
+              total: numbersToSend.length,
+              queued: queuedCount,
+              bulkQueueId,
+              elapsed: Math.round((Date.now() - startTime) / 1000),
+              percent: 100,
+              estimatedRemaining: 0,
+              message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts auto-queued for next batch.` : ''}`,
+              complete: true,
+              startedAt: startTime,
+            };
+            activeBulkSends.set(String(userId), completeData);
+            setTimeout(() => activeBulkSends.delete(String(userId)), 5 * 60 * 1000);
+
             realtimeService.sendToUser(String(userId), {
               type: "whatsapp_bulk_complete",
-              data: {
-                sent: sentCount,
-                failed: failedCount,
-                total: numbersToSend.length,
-                queued: queuedCount,
-                bulkQueueId,
-                elapsed: Math.round((Date.now() - startTime) / 1000),
-                message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts auto-queued for next batch.` : ''}`,
-              },
+              data: completeData,
               timestamp: new Date().toISOString(),
             });
 
             console.log(`📱 WhatsApp bulk send complete for user ${userId}: ${sentCount} sent, ${failedCount} failed out of ${numbersToSend.length}${queuedCount > 0 ? ` (${queuedCount} auto-queued)` : ''}`);
           })().catch((err) => {
             console.error("WhatsApp background bulk send error:", err);
+            activeBulkSends.delete(String(userId));
             realtimeService.sendToUser(String(userId), {
               type: "whatsapp_bulk_complete",
-              data: { sent: 0, failed: numbersToSend.length, total: numbersToSend.length, queued: queuedCount, error: err.message, message: `Bulk send failed: ${err.message}` },
+              data: { sent: 0, failed: numbersToSend.length, total: numbersToSend.length, queued: queuedCount, error: err.message, message: `Bulk send failed: ${err.message}`, complete: true },
               timestamp: new Date().toISOString(),
             });
           });

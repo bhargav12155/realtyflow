@@ -37,6 +37,7 @@ import {
   CheckCircle,
   Clock,
   CreditCard,
+  DollarSign,
   Eye,
   Facebook,
   Home,
@@ -616,6 +617,7 @@ export function SocialMediaManager() {
   const [bulkProgress, setBulkProgress] = useState<{
     sent: number; failed: number; total: number; percent: number;
     queued?: number; estimatedRemaining?: number; message: string; complete?: boolean;
+    errorBreakdown?: Record<string, number>; estimatedCost?: number;
   } | null>(null);
   const { toast } = useToast();
 
@@ -646,6 +648,11 @@ export function SocialMediaManager() {
 
   const { data: bulkQueues = [] } = useQuery<any[]>({
     queryKey: ["/api/whatsapp/bulk-queues"],
+    refetchInterval: 30000,
+  });
+
+  const { data: recentPosts = [] } = useQuery<any[]>({
+    queryKey: ["/api/dashboard/recent-posts"],
     refetchInterval: 30000,
   });
 
@@ -686,6 +693,8 @@ export function SocialMediaManager() {
               estimatedRemaining: data.estimatedRemaining,
               message: data.message,
               complete: data.complete || false,
+              errorBreakdown: data.errorBreakdown,
+              estimatedCost: data.estimatedCost,
             });
           }
         }
@@ -2580,7 +2589,62 @@ ${agentName} | ${brokerageName}
                   />
                 </div>
               )}
-              {bulkProgress && (
+              {bulkProgress && (() => {
+                const ERROR_INFO: Record<string, { name: string; description: string; action: string; severity: "warn" | "error" | "info" }> = {
+                  "131049": {
+                    name: "Ecosystem Health: Meta chose not to deliver",
+                    description: "WhatsApp limits how many marketing templates a person receives from a business within a certain time period, especially if they are less likely to respond or engage.",
+                    action: "Do not retry immediately. Wait and retry in increasing time intervals (1hr, 4hr, 24hr). This limit varies per user and resets automatically.",
+                    severity: "warn",
+                  },
+                  "131056": {
+                    name: "Pair Rate Limit",
+                    description: "Too many messages sent to this specific recipient in a short time. WhatsApp throttles per-user delivery.",
+                    action: "Skip this contact for now. They will receive future messages once the cooldown period ends (usually a few hours).",
+                    severity: "warn",
+                  },
+                  "130429": {
+                    name: "Cloud API Throughput Exceeded",
+                    description: "Your account hit Meta's per-second sending throughput limit.",
+                    action: "System automatically retries with backoff. No manual action needed. Consider upgrading your throughput tier if this happens frequently.",
+                    severity: "info",
+                  },
+                  "131051": {
+                    name: "Template Not Approved",
+                    description: "The message template used is not in APPROVED status on Meta's platform.",
+                    action: "Check your template status in WhatsApp Manager. Submit for re-review or use a different approved template.",
+                    severity: "error",
+                  },
+                  "131047": {
+                    name: "Re-engagement Required",
+                    description: "More than 24 hours have passed since the customer's last message. You need a template message to re-engage.",
+                    action: "Use an approved template message instead of a free-form text message to initiate the conversation.",
+                    severity: "error",
+                  },
+                  "429": {
+                    name: "Rate Limit Hit",
+                    description: "Too many API requests sent in a short period.",
+                    action: "System automatically backs off and retries. If persistent, reduce batch frequency.",
+                    severity: "info",
+                  },
+                  "503": {
+                    name: "WhatsApp Service Temporarily Unavailable",
+                    description: "Meta's servers experienced a temporary overload or maintenance.",
+                    action: "System retries automatically. These are transient and usually resolve within minutes.",
+                    severity: "info",
+                  },
+                  "unknown": {
+                    name: "Undeliverable Message",
+                    description: "Message could not be delivered. Reasons include: unregistered WhatsApp number, blocked by recipient, or invalid phone number.",
+                    action: "Verify phone numbers are valid and have active WhatsApp accounts. Remove invalid numbers from your contact list.",
+                    severity: "error",
+                  },
+                };
+
+                const costPerMsg = 0.025;
+                const totalErrorCount = bulkProgress.errorBreakdown ? Object.values(bulkProgress.errorBreakdown).reduce((s, v) => s + v, 0) : 0;
+
+                return (
                 <div className={`rounded-xl border p-4 space-y-3 ${bulkProgress.complete ? (bulkProgress.failed > 0 ? 'border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' : 'border-green-300 bg-green-50/50 dark:bg-green-950/20') : 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20'}`} data-testid="whatsapp-bulk-progress">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -2595,15 +2659,24 @@ ${agentName} | ${brokerageName}
                         {bulkProgress.complete ? "Bulk Send Complete" : "Sending Messages..."}
                       </span>
                     </div>
-                    {bulkProgress.complete && (
-                      <button
-                        type="button"
-                        onClick={() => setBulkProgress(null)}
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        Dismiss
-                      </button>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {bulkProgress.estimatedCost != null && bulkProgress.estimatedCost > 0 && (
+                        <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 rounded-full" data-testid="text-estimated-cost">
+                          <DollarSign className="h-3 w-3" />
+                          Est. ${bulkProgress.estimatedCost.toFixed(2)}
+                        </span>
+                      )}
+                      {bulkProgress.complete && (
+                        <button
+                          type="button"
+                          onClick={() => setBulkProgress(null)}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                          data-testid="btn-dismiss-progress"
+                        >
+                          Dismiss
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
                     <div
@@ -2624,13 +2697,131 @@ ${agentName} | ${brokerageName}
                     </div>
                     <span className="text-muted-foreground font-mono">{bulkProgress.percent}%</span>
                   </div>
+
+                  {bulkProgress.sent > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] border-t pt-2">
+                      <div data-testid="metric-delivered">
+                        <span className="text-muted-foreground">Delivered</span>
+                        <p className="font-semibold text-green-700 dark:text-green-400">{bulkProgress.sent.toLocaleString()}</p>
+                      </div>
+                      <div data-testid="metric-failed">
+                        <span className="text-muted-foreground">Failed</span>
+                        <p className="font-semibold text-red-600">{bulkProgress.failed.toLocaleString()}</p>
+                      </div>
+                      <div data-testid="metric-cost">
+                        <span className="text-muted-foreground">Est. Cost</span>
+                        <p className="font-semibold text-emerald-700 dark:text-emerald-400">
+                          ${(bulkProgress.estimatedCost ?? bulkProgress.sent * costPerMsg).toFixed(2)}
+                        </p>
+                      </div>
+                      <div data-testid="metric-cost-per-msg">
+                        <span className="text-muted-foreground">Per Message</span>
+                        <p className="font-semibold">${costPerMsg.toFixed(3)}</p>
+                      </div>
+                    </div>
+                  )}
+
                   {!bulkProgress.complete && bulkProgress.estimatedRemaining && bulkProgress.estimatedRemaining > 0 && (
                     <p className="text-[10px] text-muted-foreground">
                       Estimated time remaining: {bulkProgress.estimatedRemaining > 60 ? `${Math.round(bulkProgress.estimatedRemaining / 60)}m` : `${bulkProgress.estimatedRemaining}s`}
                     </p>
                   )}
+
+                  {bulkProgress.errorBreakdown && totalErrorCount > 0 && (
+                    <div className="border-t pt-2 space-y-2" data-testid="error-breakdown">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-red-700 dark:text-red-400">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Error Breakdown ({totalErrorCount} issues)
+                      </div>
+                      <div className="space-y-2">
+                        {Object.entries(bulkProgress.errorBreakdown)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([code, count]) => {
+                            const info = ERROR_INFO[code] || ERROR_INFO["unknown"];
+                            return (
+                              <div
+                                key={code}
+                                className={`rounded-lg p-2.5 text-[10px] space-y-1 ${
+                                  info.severity === "error" ? "bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800" :
+                                  info.severity === "warn" ? "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" :
+                                  "bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800"
+                                }`}
+                                data-testid={`error-code-${code}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold">
+                                    {info.name}
+                                  </span>
+                                  <span className={`px-1.5 py-0.5 rounded font-mono font-bold ${
+                                    info.severity === "error" ? "bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-300" :
+                                    info.severity === "warn" ? "bg-amber-200 text-amber-800 dark:bg-amber-900 dark:text-amber-300" :
+                                    "bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
+                                  }`}>
+                                    {count} {count === 1 ? "message" : "messages"} &middot; Code {code}
+                                  </span>
+                                </div>
+                                <p className="text-muted-foreground leading-relaxed">
+                                  {info.description}
+                                </p>
+                                <div className="flex items-start gap-1.5 mt-1 p-1.5 rounded bg-white/60 dark:bg-black/20">
+                                  <Info className="h-3 w-3 mt-0.5 shrink-0 text-blue-500" />
+                                  <p className="font-medium leading-relaxed">
+                                    {info.action}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+                );
+              })()}
+              {(() => {
+                const whatsappPosts = recentPosts.filter((p: any) => p.platform === "whatsapp").slice(0, 5);
+                if (whatsappPosts.length === 0) return null;
+                return (
+                  <div className="space-y-2" data-testid="whatsapp-recent-activity">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <MessageCircle className="h-4 w-4 text-green-500" />
+                      <span>Recent WhatsApp Activity</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {whatsappPosts.map((post: any) => {
+                        const isSuccess = post.status === "posted";
+                        const time = post.metadata?.publishedAt || post.updatedAt;
+                        const timeAgo = time ? (() => {
+                          const diff = Math.round((Date.now() - new Date(time).getTime()) / 1000);
+                          if (diff < 60) return `${diff}s ago`;
+                          if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+                          if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+                          return `${Math.round(diff / 86400)}d ago`;
+                        })() : "";
+                        return (
+                          <div key={post.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-[11px]" data-testid={`recent-wa-post-${post.id}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              {isSuccess ? (
+                                <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                              ) : (
+                                <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                              )}
+                              <span className="truncate max-w-[200px]">{post.content?.slice(0, 60) || "WhatsApp message"}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${isSuccess ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300" : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"}`}>
+                                {isSuccess ? "Delivered" : "Failed"}
+                              </span>
+                              <span className="text-muted-foreground text-[10px]">{timeAgo}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {bulkQueues.filter((q: any) => q.status === "active" || q.status === "paused").length > 0 && (
                 <div className="space-y-2" data-testid="whatsapp-bulk-queue-dashboard">
                   <div className="flex items-center gap-2 text-sm font-semibold">
@@ -2727,7 +2918,7 @@ ${agentName} | ${brokerageName}
                             </div>
                             <div>
                               <span className="text-muted-foreground">Quota/Day</span>
-                              <p className="font-semibold">{(q.dailyLimit || 2000).toLocaleString()}</p>
+                              <p className="font-semibold">{(q.dailyLimit || metaDailyLimit).toLocaleString()}</p>
                             </div>
                             <div>
                               <span className="text-muted-foreground">Next Batch</span>

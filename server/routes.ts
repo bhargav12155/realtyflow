@@ -20679,6 +20679,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
     sent: number; failed: number; total: number; queued: number;
     percent: number; elapsed: number; estimatedRemaining: number;
     message: string; complete: boolean; startedAt: number;
+    errorBreakdown?: Record<string, number>;
+    estimatedCost?: number;
   }>();
 
   app.get("/api/whatsapp/bulk-send-status", requireAuth, async (req, res) => {
@@ -20845,6 +20847,17 @@ Be helpful, professional, and concise. Always let users know what the platform c
             let sentCount = 0;
             let failedCount = 0;
             const startTime = Date.now();
+            const errorCodes: Record<string, number> = {};
+
+            const extractErrorCode = (errMsg: string): string => {
+              const codes = ["131049", "131056", "131051", "130429", "131047", "131048", "131026", "131053"];
+              for (const code of codes) {
+                if (errMsg.includes(code)) return code;
+              }
+              if (errMsg.includes("429")) return "429";
+              if (errMsg.includes("503")) return "503";
+              return "unknown";
+            };
 
             const isRetryableError = (errMsg: string) =>
               errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||
@@ -20897,6 +20910,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 else {
                   failedCount++;
                   const reason = (r as PromiseRejectedResult).reason?.message || "";
+                  const code = extractErrorCode(reason);
+                  errorCodes[code] = (errorCodes[code] || 0) + 1;
                   if (isRetryableError(reason)) {
                     rateLimitHit = true;
                   }
@@ -20914,6 +20929,9 @@ Be helpful, professional, and concise. Always let users know what the platform c
               const rate = processed > 0 ? (elapsed / processed) : 0;
               const remaining = Math.round(rate * (numbersToSend.length - processed));
 
+              const COST_PER_MARKETING_MSG_USD = 0.025;
+              const estimatedCost = parseFloat((sentCount * COST_PER_MARKETING_MSG_USD).toFixed(2));
+
               const progressData = {
                 sent: sentCount,
                 failed: failedCount,
@@ -20925,6 +20943,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 message: `Sent ${sentCount.toLocaleString()} of ${numbersToSend.length.toLocaleString()} messages (${percent}%)${queuedCount > 0 ? ` | ${queuedCount.toLocaleString()} auto-queued` : ''}`,
                 complete: false,
                 startedAt: startTime,
+                errorBreakdown: Object.keys(errorCodes).length > 0 ? errorCodes : undefined,
+                estimatedCost,
               };
               activeBulkSends.set(String(userId), progressData);
 
@@ -20947,6 +20967,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
               });
             }
 
+            const COST_PER_MARKETING_MSG_USD = 0.025;
+            const finalCost = parseFloat((sentCount * COST_PER_MARKETING_MSG_USD).toFixed(2));
             const completeData = {
               sent: sentCount,
               failed: failedCount,
@@ -20959,6 +20981,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
               message: `Bulk send complete: ${sentCount.toLocaleString()} delivered, ${failedCount.toLocaleString()} failed out of ${numbersToSend.length.toLocaleString()}${queuedCount > 0 ? `. ${queuedCount.toLocaleString()} contacts auto-queued for next batch.` : ''}`,
               complete: true,
               startedAt: startTime,
+              errorBreakdown: Object.keys(errorCodes).length > 0 ? errorCodes : undefined,
+              estimatedCost: finalCost,
             };
             activeBulkSends.set(String(userId), completeData);
             setTimeout(() => activeBulkSends.delete(String(userId)), 5 * 60 * 1000);

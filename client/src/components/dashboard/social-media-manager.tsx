@@ -519,6 +519,7 @@ export function SocialMediaManager() {
 
   // Get agent name and brokerage with smart defaults
   const isTikTokOnly = selectedPlatforms.length === 1 && selectedPlatforms[0] === "tiktok";
+  const isWhatsAppOnly = selectedPlatforms.length === 1 && selectedPlatforms[0] === "whatsapp";
   const agentName = companyProfile?.agentName || "[Your Name]";
   const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
   const businessName = companyProfile?.businessName || "[Your Business]";
@@ -1830,7 +1831,7 @@ ${agentName} | ${brokerageName}
             <h3 className="text-sm font-medium text-foreground">Quick Post</h3>
           </div>
 
-          {!isTikTokOnly && isRealEstate && <div className="space-y-2">
+          {!isTikTokOnly && !isWhatsAppOnly && isRealEstate && <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Property Listing (Optional)
             </div>
@@ -1873,7 +1874,7 @@ ${agentName} | ${brokerageName}
             )}
           </div>}
 
-          {!isTikTokOnly && !isRealEstate && menuItemsList && menuItemsList.length > 0 && (
+          {!isTikTokOnly && !isWhatsAppOnly && !isRealEstate && menuItemsList && menuItemsList.length > 0 && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground mb-2">
                 {terms.itemCapitalized} (Optional)
@@ -1912,7 +1913,7 @@ ${agentName} | ${brokerageName}
             </div>
           )}
 
-          {!isTikTokOnly && <div className="space-y-2">
+          {!isTikTokOnly && !isWhatsAppOnly && <div className="space-y-2">
             <div className="text-xs font-medium text-muted-foreground mb-2">
               Post Type (Optional)
             </div>
@@ -1988,7 +1989,7 @@ ${agentName} | ${brokerageName}
             )}
           </div>}
 
-          {!isTikTokOnly && selectedPostType === "promote_app" && isAppPromoUser && (
+          {!isTikTokOnly && !isWhatsAppOnly && selectedPostType === "promote_app" && isAppPromoUser && (
             <div className="space-y-3">
               <div className="text-xs font-medium text-muted-foreground">Select App to Promote</div>
               <div className="grid grid-cols-1 gap-2">
@@ -2106,7 +2107,7 @@ ${agentName} | ${brokerageName}
           )}
 
 
-          {!isTikTokOnly && <div className="space-y-3">
+          {!isTikTokOnly && !isWhatsAppOnly && <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Image className="h-4 w-4 text-primary" />
@@ -2147,7 +2148,88 @@ ${agentName} | ${brokerageName}
             )}
           </div>}
 
-          {isTikTokOnly ? (
+          {isWhatsAppOnly ? (
+            <div className="space-y-3 rounded-lg border-2 border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20 p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <MessageCircle className="h-4 w-4 text-green-600" />
+                <span className="text-sm font-semibold">WhatsApp Message</span>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-medium">Recipient Phone Numbers</Label>
+                <textarea
+                  data-testid="input-whatsapp-to-compact"
+                  placeholder={"Phone numbers (comma or newline separated)\ne.g. 15185459592, 447911123456"}
+                  value={whatsappTo}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const count = val.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
+                    if (count <= 5000) setWhatsappTo(val);
+                  }}
+                  className="text-sm min-h-[50px] w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-muted-foreground">
+                    {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length} / 5,000 numbers
+                  </p>
+                  <label className="cursor-pointer inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80">
+                    <input
+                      type="file"
+                      accept=".csv,.txt,.pdf,.docx"
+                      className="hidden"
+                      data-testid="input-upload-contacts-compact"
+                      disabled={isExtractingNumbers}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setIsExtractingNumbers(true);
+                        try {
+                          const formData = new FormData();
+                          formData.append("file", file);
+                          const token = localStorage.getItem("authToken") || "";
+                          const response = await fetch("/api/whatsapp/extract-numbers", {
+                            method: "POST",
+                            headers: { ...(token ? { "Authorization": `Bearer ${token}` } : {}) },
+                            body: formData,
+                          });
+                          const data = await response.json();
+                          if (data.numbers?.length > 0) {
+                            const existing = whatsappTo.trim();
+                            setWhatsappTo(existing ? existing + "\n" + data.numbers.join("\n") : data.numbers.join("\n"));
+                            toast({ title: "Numbers Imported", description: `Extracted ${data.count} phone numbers` });
+                          } else {
+                            toast({ title: "No Numbers Found", description: "No phone numbers found in the file.", variant: "destructive" });
+                          }
+                        } catch {
+                          toast({ title: "Upload Failed", description: "Failed to process file.", variant: "destructive" });
+                        } finally {
+                          setIsExtractingNumbers(false);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    {isExtractingNumbers ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    {isExtractingNumbers ? "Extracting..." : "Import File"}
+                  </label>
+                </div>
+              </div>
+              <WhatsAppTemplateSelector
+                selectedTemplate={whatsappTemplateName}
+                onSelectTemplate={(name) => setWhatsappTemplateName(name)}
+              />
+              {(!whatsappTemplateName || whatsappTemplateName === "none") && (
+                <div className="space-y-1">
+                  <Label className="text-xs font-medium">Message (required if no template)</Label>
+                  <Textarea
+                    placeholder="Type your WhatsApp message..."
+                    value={postContent}
+                    onChange={(e) => setPostContent(e.target.value)}
+                    className="min-h-[60px] text-sm"
+                    data-testid="textarea-whatsapp-message"
+                  />
+                </div>
+              )}
+            </div>
+          ) : isTikTokOnly ? (
             <div className="space-y-4 rounded-lg border-2 border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 p-4">
               <div className="flex items-center gap-2">
                 <Video className="h-5 w-5 text-red-500" />
@@ -2291,7 +2373,7 @@ ${agentName} | ${brokerageName}
             </>
           )}
 
-          {selectedPlatforms.length > 0 && (
+          {selectedPlatforms.length > 0 && !isWhatsAppOnly && (
             <div className="text-xs text-muted-foreground">
               Posting to:{" "}
               {selectedPlatforms
@@ -2299,7 +2381,7 @@ ${agentName} | ${brokerageName}
                 .join(", ")}
             </div>
           )}
-          {selectedPlatforms.includes("whatsapp") && (
+          {selectedPlatforms.includes("whatsapp") && !isWhatsAppOnly && (
             <div className="space-y-1">
               <Label htmlFor="whatsapp-to" className="text-xs">WhatsApp Recipient Phone Numbers</Label>
               <textarea
@@ -2876,7 +2958,7 @@ ${agentName} | ${brokerageName}
               </Dialog>
             </div>
             <div className="flex items-center space-x-2">
-              {!isTikTokOnly && (
+              {!isTikTokOnly && !isWhatsAppOnly && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>

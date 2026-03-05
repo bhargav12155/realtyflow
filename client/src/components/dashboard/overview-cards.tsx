@@ -362,54 +362,84 @@ export function RecentPostActivity() {
     );
   }
 
+  const sentCount = recentPosts.filter(p => p.status === "posted").length;
+  const failedCount = recentPosts.length - sentCount;
+
+  const platformBgColors: Record<string, string> = {
+    facebook: "bg-[#1877F2]",
+    facebook_page: "bg-[#1877F2]",
+    instagram: "bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#8134AF]",
+    twitter: "bg-black dark:bg-white/10",
+    linkedin: "bg-[#0A66C2]",
+    tiktok: "bg-black dark:bg-white/10",
+    youtube: "bg-[#FF0000]",
+    whatsapp: "bg-[#25D366]",
+  };
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
-          <Clock className="h-4 w-4" />
-          Recent Post Activity
-        </CardTitle>
+    <Card className="overflow-hidden">
+      <CardHeader className="pb-2 bg-gradient-to-r from-primary/5 to-transparent">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-primary/10">
+              <Clock className="h-4 w-4 text-primary" />
+            </div>
+            Recent Post Activity
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            {sentCount > 0 && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                {sentCount} sent
+              </span>
+            )}
+            {failedCount > 0 && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                {failedCount} failed
+              </span>
+            )}
+          </div>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-3" data-testid="list-recent-posts">
-          {recentPosts.map((post) => {
+      <CardContent className="pt-3">
+        <div className="space-y-1" data-testid="list-recent-posts">
+          {recentPosts.map((post, index) => {
             const PlatformIcon = platformIcons[post.platform.toLowerCase()] || Edit;
-            const colorClass = platformColors[post.platform.toLowerCase()] || "text-muted-foreground";
             const publishedAt = post.metadata?.publishedAt || post.updatedAt;
             const isPosted = post.status === "posted";
+            const bgColor = platformBgColors[post.platform.toLowerCase()] || "bg-muted";
 
             return (
               <div
                 key={post.id}
-                className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors"
+                className={`group flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 hover:bg-muted/60 hover:shadow-sm ${index === 0 ? 'bg-muted/30' : ''}`}
                 data-testid={`recent-post-${post.id}`}
               >
-                <div className={`mt-0.5 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isPosted ? 'bg-green-100 dark:bg-green-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
-                  <PlatformIcon className={`h-4 w-4 ${colorClass}`} />
+                <div className={`mt-0.5 flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${bgColor}`}>
+                  <PlatformIcon className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium capitalize">{post.platform}</span>
+                    <span className="text-sm font-semibold capitalize">{post.platform.replace('_', ' ')}</span>
                     {isPosted ? (
-                      <Badge variant="outline" className="text-green-600 border-green-200 dark:border-green-800 text-[10px] px-1.5 py-0" data-testid={`badge-status-${post.id}`}>
-                        <CheckCircle2 className="h-3 w-3 mr-0.5" />
-                        Sent
-                      </Badge>
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-600 dark:text-green-400" data-testid={`badge-status-${post.id}`}>
+                        <CheckCircle2 className="h-3 w-3" />
+                        Delivered
+                      </span>
                     ) : (
-                      <Badge variant="outline" className="text-red-500 border-red-200 dark:border-red-800 text-[10px] px-1.5 py-0" data-testid={`badge-status-${post.id}`}>
-                        <XCircle className="h-3 w-3 mr-0.5" />
+                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-500 dark:text-red-400" data-testid={`badge-status-${post.id}`}>
+                        <XCircle className="h-3 w-3" />
                         Failed
-                      </Badge>
+                      </span>
                     )}
-                    <span className="text-[11px] text-muted-foreground ml-auto flex-shrink-0">
+                    <span className="text-[10px] text-muted-foreground/70 ml-auto flex-shrink-0 tabular-nums">
                       {formatTimeAgo(publishedAt)}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                    {post.content?.substring(0, 120) || "No content"}
+                  <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
+                    {post.content?.substring(0, 150) || "No content"}
                   </p>
                   {!isPosted && post.metadata?.error && (
-                    <p className="text-[11px] text-red-500 mt-0.5 line-clamp-1">
+                    <p className="text-[10px] text-red-500/80 mt-1 line-clamp-1 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-md">
                       {post.metadata.error}
                     </p>
                   )}

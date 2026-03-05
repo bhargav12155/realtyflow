@@ -21363,6 +21363,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         } else {
           let sentCount = 0;
           let failedCount = 0;
+          let queuedCount = 0;
 
           const isRetryableSync = (errMsg: string) =>
             errMsg.includes("130429") || errMsg.includes("429") || errMsg.includes("503") ||

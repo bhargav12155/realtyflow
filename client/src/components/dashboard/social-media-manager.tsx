@@ -427,7 +427,7 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
       </Select>
 
       {templates.length > 0 && (
-        <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-1.5 max-h-[350px] overflow-y-auto pr-1">
           {templates.map((t: any) => {
             const badge = statusBadge(t.status);
             const headerComp = t.components?.find((c: any) => c.type === "HEADER");
@@ -442,6 +442,8 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
               <div
                 key={t.name}
                 className={`text-[11px] rounded-xl border transition-all duration-200 cursor-pointer overflow-hidden ${
+                  previewTemplate?.name === t.name ? "col-span-2 xl:col-span-3" : ""
+                } ${
                   isSelected
                     ? "border-green-500 bg-green-50/50 dark:bg-green-950/20 shadow-sm shadow-green-200/50 dark:shadow-green-900/30"
                     : isPending
@@ -454,23 +456,25 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
                 }}
                 data-testid={`template-card-${t.name}`}
               >
-                <div className="flex items-center gap-2.5 px-3 py-2.5">
-                  <span className="text-sm flex-shrink-0">{categoryIcon(t.category)}</span>
+                <div className="flex items-start gap-2 px-2.5 py-2">
+                  <span className="text-sm flex-shrink-0 mt-0.5">{categoryIcon(t.category)}</span>
                   <div className="flex-1 min-w-0">
-                    <span className="font-semibold text-foreground">{formatTemplateName(t.name)}</span>
+                    <div className="flex items-center gap-1.5 justify-between">
+                      <span className="font-semibold text-foreground truncate text-[11px] leading-tight">{formatTemplateName(t.name)}</span>
+                      {isSelected && (
+                        <span className="flex-shrink-0 w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
+                          <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </span>
+                      )}
+                    </div>
                     {headerText && !previewTemplate?.name && (
-                      <p className="text-[10px] text-muted-foreground truncate mt-0.5">{headerText}</p>
+                      <p className="text-[9px] text-muted-foreground truncate mt-0.5">{headerText}</p>
                     )}
-                  </div>
-                  <span className={`flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold border ${badge.color}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-                    {badge.label}
-                  </span>
-                  {isSelected && (
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-semibold border mt-1 ${badge.color}`}>
+                      <span className={`w-1 h-1 rounded-full ${badge.dot}`} />
+                      {badge.label}
                     </span>
-                  )}
+                  </div>
                 </div>
                 {previewTemplate?.name === t.name && (
                   <div className="px-3 pb-3 pt-0 border-t border-border/30">

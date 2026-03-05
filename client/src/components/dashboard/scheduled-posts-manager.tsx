@@ -159,6 +159,9 @@ export function ScheduledPostsManager() {
   const { businessType, terms } = useBusinessType();
   const isRealEstate = terms.features.complianceCheck;
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [dayModalDate, setDayModalDate] = useState<Date | null>(null);
+  const [dayModalPosts, setDayModalPosts] = useState<any[]>([]);
+  const MAX_VISIBLE_POSTS = 3;
   const [selectedPost, setSelectedPost] = useState<ScheduledPost | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editContent, setEditContent] = useState("");
@@ -633,7 +636,7 @@ export function ScheduledPostsManager() {
                   
                   {/* Platform Icons for Posts */}
                   <div className="space-y-1">
-                    {postsForDay.map((post) => {
+                    {postsForDay.slice(0, MAX_VISIBLE_POSTS).map((post) => {
                       const platform = platformIcons[post.platform as keyof typeof platformIcons];
                       const Icon = platform?.icon || Home;
                       const isSelected = selectedPostIds.has(post.id);
@@ -641,35 +644,45 @@ export function ScheduledPostsManager() {
                       return (
                         <div
                           key={post.id}
-                          className={`w-full flex items-center gap-1 p-1.5 rounded hover:bg-muted/50 transition-colors group ${isSelected ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
+                          className={`w-full flex items-center gap-1 p-1 rounded hover:bg-muted/50 transition-colors group ${isSelected ? 'bg-primary/10 ring-1 ring-primary/30' : ''}`}
                           data-testid={`post-${post.id}`}
                           title={`${platform?.name || post.platform} - ${format(new Date(post.scheduledFor), 'h:mm a')}`}
                         >
                           <Checkbox
                             checked={isSelected}
                             onCheckedChange={() => togglePostSelection(post.id)}
-                            className="shrink-0"
+                            className="shrink-0 h-3 w-3"
                             data-testid={`checkbox-post-${post.id}`}
                           />
                           <button
                             onClick={() => handleEditPost(post)}
-                            className="flex-1 flex items-center gap-2 text-left min-w-0"
+                            className="flex-1 flex items-center gap-1.5 text-left min-w-0"
                           >
-                            <div className={`shrink-0 w-6 h-6 rounded flex items-center justify-center ${platform?.bgColor || 'bg-gray-500'}`}>
-                              <Icon className="h-3.5 w-3.5 text-white" />
+                            <div className={`shrink-0 w-5 h-5 rounded flex items-center justify-center ${platform?.bgColor || 'bg-gray-500'}`}>
+                              <Icon className="h-3 w-3 text-white" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="text-xs font-medium truncate">
+                              <div className="text-[10px] font-medium truncate leading-tight">
                                 {format(new Date(post.scheduledFor), 'h:mm a')}
-                              </div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                {post.content.substring(0, 20)}...
                               </div>
                             </div>
                           </button>
                         </div>
                       );
                     })}
+                    {postsForDay.length > MAX_VISIBLE_POSTS && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDayModalDate(day);
+                          setDayModalPosts(postsForDay);
+                        }}
+                        className="w-full text-[10px] font-semibold text-primary hover:text-primary/80 hover:bg-primary/5 rounded py-0.5 transition-colors"
+                        data-testid={`button-more-posts-${format(day, 'yyyy-MM-dd')}`}
+                      >
+                        +{postsForDay.length - MAX_VISIBLE_POSTS} more
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -688,6 +701,58 @@ export function ScheduledPostsManager() {
         )}
       </CardContent>
       
+      {/* Day Detail Modal */}
+      <Dialog open={!!dayModalDate} onOpenChange={(open) => { if (!open) { setDayModalDate(null); setDayModalPosts([]); } }}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              {dayModalDate ? format(dayModalDate, 'EEEE, MMMM d, yyyy') : ''}
+            </DialogTitle>
+            <DialogDescription>
+              {dayModalPosts.length} scheduled post{dayModalPosts.length !== 1 ? 's' : ''} for this day
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 mt-2">
+            {dayModalPosts.map((post) => {
+              const platform = platformIcons[post.platform as keyof typeof platformIcons];
+              const Icon = platform?.icon || Home;
+              const isSelected = selectedPostIds.has(post.id);
+              return (
+                <div
+                  key={post.id}
+                  className={`flex items-start gap-3 p-3 rounded-xl border transition-all hover:bg-muted/40 ${isSelected ? 'bg-primary/5 border-primary/30' : 'border-border/50'}`}
+                  data-testid={`modal-post-${post.id}`}
+                >
+                  <Checkbox
+                    checked={isSelected}
+                    onCheckedChange={() => togglePostSelection(post.id)}
+                    className="shrink-0 mt-1"
+                  />
+                  <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${platform?.bgColor || 'bg-gray-500'}`}>
+                    <Icon className="h-4 w-4 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold capitalize">{platform?.name || post.platform}</span>
+                      <span className="text-xs text-muted-foreground">{format(new Date(post.scheduledFor), 'h:mm a')}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-3 leading-relaxed">{post.content}</p>
+                  </div>
+                  <button
+                    onClick={() => { setDayModalDate(null); setDayModalPosts([]); handleEditPost(post); }}
+                    className="shrink-0 p-1.5 rounded-lg hover:bg-muted transition-colors"
+                    data-testid={`button-edit-modal-post-${post.id}`}
+                  >
+                    <Edit2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Post Dialog */}
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

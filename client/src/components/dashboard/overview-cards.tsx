@@ -401,7 +401,7 @@ export function RecentPostActivity() {
         </div>
       </CardHeader>
       <CardContent className="pt-3">
-        <div className="space-y-1" data-testid="list-recent-posts">
+        <div className="grid grid-cols-2 xl:grid-cols-3 gap-2" data-testid="list-recent-posts">
           {recentPosts.map((post, index) => {
             const PlatformIcon = platformIcons[post.platform.toLowerCase()] || Edit;
             const publishedAt = post.metadata?.publishedAt || post.updatedAt;
@@ -411,35 +411,35 @@ export function RecentPostActivity() {
             return (
               <div
                 key={post.id}
-                className={`group flex items-start gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 hover:bg-muted/60 hover:shadow-sm ${index === 0 ? 'bg-muted/30' : ''}`}
+                className={`group flex items-start gap-2 px-2.5 py-2 rounded-xl border transition-all duration-200 hover:bg-muted/60 hover:shadow-sm ${index === 0 ? 'bg-muted/30' : 'border-border/40'}`}
                 data-testid={`recent-post-${post.id}`}
               >
-                <div className={`mt-0.5 flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${bgColor}`}>
-                  <PlatformIcon className="h-4 w-4 text-white" />
+                <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center shadow-sm ${bgColor}`}>
+                  <PlatformIcon className="h-3.5 w-3.5 text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold capitalize">{post.platform.replace('_', ' ')}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold capitalize truncate">{post.platform.replace('_', ' ')}</span>
                     {isPosted ? (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-600 dark:text-green-400" data-testid={`badge-status-${post.id}`}>
-                        <CheckCircle2 className="h-3 w-3" />
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-green-600 dark:text-green-400" data-testid={`badge-status-${post.id}`}>
+                        <CheckCircle2 className="h-2.5 w-2.5" />
                         Delivered
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-500 dark:text-red-400" data-testid={`badge-status-${post.id}`}>
-                        <XCircle className="h-3 w-3" />
+                      <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-red-500 dark:text-red-400" data-testid={`badge-status-${post.id}`}>
+                        <XCircle className="h-2.5 w-2.5" />
                         Failed
                       </span>
                     )}
-                    <span className="text-[10px] text-muted-foreground/70 ml-auto flex-shrink-0 tabular-nums">
-                      {formatTimeAgo(publishedAt)}
-                    </span>
                   </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
-                    {post.content?.substring(0, 150) || "No content"}
+                  <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">
+                    {post.content?.substring(0, 80) || "No content"}
                   </p>
+                  <span className="text-[9px] text-muted-foreground/60 tabular-nums">
+                    {formatTimeAgo(publishedAt)}
+                  </span>
                   {!isPosted && post.metadata?.error && (
-                    <p className="text-[10px] text-red-500/80 mt-1 line-clamp-1 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-md">
+                    <p className="text-[9px] text-red-500/80 mt-0.5 line-clamp-1 bg-red-50 dark:bg-red-950/20 px-1.5 py-0.5 rounded">
                       {post.metadata.error}
                     </p>
                   )}

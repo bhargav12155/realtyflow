@@ -84,6 +84,165 @@ interface Conversation {
   messageCount: number;
 }
 
+function WhatsAppAccountManager() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [newPhoneNumberId, setNewPhoneNumberId] = useState("");
+  const [newWabaId, setNewWabaId] = useState("");
+  const [newDisplayPhone, setNewDisplayPhone] = useState("");
+
+  const { data: accountsData, isLoading } = useQuery<{ accounts: Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>; activePhoneNumberId: string }>({
+    queryKey: ["/api/whatsapp/accounts"],
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async (data: { label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber: string }) => {
+      const res = await apiRequest("POST", "/api/whatsapp/accounts", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/accounts"] });
+      setShowAdd(false);
+      setNewLabel(""); setNewPhoneNumberId(""); setNewWabaId(""); setNewDisplayPhone("");
+      toast({ title: "Account added" });
+    },
+    onError: () => toast({ title: "Failed to add account", variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (phoneNumberId: string) => {
+      const res = await apiRequest("DELETE", `/api/whatsapp/accounts/${phoneNumberId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/accounts"] });
+      toast({ title: "Account removed" });
+    },
+    onError: () => toast({ title: "Failed to remove account", variant: "destructive" }),
+  });
+
+  const switchMutation = useMutation({
+    mutationFn: async (phoneNumberId: string) => {
+      const res = await apiRequest("POST", "/api/whatsapp/accounts/switch", { phoneNumberId });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/templates"] });
+      toast({ title: "Switched account", description: `Now using "${data.label}"` });
+    },
+    onError: () => toast({ title: "Failed to switch", variant: "destructive" }),
+  });
+
+  const accounts = accountsData?.accounts || [];
+  const activeId = accountsData?.activePhoneNumberId || "";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Phone className="h-5 w-5" />
+          WhatsApp Accounts
+        </CardTitle>
+        <CardDescription>
+          Manage multiple WhatsApp phone numbers and switch between them
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : accounts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No accounts configured. Add your first account below or save settings above to create one automatically.</p>
+        ) : (
+          <div className="space-y-2">
+            {accounts.map(acct => (
+              <div key={acct.phoneNumberId} className={`flex items-center justify-between p-3 rounded-lg border ${acct.phoneNumberId === activeId ? 'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/30' : 'border-border'}`} data-testid={`account-row-${acct.phoneNumberId}`}>
+                <div className="flex items-center gap-3">
+                  {acct.phoneNumberId === activeId && <CheckCircle className="h-4 w-4 text-green-500" />}
+                  <div>
+                    <div className="text-sm font-medium">{acct.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      ID: {acct.phoneNumberId}
+                      {acct.displayPhoneNumber && ` · ${acct.displayPhoneNumber}`}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {acct.phoneNumberId !== activeId && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => switchMutation.mutate(acct.phoneNumberId)}
+                        disabled={switchMutation.isPending}
+                        data-testid={`btn-switch-${acct.phoneNumberId}`}
+                      >
+                        {switchMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Switch"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => { if (confirm(`Remove "${acct.label}"?`)) deleteMutation.mutate(acct.phoneNumberId); }}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`btn-delete-${acct.phoneNumberId}`}
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
+                  {acct.phoneNumberId === activeId && (
+                    <Badge className="bg-green-500 text-xs">Active</Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showAdd ? (
+          <div className="space-y-3 p-3 rounded-lg border border-dashed">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Label</Label>
+                <Input placeholder="e.g., Main Business" value={newLabel} onChange={e => setNewLabel(e.target.value)} data-testid="input-new-account-label" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Phone Number ID</Label>
+                <Input placeholder="e.g., 123456789012345" value={newPhoneNumberId} onChange={e => setNewPhoneNumberId(e.target.value)} data-testid="input-new-account-phoneId" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">WABA ID (optional)</Label>
+                <Input placeholder="e.g., 987654321098765" value={newWabaId} onChange={e => setNewWabaId(e.target.value)} data-testid="input-new-account-wabaId" className="mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Display Phone (optional)</Label>
+                <Input placeholder="+1 (555) 123-4567" value={newDisplayPhone} onChange={e => setNewDisplayPhone(e.target.value)} data-testid="input-new-account-displayPhone" className="mt-1" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => addMutation.mutate({ label: newLabel, phoneNumberId: newPhoneNumberId, wabaId: newWabaId, displayPhoneNumber: newDisplayPhone })} disabled={!newLabel || !newPhoneNumberId || addMutation.isPending} data-testid="btn-save-new-account">
+                {addMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                Save Account
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)} data-testid="btn-cancel-new-account">Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setShowAdd(true)} data-testid="btn-add-account">
+            <Phone className="h-3 w-3 mr-1" />
+            Add Account
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function WhatsAppSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -342,6 +501,8 @@ export function WhatsAppSettings() {
               </div>
             </CardContent>
           </Card>
+
+          <WhatsAppAccountManager />
 
           <Card>
             <CardHeader>

@@ -20552,6 +20552,121 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  // Get WhatsApp accounts (multiple phone numbers)
+  app.get("/api/whatsapp/accounts", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const activePhoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+
+      res.json({ accounts, activePhoneNumberId });
+    } catch (error: any) {
+      console.error("Error getting WhatsApp accounts:", error);
+      res.status(500).json({ error: "Failed to get WhatsApp accounts" });
+    }
+  });
+
+  // Add a WhatsApp account
+  app.post("/api/whatsapp/accounts", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const { label, phoneNumberId, wabaId, displayPhoneNumber } = req.body;
+      if (!label || !phoneNumberId) {
+        return res.status(400).json({ error: "Label and Phone Number ID are required" });
+      }
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+
+      const exists = accounts.find(a => a.phoneNumberId === phoneNumberId);
+      if (exists) {
+        return res.status(400).json({ error: "Account with this Phone Number ID already exists" });
+      }
+
+      accounts.push({ label, phoneNumberId, wabaId: wabaId || settings?.wabaId || "", displayPhoneNumber: displayPhoneNumber || "" });
+
+      await storage.createOrUpdateWhatsappSettings({
+        ...settings,
+        userId: String(userId),
+        accounts: accounts as any,
+      });
+
+      console.log(`📱 WhatsApp: Added account "${label}" (${phoneNumberId}) for user ${userId}`);
+      res.json({ success: true, accounts });
+    } catch (error: any) {
+      console.error("Error adding WhatsApp account:", error);
+      res.status(500).json({ error: "Failed to add WhatsApp account" });
+    }
+  });
+
+  // Delete a WhatsApp account
+  app.delete("/api/whatsapp/accounts/:phoneNumberId", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const { phoneNumberId } = req.params;
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const allAccounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const accounts = allAccounts.filter(a => a.phoneNumberId !== phoneNumberId);
+
+      const updates: any = { ...settings, userId: String(userId), accounts: accounts as any };
+
+      if (settings?.phoneNumberId === phoneNumberId && accounts.length > 0) {
+        updates.phoneNumberId = accounts[0].phoneNumberId;
+        updates.wabaId = accounts[0].wabaId || settings?.wabaId;
+        updates.displayPhoneNumber = accounts[0].displayPhoneNumber || "";
+      }
+
+      await storage.createOrUpdateWhatsappSettings(updates);
+
+      res.json({ success: true, accounts, activePhoneNumberId: updates.phoneNumberId || settings?.phoneNumberId });
+    } catch (error: any) {
+      console.error("Error deleting WhatsApp account:", error);
+      res.status(500).json({ error: "Failed to delete WhatsApp account" });
+    }
+  });
+
+  // Switch active WhatsApp account
+  app.post("/api/whatsapp/accounts/switch", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const { phoneNumberId } = req.body;
+      if (!phoneNumberId) {
+        return res.status(400).json({ error: "Phone Number ID is required" });
+      }
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const account = accounts.find(a => a.phoneNumberId === phoneNumberId);
+
+      if (!account) {
+        return res.status(404).json({ error: "Account not found" });
+      }
+
+      await storage.createOrUpdateWhatsappSettings({
+        ...settings,
+        userId: String(userId),
+        phoneNumberId: account.phoneNumberId,
+        wabaId: account.wabaId || settings?.wabaId || "",
+        displayPhoneNumber: account.displayPhoneNumber || "",
+      });
+
+      console.log(`📱 WhatsApp: Switched to account "${account.label}" (${phoneNumberId}) for user ${userId}`);
+      res.json({ success: true, activePhoneNumberId: phoneNumberId, label: account.label });
+    } catch (error: any) {
+      console.error("Error switching WhatsApp account:", error);
+      res.status(500).json({ error: "Failed to switch WhatsApp account" });
+    }
+  });
+
   // Save/update WhatsApp settings
   app.post("/api/whatsapp/settings", requireAuth, async (req, res) => {
     try {
@@ -20559,15 +20674,31 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const incoming = { ...req.body };
+      const existing = await storage.getWhatsappSettingsByUserId(String(userId));
 
-      // If the client sent an empty accessToken, preserve the existing one from DB
       if (!incoming.accessToken || incoming.accessToken.trim() === "") {
-        const existing = await storage.getWhatsappSettingsByUserId(String(userId));
         if (existing?.accessToken) {
           incoming.accessToken = existing.accessToken;
         } else {
           delete incoming.accessToken;
         }
+      }
+      const accounts = (existing?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+
+      if (incoming.phoneNumberId) {
+        const idx = accounts.findIndex((a: any) => a.phoneNumberId === incoming.phoneNumberId);
+        const entry = {
+          label: incoming.displayPhoneNumber || incoming.phoneNumberId,
+          phoneNumberId: incoming.phoneNumberId,
+          wabaId: incoming.wabaId || existing?.wabaId || "",
+          displayPhoneNumber: incoming.displayPhoneNumber || "",
+        };
+        if (idx >= 0) {
+          accounts[idx] = { ...accounts[idx], ...entry };
+        } else {
+          accounts.push(entry);
+        }
+        incoming.accounts = accounts;
       }
 
       const settings = await storage.createOrUpdateWhatsappSettings({

@@ -1578,6 +1578,7 @@ export const whatsappSettings = pgTable("whatsapp_settings", {
   brokerageName: text("brokerage_name"),
   serviceAreas: text("service_areas").array(), // Neighborhoods/areas served
   specialties: text("specialties").array(), // 'luxury', 'first-time buyers', etc.
+  accounts: jsonb("accounts").default([]), // [{label, phoneNumberId, wabaId, displayPhoneNumber}]
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

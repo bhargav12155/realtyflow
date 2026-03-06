@@ -73,6 +73,9 @@ import {
   Utensils,
   Video,
   Wrench,
+  Phone,
+  Plus,
+  Trash2,
   Twitter as X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -229,6 +232,68 @@ const stockPhotos = [
     title: "Neighborhood",
   },
 ];
+
+function WhatsAppAccountSwitcher() {
+  const { toast } = useToast();
+
+  const { data: accountsData, isLoading } = useQuery<{ accounts: Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>; activePhoneNumberId: string }>({
+    queryKey: ["/api/whatsapp/accounts"],
+    staleTime: 30_000,
+  });
+
+  const switchMutation = useMutation({
+    mutationFn: async (phoneNumberId: string) => {
+      const res = await apiRequest("POST", "/api/whatsapp/accounts/switch", { phoneNumberId });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/templates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/messaging-limit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/analytics"] });
+      toast({ title: "Switched account", description: `Now using "${data.label}"` });
+    },
+    onError: () => {
+      toast({ title: "Failed to switch", variant: "destructive" });
+    },
+  });
+
+  const accounts = accountsData?.accounts || [];
+  const activeId = accountsData?.activePhoneNumberId || "";
+
+  if (isLoading || accounts.length <= 1) return null;
+
+  const activeAccount = accounts.find(a => a.phoneNumberId === activeId);
+
+  return (
+    <div className="flex items-center gap-2 mb-2" data-testid="whatsapp-account-switcher">
+      <Phone className="h-3.5 w-3.5 text-green-600 shrink-0" />
+      <Select
+        value={activeId}
+        onValueChange={(val) => {
+          if (val !== activeId) switchMutation.mutate(val);
+        }}
+      >
+        <SelectTrigger className="h-7 text-xs w-auto min-w-[180px] border-green-200 dark:border-green-800" data-testid="select-whatsapp-account">
+          <SelectValue placeholder="Select account" />
+        </SelectTrigger>
+        <SelectContent>
+          {accounts.map(acct => (
+            <SelectItem key={acct.phoneNumberId} value={acct.phoneNumberId} data-testid={`option-account-${acct.phoneNumberId}`}>
+              <div className="flex items-center gap-1.5">
+                {acct.phoneNumberId === activeId && <CheckCircle className="h-3 w-3 text-green-500" />}
+                <span>{acct.label}</span>
+                {acct.displayPhoneNumber && <span className="text-muted-foreground ml-1">({acct.displayPhoneNumber})</span>}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {switchMutation.isPending && <Loader2 className="h-3 w-3 animate-spin text-green-600" />}
+    </div>
+  );
+}
 
 function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { selectedTemplate: string; onSelectTemplate: (name: string) => void }) {
   const [showCreate, setShowCreate] = useState(false);
@@ -686,6 +751,7 @@ function WhatsAppAnalyticsSection({ bulkProgress }: { bulkProgress?: any }) {
 
   return (
     <div className="space-y-3" data-testid="whatsapp-analytics-section">
+      <WhatsAppAccountSwitcher />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <BarChart3 className="h-4 w-4 text-green-500" />
@@ -2746,6 +2812,7 @@ ${agentName} | ${brokerageName}
                 <MessageCircle className="h-4 w-4 text-green-600" />
                 <span className="text-sm font-semibold">WhatsApp Message</span>
               </div>
+              <WhatsAppAccountSwitcher />
 
               <details className="group rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/10">
                 <summary className="flex items-center justify-between px-3 py-1.5 cursor-pointer select-none">

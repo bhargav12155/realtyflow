@@ -79,8 +79,10 @@ export class BulkQueueScheduler {
 
   private async processSingleQueue(queue: any) {
     const whatsappService = new WhatsAppService();
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || "1009337698927791";
+    
+    const settings = await this.storage.getWhatsappSettings(queue.userId);
+    const accessToken = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "1009337698927791";
 
     if (!accessToken) {
       console.error(`📱 Bulk queue ${queue.id}: No WHATSAPP_ACCESS_TOKEN`);
@@ -105,14 +107,19 @@ export class BulkQueueScheduler {
 
     const allRemaining = [...queue.remainingNumbers];
 
+    let resolvedLang = "en_US";
     if (queue.templateName) {
       try {
-        const wabId = "2690438238000842";
-        const tplRes = await fetch(`https://graph.facebook.com/v25.0/${wabId}/message_templates?fields=name,category&limit=100`, {
+        const wabId = settings?.wabaId || "2690438238000842";
+        const tplRes = await fetch(`https://graph.facebook.com/v25.0/${wabId}/message_templates?fields=name,category,language&limit=100`, {
           headers: { "Authorization": `Bearer ${accessToken}` },
         });
         const tplData = (await tplRes.json()) as any;
         const tpl = (tplData.data || []).find((t: any) => t.name === queue.templateName);
+        if (tpl?.language) {
+          resolvedLang = tpl.language;
+          console.log(`📱 Queue ${queue.id}: Auto-detected language "${resolvedLang}" for template "${queue.templateName}"`);
+        }
         if (tpl && (tpl.category || "").toUpperCase() === "MARKETING") {
           const usCount = allRemaining.filter((n: string) => n.startsWith("+1") || n.startsWith("1")).length;
           if (usCount > 0) {
@@ -167,7 +174,7 @@ export class BulkQueueScheduler {
     const sendOneWithRetry = async (phone: string, attempt = 1): Promise<{ success: boolean; phone: string; errorType?: string }> => {
       try {
         if (queue.templateName) {
-          await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, queue.templateName);
+          await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, queue.templateName, resolvedLang);
         } else if (queue.messageText) {
           await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, queue.messageText);
         }

@@ -298,7 +298,7 @@ function WhatsAppAccountSwitcher() {
   );
 }
 
-function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { selectedTemplate: string; onSelectTemplate: (name: string) => void }) {
+function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate, onSelectLanguage }: { selectedTemplate: string; onSelectTemplate: (name: string) => void; onSelectLanguage?: (lang: string) => void }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newHeader, setNewHeader] = useState("");
@@ -565,7 +565,11 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
         </div>
       )}
 
-      <Select value={selectedTemplate} onValueChange={onSelectTemplate}>
+      <Select value={selectedTemplate} onValueChange={(val) => {
+        onSelectTemplate(val);
+        const tpl = templates.find((t: any) => t.name === val);
+        if (onSelectLanguage) onSelectLanguage(tpl?.language || "en_US");
+      }}>
         <SelectTrigger className="h-9 text-xs rounded-lg border-green-200 dark:border-green-800 focus:ring-green-500" data-testid="select-whatsapp-template">
           <SelectValue placeholder="Send as free text (no template)" />
         </SelectTrigger>
@@ -607,7 +611,10 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate }: { sele
                       : "border-border/60 hover:border-green-300 dark:hover:border-green-700 hover:shadow-sm"
                 }`}
                 onClick={() => {
-                  if (!isPending) onSelectTemplate(t.name);
+                  if (!isPending) {
+                    onSelectTemplate(t.name);
+                    if (onSelectLanguage) onSelectLanguage(t.language || "en_US");
+                  }
                   setPreviewTemplate(previewTemplate?.name === t.name ? null : t);
                 }}
                 data-testid={`template-card-${t.name}`}
@@ -1026,6 +1033,7 @@ export function SocialMediaManager() {
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [whatsappTo, setWhatsappTo] = useState("");
   const [whatsappTemplateName, setWhatsappTemplateName] = useState<string>("");
+  const [whatsappTemplateLanguage, setWhatsappTemplateLanguage] = useState<string>("");
   const [isExtractingNumbers, setIsExtractingNumbers] = useState(false);
   const [fileBreakdown, setFileBreakdown] = useState<{
     filename: string;
@@ -1590,6 +1598,9 @@ export function SocialMediaManager() {
           };
         if (whatsappTemplateName && whatsappTemplateName !== "none") {
           whatsappPayload.templateName = whatsappTemplateName;
+          if (whatsappTemplateLanguage) {
+            whatsappPayload.templateLanguage = whatsappTemplateLanguage;
+          }
         }
         const whatsappResponse = await apiRequest(
           "POST",
@@ -3005,6 +3016,7 @@ ${agentName} | ${brokerageName}
               <WhatsAppTemplateSelector
                 selectedTemplate={whatsappTemplateName}
                 onSelectTemplate={(name) => setWhatsappTemplateName(name)}
+                onSelectLanguage={(lang) => setWhatsappTemplateLanguage(lang)}
               />
               {(!whatsappTemplateName || whatsappTemplateName === "none") && (
                 <div className="space-y-1">
@@ -3743,6 +3755,7 @@ ${agentName} | ${brokerageName}
               <WhatsAppTemplateSelector
                 selectedTemplate={whatsappTemplateName}
                 onSelectTemplate={(name) => setWhatsappTemplateName(name)}
+                onSelectLanguage={(lang) => setWhatsappTemplateLanguage(lang)}
               />
             </div>
           )}

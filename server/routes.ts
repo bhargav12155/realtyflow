@@ -20924,13 +20924,19 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "WhatsApp Business Account not configured" });
       }
 
+      const sanitizeText = (text: string) => text
+        .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+        .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+        .replace(/[\u2013\u2014]/g, "-")
+        .replace(/\u2026/g, "...");
+
       const components: any[] = [];
       if (header?.trim()) {
-        components.push({ type: "HEADER", format: "TEXT", text: header.trim().slice(0, 60) });
+        components.push({ type: "HEADER", format: "TEXT", text: sanitizeText(header.trim()).slice(0, 60) });
       }
-      components.push({ type: "BODY", text: body.slice(0, 1024) });
+      components.push({ type: "BODY", text: sanitizeText(body).slice(0, 1024) });
       if (footer?.trim()) {
-        components.push({ type: "FOOTER", text: footer.trim().slice(0, 60) });
+        components.push({ type: "FOOTER", text: sanitizeText(footer.trim()).slice(0, 60) });
       }
 
       const response = await fetch(

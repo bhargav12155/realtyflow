@@ -21005,6 +21005,33 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/whatsapp/phone-numbers", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+      const wabaId = (req.query.wabaId as string || settings?.wabaId || "").trim();
+
+      if (!accessToken || !wabaId) {
+        return res.status(400).json({ error: "Access token and WABA ID required" });
+      }
+
+      const url = `https://graph.facebook.com/v25.0/${wabaId}/phone_numbers?access_token=${accessToken}`;
+      const response = await fetch(url);
+      const data = await response.json() as any;
+
+      if (data.error) {
+        return res.status(400).json({ error: data.error.message });
+      }
+
+      res.json({ phoneNumbers: data.data || [] });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/whatsapp/templates", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;

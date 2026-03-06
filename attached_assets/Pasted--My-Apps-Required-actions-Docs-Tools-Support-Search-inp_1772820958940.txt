@@ -1,0 +1,77 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+
+2
+Notification count
+Facebook
+Use cases
+Customize
+Customize use case
+Customize use case settings and permissions to make your app work the way you want it to.
+Use case switcher
+​
+Connect on WhatsApp
+​
+Permissions and features
+API Calls
+​
+Status
+Action
+business_management
+The business_management permission allows your app to read and write with the Business Manager API.
+…
+Full Description
+Found in 3 use cases
+Requirements
+8
+Ready for testing
+email
+The email permission allows your app to read a person's primary email address.
+…
+Full Description
+Found in 3 use cases
+Requirements
+manage_app_solution
+The manage_app_solution permission allows an app to get a list of apps that a user can manage, and make API calls on behalf of those apps.
+…
+Full Description
+Requirements
+public_profile
+The public_profile permission allows an app to read the Default Public Profile Fields on the User node. This permission is automatically granted to all apps.
+…
+Full Description
+Found in 3 use cases
+Requirements
+0
+Ready to publish
+whatsapp_business_manage_events
+The whatsapp_business_manage_events permission allows an app to log events, such as purchase, add-to-cart, leads and more, on behalf of a WhatsApp Business Account administered by an app user.
+…
+Full Description
+Requirements
+4
+Ready for testing
+whatsapp_business_management
+The whatsapp_business_management permission allows your app to read and/or manage WhatsApp business assets you own or have been granted access to by other businesses through this permission. These business assets include WhatsApp Business Accounts, business phone numbers, message templates, QR codes and their associated messages, and webhook subscriptions.
+…
+Full Description
+Requirements
+194
+Ready for testing
+whatsapp_business_messaging
+The whatsapp_business_messaging permission allows an app to send WhatsApp messages and make calls to a specific phone number, upload and retrieve media from messages, manage and get WhatsApp business profile information, and to register those phone numbers with Meta.
+…
+Full Description
+Requirements
+47
+Ready to publish
+Sending of message failed.
+Unsupported post request. Object with ID '957638934108525' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API documentation at https://developers.facebook.com/docs/graph-api
+Sending of message failed.
+Unsupported post request. Object with ID '957638934108525' does not exist, cannot be loaded due to missing permissions, or does not support this operation. Please read the Graph API documentation at https://developers.facebook.com/docs/graph-api

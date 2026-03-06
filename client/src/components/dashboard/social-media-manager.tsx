@@ -252,6 +252,9 @@ function WhatsAppAccountSwitcher() {
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/templates"] });
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/messaging-limit"] });
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-send-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/conversations"] });
       toast({ title: "Switched account", description: `Now using "${data.label}"` });
     },
     onError: () => {
@@ -732,6 +735,12 @@ function WhatsAppAnalyticsSection({ bulkProgress }: { bulkProgress?: any }) {
   const [waAnalyticsLoading, setWaAnalyticsLoading] = useState(false);
   const [waAnalyticsDays, setWaAnalyticsDays] = useState(7);
 
+  const { data: accountsData } = useQuery<{ accounts: any[]; activePhoneNumberId: string }>({
+    queryKey: ["/api/whatsapp/accounts"],
+    staleTime: 30_000,
+  });
+  const activePhoneNumberId = accountsData?.activePhoneNumberId || "";
+
   const fetchAnalytics = async (days: number) => {
     setWaAnalyticsLoading(true);
     try {
@@ -747,7 +756,7 @@ function WhatsAppAnalyticsSection({ bulkProgress }: { bulkProgress?: any }) {
     setWaAnalyticsLoading(false);
   };
 
-  useEffect(() => { fetchAnalytics(waAnalyticsDays); }, [waAnalyticsDays]);
+  useEffect(() => { fetchAnalytics(waAnalyticsDays); }, [waAnalyticsDays, activePhoneNumberId]);
 
   return (
     <div className="space-y-3" data-testid="whatsapp-analytics-section">

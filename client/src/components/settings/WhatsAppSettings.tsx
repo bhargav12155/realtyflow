@@ -132,6 +132,10 @@ function WhatsAppAccountManager() {
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/templates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/messaging-limit"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/analytics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/conversations"] });
       toast({ title: "Switched account", description: `Now using "${data.label}"` });
     },
     onError: () => toast({ title: "Failed to switch", variant: "destructive" }),

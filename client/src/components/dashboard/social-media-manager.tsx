@@ -2874,7 +2874,7 @@ ${agentName} | ${brokerageName}
             )}
           </div>}
 
-          {isWhatsAppOnly ? (
+          {selectedPlatforms.includes("whatsapp") ? (
             <div className="space-y-3 rounded-lg border-2 border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-950/20 p-4">
               <div className="flex items-center gap-2 mb-1">
                 <MessageCircle className="h-4 w-4 text-green-600" />
@@ -3710,7 +3710,7 @@ ${agentName} | ${brokerageName}
             </>
           )}
 
-          {selectedPlatforms.length > 0 && !isWhatsAppOnly && (
+          {selectedPlatforms.length > 0 && (
             <div className="text-xs text-muted-foreground">
               Posting to:{" "}
               {selectedPlatforms
@@ -3718,7 +3718,7 @@ ${agentName} | ${brokerageName}
                 .join(", ")}
             </div>
           )}
-          {selectedPlatforms.includes("whatsapp") && !isWhatsAppOnly && (
+          {false && selectedPlatforms.includes("whatsapp") && !isWhatsAppOnly && (
             <div className="space-y-1">
               <Label htmlFor="whatsapp-to" className="text-xs">WhatsApp Recipient Phone Numbers</Label>
               <textarea

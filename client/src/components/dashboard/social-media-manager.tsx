@@ -2509,7 +2509,7 @@ ${agentName} | ${brokerageName}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-foreground">Quick Post</h3>
-            {isWhatsAppOnly && (
+            {selectedPlatforms.includes("whatsapp") && (
               <details className="relative group">
                 <summary className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors list-none" data-testid="btn-whatsapp-guide">
                   <BookOpen className="h-3 w-3" />

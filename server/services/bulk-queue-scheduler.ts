@@ -171,6 +171,9 @@ export class BulkQueueScheduler {
       errMsg.includes("368") || errMsg.includes("130497") || errMsg.includes("131021") ||
       errMsg.includes("132001") || errMsg.includes("132015") || errMsg.includes("132016");
 
+    const isTemplatePausedError = (errMsg: string) =>
+      errMsg.includes("132015") || errMsg.includes("132016") || errMsg.includes("132001");
+
     const sendOneWithRetry = async (phone: string, attempt = 1): Promise<{ success: boolean; phone: string; errorType?: string }> => {
       try {
         if (queue.templateName) {
@@ -187,6 +190,10 @@ export class BulkQueueScheduler {
         }
         if (isEcosystemBlock(errMsg)) {
           return { success: false, phone, errorType: "ecosystem" };
+        }
+        if (isTemplatePausedError(errMsg)) {
+          console.warn(`📱 Queue ${queue.id}: Template paused/rejected for ${phone}: ${errMsg.substring(0, 100)}`);
+          return { success: false, phone, errorType: "template_paused" };
         }
         if (isPermanentBlock(errMsg)) {
           console.warn(`📱 Queue ${queue.id}: Permanent block for ${phone}: ${errMsg.substring(0, 100)}`);
@@ -206,6 +213,7 @@ export class BulkQueueScheduler {
     let stopped = false;
     let quotaLimitReached = false;
     let consecutiveQuotaErrors = 0;
+    let consecutiveTemplatePaused = 0;
 
     const isQuotaLimitError = (errMsg: string) =>
       errMsg.includes("130429") || errMsg.includes("131048") ||
@@ -258,12 +266,43 @@ export class BulkQueueScheduler {
             quotaBlockedNumbers.push(res.phone);
           } else if (res.errorType === "ecosystem") {
             ecosystemBlockedNumbers.push(res.phone);
+          } else if (res.errorType === "template_paused") {
+            ecosystemBlockedNumbers.push(res.phone);
           } else {
             permanentlyFailedNumbers.push(res.phone);
           }
         } else {
           permanentlyFailedNumbers.push("unknown");
         }
+      }
+
+      let batchTemplatePaused = 0;
+      for (const r of results) {
+        if (r.status === "fulfilled" && !r.value.success && r.value.errorType === "template_paused") {
+          batchTemplatePaused++;
+        }
+      }
+      if (batchTemplatePaused >= Math.ceil(batch.length * 0.5) && batch.length >= 2) {
+        consecutiveTemplatePaused += batchTemplatePaused;
+      } else {
+        consecutiveTemplatePaused = 0;
+      }
+
+      if (consecutiveTemplatePaused >= 5) {
+        console.warn(`📱 Queue ${queue.id}: Template appears paused/rejected — auto-pausing queue to prevent further failures`);
+        await this.storage.updateWhatsappBulkQueue(queue.id, { status: "paused" });
+        for (let j = numberIndex; j < allRemaining.length; j++) {
+          unattemptedNumbers.push(allRemaining[j]);
+        }
+        stopped = true;
+        this.notifyUser(queue.userId, {
+          type: "whatsapp_queue_paused",
+          data: {
+            queueId: queue.id,
+            reason: "Template paused by Meta due to low quality. Queue auto-paused to prevent further failures. Please use a different template.",
+          },
+        });
+        break;
       }
 
       if (batchQuotaHits >= Math.ceil(batch.length * 0.5) || consecutiveQuotaErrors >= 10) {
@@ -319,6 +358,12 @@ export class BulkQueueScheduler {
     const existingSentNumbers = (queue.sentNumbers || []) as string[];
     const existingFailedNumbers = (queue.failedNumbers || []) as string[];
 
+    const currentDbQueue = await this.storage.getWhatsappBulkQueueById(queue.id);
+    const currentDbStatus = currentDbQueue?.status || "active";
+    const finalStatus = currentDbStatus === "paused" || currentDbStatus === "cancelled"
+      ? currentDbStatus
+      : isComplete ? "completed" : "active";
+
     await this.storage.updateWhatsappBulkQueue(queue.id, {
       sentCount: newSentCount,
       failedCount: newFailedCount,
@@ -327,7 +372,7 @@ export class BulkQueueScheduler {
       failedNumbers: [...existingFailedNumbers, ...permanentlyFailedNumbers],
       lastBatchSentAt: new Date(),
       nextBatchAt: isComplete ? null : tomorrow,
-      status: isComplete ? "completed" : "active",
+      status: finalStatus,
     });
 
     const eventType = isComplete ? "whatsapp_queue_complete" : "whatsapp_queue_batch_complete";

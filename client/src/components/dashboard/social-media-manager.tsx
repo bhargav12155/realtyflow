@@ -78,6 +78,7 @@ import {
   Trash2,
   Twitter as X,
   BookOpen,
+  ChevronDown,
   FileText,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -3660,6 +3661,122 @@ ${agentName} | ${brokerageName}
                         </div>
                       );
                     })}
+                </div>
+              )}
+
+              {bulkQueues.length > 0 && (
+                <div className="space-y-2" data-testid="whatsapp-bulk-history">
+                  <details className="group">
+                    <summary className="flex items-center gap-2 cursor-pointer select-none">
+                      <FileText className="h-4 w-4 text-purple-500" />
+                      <span className="text-sm font-semibold">Bulk Send History</span>
+                      <span className="text-[10px] text-muted-foreground ml-1">({bulkQueues.length} {bulkQueues.length === 1 ? "batch" : "batches"})</span>
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground ml-auto transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="mt-2 space-y-2 max-h-[400px] overflow-y-auto">
+                      {[...bulkQueues]
+                        .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+                        .map((q: any) => {
+                          const totalSent = q.sentCount || 0;
+                          const totalFailed = q.failedCount || 0;
+                          const remaining = q.remainingNumbers?.length || 0;
+                          const total = q.totalNumbers || 0;
+                          const pct = total > 0 ? Math.round(((totalSent + totalFailed) / total) * 100) : 0;
+                          const created = q.createdAt ? new Date(q.createdAt) : null;
+                          const updated = q.updatedAt ? new Date(q.updatedAt) : null;
+                          const dateStr = created ? created.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—";
+                          const timeStr = created ? created.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+                          const lastUpdatedStr = updated ? updated.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+                          const statusColor = q.status === "completed" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+                            : q.status === "active" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300"
+                            : q.status === "paused" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
+                            : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
+
+                          return (
+                            <div key={q.id} className="rounded-lg border p-3 space-y-2 bg-background" data-testid={`history-queue-${q.id}`}>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-semibold">{q.templateName || "Free text"}</span>
+                                  <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${statusColor}`}>{q.status}</span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground">{dateStr} {timeStr}</span>
+                              </div>
+
+                              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                                <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${pct}%` }} />
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-1 text-[10px]">
+                                <div data-testid={`hist-sent-${q.id}`}>
+                                  <span className="text-muted-foreground">Sent</span>
+                                  <p className="font-bold text-green-700 dark:text-green-400">{totalSent.toLocaleString()}</p>
+                                </div>
+                                <div data-testid={`hist-failed-${q.id}`}>
+                                  <span className="text-muted-foreground">Failed</span>
+                                  <p className="font-bold text-red-600">{totalFailed.toLocaleString()}</p>
+                                </div>
+                                <div data-testid={`hist-remaining-${q.id}`}>
+                                  <span className="text-muted-foreground">Remaining</span>
+                                  <p className="font-bold text-amber-600">{remaining.toLocaleString()}</p>
+                                </div>
+                                <div data-testid={`hist-total-${q.id}`}>
+                                  <span className="text-muted-foreground">Total</span>
+                                  <p className="font-bold">{total.toLocaleString()}</p>
+                                </div>
+                              </div>
+
+                              {lastUpdatedStr && (
+                                <p className="text-[9px] text-muted-foreground">Last updated: {lastUpdatedStr}</p>
+                              )}
+
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {[
+                                  { type: "all", label: "Full Report", color: "purple" },
+                                  { type: "sent", label: `Sent (${totalSent.toLocaleString()})`, color: "green" },
+                                  { type: "failed", label: `Failed (${totalFailed.toLocaleString()})`, color: "red" },
+                                  { type: "remaining", label: `Remaining (${remaining.toLocaleString()})`, color: "orange" },
+                                ].map(dl => (
+                                  <button
+                                    key={dl.type}
+                                    onClick={() => {
+                                      const token = localStorage.getItem("authToken") || "";
+                                      fetch(`/api/whatsapp/bulk-queues/${q.id}/download?type=${dl.type}`, {
+                                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                                      })
+                                        .then(r => {
+                                          if (!r.ok) throw new Error("Download failed");
+                                          return r.blob();
+                                        })
+                                        .then(blob => {
+                                          const url = window.URL.createObjectURL(blob);
+                                          const a = document.createElement("a");
+                                          a.href = url;
+                                          a.download = `${dl.type}_${q.templateName || "batch"}_${dateStr.replace(/\s/g, "_")}.xlsx`;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          a.remove();
+                                          window.URL.revokeObjectURL(url);
+                                        })
+                                        .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                                    }}
+                                    className={`flex items-center gap-1 px-2 py-0.5 text-[9px] rounded font-medium cursor-pointer transition-colors ${
+                                      dl.color === "green" ? "bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300" :
+                                      dl.color === "red" ? "bg-red-100 hover:bg-red-200 text-red-800 dark:bg-red-900/50 dark:text-red-300" :
+                                      dl.color === "orange" ? "bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300" :
+                                      "bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
+                                    }`}
+                                    data-testid={`btn-hist-download-${dl.type}-${q.id}`}
+                                  >
+                                    <Download className="h-2.5 w-2.5" />
+                                    {dl.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </details>
                 </div>
               )}
             </div>

@@ -267,13 +267,23 @@ function WhatsAppAccountSwitcher() {
   const accounts = accountsData?.accounts || [];
   const activeId = accountsData?.activePhoneNumberId || "";
 
-  if (isLoading || accounts.length <= 1) return null;
+  if (isLoading) return null;
 
   const activeAccount = accounts.find(a => a.phoneNumberId === activeId);
+
+  if (accounts.length === 0) {
+    return (
+      <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="whatsapp-no-accounts">
+        <Phone className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+        <span className="text-xs text-amber-700 dark:text-amber-400">No WhatsApp accounts configured. Add one in <a href="#settings" className="underline font-medium">WhatsApp Settings</a>.</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2 mb-2" data-testid="whatsapp-account-switcher">
       <Phone className="h-3.5 w-3.5 text-green-600 shrink-0" />
+      <span className="text-xs text-muted-foreground font-medium shrink-0">Send from:</span>
       <Select
         value={activeId}
         onValueChange={(val) => {
@@ -3716,95 +3726,6 @@ ${agentName} | ${brokerageName}
               {selectedPlatforms
                 .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
                 .join(", ")}
-            </div>
-          )}
-          {false && selectedPlatforms.includes("whatsapp") && !isWhatsAppOnly && (
-            <div className="space-y-1">
-              <Label htmlFor="whatsapp-to" className="text-xs">WhatsApp Recipient Phone Numbers</Label>
-              <textarea
-                id="whatsapp-to"
-                data-testid="input-whatsapp-to"
-                placeholder={"Enter phone numbers (one per line or comma-separated)\nExample: 15185459592, 447911123456"}
-                value={whatsappTo}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const count = val.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length;
-                  if (count <= 30000) {
-                    setWhatsappTo(val);
-                  }
-                }}
-                className="text-sm min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  {whatsappTo.split(/[\n,]+/).filter((n: string) => n.replace(/\D/g, "").length > 0).length.toLocaleString()} / 30,000 numbers — Enter with country code, one per line or comma-separated
-                </p>
-                <label className="cursor-pointer inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
-                  <input
-                    type="file"
-                    accept=".csv,.txt,.pdf,.docx"
-                    className="hidden"
-                    data-testid="input-upload-contacts"
-                    disabled={isExtractingNumbers}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      setIsExtractingNumbers(true);
-                      try {
-                        const formData = new FormData();
-                        formData.append("file", file);
-                        const token = localStorage.getItem("authToken") || "";
-                        const response = await fetch("/api/whatsapp/extract-numbers", {
-                          method: "POST",
-                          headers: {
-                            ...(token ? { "Authorization": `Bearer ${token}` } : {}),
-                          },
-                          body: formData,
-                        });
-                        const data = await response.json();
-                        if (data.numbers && data.numbers.length > 0) {
-                          const existing = whatsappTo.trim();
-                          const newNumbers = data.numbers.join("\n");
-                          setWhatsappTo(existing ? existing + "\n" + newNumbers : newNumbers);
-                          toast({
-                            title: "Numbers Imported",
-                            description: `Extracted ${data.count} phone numbers from ${data.filename}`,
-                          });
-                        } else {
-                          toast({
-                            title: "No Numbers Found",
-                            description: "Could not find any phone numbers in the uploaded file.",
-                            variant: "destructive",
-                          });
-                        }
-                      } catch (err) {
-                        toast({
-                          title: "Upload Failed",
-                          description: "Failed to process the file. Please try again.",
-                          variant: "destructive",
-                        });
-                      } finally {
-                        setIsExtractingNumbers(false);
-                        e.target.value = "";
-                      }
-                    }}
-                  />
-                  {isExtractingNumbers ? (
-                    <RefreshCw className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Upload className="h-3 w-3" />
-                  )}
-                  {isExtractingNumbers ? "Extracting..." : "Import from File"}
-                </label>
-              </div>
-              <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                Supported files: Excel/CSV (.csv), PDF (.pdf), Word (.docx), or plain text (.txt) containing phone numbers
-              </p>
-              <WhatsAppTemplateSelector
-                selectedTemplate={whatsappTemplateName}
-                onSelectTemplate={(name) => setWhatsappTemplateName(name)}
-                onSelectLanguage={(lang) => setWhatsappTemplateLanguage(lang)}
-              />
             </div>
           )}
           {selectedPlatforms.length > 0 && (

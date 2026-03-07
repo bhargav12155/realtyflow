@@ -20755,6 +20755,128 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/whatsapp/guide/download", requireAuth, async (req, res) => {
+    try {
+      const format = (req.query.format as string) || "pdf";
+      if (!["pdf", "docx"].includes(format)) {
+        return res.status(400).json({ error: "Invalid format. Use 'pdf' or 'docx'." });
+      }
+      const fs = await import("fs");
+      const path = await import("path");
+      const mdPath = path.join(process.cwd(), "docs", "whatsapp-bulk-messaging-guide.md");
+      const mdContent = fs.readFileSync(mdPath, "utf-8");
+
+      const lines = mdContent.split("\n");
+
+      if (format === "docx") {
+        const docx = await import("docx");
+        const sections: any[] = [];
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === "---") continue;
+
+          if (trimmed.startsWith("# ")) {
+            sections.push(new docx.Paragraph({ text: trimmed.replace(/^# /, ""), heading: docx.HeadingLevel.HEADING_1, spacing: { after: 200 } }));
+          } else if (trimmed.startsWith("## ")) {
+            sections.push(new docx.Paragraph({ text: trimmed.replace(/^## /, ""), heading: docx.HeadingLevel.HEADING_2, spacing: { before: 400, after: 200 } }));
+          } else if (trimmed.startsWith("### ")) {
+            sections.push(new docx.Paragraph({ text: trimmed.replace(/^### /, ""), heading: docx.HeadingLevel.HEADING_3, spacing: { before: 300, after: 150 } }));
+          } else if (trimmed.startsWith("- **") || trimmed.startsWith("* **")) {
+            const cleanText = trimmed.replace(/^[-*]\s*/, "").replace(/\*\*/g, "");
+            sections.push(new docx.Paragraph({ text: cleanText, bullet: { level: 0 }, spacing: { after: 80 } }));
+          } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            sections.push(new docx.Paragraph({ text: trimmed.replace(/^[-*]\s*/, ""), bullet: { level: 0 }, spacing: { after: 80 } }));
+          } else if (/^\d+\.\s/.test(trimmed)) {
+            sections.push(new docx.Paragraph({ text: trimmed, spacing: { after: 80 } }));
+          } else if (trimmed.startsWith("|")) {
+            const cells = trimmed.split("|").filter(c => c.trim()).map(c => c.trim());
+            if (!cells.every(c => /^[-:]+$/.test(c))) {
+              sections.push(new docx.Paragraph({ text: cells.join("  |  "), spacing: { after: 60 } }));
+            }
+          } else {
+            const cleanText = trimmed.replace(/\*\*/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+            sections.push(new docx.Paragraph({ text: cleanText, spacing: { after: 120 } }));
+          }
+        }
+
+        const doc = new docx.Document({
+          sections: [{ properties: {}, children: sections }],
+          creator: "iMakePage",
+          title: "WhatsApp Bulk Messaging Guide",
+        });
+
+        const buffer = await docx.Packer.toBuffer(doc);
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        res.setHeader("Content-Disposition", "attachment; filename=WhatsApp-Bulk-Messaging-Guide.docx");
+        return res.send(buffer);
+      }
+
+      const PDFDocument = (await import("pdfkit")).default;
+      const doc = new PDFDocument({ size: "LETTER", margins: { top: 60, bottom: 60, left: 60, right: 60 } });
+      const chunks: Buffer[] = [];
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("end", () => {
+        const pdfBuffer = Buffer.concat(chunks);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", "attachment; filename=WhatsApp-Bulk-Messaging-Guide.pdf");
+        res.send(pdfBuffer);
+      });
+
+      doc.fontSize(24).font("Helvetica-Bold").text("WhatsApp Bulk Messaging Guide", { align: "center" });
+      doc.moveDown(0.5);
+      doc.fontSize(11).font("Helvetica").text("Complete guide for sending bulk WhatsApp messages through iMakePage", { align: "center" });
+      doc.moveDown(1);
+      doc.moveTo(60, doc.y).lineTo(552, doc.y).stroke("#cccccc");
+      doc.moveDown(1);
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === "---") continue;
+        if (trimmed.startsWith("# ") && trimmed.includes("WhatsApp Bulk")) continue;
+        if (trimmed.startsWith("Complete guide for sending")) continue;
+
+        if (doc.y > 680) {
+          doc.addPage();
+        }
+
+        if (trimmed.startsWith("## ")) {
+          doc.moveDown(0.8);
+          doc.fontSize(16).font("Helvetica-Bold").fillColor("#1a5276").text(trimmed.replace(/^## /, ""));
+          doc.moveDown(0.3);
+          doc.fillColor("#000000");
+        } else if (trimmed.startsWith("### ")) {
+          doc.moveDown(0.5);
+          doc.fontSize(13).font("Helvetica-Bold").fillColor("#2c3e50").text(trimmed.replace(/^### /, ""));
+          doc.moveDown(0.2);
+          doc.fillColor("#000000");
+        } else if (trimmed.startsWith("- **") || trimmed.startsWith("* **")) {
+          const cleanText = trimmed.replace(/^[-*]\s*/, "").replace(/\*\*/g, "");
+          doc.fontSize(10).font("Helvetica").text(`  •  ${cleanText}`, { indent: 15 });
+        } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          doc.fontSize(10).font("Helvetica").text(`  •  ${trimmed.replace(/^[-*]\s*/, "")}`, { indent: 15 });
+        } else if (/^\d+\.\s/.test(trimmed)) {
+          const cleanText = trimmed.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\*\*/g, "");
+          doc.fontSize(10).font("Helvetica").text(cleanText, { indent: 10 });
+        } else if (trimmed.startsWith("|")) {
+          const cells = trimmed.split("|").filter(c => c.trim()).map(c => c.trim());
+          if (!cells.every(c => /^[-:]+$/.test(c))) {
+            doc.fontSize(9).font("Helvetica").text(cells.join("  |  "), { indent: 10 });
+          }
+        } else {
+          const cleanText = trimmed.replace(/\*\*/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+          doc.fontSize(10).font("Helvetica").text(cleanText);
+          doc.moveDown(0.3);
+        }
+      }
+
+      doc.end();
+    } catch (error: any) {
+      console.error("Error generating WhatsApp guide:", error);
+      res.status(500).json({ error: "Failed to generate guide" });
+    }
+  });
+
   app.get("/api/whatsapp/analytics", requireAuth, async (req, res) => {
     try {
       const userId = req.user?.id;

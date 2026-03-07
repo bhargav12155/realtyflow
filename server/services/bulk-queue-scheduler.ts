@@ -80,7 +80,7 @@ export class BulkQueueScheduler {
   private async processSingleQueue(queue: any) {
     const whatsappService = new WhatsAppService();
     
-    const settings = await this.storage.getWhatsappSettings(queue.userId);
+    const settings = await this.storage.getWhatsappSettingsByUserId(queue.userId);
     const accessToken = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
     const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "1009337698927791";
 

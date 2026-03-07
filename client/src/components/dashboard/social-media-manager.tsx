@@ -77,6 +77,8 @@ import {
   Plus,
   Trash2,
   Twitter as X,
+  BookOpen,
+  FileText,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useBusinessType } from "@/lib/businessContext";
@@ -3300,6 +3302,52 @@ ${agentName} | ${brokerageName}
                 );
               })()}
               <WhatsAppAnalyticsSection bulkProgress={bulkProgress} />
+
+              <div className="space-y-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/20 p-3" data-testid="whatsapp-guide-download">
+                <div className="flex items-center gap-2 text-sm font-semibold">
+                  <BookOpen className="h-4 w-4 text-blue-500" />
+                  <span>WhatsApp Bulk Messaging Guide</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Complete documentation on creating templates, sending bulk messages, managing queues, downloading reports, and troubleshooting.
+                </p>
+                <div className="flex gap-2">
+                  {["pdf", "docx"].map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => {
+                        const token = localStorage.getItem("authToken");
+                        fetch(`/api/whatsapp/guide/download?format=${fmt}`, {
+                          headers: token ? { Authorization: `Bearer ${token}` } : {},
+                          credentials: "include",
+                        })
+                          .then((r) => {
+                            if (!r.ok) throw new Error("Download failed");
+                            return r.blob();
+                          })
+                          .then((blob) => {
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `WhatsApp-Bulk-Messaging-Guide.${fmt}`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          })
+                          .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+                        fmt === "pdf"
+                          ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-200 dark:hover:bg-red-900/50"
+                          : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                      }`}
+                      data-testid={`btn-download-guide-${fmt}`}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      {fmt === "pdf" ? "Download PDF" : "Download Word"}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {(() => {
                 const whatsappPosts = recentPosts.filter((p: any) => p.platform === "whatsapp").slice(0, 5);

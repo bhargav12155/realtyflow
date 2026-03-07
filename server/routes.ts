@@ -56,6 +56,17 @@ import twilio from "twilio";
 import { realtimeService } from "./websocket";
 import { sjinnService } from "./services/sjinn";
 
+async function getWhatsappSettingsWithFallback(userId: string) {
+  let settings = await storage.getWhatsappSettingsByUserId(userId);
+  if (!settings?.phoneNumberId) {
+    const allSettings = await db.select().from(whatsappSettingsTable).limit(1);
+    if (allSettings.length > 0) {
+      settings = allSettings[0] as any;
+    }
+  }
+  return settings;
+}
+
 // Shared streaming service instance (singleton) to maintain session state across requests
 let streamingServiceInstance: HeyGenStreamingService | null = null;
 function getStreamingService(): HeyGenStreamingService {
@@ -4108,7 +4119,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       ];
 
       try {
-        const whatsappSettings = await storage.getWhatsappSettingsByUserId(userId);
+        let whatsappSettings = await getWhatsappSettingsWithFallback(userId);
         const hasWhatsappCreds = !!(
           (whatsappSettings?.phoneNumberId && whatsappSettings?.accessToken) ||
           (process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN)
@@ -20520,7 +20531,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
   // Debug WhatsApp token (shows length/format without exposing the value)
   app.get("/api/whatsapp/debug-token", requireAuth, async (req, res) => {
     const userId = req.user?.id;
-    const settings = userId ? await storage.getWhatsappSettingsByUserId(String(userId)) : null;
+    const settings = userId ? await getWhatsappSettingsWithFallback(String(userId)) : null;
     const token = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "";
     const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
     const trimmed = token.trim();
@@ -20544,7 +20555,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       res.json(settings || { isEnabled: false });
     } catch (error: any) {
       console.error("Error getting WhatsApp settings:", error);
@@ -20558,7 +20569,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
       const activePhoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
 
@@ -20580,7 +20591,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "Label and Phone Number ID are required" });
       }
 
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
 
       const exists = accounts.find(a => a.phoneNumberId === phoneNumberId);
@@ -20611,7 +20622,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const { phoneNumberId } = req.params;
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const allAccounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
       const accounts = allAccounts.filter(a => a.phoneNumberId !== phoneNumberId);
 
@@ -20643,7 +20654,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "Phone Number ID is required" });
       }
 
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
       const account = accounts.find(a => a.phoneNumberId === phoneNumberId);
 
@@ -20674,7 +20685,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const incoming = { ...req.body };
-      const existing = await storage.getWhatsappSettingsByUserId(String(userId));
+      const existing = await getWhatsappSettingsWithFallback(String(userId));
 
       if (!incoming.accessToken || incoming.accessToken.trim() === "") {
         if (existing?.accessToken) {
@@ -20717,7 +20728,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
       const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
 
@@ -20884,7 +20895,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const DEFAULT_WABA_ID = "2690438238000842";
       const DEFAULT_PHONE_NUMBER_ID = "1009337698927791";
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
       const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID).trim();
       const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || DEFAULT_PHONE_NUMBER_ID).trim();
@@ -21132,7 +21143,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
       const wabaId = (req.query.wabaId as string || settings?.wabaId || "").trim();
 
@@ -21160,7 +21171,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const DEFAULT_WABA_ID = "2690438238000842";
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
       const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID).trim();
 
@@ -21196,7 +21207,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const safeCategory = ["MARKETING", "UTILITY"].includes(category) ? category : "MARKETING";
 
       const DEFAULT_WABA_ID_POST = "2690438238000842";
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
       const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID_POST).trim();
 
@@ -21308,7 +21319,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "Missing required field: 'message' (message text)" });
       }
 
-      const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+      const settings = await getWhatsappSettingsWithFallback(String(userId));
       
       const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
       const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();

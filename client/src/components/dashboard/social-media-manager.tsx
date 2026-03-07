@@ -2509,6 +2509,52 @@ ${agentName} | ${brokerageName}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-foreground">Quick Post</h3>
+            {isWhatsAppOnly && (
+              <details className="relative group">
+                <summary className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-950/50 transition-colors list-none" data-testid="btn-whatsapp-guide">
+                  <BookOpen className="h-3 w-3" />
+                  Guide
+                </summary>
+                <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-lg border bg-popover p-3 shadow-lg space-y-2">
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Download the complete WhatsApp bulk messaging guide — covers templates, sending, queues, reports & troubleshooting.
+                  </p>
+                  <div className="flex gap-1.5">
+                    {["pdf", "docx"].map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => {
+                          const token = localStorage.getItem("authToken");
+                          fetch(`/api/whatsapp/guide/download?format=${fmt}`, {
+                            headers: token ? { Authorization: `Bearer ${token}` } : {},
+                            credentials: "include",
+                          })
+                            .then((r) => { if (!r.ok) throw new Error(); return r.blob(); })
+                            .then((blob) => {
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `WhatsApp-Bulk-Messaging-Guide.${fmt}`;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            })
+                            .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                        }}
+                        className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-md border transition-colors ${
+                          fmt === "pdf"
+                            ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100"
+                            : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-100"
+                        }`}
+                        data-testid={`btn-download-guide-${fmt}`}
+                      >
+                        <FileText className="h-3 w-3" />
+                        {fmt === "pdf" ? "PDF" : "Word"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            )}
           </div>
 
           {!isTikTokOnly && !isWhatsAppOnly && isRealEstate && <div className="space-y-2">
@@ -3302,52 +3348,6 @@ ${agentName} | ${brokerageName}
                 );
               })()}
               <WhatsAppAnalyticsSection bulkProgress={bulkProgress} />
-
-              <div className="space-y-2 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-950/20 p-3" data-testid="whatsapp-guide-download">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <BookOpen className="h-4 w-4 text-blue-500" />
-                  <span>WhatsApp Bulk Messaging Guide</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  Complete documentation on creating templates, sending bulk messages, managing queues, downloading reports, and troubleshooting.
-                </p>
-                <div className="flex gap-2">
-                  {["pdf", "docx"].map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => {
-                        const token = localStorage.getItem("authToken");
-                        fetch(`/api/whatsapp/guide/download?format=${fmt}`, {
-                          headers: token ? { Authorization: `Bearer ${token}` } : {},
-                          credentials: "include",
-                        })
-                          .then((r) => {
-                            if (!r.ok) throw new Error("Download failed");
-                            return r.blob();
-                          })
-                          .then((blob) => {
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = `WhatsApp-Bulk-Messaging-Guide.${fmt}`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                          })
-                          .catch(() => toast({ title: "Download failed", variant: "destructive" }));
-                      }}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
-                        fmt === "pdf"
-                          ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-200 dark:hover:bg-red-900/50"
-                          : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-200 dark:hover:bg-blue-900/50"
-                      }`}
-                      data-testid={`btn-download-guide-${fmt}`}
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      {fmt === "pdf" ? "Download PDF" : "Download Word"}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {(() => {
                 const whatsappPosts = recentPosts.filter((p: any) => p.platform === "whatsapp").slice(0, 5);

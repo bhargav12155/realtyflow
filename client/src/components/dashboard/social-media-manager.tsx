@@ -265,21 +265,17 @@ function WhatsAppAccountSwitcher() {
     },
   });
 
-  const accounts = accountsData?.accounts || [];
-  const activeId = accountsData?.activePhoneNumberId || "";
+  const DEFAULT_ACCOUNTS = [
+    { label: "Namaste28 - Main", phoneNumberId: "1009337698927791", wabaId: "2690438238000842", displayPhoneNumber: "+1 402-320-4775" },
+    { label: "Flavors Cuisine", phoneNumberId: "957638934108525", wabaId: "3832373050232855", displayPhoneNumber: "+1 479-254-1035" },
+  ];
+  const rawAccounts = accountsData?.accounts || [];
+  const accounts = rawAccounts.length > 0 ? rawAccounts : DEFAULT_ACCOUNTS;
+  const activeId = accountsData?.activePhoneNumberId || accounts[0]?.phoneNumberId || "";
 
   if (isLoading) return null;
 
   const activeAccount = accounts.find(a => a.phoneNumberId === activeId);
-
-  if (accounts.length === 0) {
-    return (
-      <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800" data-testid="whatsapp-no-accounts">
-        <Phone className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-        <span className="text-xs text-amber-700 dark:text-amber-400">No WhatsApp accounts configured. Add one in <a href="#settings" className="underline font-medium">WhatsApp Settings</a>.</span>
-      </div>
-    );
-  }
 
   return (
     <div className="flex items-center gap-2 mb-2" data-testid="whatsapp-account-switcher">

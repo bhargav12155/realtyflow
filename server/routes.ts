@@ -20569,9 +20569,28 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
+      const DEFAULT_ACCOUNTS = [
+        { label: "Namaste28 - Main", phoneNumberId: "1009337698927791", wabaId: "2690438238000842", displayPhoneNumber: "+1 402-320-4775" },
+        { label: "Flavors Cuisine", phoneNumberId: "957638934108525", wabaId: "3832373050232855", displayPhoneNumber: "+1 479-254-1035" },
+      ];
+
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
-      const activePhoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+      let accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+
+      if (accounts.length === 0) {
+        accounts = DEFAULT_ACCOUNTS;
+        try {
+          await storage.createOrUpdateWhatsappSettings({
+            ...settings,
+            userId: String(userId),
+            accounts: accounts as any,
+            phoneNumberId: settings?.phoneNumberId || DEFAULT_ACCOUNTS[0].phoneNumberId,
+            wabaId: settings?.wabaId || DEFAULT_ACCOUNTS[0].wabaId,
+          });
+        } catch (e) {}
+      }
+
+      const activePhoneNumberId = settings?.phoneNumberId || DEFAULT_ACCOUNTS[0].phoneNumberId;
 
       res.json({ accounts, activePhoneNumberId });
     } catch (error: any) {

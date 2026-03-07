@@ -3313,47 +3313,134 @@ ${agentName} | ${brokerageName}
                     </div>
                   )}
 
-                  {bulkProgress.complete && bulkProgress.bulkQueueId && (
-                    <div className="border-t pt-2 flex flex-wrap items-center gap-2" data-testid="bulk-send-downloads">
-                      <span className="text-[10px] font-semibold text-muted-foreground">Download:</span>
-                      {[
-                        { type: "all", label: "Full Report", color: "purple" },
-                        { type: "sent", label: `Sent (${bulkProgress.sent.toLocaleString()})`, color: "green" },
-                        { type: "remaining", label: `Remaining (${(bulkProgress.queued || bulkProgress.total - bulkProgress.sent - bulkProgress.failed).toLocaleString()})`, color: "orange" },
-                      ].map(dl => (
-                        <button
-                          key={dl.type}
-                          onClick={() => {
-                            const token = localStorage.getItem("authToken") || "";
-                            fetch(`/api/whatsapp/bulk-queues/${bulkProgress.bulkQueueId}/download?type=${dl.type}`, {
-                              headers: token ? { "Authorization": `Bearer ${token}` } : {},
-                            })
-                              .then(r => r.blob())
-                              .then(blob => {
-                                const url = window.URL.createObjectURL(blob);
-                                const a = document.createElement("a");
-                                a.href = url;
-                                a.download = `${dl.type}_contacts.xlsx`;
-                                document.body.appendChild(a);
-                                a.click();
-                                a.remove();
-                                window.URL.revokeObjectURL(url);
-                              })
-                              .catch(() => toast({ title: "Download failed", variant: "destructive" }));
-                          }}
-                          className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded font-medium cursor-pointer transition-colors ${
-                            dl.color === "green" ? "bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300" :
-                            dl.color === "orange" ? "bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300" :
-                            "bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
-                          }`}
-                          data-testid={`btn-banner-download-${dl.type}`}
-                        >
-                          <Download className="h-3 w-3" />
-                          {dl.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {(() => {
+                    const queueId = bulkProgress.bulkQueueId || bulkQueues.find((q: any) => q.status === "active" || q.status === "paused")?.id;
+                    const activeQueue = bulkQueues.find((q: any) => q.id === queueId);
+                    const remaining = activeQueue?.remainingNumbers?.length || (bulkProgress.queued || Math.max(0, bulkProgress.total - bulkProgress.sent - bulkProgress.failed));
+                    const nextBatch = activeQueue?.nextBatchAt ? new Date(activeQueue.nextBatchAt) : null;
+                    const nextBatchTime = nextBatch ? nextBatch.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+
+                    return (
+                      <div className="border-t pt-3 space-y-2" data-testid="bulk-send-actions">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {queueId && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await apiRequest("POST", `/api/whatsapp/bulk-queues/${queueId}/send-now`);
+                                  toast({ title: "Processing Next Batch", description: "Sending next batch of messages now..." });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                } catch (err: any) {
+                                  toast({ title: "Error", description: err.message || "Failed to start batch", variant: "destructive" });
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors shadow-sm"
+                              data-testid="btn-send-next-batch-always"
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                              Send Next Batch Now
+                            </button>
+                          )}
+                          {queueId && activeQueue && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const action = activeQueue.status === "paused" ? "resume" : "pause";
+                                  await apiRequest("POST", `/api/whatsapp/bulk-queues/${queueId}/${action}`);
+                                  toast({ title: action === "pause" ? "Queue Paused" : "Queue Resumed" });
+                                  queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/bulk-queues"] });
+                                } catch (err: any) {
+                                  toast({ title: "Error", description: err.message, variant: "destructive" });
+                                }
+                              }}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-semibold transition-colors shadow-sm ${
+                                activeQueue.status === "paused"
+                                  ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                  : "bg-amber-500 hover:bg-amber-600 text-white"
+                              }`}
+                              data-testid="btn-pause-resume-queue"
+                            >
+                              {activeQueue.status === "paused" ? (
+                                <><Play className="h-3.5 w-3.5" /> Resume Queue</>
+                              ) : (
+                                <><Pause className="h-3.5 w-3.5" /> Pause Queue</>
+                              )}
+                            </button>
+                          )}
+                          {bulkProgress.complete && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setBulkProgress(null);
+                                try {
+                                  const token = localStorage.getItem("authToken") || "";
+                                  await fetch("/api/whatsapp/bulk-send-status/dismiss", {
+                                    method: "POST",
+                                    headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                                  });
+                                } catch {}
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-[11px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+                              data-testid="btn-dismiss-progress-bar"
+                            >
+                              Dismiss
+                            </button>
+                          )}
+                        </div>
+
+                        {remaining > 0 && nextBatchTime && (
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground px-1">
+                            <Clock className="h-3 w-3" />
+                            <span>{remaining.toLocaleString()} remaining &middot; Next auto-batch: <strong>{nextBatchTime}</strong></span>
+                          </div>
+                        )}
+
+                        {queueId && bulkProgress.sent > 0 && (
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <span className="text-[10px] font-semibold text-muted-foreground">Download:</span>
+                            {[
+                              { type: "all", label: "Full Report", color: "purple" },
+                              { type: "sent", label: `Sent (${bulkProgress.sent.toLocaleString()})`, color: "green" },
+                              { type: "remaining", label: `Remaining (${remaining.toLocaleString()})`, color: "orange" },
+                            ].map(dl => (
+                              <button
+                                key={dl.type}
+                                onClick={() => {
+                                  const token = localStorage.getItem("authToken") || "";
+                                  fetch(`/api/whatsapp/bulk-queues/${queueId}/download?type=${dl.type}`, {
+                                    headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                                  })
+                                    .then(r => r.blob())
+                                    .then(blob => {
+                                      const url = window.URL.createObjectURL(blob);
+                                      const a = document.createElement("a");
+                                      a.href = url;
+                                      a.download = `${dl.type}_contacts.xlsx`;
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      a.remove();
+                                      window.URL.revokeObjectURL(url);
+                                    })
+                                    .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded font-medium cursor-pointer transition-colors ${
+                                  dl.color === "green" ? "bg-green-100 hover:bg-green-200 text-green-800 dark:bg-green-900/50 dark:text-green-300" :
+                                  dl.color === "orange" ? "bg-orange-100 hover:bg-orange-200 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300" :
+                                  "bg-purple-100 hover:bg-purple-200 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
+                                }`}
+                                data-testid={`btn-banner-download-${dl.type}`}
+                              >
+                                <Download className="h-3 w-3" />
+                                {dl.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
                 );
               })()}

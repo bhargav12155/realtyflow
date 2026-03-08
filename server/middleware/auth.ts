@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
 import { Request, Response, NextFunction } from "express";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
 
 // Extend Express Request interface to include user information
 declare global {
@@ -34,11 +36,63 @@ export interface JWTPayload {
   exp?: number;
 }
 
+async function tryRefreshExpiredToken(token: string): Promise<{ decoded: JWTPayload; newToken: string } | null> {
+  try {
+    const decoded = jwt.decode(token) as JWTPayload | null;
+    if (!decoded || !decoded.id || !decoded.email) return null;
+
+    if (decoded.type === "public") {
+      const rows = await db.execute(
+        sql`SELECT id, email FROM public_users WHERE id = ${Number(decoded.id) || 0} AND email = ${decoded.email} LIMIT 1`
+      );
+      if (rows.rows.length === 0) return null;
+    } else {
+      const rows = await db.execute(
+        sql`SELECT id, email FROM users WHERE id = ${String(decoded.id)} AND email = ${decoded.email} LIMIT 1`
+      );
+      if (rows.rows.length === 0) return null;
+    }
+
+    const { iat, exp, ...payload } = decoded;
+    const newToken = generateToken(payload);
+    console.log(`🔐 [AUTH] Token refreshed for ${decoded.email} (${decoded.type})`);
+    return { decoded, newToken };
+  } catch (e) {
+    return null;
+  }
+}
+
+function applyDecodedToRequest(req: Request, decoded: JWTPayload) {
+  if (decoded.type === "public") {
+    req.userId = decoded.id;
+    req.userType = "public";
+    req.agentSlug = decoded.agentSlug;
+    req.user = {
+      id: decoded.id,
+      type: "public",
+      email: decoded.email,
+      agentSlug: decoded.agentSlug,
+    };
+  } else {
+    req.userId = decoded.id;
+    req.userType = "agent";
+    req.username = decoded.username;
+    req.user = {
+      id: decoded.id,
+      type: "agent",
+      username: decoded.username,
+      email: decoded.email,
+      name: decoded.name,
+      isDemo: decoded.isDemo,
+    };
+  }
+}
+
 /**
  * Middleware to extract user ID from JWT token
  * Works with both agent and public user tokens
  */
-export const extractUserId = (
+export const extractUserId = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -53,7 +107,28 @@ export const extractUserId = (
       return res.status(401).json({ error: "No token provided" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload;
+    let decoded: JWTPayload;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload;
+    } catch (verifyError: any) {
+      if (verifyError.name === "TokenExpiredError") {
+        const refreshed = await tryRefreshExpiredToken(token);
+        if (refreshed) {
+          applyDecodedToRequest(req, refreshed.decoded);
+          (req as any)._refreshedToken = refreshed.newToken;
+          res.cookie("authToken", refreshed.newToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+          });
+          return next();
+        }
+      }
+      console.error("🔐 [AUTH] Token verification failed:", verifyError.message);
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
     console.log("🔐 [AUTH] Token decoded:", {
       id: decoded.id,
       email: decoded.email,
@@ -61,31 +136,12 @@ export const extractUserId = (
       username: decoded.username,
     });
 
-    // Determine user type and extract information
+    applyDecodedToRequest(req, decoded);
+
     if (decoded.type === "public") {
-      req.userId = decoded.id;
-      req.userType = "public";
-      req.agentSlug = decoded.agentSlug;
-      req.user = {
-        id: decoded.id,
-        type: "public",
-        email: decoded.email,
-        agentSlug: decoded.agentSlug,
-      };
-      console.log("🔐 [AUTH] Public user authenticated:", req.user.id);
+      console.log("🔐 [AUTH] Public user authenticated:", req.user!.id);
     } else {
-      req.userId = decoded.id;
-      req.userType = "agent";
-      req.username = decoded.username;
-      req.user = {
-        id: decoded.id,
-        type: "agent",
-        username: decoded.username,
-        email: decoded.email,
-        name: decoded.name,
-        isDemo: decoded.isDemo,
-      };
-      console.log("🔐 [AUTH] Agent user authenticated:", req.user.id, `(${req.user.email})`, decoded.isDemo ? "[DEMO]" : "");
+      console.log("🔐 [AUTH] Agent user authenticated:", req.user!.id, `(${req.user!.email})`, decoded.isDemo ? "[DEMO]" : "");
     }
 
     next();
@@ -179,7 +235,7 @@ export const createRequireAdmin = (storage: {
 /**
  * Optional authentication middleware - doesn't fail if no token provided
  */
-export const optionalAuth = (
+export const optionalAuth = async (
   req: Request,
   res: Response,
   next: NextFunction
@@ -188,36 +244,26 @@ export const optionalAuth = (
     req.headers.authorization?.replace("Bearer ", "") || req.cookies?.authToken;
 
   if (!token) {
-    return next(); // Continue without authentication
+    return next();
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload;
-
-    if (decoded.type === "public") {
-      req.userId = decoded.id;
-      req.userType = "public";
-      req.agentSlug = decoded.agentSlug;
-      req.user = {
-        id: decoded.id,
-        type: "public",
-        email: decoded.email,
-        agentSlug: decoded.agentSlug,
-      };
-    } else {
-      req.userId = decoded.id;
-      req.userType = "agent";
-      req.username = decoded.username;
-      req.user = {
-        id: decoded.id,
-        type: "agent",
-        username: decoded.username,
-        email: decoded.email,
-      };
+    applyDecodedToRequest(req, decoded);
+  } catch (error: any) {
+    if (error.name === "TokenExpiredError") {
+      const refreshed = await tryRefreshExpiredToken(token);
+      if (refreshed) {
+        applyDecodedToRequest(req, refreshed.decoded);
+        (req as any)._refreshedToken = refreshed.newToken;
+        res.cookie("authToken", refreshed.newToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+      }
     }
-  } catch (error) {
-    // Invalid token, but don't fail - just continue without authentication
-    console.warn("Invalid token in optional auth:", error);
   }
 
   next();

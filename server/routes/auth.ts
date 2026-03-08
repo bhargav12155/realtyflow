@@ -271,7 +271,8 @@ router.get("/check", optionalAuth, async (req: Request, res: Response) => {
       }
     }
     
-    const rawToken = req.cookies?.authToken ||
+    const refreshedToken = (req as any)._refreshedToken;
+    const rawToken = refreshedToken || req.cookies?.authToken ||
       req.headers.authorization?.replace("Bearer ", "");
 
     res.json({
@@ -282,7 +283,8 @@ router.get("/check", optionalAuth, async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("Error enriching user data:", error);
-    const rawToken = req.cookies?.authToken ||
+    const refreshedToken = (req as any)._refreshedToken;
+    const rawToken = refreshedToken || req.cookies?.authToken ||
       req.headers.authorization?.replace("Bearer ", "");
     res.json({
       success: true,

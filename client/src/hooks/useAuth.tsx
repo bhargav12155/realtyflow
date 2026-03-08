@@ -61,7 +61,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         const data = await response.json();
 
         if (data.authenticated && data.user) {
-          if (data.token && !getAuthToken()) {
+          if (data.token) {
             setAuthToken(data.token);
           }
           setAuthState({

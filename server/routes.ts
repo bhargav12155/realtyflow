@@ -67,6 +67,50 @@ async function getWhatsappSettingsWithFallback(userId: string) {
   return settings;
 }
 
+async function getAllUserIds(userId: number | string): Promise<string[]> {
+  const ids = new Set<string>([String(userId)]);
+  try {
+    let isAdmin = false;
+    
+    const pubRows = await db.execute(
+      sql`SELECT id, email, role FROM public_users WHERE id = ${Number(userId) || 0} OR id::text = ${String(userId)} LIMIT 1`
+    );
+    for (const r of pubRows.rows) {
+      ids.add(String((r as any).id));
+      if ((r as any).role === "admin") isAdmin = true;
+    }
+
+    const userRows = await db.execute(
+      sql`SELECT id, email, role FROM users WHERE id = ${String(userId)} LIMIT 1`
+    );
+    for (const r of userRows.rows) {
+      ids.add(String((r as any).id));
+      if ((r as any).role === "admin") isAdmin = true;
+    }
+
+    if (isAdmin) {
+      const allUsers = await db.execute(sql`SELECT id FROM users`);
+      for (const r of allUsers.rows) ids.add(String((r as any).id));
+      const allPub = await db.execute(sql`SELECT id FROM public_users`);
+      for (const r of allPub.rows) ids.add(String((r as any).id));
+    } else {
+      const emails = new Set<string>();
+      for (const r of [...pubRows.rows, ...userRows.rows]) {
+        if ((r as any).email) emails.add((r as any).email);
+      }
+      for (const email of emails) {
+        const moreUsers = await db.execute(sql`SELECT id FROM users WHERE email = ${email}`);
+        for (const r of moreUsers.rows) ids.add(String((r as any).id));
+        const morePub = await db.execute(sql`SELECT id FROM public_users WHERE email = ${email}`);
+        for (const r of morePub.rows) ids.add(String((r as any).id));
+      }
+    }
+  } catch (e) {
+    console.error("getAllUserIds error:", e);
+  }
+  return Array.from(ids);
+}
+
 // Shared streaming service instance (singleton) to maintain session state across requests
 let streamingServiceInstance: HeyGenStreamingService | null = null;
 function getStreamingService(): HeyGenStreamingService {
@@ -21886,7 +21930,13 @@ Be helpful, professional, and concise. Always let users know what the platform c
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
-      const queues = await storage.getWhatsappBulkQueuesByUserId(String(userId));
+      const allIds = await getAllUserIds(userId);
+      let queues: any[] = [];
+      for (const uid of allIds) {
+        const q = await storage.getWhatsappBulkQueuesByUserId(uid);
+        queues.push(...q);
+      }
+      queues.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       res.json(queues);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -21899,7 +21949,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       const queue = await storage.getWhatsappBulkQueueById(req.params.id);
       if (!queue) return res.status(404).json({ error: "Queue not found" });
-      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      const userIds = await getAllUserIds(userId);
+      if (!userIds.includes(queue.userId)) return res.status(403).json({ error: "Access denied" });
       res.json(queue);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -21912,7 +21963,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       const queue = await storage.getWhatsappBulkQueueById(req.params.id);
       if (!queue) return res.status(404).json({ error: "Queue not found" });
-      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      const userIds1 = await getAllUserIds(userId);
+      if (!userIds1.includes(queue.userId)) return res.status(403).json({ error: "Access denied" });
       if (queue.status !== "active") return res.status(400).json({ error: "Queue is not active" });
       const updated = await storage.updateWhatsappBulkQueue(req.params.id, { status: "paused" });
       res.json(updated);
@@ -21927,7 +21979,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       const queue = await storage.getWhatsappBulkQueueById(req.params.id);
       if (!queue) return res.status(404).json({ error: "Queue not found" });
-      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      const userIds2 = await getAllUserIds(userId);
+      if (!userIds2.includes(queue.userId)) return res.status(403).json({ error: "Access denied" });
       if (queue.status !== "paused") return res.status(400).json({ error: "Queue is not paused" });
       const updated = await storage.updateWhatsappBulkQueue(req.params.id, { status: "active" });
       res.json(updated);
@@ -21942,7 +21995,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       const queue = await storage.getWhatsappBulkQueueById(req.params.id);
       if (!queue) return res.status(404).json({ error: "Queue not found" });
-      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      const userIds3 = await getAllUserIds(userId);
+      if (!userIds3.includes(queue.userId)) return res.status(403).json({ error: "Access denied" });
       if (queue.status !== "active" && queue.status !== "paused") {
         return res.status(400).json({ error: `Queue is ${queue.status}, cannot send now` });
       }
@@ -21967,7 +22021,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       const queue = await storage.getWhatsappBulkQueueById(req.params.id);
       if (!queue) return res.status(404).json({ error: "Queue not found" });
-      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      const userIds4 = await getAllUserIds(userId);
+      if (!userIds4.includes(queue.userId)) return res.status(403).json({ error: "Access denied" });
 
       const type = (req.query.type as string) || "remaining";
 
@@ -22084,7 +22139,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       const queue = await storage.getWhatsappBulkQueueById(req.params.id);
       if (!queue) return res.status(404).json({ error: "Queue not found" });
-      if (queue.userId !== String(userId)) return res.status(403).json({ error: "Access denied" });
+      const userIds5 = await getAllUserIds(userId);
+      if (!userIds5.includes(queue.userId)) return res.status(403).json({ error: "Access denied" });
       if (queue.status === "completed" || queue.status === "cancelled") {
         return res.status(400).json({ error: `Queue is already ${queue.status}` });
       }

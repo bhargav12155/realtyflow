@@ -2522,42 +2522,80 @@ ${agentName} | ${brokerageName}
                   <BookOpen className="h-3 w-3" />
                   Guide
                 </summary>
-                <div className="absolute right-0 top-full mt-1 z-50 w-56 rounded-lg border bg-popover p-3 shadow-lg space-y-2">
+                <div className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border bg-popover p-3 shadow-lg space-y-3">
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    Download the complete WhatsApp bulk messaging guide — covers templates, sending, queues, reports & troubleshooting.
+                    Download the complete WhatsApp bulk messaging guide with illustrations — covers templates, sending, queues, reports & troubleshooting.
                   </p>
-                  <div className="flex gap-1.5">
-                    {["pdf", "docx"].map((fmt) => (
-                      <button
-                        key={fmt}
-                        onClick={() => {
-                          const token = localStorage.getItem("authToken");
-                          fetch(`/api/whatsapp/guide/download?format=${fmt}`, {
-                            headers: token ? { Authorization: `Bearer ${token}` } : {},
-                            credentials: "include",
-                          })
-                            .then((r) => { if (!r.ok) throw new Error(); return r.blob(); })
-                            .then((blob) => {
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = `WhatsApp-Bulk-Messaging-Guide.${fmt}`;
-                              a.click();
-                              URL.revokeObjectURL(url);
+                  <div>
+                    <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Documents</p>
+                    <div className="flex gap-1.5">
+                      {["pdf", "docx"].map((fmt) => (
+                        <button
+                          key={fmt}
+                          onClick={() => {
+                            const token = localStorage.getItem("authToken");
+                            fetch(`/api/whatsapp/guide/download?format=${fmt}`, {
+                              headers: token ? { Authorization: `Bearer ${token}` } : {},
+                              credentials: "include",
                             })
-                            .catch(() => toast({ title: "Download failed", variant: "destructive" }));
-                        }}
-                        className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-md border transition-colors ${
-                          fmt === "pdf"
-                            ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100"
-                            : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-100"
-                        }`}
-                        data-testid={`btn-download-guide-${fmt}`}
-                      >
-                        <FileText className="h-3 w-3" />
-                        {fmt === "pdf" ? "PDF" : "Word"}
-                      </button>
-                    ))}
+                              .then((r) => { if (!r.ok) throw new Error(); return r.blob(); })
+                              .then((blob) => {
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `WhatsApp-Bulk-Messaging-Guide.${fmt}`;
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              })
+                              .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                          }}
+                          className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-md border transition-colors ${
+                            fmt === "pdf"
+                              ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100"
+                              : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-100"
+                          }`}
+                          data-testid={`btn-download-guide-${fmt}`}
+                        >
+                          <FileText className="h-3 w-3" />
+                          {fmt === "pdf" ? "PDF" : "Word"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Video Tutorials</p>
+                    <div className="flex flex-col gap-1.5">
+                      {[
+                        { type: "template", label: "How to Create Templates" },
+                        { type: "bulk", label: "How to Send Bulk Messages" },
+                      ].map((vid) => (
+                        <button
+                          key={vid.type}
+                          onClick={() => {
+                            const token = localStorage.getItem("authToken");
+                            fetch(`/api/whatsapp/guide/video?type=${vid.type}`, {
+                              headers: token ? { Authorization: `Bearer ${token}` } : {},
+                              credentials: "include",
+                            })
+                              .then((r) => { if (!r.ok) throw new Error(); return r.blob(); })
+                              .then((blob) => {
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = vid.type === "template" ? "How-to-Create-WhatsApp-Templates.mp4" : "How-to-Send-Bulk-Messages.mp4";
+                                a.click();
+                                URL.revokeObjectURL(url);
+                              })
+                              .catch(() => toast({ title: "Download failed", variant: "destructive" }));
+                          }}
+                          className="w-full inline-flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-medium rounded-md border transition-colors bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/40"
+                          data-testid={`btn-download-video-${vid.type}`}
+                        >
+                          <Play className="h-3 w-3" />
+                          {vid.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </details>

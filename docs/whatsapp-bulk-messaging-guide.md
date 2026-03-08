@@ -16,7 +16,15 @@ Complete guide for sending bulk WhatsApp messages, creating templates, managing 
 8. [WhatsApp Analytics](#8-whatsapp-analytics)
 9. [Multiple WhatsApp Accounts](#9-multiple-whatsapp-accounts)
 10. [Tips for Maximum Delivery](#10-tips-for-maximum-delivery)
-11. [Troubleshooting](#11-troubleshooting)
+11. [Meta/Facebook Account Issues & Restrictions](#11-metafacebook-account-issues--restrictions)
+    - 11.1 Account Flagged or Restricted
+    - 11.2 Marketing Messages Not Delivering (US Restriction)
+    - 11.3 Template Paused by Meta
+    - 11.4 Facebook Business Manager Restrictions
+    - 11.5 Phone Number Quality Rating
+    - 11.6 Access Token Issues
+    - 11.7 Meta's Daily Messaging Limits & Tier Recovery
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
@@ -292,7 +300,196 @@ Meta has restricted MARKETING template delivery to US (+1) numbers since April 2
 
 ---
 
-## 11. Troubleshooting
+## 11. Meta/Facebook Account Issues & Restrictions
+
+Understanding how Meta monitors and restricts WhatsApp Business accounts is critical to maintaining your messaging ability. This section covers common account flags, marketing restrictions, and what you can do about each.
+
+---
+
+### 11.1 Account Flagged or Restricted
+
+Meta actively monitors all WhatsApp Business accounts for policy compliance. If your account gets flagged, you may experience:
+
+- **Reduced messaging limits** — Your tier may be downgraded (e.g., from TIER_10K back to TIER_1K or TIER_250)
+- **Messaging paused entirely** — Meta temporarily blocks all outbound messages
+- **Account banned** — Permanent restriction on the phone number (rare, but possible for severe violations)
+
+**Common reasons accounts get flagged:**
+- High block/report rate from recipients
+- Sending to users who haven't opted in (no prior consent)
+- Sending marketing content disguised as UTILITY messages
+- Rapidly scaling volume without building up quality history
+- Using language that violates Meta's Commerce or Community policies
+- Multiple template rejections in a short period
+
+**What to do if your account is flagged:**
+1. **Stop all sending immediately** — Continuing to send while flagged will make it worse
+2. **Check your quality rating** in Meta Business Manager > WhatsApp Manager > Phone Numbers
+3. **Review your recent templates** — Were any rejected or paused? This is a signal
+4. **Wait 7 days** — Quality ratings typically reset on a rolling 7-day window. If you stop sending, your rating should recover
+5. **Submit an appeal** via Meta Business Help Center if you believe the flag is a mistake
+6. **Clean your contact list** — Remove anyone who blocked you or reported your messages
+7. **When resuming**, start with very small batches (50-100) and gradually scale back up
+
+---
+
+### 11.2 Marketing Messages Not Delivering (US Restriction)
+
+Since **April 2025**, Meta has imposed significant restrictions on MARKETING template messages sent to US (+1) phone numbers. This is one of the most impactful changes for US-based businesses.
+
+**What's happening:**
+- Messages sent using MARKETING templates to US numbers are **silently dropped** by Meta
+- The API returns a "success" response (message accepted), but Meta never delivers the message
+- There is no error code — the message simply vanishes
+- This affects ALL WhatsApp Business API accounts sending to US numbers, not just yours
+
+**How to tell if you're affected:**
+- Check your analytics — if "Delivered" is significantly lower than "Sent" for US contacts, this is why
+- Messages to international numbers (non-US) from the same template may deliver normally
+- UTILITY templates to the same US numbers deliver fine
+
+**What to do:**
+1. **Switch to UTILITY templates** for all US (+1) audiences — these deliver reliably
+2. Frame your message as transactional: appointment reminders, booking confirmations, order updates, account notifications
+3. Avoid promotional language like "exclusive offer," "limited time," "discount," "free" in UTILITY templates — Meta may reclassify them as MARKETING
+4. For genuine marketing messages, consider alternative channels (SMS, email, social media posts)
+5. For international audiences (non-US), MARKETING templates still work normally
+
+**UTILITY Template Examples That Work for US:**
+- "Hi! Your reservation at [Business] is confirmed for [Date] at [Time]. Reply CHANGE to modify."
+- "Thank you for visiting [Business]! Your receipt has been sent to your email."
+- "Reminder: Your appointment with [Business] is tomorrow at [Time]. Reply YES to confirm."
+
+---
+
+### 11.3 Template Paused by Meta
+
+Meta can **pause** your approved template at any time if it receives poor engagement or high complaint rates.
+
+**Signs your template was paused:**
+- Bulk sends suddenly fail with error codes **132015**, **132016**, or **132001**
+- The template status changes from APPROVED to PAUSED in Meta Business Manager
+- iMakePage automatically detects this and pauses your queue
+
+**Why templates get paused:**
+- Low read rates (recipients ignoring your messages)
+- High block rates (recipients blocking your number after receiving the message)
+- Report rates above Meta's threshold
+- Content that Meta's automated systems flag as low quality
+- Sending the same template too frequently to the same audience
+
+**What to do:**
+1. **Don't try to resend** with the same template — it will keep failing
+2. Go to **Meta Business Manager > WhatsApp Manager > Message Templates**
+3. Check the template's quality rating and status
+4. You have two options:
+   - **Appeal the pause** — If you believe the template is fine, click "Appeal" in Meta's template manager
+   - **Create a new template** — Write a different version with improved content, then submit for approval
+5. **Analyze what went wrong** — Was the content too promotional? Was the audience unengaged?
+6. In iMakePage, cancel the failed queue and start a new one with an approved template
+
+---
+
+### 11.4 Facebook Business Manager Restrictions
+
+Your WhatsApp Business account is tied to your Facebook Business Manager. Issues at the Business Manager level affect WhatsApp.
+
+**Business Manager can be restricted for:**
+- Advertising policy violations (even if unrelated to WhatsApp)
+- Unusual payment activity on ad accounts
+- Multiple rejected ads or ad accounts
+- Business verification not completed or expired
+- Suspicious login activity
+
+**How Business Manager restrictions affect WhatsApp:**
+- New template submissions may be blocked
+- Existing templates may be paused
+- Phone number verification may fail
+- API access tokens may stop working
+- Your WABA (WhatsApp Business Account) may be suspended
+
+**What to do:**
+1. **Go to business.facebook.com** and check for any notifications or restrictions
+2. **Complete Business Verification** if you haven't already — this is required for full API access
+3. **Resolve any ad account issues** — Even if you don't run ads, disabled ad accounts can affect your overall Business Manager health
+4. **Check your System User** — Make sure the System User that generated your access token is still active
+5. **Submit an appeal** through Meta's Business Help Center for any restrictions you believe are incorrect
+6. **Keep your business information updated** — Name, address, website, and phone number must match your actual business
+
+---
+
+### 11.5 Phone Number Quality Rating
+
+Meta assigns a quality rating to each WhatsApp phone number: **GREEN**, **YELLOW**, or **RED**.
+
+| Rating | Meaning | Impact |
+|---|---|---|
+| GREEN | Good quality | Full messaging capacity, eligible for tier upgrades |
+| YELLOW | Medium quality | Warning — if it drops further, your tier may decrease |
+| RED | Low quality | Tier will be reduced; continued issues may lead to account ban |
+
+**What affects your quality rating:**
+- **Block rate** — How many recipients block your number after receiving a message
+- **Report rate** — How many recipients report your messages as spam
+- **Template quality** — Read rates and engagement with your templates
+
+**How to maintain GREEN quality:**
+- Only message people who have opted in
+- Keep messages relevant and valuable to recipients
+- Don't send too frequently to the same contacts
+- Respond promptly to customer replies (improves engagement signals)
+- Use personalization when possible (business name, customer details)
+- Remove consistently unresponsive contacts from your lists
+
+---
+
+### 11.6 Access Token Issues
+
+Your WhatsApp API access depends on a valid access token from Meta.
+
+**Common token problems:**
+- **Token expired** — If you used a temporary token instead of a permanent System User token
+- **Token revoked** — Someone in your organization removed the System User or changed permissions
+- **Permissions changed** — The token no longer has `whatsapp_business_messaging` permission
+
+**How to fix:**
+1. Go to **Meta Business Settings > System Users**
+2. Select your System User (or create one if it was deleted)
+3. Assign the following permissions:
+   - `whatsapp_business_messaging` (required)
+   - `whatsapp_business_management` (recommended)
+4. Generate a new permanent token
+5. Update the token in **iMakePage Settings > WhatsApp Settings**
+
+**Best practices for tokens:**
+- Always use a **System User** token, never a personal user token
+- Use **permanent tokens** — they don't expire
+- Store your token securely and don't share it
+- If you suspect your token was compromised, revoke it immediately and generate a new one
+
+---
+
+### 11.7 Meta's Daily Messaging Limits & Tier Recovery
+
+If your messaging tier gets downgraded due to quality issues, here's how to recover:
+
+**Recovery timeline:**
+1. **Stop sending for 7 days** — Let your quality rating reset
+2. **Verify your quality** — It should return to GREEN after the cool-down period
+3. **Start small** — Begin with 50-100 messages per day
+4. **Monitor your quality rating** daily for the first week
+5. **Gradually increase** — Double your volume every few days if quality stays GREEN
+6. **Tier upgrades** — Meta automatically upgrades your tier when you consistently send at high quality
+
+**Tips to accelerate tier recovery:**
+- Send only to highly engaged contacts first
+- Use UTILITY templates (higher delivery rates = better quality signals)
+- Ensure every message provides clear value
+- Maintain a block rate below 1%
+
+---
+
+## 12. Troubleshooting
 
 ### "Template not found" Error
 - Make sure the template is APPROVED (not PENDING or REJECTED)

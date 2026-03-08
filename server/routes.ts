@@ -20839,6 +20839,34 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/whatsapp/guide/video", requireAuth, async (req, res) => {
+    try {
+      const type = (req.query.type as string) || "template";
+      const fs = await import("fs");
+      const path = await import("path");
+      const videoMap: Record<string, { file: string; name: string }> = {
+        template: { file: "whatsapp-template-creation-tutorial.mp4", name: "How-to-Create-WhatsApp-Templates.mp4" },
+        bulk: { file: "whatsapp-bulk-send-tutorial.mp4", name: "How-to-Send-Bulk-Messages.mp4" },
+      };
+      const video = videoMap[type];
+      if (!video) return res.status(400).json({ error: "Invalid video type. Use 'template' or 'bulk'." });
+      const videoPath = path.join(process.cwd(), "attached_assets", "generated_videos", video.file);
+      if (!fs.existsSync(videoPath)) return res.status(404).json({ error: "Video not found" });
+      res.setHeader("Content-Type", "video/mp4");
+      res.setHeader("Content-Disposition", `attachment; filename=${video.name}`);
+      const stream = fs.createReadStream(videoPath);
+      stream.on("error", (err: any) => {
+        console.error("Error streaming guide video:", err);
+        if (!res.headersSent) res.status(500).json({ error: "Failed to stream video" });
+        else res.end();
+      });
+      stream.pipe(res);
+    } catch (error: any) {
+      console.error("Error serving guide video:", error);
+      res.status(500).json({ error: "Failed to serve video" });
+    }
+  });
+
   app.get("/api/whatsapp/guide/download", requireAuth, async (req, res) => {
     try {
       const format = (req.query.format as string) || "pdf";
@@ -20859,6 +20887,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         "## 6. Managing Bulk Queues": { file: "04-queue-management.png", caption: "Figure 4: Queue Management Dashboard — pause, resume, send now, or cancel queues" },
         "## 8. WhatsApp Analytics": { file: "05-analytics-dashboard.png", caption: "Figure 5: Analytics Dashboard — messages sent, delivery rate, read rate, and cost breakdown" },
         "## 5. Understanding the Bulk Queue System": { file: "06-messaging-tiers.png", caption: "Figure 6: Meta Messaging Tiers — your daily limit increases with quality and volume" },
+        "## 11. Meta/Facebook Account Issues & Restrictions": { file: "09-meta-restrictions.png", caption: "Figure 9: Meta Account Restrictions — common flags, marketing blocks, and recovery steps" },
       };
       const subsectionImages: Record<string, { file: string; caption: string }> = {
         "### Step 1: Prepare Your Contact List": { file: "07-file-import.png", caption: "Figure 7: File Import — supported formats and smart number extraction" },

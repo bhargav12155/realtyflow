@@ -555,86 +555,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // =====================================================
   // NEBRASKA HOME HUB INTEGRATION ENDPOINT
   // =====================================================
-  app.get("/integration", (req: Request, res: Response, next: NextFunction) => {
+  app.get("/integration", async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { source, domain, userEmail, agentSlug, timestamp } = req.query;
+      const { source, domain, userEmail, agentSlug, timestamp, autoLogin } = req.query;
       const acceptHeader = String(req.headers.accept || "").toLowerCase();
 
-      // Validate trusted domains
       const trustedDomains = [
         "localhost",
         "nebraskahomehub.com",
         "bjorkhomes.com",
         "mandy.bjorkhomes.com",
-        "elasticbeanstalk.com", // AWS Elastic Beanstalk deployments
-        "imakepage.com", // iMakePage platform
+        "elasticbeanstalk.com",
+        "imakepage.com",
+        "multi-users-realtyflow.replit.app",
       ];
 
+      const refererHost = (() => {
+        try {
+          const ref = req.headers.referer || req.headers.origin || "";
+          if (!ref) return "";
+          return new URL(ref).hostname;
+        } catch { return ""; }
+      })();
       const requestDomain = typeof domain === "string" ? domain : "";
+      const originToCheck = refererHost || requestDomain;
+
       const isTrusted =
-        !requestDomain ||
-        trustedDomains.some((trusted) => requestDomain.includes(trusted));
+        !originToCheck ||
+        trustedDomains.some((trusted) => originToCheck.includes(trusted));
 
       if (!isTrusted) {
-        console.warn(`⚠️ Untrusted integration request from: ${domain}`);
-        if (acceptHeader.includes("text/html")) {
-          return res
-            .status(403)
-            .send("Integration not allowed from this domain");
-        }
-        return res.status(403).json({
-          error: "Integration not allowed from this domain",
-        });
+        console.warn(`⚠️ Untrusted integration request from origin: ${originToCheck}`);
+        return res.status(403).send("Integration not allowed from this domain");
       }
 
-      // Validate source
       const normalizedSource = typeof source === "string" ? source : undefined;
-      if (normalizedSource && normalizedSource !== "nebraska-home-hub") {
+      const validSources = ["nebraska-home-hub"];
+      if (normalizedSource && !validSources.includes(normalizedSource)) {
         console.warn(`⚠️ Unknown integration source: ${source}`);
-        if (acceptHeader.includes("text/html")) {
-          return res.status(403).send("Unknown integration source");
-        }
-        return res.status(403).json({
-          error: "Unknown integration source",
-        });
+        return res.status(403).json({ error: "Unknown integration source" });
       }
 
-      // Log the integration request
       console.log(
-        `🔗 Integration request from ${
-          normalizedSource || "unknown"
-        } - domain: ${domain}, agent: ${agentSlug}`
+        `🔗 Integration request - source: ${source}, origin: ${originToCheck}, email: ${userEmail}, autoLogin: ${autoLogin}`
       );
+
+      if (autoLogin === "true" && userEmail && typeof userEmail === "string") {
+        try {
+          const { createOrLoginPublicUser } = await import("./utils/auth");
+          const loginResult = await createOrLoginPublicUser(
+            userEmail.trim(),
+            typeof agentSlug === "string" ? agentSlug : "default",
+            userEmail.split("@")[0],
+          );
+
+          if (loginResult.user && loginResult.token) {
+            console.log(`🔗 Integration auto-login success for ${userEmail} → user ${loginResult.user.id}`);
+            
+            res.cookie("authToken", loginResult.token, {
+              httpOnly: true,
+              secure: process.env.NODE_ENV === "production",
+              sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+              maxAge: 7 * 24 * 60 * 60 * 1000,
+            });
+
+            return res.send(`<!DOCTYPE html>
+<html><head><title>Loading...</title></head>
+<body>
+<script>
+  try { localStorage.setItem("authToken", ${JSON.stringify(loginResult.token)}); } catch(e) {}
+  window.location.replace("/#social");
+</script>
+<noscript><a href="/#social">Click here to continue</a></noscript>
+</body></html>`);
+          }
+        } catch (loginErr) {
+          console.error("Integration auto-login error:", loginErr);
+        }
+      }
 
       if (acceptHeader.includes("text/html")) {
         return next();
       }
 
-      // Use the published deployment URL for consistent iframe embedding
       const appUrl = "https://multi-users-realtyflow.replit.app";
-
-      const params = new URLSearchParams();
-      if (userEmail) {
-        params.set("bypassAuth", "true");
-        params.set("userId", userEmail as string);
-        params.set("userType", "public");
-        params.set("autoLogin", "true");
-      }
-      if (agentSlug) {
-        params.set("agentSlug", agentSlug as string);
-      }
-
-      const query = params.toString();
-      const iframeUrl = `${appUrl}/integration${query ? `?${query}` : ""}`;
-
-      // Return integration configuration with tenant-scoped data
       res.json({
         success: true,
         source: normalizedSource || "unknown",
         timestamp: timestamp || new Date().toISOString(),
         config: {
           appUrl: appUrl,
-          iframeUrl: iframeUrl,
           authBypass: true,
           agentSlug: agentSlug,
           userEmail: userEmail || null,

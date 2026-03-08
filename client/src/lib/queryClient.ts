@@ -3,9 +3,6 @@ import { getAuthHeaders, clearAuthToken } from "./authToken";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    if (res.status === 401) {
-      clearAuthToken();
-    }
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
@@ -50,7 +47,6 @@ export const getQueryFn: <T>(options: {
     });
 
     if (res.status === 401) {
-      clearAuthToken();
       if (unauthorizedBehavior === "returnNull") {
         return null;
       }

@@ -18,7 +18,6 @@ export default function IntegrationPage() {
   const [isAutoLogging, setIsAutoLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Check for auto-login parameters from NebraskaHomeHub
   useEffect(() => {
     const checkAutoLogin = async () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -26,8 +25,7 @@ export default function IntegrationPage() {
       const autoLogin = urlParams.get("autoLogin");
       const source = urlParams.get("source");
 
-      // If coming from NebraskaHomeHub with auto-login
-      if (autoLogin === "true" && userEmail && source === "nebraska-home-hub") {
+      if (autoLogin === "true" && userEmail) {
         setIsAutoLogging(true);
         setError(null);
 
@@ -35,10 +33,8 @@ export default function IntegrationPage() {
           const loginResult = await universalLogin(userEmail);
 
           if (loginResult.success) {
-            // Successful auto-login, redirect to dashboard social tab
             setLocation("/#social");
           } else {
-            // Auto-login failed
             setError(
               "Auto-login failed, but you can still access the dashboard below."
             );
@@ -50,7 +46,6 @@ export default function IntegrationPage() {
           setIsAutoLogging(false);
         }
       } else if (source === "nebraska-home-hub") {
-        // Coming from NebraskaHomeHub without auto-login, redirect to social tab
         setLocation("/#social");
       }
     };

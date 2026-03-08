@@ -20,6 +20,7 @@ import MobileUploadPage from "@/pages/mobile-upload";
 import EventsCalendarPage from "@/pages/events-calendar";
 import UnifiedCalendarPage from "@/pages/unified-calendar";
 import TemplateStudioPage from "@/pages/template-studio";
+import HelpGuidesPage from "@/pages/help-guides";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import { DemoModeBanner } from "@/components/shared/demo-mode-banner";
@@ -89,6 +90,11 @@ function Router() {
       <Route path="/menu-items">
         <ProtectedRoute>
           <MenuItemsPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/help">
+        <ProtectedRoute>
+          <HelpGuidesPage />
         </ProtectedRoute>
       </Route>
       <Route component={NotFound} />

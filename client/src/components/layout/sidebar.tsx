@@ -21,6 +21,7 @@ import { cn, getUserDisplayName, getUserInitials } from "@/lib/utils";
 import { useBusinessType, BUSINESS_TYPE_OPTIONS, BusinessType } from "@/lib/businessContext";
 import {
   BarChart3,
+  BookOpen,
   Bot,
   CalendarClock,
   CalendarDays,
@@ -153,6 +154,13 @@ const navigationItems = [
     label: "Advanced Advertising",
     href: "/dashboard#advertising",
     key: "advertising",
+    isPageLink: true,
+  },
+  {
+    icon: BookOpen,
+    label: "Help & Guides",
+    href: "/help",
+    key: "help",
     isPageLink: true,
   },
 ];

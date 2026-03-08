@@ -2573,7 +2573,7 @@ ${agentName} | ${brokerageName}
                           key={vid.type}
                           onClick={() => {
                             const token = localStorage.getItem("authToken");
-                            fetch(`/api/whatsapp/guide/video?type=${vid.type}`, {
+                            fetch(`/api/whatsapp/guide/video?type=${vid.type}&download=true`, {
                               headers: token ? { Authorization: `Bearer ${token}` } : {},
                               credentials: "include",
                             })

@@ -20839,6 +20839,50 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/whatsapp/guide/content", requireAuth, async (req, res) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const mdPath = path.join(process.cwd(), "docs", "whatsapp-bulk-messaging-guide.md");
+      const mdContent = fs.readFileSync(mdPath, "utf-8");
+      const guideImgDir = path.join(process.cwd(), "docs", "guide-images");
+      const images: string[] = [];
+      if (fs.existsSync(guideImgDir)) {
+        const files = fs.readdirSync(guideImgDir).filter((f: string) => f.endsWith(".png")).sort();
+        images.push(...files);
+      }
+      const videoDir = path.join(process.cwd(), "attached_assets", "generated_videos");
+      const videos: { type: string; label: string; filename: string }[] = [];
+      const videoMap = [
+        { type: "template", label: "How to Create Templates", filename: "whatsapp-template-creation-tutorial.mp4" },
+        { type: "bulk", label: "How to Send Bulk Messages", filename: "whatsapp-bulk-send-tutorial.mp4" },
+      ];
+      for (const v of videoMap) {
+        if (fs.existsSync(path.join(videoDir, v.filename))) videos.push(v);
+      }
+      res.json({ markdown: mdContent, images, videos });
+    } catch (error: any) {
+      console.error("Error loading guide content:", error);
+      res.status(500).json({ error: "Failed to load guide content" });
+    }
+  });
+
+  app.get("/api/whatsapp/guide/image/:filename", requireAuth, async (req, res) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const filename = req.params.filename.replace(/[^a-zA-Z0-9._-]/g, "");
+      if (!filename.endsWith(".png")) return res.status(400).json({ error: "Invalid file type" });
+      const imgPath = path.join(process.cwd(), "docs", "guide-images", filename);
+      if (!fs.existsSync(imgPath)) return res.status(404).json({ error: "Image not found" });
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      fs.createReadStream(imgPath).pipe(res);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to serve image" });
+    }
+  });
+
   app.get("/api/whatsapp/guide/video", requireAuth, async (req, res) => {
     try {
       const type = (req.query.type as string) || "template";
@@ -20852,15 +20896,38 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!video) return res.status(400).json({ error: "Invalid video type. Use 'template' or 'bulk'." });
       const videoPath = path.join(process.cwd(), "attached_assets", "generated_videos", video.file);
       if (!fs.existsSync(videoPath)) return res.status(404).json({ error: "Video not found" });
-      res.setHeader("Content-Type", "video/mp4");
-      res.setHeader("Content-Disposition", `attachment; filename=${video.name}`);
-      const stream = fs.createReadStream(videoPath);
-      stream.on("error", (err: any) => {
-        console.error("Error streaming guide video:", err);
-        if (!res.headersSent) res.status(500).json({ error: "Failed to stream video" });
-        else res.end();
-      });
-      stream.pipe(res);
+      const stat = fs.statSync(videoPath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+        res.writeHead(206, {
+          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+          "Accept-Ranges": "bytes",
+          "Content-Length": chunkSize,
+          "Content-Type": "video/mp4",
+        });
+        const stream = fs.createReadStream(videoPath, { start, end });
+        stream.on("error", (err: any) => { if (!res.headersSent) res.status(500).end(); else res.end(); });
+        stream.pipe(res);
+      } else {
+        const isDownload = req.query.download === "true";
+        res.setHeader("Content-Type", "video/mp4");
+        res.setHeader("Content-Length", fileSize);
+        res.setHeader("Accept-Ranges", "bytes");
+        if (isDownload) res.setHeader("Content-Disposition", `attachment; filename=${video.name}`);
+        const stream = fs.createReadStream(videoPath);
+        stream.on("error", (err: any) => {
+          console.error("Error streaming guide video:", err);
+          if (!res.headersSent) res.status(500).json({ error: "Failed to stream video" });
+          else res.end();
+        });
+        stream.pipe(res);
+      }
     } catch (error: any) {
       console.error("Error serving guide video:", error);
       res.status(500).json({ error: "Failed to serve video" });

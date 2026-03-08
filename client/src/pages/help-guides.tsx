@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sidebar } from "@/components/layout/sidebar";
+import { useAuth } from "@/hooks/useAuth";
 import {
   BookOpen,
   Download,
@@ -12,8 +13,10 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowUp,
+  Home,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
+import { Link } from "wouter";
 
 interface GuideContent {
   markdown: string;
@@ -198,6 +201,7 @@ function MarkdownRenderer({ markdown }: { markdown: string }) {
 
 export default function HelpGuidesPage() {
   const { toast } = useToast();
+  const { isAuthenticated } = useAuth();
   const [activeSection, setActiveSection] = useState<string>("");
   const [tocOpen, setTocOpen] = useState(true);
   const [showBackToTop, setShowBackToTop] = useState(false);
@@ -227,29 +231,19 @@ export default function HelpGuidesPage() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  function downloadFile(url: string, filename: string) {
-    const token = localStorage.getItem("authToken");
-    fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: "include",
-    })
-      .then((r) => { if (!r.ok) throw new Error(); return r.blob(); })
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(blobUrl);
-      })
-      .catch(() => toast({ title: "Download failed", variant: "destructive" }));
-  }
-
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar />
+      {isAuthenticated && <Sidebar />}
       <main className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto px-4 py-6 md:px-8">
+          {!isAuthenticated && (
+            <div className="flex items-center justify-between mb-4 pb-4 border-b">
+              <Link href="/login" className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1" data-testid="link-login">
+                <Home className="h-4 w-4" /> Back to iMakePage
+              </Link>
+            </div>
+          )}
+
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-foreground flex items-center gap-2" data-testid="heading-help-guides">
@@ -261,26 +255,24 @@ export default function HelpGuidesPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => downloadFile("/api/whatsapp/guide/download?format=pdf", "WhatsApp-Bulk-Messaging-Guide.pdf")}
-                className="text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30"
+              <a
+                href="/api/whatsapp/guide/download?format=pdf"
+                download="WhatsApp-Bulk-Messaging-Guide.pdf"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30 transition-colors"
                 data-testid="btn-download-pdf"
               >
-                <FileText className="h-4 w-4 mr-1.5" />
+                <FileText className="h-4 w-4" />
                 Download PDF
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => downloadFile("/api/whatsapp/guide/download?format=docx", "WhatsApp-Bulk-Messaging-Guide.docx")}
-                className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-800 dark:hover:bg-blue-950/30"
+              </a>
+              <a
+                href="/api/whatsapp/guide/download?format=docx"
+                download="WhatsApp-Bulk-Messaging-Guide.docx"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-800 dark:hover:bg-blue-950/30 transition-colors"
                 data-testid="btn-download-docx"
               >
-                <FileText className="h-4 w-4 mr-1.5" />
+                <FileText className="h-4 w-4" />
                 Download Word
-              </Button>
+              </a>
             </div>
           </div>
 
@@ -297,6 +289,7 @@ export default function HelpGuidesPage() {
                       <video
                         controls
                         preload="metadata"
+                        playsInline
                         className="w-full aspect-video bg-black"
                         data-testid={`video-${vid.type}`}
                       >
@@ -308,18 +301,15 @@ export default function HelpGuidesPage() {
                       </video>
                       <div className="p-3 flex items-center justify-between">
                         <span className="text-sm font-medium text-foreground">{vid.label}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => downloadFile(
-                            `/api/whatsapp/guide/video?type=${vid.type}`,
-                            vid.type === "template" ? "How-to-Create-WhatsApp-Templates.mp4" : "How-to-Send-Bulk-Messages.mp4"
-                          )}
+                        <a
+                          href={`/api/whatsapp/guide/video?type=${vid.type}&download=true`}
+                          download={vid.type === "template" ? "How-to-Create-WhatsApp-Templates.mp4" : "How-to-Send-Bulk-Messages.mp4"}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors text-muted-foreground"
                           data-testid={`btn-download-video-${vid.type}`}
                         >
-                          <Download className="h-4 w-4 mr-1" />
+                          <Download className="h-4 w-4" />
                           Save
-                        </Button>
+                        </a>
                       </div>
                     </div>
                   ))}

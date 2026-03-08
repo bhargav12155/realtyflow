@@ -92,11 +92,7 @@ function Router() {
           <MenuItemsPage />
         </ProtectedRoute>
       </Route>
-      <Route path="/help">
-        <ProtectedRoute>
-          <HelpGuidesPage />
-        </ProtectedRoute>
-      </Route>
+      <Route path="/help" component={HelpGuidesPage} />
       <Route component={NotFound} />
     </Switch>
   );

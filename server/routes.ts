@@ -20839,7 +20839,14 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
-  app.get("/api/whatsapp/guide/content", requireAuth, async (req, res) => {
+  function guideAuth(req: any, res: any, next: any) {
+    if (req.query.token) {
+      req.headers.authorization = `Bearer ${req.query.token}`;
+    }
+    requireAuth(req, res, next);
+  }
+
+  app.get("/api/whatsapp/guide/content", guideAuth, async (req, res) => {
     try {
       const fs = await import("fs");
       const path = await import("path");
@@ -20867,7 +20874,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
-  app.get("/api/whatsapp/guide/image/:filename", requireAuth, async (req, res) => {
+  app.get("/api/whatsapp/guide/image/:filename", guideAuth, async (req, res) => {
     try {
       const fs = await import("fs");
       const path = await import("path");
@@ -20883,7 +20890,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
-  app.get("/api/whatsapp/guide/video", requireAuth, async (req, res) => {
+  app.get("/api/whatsapp/guide/video", guideAuth, async (req, res) => {
     try {
       const type = (req.query.type as string) || "template";
       const fs = await import("fs");

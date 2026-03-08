@@ -20849,12 +20849,54 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const path = await import("path");
       const mdPath = path.join(process.cwd(), "docs", "whatsapp-bulk-messaging-guide.md");
       const mdContent = fs.readFileSync(mdPath, "utf-8");
-
       const lines = mdContent.split("\n");
+
+      const guideImgDir = path.join(process.cwd(), "docs", "guide-images");
+      const sectionImages: Record<string, { file: string; caption: string }> = {
+        "## 1. Setting Up WhatsApp": { file: "01-whatsapp-settings.png", caption: "Figure 1: WhatsApp Business Settings — enter your Phone Number ID, WABA ID, and Access Token" },
+        "## 2. Creating Message Templates": { file: "02-create-template.png", caption: "Figure 2: Template Creation Form — fill in name, category, header, body, and footer" },
+        "## 4. Sending Bulk Messages": { file: "03-bulk-send-workflow.png", caption: "Figure 3: Bulk Send Workflow — from uploading contacts to automatic queue management" },
+        "## 6. Managing Bulk Queues": { file: "04-queue-management.png", caption: "Figure 4: Queue Management Dashboard — pause, resume, send now, or cancel queues" },
+        "## 8. WhatsApp Analytics": { file: "05-analytics-dashboard.png", caption: "Figure 5: Analytics Dashboard — messages sent, delivery rate, read rate, and cost breakdown" },
+        "## 5. Understanding the Bulk Queue System": { file: "06-messaging-tiers.png", caption: "Figure 6: Meta Messaging Tiers — your daily limit increases with quality and volume" },
+      };
+      const subsectionImages: Record<string, { file: string; caption: string }> = {
+        "### Step 1: Prepare Your Contact List": { file: "07-file-import.png", caption: "Figure 7: File Import — supported formats and smart number extraction" },
+        "### Template Approval:": { file: "08-template-lifecycle.png", caption: "Figure 8: Template Lifecycle — from draft to approved or rejected" },
+      };
+
+      function getImagePath(filename: string): string | null {
+        const full = path.join(guideImgDir, filename);
+        return fs.existsSync(full) ? full : null;
+      }
 
       if (format === "docx") {
         const docx = await import("docx");
         const sections: any[] = [];
+
+        function addDocxImage(imgInfo: { file: string; caption: string }) {
+          const imgPath = getImagePath(imgInfo.file);
+          if (!imgPath) return;
+          const imgBuf = fs.readFileSync(imgPath);
+          sections.push(new docx.Paragraph({
+            spacing: { before: 200, after: 100 },
+            alignment: docx.AlignmentType.CENTER,
+            children: [
+              new docx.ImageRun({
+                data: imgBuf,
+                transformation: { width: 500, height: 280 },
+                type: "png",
+              }),
+            ],
+          }));
+          sections.push(new docx.Paragraph({
+            spacing: { after: 200 },
+            alignment: docx.AlignmentType.CENTER,
+            children: [
+              new docx.TextRun({ text: imgInfo.caption, italics: true, size: 18, color: "666666" }),
+            ],
+          }));
+        }
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -20864,8 +20906,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
             sections.push(new docx.Paragraph({ text: trimmed.replace(/^# /, ""), heading: docx.HeadingLevel.HEADING_1, spacing: { after: 200 } }));
           } else if (trimmed.startsWith("## ")) {
             sections.push(new docx.Paragraph({ text: trimmed.replace(/^## /, ""), heading: docx.HeadingLevel.HEADING_2, spacing: { before: 400, after: 200 } }));
+            if (sectionImages[trimmed]) addDocxImage(sectionImages[trimmed]);
           } else if (trimmed.startsWith("### ")) {
             sections.push(new docx.Paragraph({ text: trimmed.replace(/^### /, ""), heading: docx.HeadingLevel.HEADING_3, spacing: { before: 300, after: 150 } }));
+            if (subsectionImages[trimmed]) addDocxImage(subsectionImages[trimmed]);
           } else if (trimmed.startsWith("- **") || trimmed.startsWith("* **")) {
             const cleanText = trimmed.replace(/^[-*]\s*/, "").replace(/\*\*/g, "");
             sections.push(new docx.Paragraph({ text: cleanText, bullet: { level: 0 }, spacing: { after: 80 } }));
@@ -20907,9 +20951,29 @@ Be helpful, professional, and concise. Always let users know what the platform c
         res.send(pdfBuffer);
       });
 
+      const pageWidth = 612 - 120;
+
+      function addPdfImage(imgInfo: { file: string; caption: string }) {
+        const imgPath = getImagePath(imgInfo.file);
+        if (!imgPath) return;
+        const imgW = pageWidth * 0.85;
+        const imgH = imgW * 0.56;
+        if (doc.y + imgH + 40 > 700) doc.addPage();
+        doc.moveDown(0.5);
+        const xOffset = 60 + (pageWidth - imgW) / 2;
+        doc.image(imgPath, xOffset, doc.y, { width: imgW, height: imgH });
+        doc.y += imgH + 8;
+        doc.fontSize(8).font("Helvetica-Oblique").fillColor("#666666").text(imgInfo.caption, { align: "center" });
+        doc.fillColor("#000000").font("Helvetica");
+        doc.moveDown(0.5);
+      }
+
       doc.fontSize(24).font("Helvetica-Bold").text("WhatsApp Bulk Messaging Guide", { align: "center" });
       doc.moveDown(0.5);
       doc.fontSize(11).font("Helvetica").text("Complete guide for sending bulk WhatsApp messages through iMakePage", { align: "center" });
+      doc.moveDown(0.3);
+      doc.fontSize(9).font("Helvetica-Oblique").fillColor("#888888").text("Includes visual illustrations for every major section", { align: "center" });
+      doc.fillColor("#000000").font("Helvetica");
       doc.moveDown(1);
       doc.moveTo(60, doc.y).lineTo(552, doc.y).stroke("#cccccc");
       doc.moveDown(1);
@@ -20920,20 +20984,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
         if (trimmed.startsWith("# ") && trimmed.includes("WhatsApp Bulk")) continue;
         if (trimmed.startsWith("Complete guide for sending")) continue;
 
-        if (doc.y > 680) {
-          doc.addPage();
-        }
+        if (doc.y > 680) doc.addPage();
 
         if (trimmed.startsWith("## ")) {
           doc.moveDown(0.8);
           doc.fontSize(16).font("Helvetica-Bold").fillColor("#1a5276").text(trimmed.replace(/^## /, ""));
           doc.moveDown(0.3);
           doc.fillColor("#000000");
+          if (sectionImages[trimmed]) addPdfImage(sectionImages[trimmed]);
         } else if (trimmed.startsWith("### ")) {
           doc.moveDown(0.5);
           doc.fontSize(13).font("Helvetica-Bold").fillColor("#2c3e50").text(trimmed.replace(/^### /, ""));
           doc.moveDown(0.2);
           doc.fillColor("#000000");
+          if (subsectionImages[trimmed]) addPdfImage(subsectionImages[trimmed]);
         } else if (trimmed.startsWith("- **") || trimmed.startsWith("* **")) {
           const cleanText = trimmed.replace(/^[-*]\s*/, "").replace(/\*\*/g, "");
           doc.fontSize(10).font("Helvetica").text(`  •  ${cleanText}`, { indent: 15 });

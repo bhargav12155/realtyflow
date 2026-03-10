@@ -258,6 +258,8 @@ export default function HelpGuidesPage() {
               <a
                 href="/api/whatsapp/guide/download?format=pdf"
                 download="WhatsApp-Bulk-Messaging-Guide.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border text-red-600 border-red-200 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/30 transition-colors"
                 data-testid="btn-download-pdf"
               >
@@ -267,6 +269,8 @@ export default function HelpGuidesPage() {
               <a
                 href="/api/whatsapp/guide/download?format=docx"
                 download="WhatsApp-Bulk-Messaging-Guide.docx"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border text-blue-600 border-blue-200 hover:bg-blue-50 dark:border-blue-800 dark:hover:bg-blue-950/30 transition-colors"
                 data-testid="btn-download-docx"
               >
@@ -304,6 +308,8 @@ export default function HelpGuidesPage() {
                         <a
                           href={`/api/whatsapp/guide/video?type=${vid.type}&download=true`}
                           download={vid.type === "template" ? "How-to-Create-WhatsApp-Templates.mp4" : "How-to-Send-Bulk-Messages.mp4"}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors text-muted-foreground"
                           data-testid={`btn-download-video-${vid.type}`}
                         >

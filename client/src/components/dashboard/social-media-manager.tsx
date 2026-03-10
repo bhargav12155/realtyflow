@@ -2534,6 +2534,8 @@ ${agentName} | ${brokerageName}
                           key={fmt}
                           href={`/api/whatsapp/guide/download?format=${fmt}`}
                           download={`WhatsApp-Bulk-Messaging-Guide.${fmt}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded-md border transition-colors ${
                             fmt === "pdf"
                               ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800 hover:bg-red-100"
@@ -2558,6 +2560,8 @@ ${agentName} | ${brokerageName}
                           key={vid.type}
                           href={`/api/whatsapp/guide/video?type=${vid.type}&download=true`}
                           download={vid.type === "template" ? "How-to-Create-WhatsApp-Templates.mp4" : "How-to-Send-Bulk-Messages.mp4"}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="w-full inline-flex items-center gap-1.5 px-2 py-1.5 text-[10px] font-medium rounded-md border transition-colors bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/40"
                           data-testid={`btn-download-video-${vid.type}`}
                         >

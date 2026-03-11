@@ -2338,32 +2338,43 @@ ${agentName} | ${brokerageName}
                   >
                     {account.isConnected ? (
                       <>
-                        <Plug className="h-5 w-5 text-green-600" />
-                        {account.platform.toLowerCase() !== "whatsapp" && (
-                          <Button
-                            onClick={() =>
-                              disconnectMutation.mutate(
-                                account.platform.toLowerCase(),
-                              )
-                            }
-                            disabled={disconnectMutation.isPending}
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
-                            data-testid={`button-disconnect-${account.platform}`}
+                        {account.platform.toLowerCase() === "whatsapp" ? (
+                          <a
+                            href="/settings"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md border border-green-200 text-green-600 hover:bg-green-50 hover:border-green-300 transition-colors"
+                            data-testid={`button-settings-${account.platform}`}
                           >
-                            {disconnectMutation.isPending ? (
-                              <>
-                                <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
-                                Disconnecting...
-                              </>
-                            ) : (
-                              <>
-                                <PlugZap className="mr-1 h-3 w-3" />
-                                Disconnect
-                              </>
-                            )}
-                          </Button>
+                            <Settings className="h-3 w-3" />
+                            Settings
+                          </a>
+                        ) : (
+                          <>
+                            <Plug className="h-5 w-5 text-green-600" />
+                            <Button
+                              onClick={() =>
+                                disconnectMutation.mutate(
+                                  account.platform.toLowerCase(),
+                                )
+                              }
+                              disabled={disconnectMutation.isPending}
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                              data-testid={`button-disconnect-${account.platform}`}
+                            >
+                              {disconnectMutation.isPending ? (
+                                <>
+                                  <RefreshCw className="mr-1 h-3 w-3 animate-spin" />
+                                  Disconnecting...
+                                </>
+                              ) : (
+                                <>
+                                  <PlugZap className="mr-1 h-3 w-3" />
+                                  Disconnect
+                                </>
+                              )}
+                            </Button>
+                          </>
                         )}
                       </>
                     ) : (

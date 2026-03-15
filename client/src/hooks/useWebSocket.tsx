@@ -17,7 +17,8 @@ interface WebSocketMessage {
     | "video_generation_failed"
     | "look_generation_complete"
     | "look_generation_failed"
-    | "motion_complete";
+    | "motion_complete"
+    | "sjinn_video_ready";
   data: any;
   timestamp: string;
   userId?: number;

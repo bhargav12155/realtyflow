@@ -96,7 +96,7 @@ function createGeminiCompatibleClient() {
       async generate(params: any): Promise<any> {
         try {
           const response = await genAI.models.generateContent({
-            model: "gemini-2.0-flash-exp-image-generation",
+            model: "gemini-2.5-flash-image",
             contents: [{ role: "user", parts: [{ text: params.prompt }] }],
             config: { responseModalities: ["TEXT", "IMAGE"] },
           });
@@ -596,7 +596,7 @@ RULES:
       console.log(`🎨 [ImageGen] Generating image with prompt: "${prompt.substring(0, 100)}..."`);
 
       const response = await genAI.models.generateContent({
-        model: "gemini-2.0-flash-exp-image-generation",
+        model: "gemini-2.5-flash-image",
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { responseModalities: ["TEXT", "IMAGE"] },
       });

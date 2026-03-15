@@ -51,6 +51,7 @@ import {
   MapPin,
   ExternalLink,
   DoorOpen,
+  AlertTriangle,
 } from "lucide-react";
 import { Link } from "wouter";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -231,6 +232,9 @@ export function PropertyTourStudio() {
   const [sjinnTourStatus, setSjinnTourStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnTourVideoUrl, setSjinnTourVideoUrl] = useState<string | null>(null);
   const sjinnTourPollRef = useRef<NodeJS.Timeout | null>(null);
+  const sjinnTourStartTimeRef = useRef<number | null>(null);
+  const [sjinnTourElapsed, setSjinnTourElapsed] = useState(0);
+  const sjinnTourElapsedRef = useRef<NodeJS.Timeout | null>(null);
 
   const { data: avatarsData, isLoading: avatarsLoading } = useQuery<{ photos: AvatarPhoto[] }>({
     queryKey: ["/api/avatar-iv/photos"],
@@ -879,6 +883,15 @@ ${propertyDetails}`;
       setSjinnTourChatId(chatId);
       setSjinnTourStatus("processing");
 
+      sjinnTourStartTimeRef.current = Date.now();
+      setSjinnTourElapsed(0);
+      if (sjinnTourElapsedRef.current) clearInterval(sjinnTourElapsedRef.current);
+      sjinnTourElapsedRef.current = setInterval(() => {
+        if (sjinnTourStartTimeRef.current) {
+          setSjinnTourElapsed(Math.floor((Date.now() - sjinnTourStartTimeRef.current) / 1000));
+        }
+      }, 1000);
+
       if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
       sjinnTourPollRef.current = setInterval(async () => {
         try {
@@ -889,10 +902,22 @@ ${propertyDetails}`;
             setSjinnTourVideoUrl(statusData.videoUrl);
             setSjinnTourStatus("completed");
             if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
+            if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
+            sjinnTourStartTimeRef.current = null;
             toast({ title: "SJinn Video Ready", description: "Your property tour video has been generated." });
+            try {
+              fetch("/api/sjinn/notify-completion", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ videoUrl: statusData.videoUrl, chatId }),
+              }).catch(() => {});
+            } catch {}
           } else if (statusData.status === "failed") {
             setSjinnTourStatus("failed");
             if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
+            if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
+            sjinnTourStartTimeRef.current = null;
             toast({ title: "SJinn Generation Failed", description: statusData.error || "Video generation failed.", variant: "destructive" });
           }
         } catch {
@@ -2236,12 +2261,36 @@ ${propertyDetails}`;
                       <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
                       <div>
                         <p className="text-sm font-medium text-amber-700 dark:text-amber-400">SJinn is generating your video…</p>
-                        <p className="text-xs text-muted-foreground">Estimated time: 5–15 minutes. You can stay on this page.</p>
+                        <p className="text-xs text-muted-foreground">Elapsed: {Math.floor(sjinnTourElapsed / 60)}:{String(sjinnTourElapsed % 60).padStart(2, "0")} — Estimated: 5–15 minutes</p>
                       </div>
                     </div>
+                    {sjinnTourElapsed >= 600 && (
+                      <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sjinn-timeout-warning-tour">
+                        <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                        <span>This is taking longer than expected. You can keep waiting or cancel.</span>
+                      </div>
+                    )}
                     {sjinnTourChatId && (
                       <p className="text-xs text-muted-foreground">Job ID: {sjinnTourChatId}</p>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                      data-testid="button-cancel-sjinn-tour"
+                      onClick={() => {
+                        if (sjinnTourPollRef.current) { clearInterval(sjinnTourPollRef.current); sjinnTourPollRef.current = null; }
+                        if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
+                        sjinnTourStartTimeRef.current = null;
+                        setSjinnTourElapsed(0);
+                        setSjinnTourStatus("idle");
+                        setSjinnTourChatId(null);
+                        setSjinnTourVideoUrl(null);
+                        toast({ title: "Video Generation Cancelled", description: "SJinn video generation has been cancelled." });
+                      }}
+                    >
+                      <X className="h-4 w-4 mr-1" />Cancel Generation
+                    </Button>
                   </div>
                 )}
 

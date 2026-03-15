@@ -22598,6 +22598,49 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.post("/api/sjinn/notify-completion", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const { videoUrl, chatId } = req.body;
+      if (!videoUrl || !chatId) {
+        return res.status(400).json({ error: "videoUrl and chatId are required" });
+      }
+
+      let notifiedVia = "in-app";
+
+      try {
+        const settings = await storage.getWhatsappSettingsByUserId(String(userId));
+        if (settings?.phoneNumberId && settings?.accessToken && settings?.displayPhoneNumber) {
+          const userPhone = settings.displayPhoneNumber.replace(/[^0-9]/g, "");
+          if (userPhone) {
+            await whatsappService.sendTextMessage(
+              settings.phoneNumberId,
+              settings.accessToken,
+              userPhone,
+              `Your AI video is ready!\n\nView it here: ${videoUrl}\n\n- iMakePage Video Studio`
+            );
+            notifiedVia = "whatsapp";
+          }
+        }
+      } catch (waErr: any) {
+        console.warn("WhatsApp notification failed, falling back to in-app:", waErr.message);
+      }
+
+      const numericId = Number(userId);
+      realtimeService.sendToUser(String(userId), {
+        type: "sjinn_video_ready" as any,
+        data: { chatId, videoUrl, message: `Your AI video is ready! View it here: ${videoUrl}` },
+        timestamp: new Date().toISOString(),
+        userId: isNaN(numericId) ? 0 : numericId,
+      });
+
+      res.json({ success: true, notifiedVia });
+    } catch (error: any) {
+      console.error("SJinn notify-completion error:", error);
+      res.status(500).json({ error: error.message || "Failed to send notification" });
+    }
+  });
+
   app.get("/api/business-locations", requireAuth, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;

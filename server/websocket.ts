@@ -338,6 +338,19 @@ export class RealtimeService {
     });
   }
 
+  notifySjinnVideoReady(userId: number, videoUrl: string, chatId: string) {
+    this.sendToUser(userId.toString(), {
+      type: "sjinn_video_ready" as any,
+      data: {
+        chatId,
+        videoUrl,
+        message: `Your AI video is ready! View it here: ${videoUrl}`,
+      },
+      timestamp: new Date().toISOString(),
+      userId,
+    });
+  }
+
   // Get connection stats
   getStats() {
     return {

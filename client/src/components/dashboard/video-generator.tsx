@@ -42,6 +42,8 @@ import {
   Wand2,
   X,
   Youtube,
+  AlertTriangle,
+  Loader2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { OmahaVideoTemplates } from "./omaha-video-templates";
@@ -137,6 +139,9 @@ export function VideoGenerator() {
   const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
   const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
+  const sjinnStartTimeRef = useRef<number | null>(null);
+  const [sjinnElapsed, setSjinnElapsed] = useState(0);
+  const sjinnElapsedRef = useRef<NodeJS.Timeout | null>(null);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -270,10 +275,31 @@ export function VideoGenerator() {
       clearInterval(sjinnPollRef.current);
       sjinnPollRef.current = null;
     }
+    if (sjinnElapsedRef.current) {
+      clearInterval(sjinnElapsedRef.current);
+      sjinnElapsedRef.current = null;
+    }
+    sjinnStartTimeRef.current = null;
+    setSjinnElapsed(0);
+  };
+
+  const cancelSjinnGeneration = () => {
+    stopSjinnPolling();
+    setSjinnStatus("idle");
+    setSjinnChatId(null);
+    setSjinnVideoUrl(null);
+    toast({ title: "Video Generation Cancelled", description: "SJinn video generation has been cancelled." });
   };
 
   const startSjinnPolling = (chatId: string) => {
     stopSjinnPolling();
+    sjinnStartTimeRef.current = Date.now();
+    setSjinnElapsed(0);
+    sjinnElapsedRef.current = setInterval(() => {
+      if (sjinnStartTimeRef.current) {
+        setSjinnElapsed(Math.floor((Date.now() - sjinnStartTimeRef.current) / 1000));
+      }
+    }, 1000);
     sjinnPollRef.current = setInterval(async () => {
       try {
         const response = await apiRequest("GET", `/api/sjinn/status/${chatId}`);
@@ -283,6 +309,9 @@ export function VideoGenerator() {
           setSjinnStatus("completed");
           setSjinnVideoUrl(data.videoUrl);
           toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view." });
+          try {
+            apiRequest("POST", "/api/sjinn/notify-completion", { videoUrl: data.videoUrl, chatId }).catch(() => {});
+          } catch {}
         } else if (data.status === "failed") {
           stopSjinnPolling();
           setSjinnStatus("failed");
@@ -1338,12 +1367,29 @@ export function VideoGenerator() {
                       <Button variant="outline" size="sm" onClick={() => { setSjinnStatus("idle"); setSjinnVideoUrl(null); }}>Reset</Button>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-3 py-4">
-                      <div className="animate-spin h-5 w-5 border-2 border-[#D4AF37] border-t-transparent rounded-full" />
-                      <div>
-                        <p className="font-medium">SJinn AI is generating your video...</p>
-                        <p className="text-sm text-muted-foreground">This can take 5-15 minutes. Status: {sjinnStatus}</p>
+                    <div className="space-y-3 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="animate-spin h-5 w-5 border-2 border-[#D4AF37] border-t-transparent rounded-full" />
+                        <div>
+                          <p className="font-medium">SJinn AI is generating your video...</p>
+                          <p className="text-sm text-muted-foreground">Elapsed: {Math.floor(sjinnElapsed / 60)}:{String(sjinnElapsed % 60).padStart(2, "0")} — Status: {sjinnStatus}</p>
+                        </div>
                       </div>
+                      {sjinnElapsed >= 600 && (
+                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sjinn-timeout-warning-vg">
+                          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                          <span>This is taking longer than expected. You can keep waiting or cancel.</span>
+                        </div>
+                      )}
+                      <Button
+                        onClick={cancelSjinnGeneration}
+                        variant="outline"
+                        size="sm"
+                        className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                        data-testid="button-cancel-sjinn-vg"
+                      >
+                        <X className="h-4 w-4 mr-1" />Cancel Generation
+                      </Button>
                     </div>
                   )}
                 </div>

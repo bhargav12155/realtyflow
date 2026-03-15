@@ -38,6 +38,7 @@ import {
   Trash2,
   ChevronLeft,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
@@ -298,6 +299,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
   const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
+  const sjinnStartTimeRef = useRef<number | null>(null);
+  const [sjinnElapsed, setSjinnElapsed] = useState(0);
+  const sjinnElapsedRef = useRef<NodeJS.Timeout | null>(null);
   const [sjinnImages, setSjinnImages] = useState<Array<{ url: string; preview: string }>>([]);
   const [sjinnImageUploading, setSjinnImageUploading] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
@@ -769,10 +773,31 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       clearInterval(sjinnPollRef.current);
       sjinnPollRef.current = null;
     }
+    if (sjinnElapsedRef.current) {
+      clearInterval(sjinnElapsedRef.current);
+      sjinnElapsedRef.current = null;
+    }
+    sjinnStartTimeRef.current = null;
+    setSjinnElapsed(0);
+  };
+
+  const cancelSjinnGeneration = () => {
+    stopSjinnPolling();
+    setSjinnStatus("idle");
+    setSjinnChatId(null);
+    setSjinnVideoUrl(null);
+    toast({ title: "Video Generation Cancelled", description: "SJinn video generation has been cancelled." });
   };
 
   const startSjinnPolling = (chatId: string) => {
     stopSjinnPolling();
+    sjinnStartTimeRef.current = Date.now();
+    setSjinnElapsed(0);
+    sjinnElapsedRef.current = setInterval(() => {
+      if (sjinnStartTimeRef.current) {
+        setSjinnElapsed(Math.floor((Date.now() - sjinnStartTimeRef.current) / 1000));
+      }
+    }, 1000);
     sjinnPollRef.current = setInterval(async () => {
       try {
         const token = getAuthToken();
@@ -792,6 +817,16 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           setMessages(prev => [...prev, assistantMsg]);
           setVideoMode(false);
           toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
+          try {
+            const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+            if (token) notifyHeaders["Authorization"] = `Bearer ${token}`;
+            fetch("/api/sjinn/notify-completion", {
+              method: "POST",
+              headers: notifyHeaders,
+              credentials: "include",
+              body: JSON.stringify({ videoUrl: data.videoUrl, chatId }),
+            }).catch(() => {});
+          } catch {}
         } else if (data.status === "failed") {
           setSjinnStatus("failed");
           stopSjinnPolling();
@@ -1359,23 +1394,43 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </div>
 
                   {(sjinnStatus === "pending" || sjinnStatus === "processing") && (
-                    <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>SJinn is generating your video (5–15 min)…</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>SJinn is generating your video ({Math.floor(sjinnElapsed / 60)}:{String(sjinnElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                      </div>
+                      {sjinnElapsed >= 600 && (
+                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sjinn-timeout-warning">
+                          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                          <span>This is taking longer than expected. You can keep waiting or cancel.</span>
+                        </div>
+                      )}
                     </div>
                   )}
-                  <Button
-                    onClick={startSjinnGeneration}
-                    disabled={sjinnStatus === "pending" || sjinnStatus === "processing" || !sjinnPrompt.trim()}
-                    className="w-full bg-primary hover:bg-primary/90"
-                    data-testid="button-generate-sjinn-assistant"
-                  >
-                    {(sjinnStatus === "pending" || sjinnStatus === "processing") ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating...</>
-                    ) : (
-                      <><Video className="h-4 w-4 mr-2" />Generate with SJinn</>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={startSjinnGeneration}
+                      disabled={sjinnStatus === "pending" || sjinnStatus === "processing" || !sjinnPrompt.trim()}
+                      className="flex-1 bg-primary hover:bg-primary/90"
+                      data-testid="button-generate-sjinn-assistant"
+                    >
+                      {(sjinnStatus === "pending" || sjinnStatus === "processing") ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating...</>
+                      ) : (
+                        <><Video className="h-4 w-4 mr-2" />Generate with SJinn</>
+                      )}
+                    </Button>
+                    {(sjinnStatus === "pending" || sjinnStatus === "processing") && (
+                      <Button
+                        onClick={cancelSjinnGeneration}
+                        variant="outline"
+                        className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                        data-testid="button-cancel-sjinn-assistant"
+                      >
+                        <X className="h-4 w-4 mr-1" />Cancel
+                      </Button>
                     )}
-                  </Button>
+                  </div>
                 </div>
               )}
 

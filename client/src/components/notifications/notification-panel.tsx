@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 interface Notification {
   id: string;
-  type: 'photo_generated' | 'video_created' | 'content_published' | 'social_post_scheduled' | 'notification' | 'avatar_group_created' | 'motion_added' | 'sound_effect_added' | 'avatar_ready' | 'training_status_update' | 'video_generation_complete' | 'video_generation_failed' | 'motion_complete' | 'look_generation_complete' | 'look_generation_failed';
+  type: 'photo_generated' | 'video_created' | 'content_published' | 'social_post_scheduled' | 'notification' | 'avatar_group_created' | 'motion_added' | 'sound_effect_added' | 'avatar_ready' | 'training_status_update' | 'video_generation_complete' | 'video_generation_failed' | 'motion_complete' | 'look_generation_complete' | 'look_generation_failed' | 'sjinn_video_ready';
   title: string;
   message: string;
   link?: string;
@@ -91,6 +91,8 @@ export function NotificationPanel({ userId, lastMessage }: NotificationPanelProp
         return <Sparkles className="w-4 h-4 text-green-500" />;
       case 'look_generation_failed':
         return <Sparkles className="w-4 h-4 text-red-500" />;
+      case 'sjinn_video_ready':
+        return <Video className="w-4 h-4 text-green-500" />;
       default:
         return <Bell className="w-4 h-4 text-gray-500" />;
     }
@@ -126,6 +128,8 @@ export function NotificationPanel({ userId, lastMessage }: NotificationPanelProp
         return 'AI Look Ready';
       case 'look_generation_failed':
         return 'Look Generation Failed';
+      case 'sjinn_video_ready':
+        return 'AI Video Ready';
       default:
         return 'Notification';
     }

@@ -3,7 +3,7 @@ import { Server } from "http";
 import type { IncomingMessage } from "http";
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready";
   data: any;
   timestamp: string;
   userId?: number;
@@ -338,16 +338,15 @@ export class RealtimeService {
     });
   }
 
-  notifySjinnVideoReady(userId: number, videoUrl: string, chatId: string) {
-    this.sendToUser(userId.toString(), {
-      type: "sjinn_video_ready" as any,
+  notifySjinnVideoReady(userId: string, videoUrl: string, chatId: string) {
+    this.sendToUser(userId, {
+      type: "sjinn_video_ready",
       data: {
         chatId,
         videoUrl,
         message: `Your AI video is ready! View it here: ${videoUrl}`,
       },
       timestamp: new Date().toISOString(),
-      userId,
     });
   }
 

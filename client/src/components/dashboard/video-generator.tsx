@@ -309,9 +309,8 @@ export function VideoGenerator() {
           setSjinnStatus("completed");
           setSjinnVideoUrl(data.videoUrl);
           toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view." });
-          try {
-            apiRequest("POST", "/api/sjinn/notify-completion", { videoUrl: data.videoUrl, chatId }).catch(() => {});
-          } catch {}
+          apiRequest("POST", "/api/sjinn/notify-completion", { videoUrl: data.videoUrl, chatId })
+            .catch((err) => console.warn("SJinn completion notification failed:", err));
         } else if (data.status === "failed") {
           stopSjinnPolling();
           setSjinnStatus("failed");

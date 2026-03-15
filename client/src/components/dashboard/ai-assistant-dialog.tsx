@@ -817,16 +817,14 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           setMessages(prev => [...prev, assistantMsg]);
           setVideoMode(false);
           toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
-          try {
-            const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
-            if (token) notifyHeaders["Authorization"] = `Bearer ${token}`;
-            fetch("/api/sjinn/notify-completion", {
-              method: "POST",
-              headers: notifyHeaders,
-              credentials: "include",
-              body: JSON.stringify({ videoUrl: data.videoUrl, chatId }),
-            }).catch(() => {});
-          } catch {}
+          const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+          if (token) notifyHeaders["Authorization"] = `Bearer ${token}`;
+          fetch("/api/sjinn/notify-completion", {
+            method: "POST",
+            headers: notifyHeaders,
+            credentials: "include",
+            body: JSON.stringify({ videoUrl: data.videoUrl, chatId }),
+          }).catch((err) => console.warn("SJinn completion notification failed:", err));
         } else if (data.status === "failed") {
           setSjinnStatus("failed");
           stopSjinnPolling();

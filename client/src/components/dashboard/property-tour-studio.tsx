@@ -905,14 +905,12 @@ ${propertyDetails}`;
             if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
             sjinnTourStartTimeRef.current = null;
             toast({ title: "SJinn Video Ready", description: "Your property tour video has been generated." });
-            try {
-              fetch("/api/sjinn/notify-completion", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ videoUrl: statusData.videoUrl, chatId }),
-              }).catch(() => {});
-            } catch {}
+            fetch("/api/sjinn/notify-completion", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ videoUrl: statusData.videoUrl, chatId }),
+            }).catch((err) => console.warn("SJinn completion notification failed:", err));
           } else if (statusData.status === "failed") {
             setSjinnTourStatus("failed");
             if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);

@@ -22626,13 +22626,9 @@ Be helpful, professional, and concise. Always let users know what the platform c
         console.warn("WhatsApp notification failed, falling back to in-app:", waErr.message);
       }
 
-      const numericId = Number(userId);
-      realtimeService.sendToUser(String(userId), {
-        type: "sjinn_video_ready" as any,
-        data: { chatId, videoUrl, message: `Your AI video is ready! View it here: ${videoUrl}` },
-        timestamp: new Date().toISOString(),
-        userId: isNaN(numericId) ? 0 : numericId,
-      });
+      if (notifiedVia !== "whatsapp") {
+        realtimeService.notifySjinnVideoReady(String(userId), videoUrl, chatId);
+      }
 
       res.json({ success: true, notifiedVia });
     } catch (error: any) {

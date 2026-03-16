@@ -1,0 +1,46 @@
+injected.js:37 Warning: validateDOMNesting(...): <button> cannot appear as a descendant of <button>.
+    at button
+    at _c (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/components/ui/button.tsx:47:11)
+    at div
+    at button
+    at div
+    at div
+    at div
+    at _c9 (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/components/ui/card.tsx:114:12)
+    at div
+    at _c (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/components/ui/card.tsx:20:11)
+    at div
+    at div
+    at AvatarStudio (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/components/dashboard/avatar-studio.tsx:101:21)
+    at div
+    at main
+    at div
+    at Dashboard (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/pages/dashboard.tsx:48:43)
+    at ProtectedRoute (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/components/ProtectedRoute.tsx:21:3)
+    at Route (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.repli…/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=c20b4654:323:16)
+    at Switch (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.repli…/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=c20b4654:379:17)
+    at Router
+    at Provider (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.repli…unner/workspace/node_modules/.vite/deps/chunk-OXZDJRWN.js?v=c20b4654:38:15)
+    at TooltipProvider (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.repli…rkspace/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=c20b4654:64:5)
+    at DemoProvider (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/contexts/DemoContext.tsx:65:32)
+    at AuthProvider (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/src/hooks/useAuth.tsx:36:32)
+    at QueryClientProvider (https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.repli…rkspace/node_modules/.vite/deps/@tanstack_react-query.js?v=c20b4654:2805:3)
+    at App
+
+injected.js:37 🔄 Ready group with only original photo found on load: 2b93f2d51ec7441f9f9f3a3af27ac20d - undefined (1 looks)
+injected.js:37 🎨 Auto-triggering look generation for group 2b93f2d51ec7441f9f9f3a3af27ac20d
+injected.js:37 🔄 Ready group with only original photo found on load: 86e273496c6c49c1a06ed32b50c14d18 - undefined (1 looks)
+injected.js:37 🎨 Auto-triggering look generation for group 86e273496c6c49c1a06ed32b50c14d18
+injected.js:37 🔄 Ready group with only original photo found on load: 90ed383465dc4cf584d314f4854848ae - undefined (1 looks)
+injected.js:37 🎨 Auto-triggering look generation for group 90ed383465dc4cf584d314f4854848ae
+injected.js:37 🔄 Ready group with only original photo found on load: 1f3c9c85b1e643c29acc8a2d10171416 - undefined (1 looks)
+injected.js:37 🎨 Auto-triggering look generation for group 1f3c9c85b1e643c29acc8a2d10171416
+stats.g.doubleclick.…IAD~&z=2086444773:1 
+ Failed to load resource: net::ERR_BLOCKED_BY_CLIENT
+﻿
+
+Press cmd i to turn on code suggestions. Press cmd x to disable code suggestions.
+cmd
+i
+ to turn on code suggestions. Don't show again
+

@@ -1,0 +1,957 @@
+# React Integration Guide - Automated Workflow APIs
+
+## Quick Start
+
+### 1. Install Dependencies
+
+```bash
+npm install axios
+# or
+yarn add axios
+```
+
+---
+
+## API Service Layer
+
+Create a service file for API calls:
+
+### `src/services/avatarApi.ts`
+
+```typescript
+import axios from 'axios';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+
+export interface CreateAvatarRequest {
+  image: File;
+  name?: string;
+  prompt?: string;
+  orientation?: 'square' | 'horizontal' | 'vertical';
+  pose?: 'half_body' | 'close_up' | 'full_body';
+  style?: string;
+}
+
+export interface CreateAvatarResponse {
+  success: boolean;
+  group_id: string;
+  avatar_name: string;
+  training_status: string;
+  looks: Array<{
+    index: number;
+    generation_id: string;
+    prompt: string;
+  }>;
+  message: string;
+  check_status_url: string;
+}
+
+export interface GenerateVideoRequest {
+  image: File;
+  script: string;
+  name?: string;
+  voice_id?: string;
+}
+
+export interface GenerateVideoResponse {
+  success: boolean;
+  group_id: string;
+  avatar_id: string;
+  video_id: string;
+  message: string;
+  check_video_url: string;
+}
+
+export interface WorkflowStatus {
+  group_id: string;
+  training: {
+    status: string;
+    error: string | null;
+    is_complete: boolean;
+    is_processing: boolean;
+    is_failed: boolean;
+  };
+  avatar: {
+    name: string;
+    status: string;
+    created_at: number;
+  };
+  motion: {
+    enabled: boolean;
+    preview_url: string | null;
+  };
+  looks: {
+    count: number;
+    list: Array<{
+      id: string;
+      name: string;
+      image_url: string;
+      status: string;
+    }>;
+  };
+  workflow_status: {
+    ready_for_video: boolean;
+    ready_for_looks: boolean;
+    ready_for_motion: boolean;
+    percent_complete: number;
+  };
+}
+
+export interface VideoStatus {
+  video_id: string;
+  status: string;
+  is_complete: boolean;
+  is_processing: boolean;
+  is_failed: boolean;
+  video_url: string | null;
+  thumbnail_url: string | null;
+  duration: number | null;
+  error: string | null;
+  percent_complete: number;
+}
+
+// API 1: Create Avatar with Looks
+export async function createAvatarWithLooks(
+  request: CreateAvatarRequest
+): Promise<CreateAvatarResponse> {
+  const formData = new FormData();
+  formData.append('image', request.image);
+
+  if (request.name) formData.append('name', request.name);
+  if (request.prompt) formData.append('prompt', request.prompt);
+  if (request.orientation) formData.append('orientation', request.orientation);
+  if (request.pose) formData.append('pose', request.pose);
+  if (request.style) formData.append('style', request.style);
+
+  const { data } = await axios.post(
+    `${API_BASE_URL}/api/photo-avatars/create-with-looks`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+
+  return data;
+}
+
+// API 2: Generate Video from Image
+export async function generateVideoFromImage(
+  request: GenerateVideoRequest
+): Promise<GenerateVideoResponse> {
+  const formData = new FormData();
+  formData.append('image', request.image);
+  formData.append('script', request.script);
+
+  if (request.name) formData.append('name', request.name);
+  if (request.voice_id) formData.append('voice_id', request.voice_id);
+
+  const { data } = await axios.post(
+    `${API_BASE_URL}/api/photo-avatars/generate-video-from-image`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+
+  return data;
+}
+
+// API 3: Check Avatar Workflow Status
+export async function getWorkflowStatus(groupId: string): Promise<WorkflowStatus> {
+  const { data } = await axios.get(`${API_BASE_URL}/api/photo-avatars/status/${groupId}`);
+  return data;
+}
+
+// API 4: Check Video Generation Status
+export async function getVideoStatus(videoId: string): Promise<VideoStatus> {
+  const { data } = await axios.get(`${API_BASE_URL}/api/photo-avatars/video-status/${videoId}`);
+  return data;
+}
+```
+
+---
+
+## React Components
+
+### Component 1: Avatar Creator with Looks
+
+```typescript
+import React, { useState } from 'react';
+import { createAvatarWithLooks, CreateAvatarResponse } from '../services/avatarApi';
+
+export function AvatarCreator() {
+  const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<CreateAvatarResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+      setError(null);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!file) {
+      setError('Please select an image file');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await createAvatarWithLooks({
+        image: file,
+        name: name || undefined,
+        orientation: 'square',
+        pose: 'half_body',
+        style: 'Realistic',
+      });
+
+      setResult(response);
+      console.log('Avatar creation started:', response.group_id);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to create avatar');
+      console.error('Error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="avatar-creator">
+      <h2>Create Avatar with Looks</h2>
+
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label>
+            Upload Image:
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              required
+            />
+          </label>
+        </div>
+
+        <div>
+          <label>
+            Avatar Name (optional):
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="John Doe"
+            />
+          </label>
+        </div>
+
+        <button type="submit" disabled={!file || loading}>
+          {loading ? 'Creating Avatar...' : 'Create Avatar'}
+        </button>
+      </form>
+
+      {error && (
+        <div className="error">
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {result && (
+        <div className="success">
+          <h3>✅ Avatar Created!</h3>
+          <p>
+            <strong>Group ID:</strong> {result.group_id}
+          </p>
+          <p>
+            <strong>Name:</strong> {result.avatar_name}
+          </p>
+          <p>
+            <strong>Status:</strong> {result.training_status}
+          </p>
+          <p>
+            <strong>Message:</strong> {result.message}
+          </p>
+          <p>
+            <strong>Looks Generating:</strong> {result.looks.length}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Component 2: Status Polling
+
+```typescript
+import React, { useState, useEffect } from 'react';
+import { getWorkflowStatus, WorkflowStatus } from '../services/avatarApi';
+
+interface StatusTrackerProps {
+  groupId: string;
+  onComplete?: (status: WorkflowStatus) => void;
+}
+
+export function StatusTracker({ groupId, onComplete }: StatusTrackerProps) {
+  const [status, setStatus] = useState<WorkflowStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
+    const pollStatus = async () => {
+      try {
+        const data = await getWorkflowStatus(groupId);
+        setStatus(data);
+        setLoading(false);
+
+        // Stop polling when 100% complete
+        if (data.workflow_status.percent_complete === 100) {
+          clearInterval(intervalId);
+          onComplete?.(data);
+        }
+      } catch (err: any) {
+        setError(err.response?.data?.error || 'Failed to fetch status');
+        setLoading(false);
+      }
+    };
+
+    // Poll immediately
+    pollStatus();
+
+    // Then poll every 30 seconds
+    intervalId = setInterval(pollStatus, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [groupId, onComplete]);
+
+  if (loading) {
+    return <div>Loading status...</div>;
+  }
+
+  if (error) {
+    return <div className="error">Error: {error}</div>;
+  }
+
+  if (!status) {
+    return null;
+  }
+
+  return (
+    <div className="status-tracker">
+      <h3>Workflow Status</h3>
+
+      {/* Progress Bar */}
+      <div className="progress-bar">
+        <div
+          className="progress-fill"
+          style={{ width: `${status.workflow_status.percent_complete}%` }}
+        />
+      </div>
+      <p>{status.workflow_status.percent_complete}% Complete</p>
+
+      {/* Training Status */}
+      <div className="status-section">
+        <h4>Training</h4>
+        <p>Status: {status.training.status}</p>
+        {status.training.is_complete && <span>✅ Complete</span>}
+        {status.training.is_processing && <span>⏳ Processing...</span>}
+        {status.training.is_failed && <span>❌ Failed</span>}
+      </div>
+
+      {/* Looks Status */}
+      <div className="status-section">
+        <h4>Looks Generated: {status.looks.count}</h4>
+        <div className="looks-grid">
+          {status.looks.list.map((look) => (
+            <div key={look.id} className="look-item">
+              <img src={look.image_url} alt={look.name} />
+              <p>{look.name}</p>
+              <span>{look.status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Motion Status */}
+      <div className="status-section">
+        <h4>Motion</h4>
+        <p>{status.motion.enabled ? '✅ Enabled' : '❌ Not enabled'}</p>
+        {status.motion.preview_url && <video src={status.motion.preview_url} controls />}
+      </div>
+
+      {/* Ready Indicators */}
+      <div className="ready-indicators">
+        <p>Ready for looks: {status.workflow_status.ready_for_looks ? '✅' : '❌'}</p>
+        <p>Ready for motion: {status.workflow_status.ready_for_motion ? '✅' : '❌'}</p>
+        <p>Ready for video: {status.workflow_status.ready_for_video ? '✅' : '❌'}</p>
+      </div>
+    </div>
+  );
+}
+```
+
+### Component 3: Video Generator
+
+```typescript
+import React, { useState } from 'react';
+import { generateVideoFromImage, GenerateVideoResponse } from '../services/avatarApi';
+
+export function VideoGenerator() {
+  const [file, setFile] = useState<File | null>(null);
+  const [script, setScript] = useState('');
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<GenerateVideoResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!file) {
+      setError('Please select an image file');
+      return;
+    }
+
+    if (!script.trim()) {
+      setError('Please enter a script');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await generateVideoFromImage({
+        image: file,
+        script: script.trim(),
+        name: name || undefined,
+        voice_id: '1c7c897eeb2d4b5fb17d3c6c70250b24', // Default professional female voice
+      });
+
+      setResult(response);
+      console.log('Video generation started:', response.video_id);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate video');
+      console.error('Error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="video-generator">
+      <h2>Generate Video from Image</h2>
+
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label>
+            Upload Image:
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              required
+            />
+          </label>
+        </div>
+
+        <div>
+          <label>
+            Avatar Name (optional):
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Sarah Johnson"
+            />
+          </label>
+        </div>
+
+        <div>
+          <label>
+            Script (required):
+            <textarea
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              placeholder="Welcome to our company! We are excited to help you..."
+              rows={5}
+              required
+            />
+          </label>
+        </div>
+
+        <button type="submit" disabled={!file || !script.trim() || loading}>
+          {loading ? 'Generating Video...' : 'Generate Video'}
+        </button>
+      </form>
+
+      {error && (
+        <div className="error">
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      {result && (
+        <div className="success">
+          <h3>✅ Video Generation Started!</h3>
+          <p>
+            <strong>Video ID:</strong> {result.video_id}
+          </p>
+          <p>
+            <strong>Group ID:</strong> {result.group_id}
+          </p>
+          <p>
+            <strong>Avatar ID:</strong> {result.avatar_id}
+          </p>
+          <p>
+            <strong>Message:</strong> {result.message}
+          </p>
+          <p>Video will be ready in 2-5 minutes. Check status below.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Component 4: Video Status Tracker
+
+```typescript
+import React, { useState, useEffect } from 'react';
+import { getVideoStatus, VideoStatus } from '../services/avatarApi';
+
+interface VideoStatusTrackerProps {
+  videoId: string;
+  onComplete?: (status: VideoStatus) => void;
+}
+
+export function VideoStatusTracker({ videoId, onComplete }: VideoStatusTrackerProps) {
+  const [status, setStatus] = useState<VideoStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
+    const pollStatus = async () => {
+      try {
+        const data = await getVideoStatus(videoId);
+        setStatus(data);
+        setLoading(false);
+
+        if (data.is_complete || data.is_failed) {
+          clearInterval(intervalId);
+          if (data.is_complete) {
+            onComplete?.(data);
+          }
+        }
+      } catch (err: any) {
+        setError(err.response?.data?.error || 'Failed to fetch video status');
+        setLoading(false);
+      }
+    };
+
+    pollStatus();
+    intervalId = setInterval(pollStatus, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [videoId, onComplete]);
+
+  if (loading) {
+    return <div>Loading video status...</div>;
+  }
+
+  if (error) {
+    return <div className="error">Error: {error}</div>;
+  }
+
+  if (!status) {
+    return null;
+  }
+
+  return (
+    <div className="video-status-tracker">
+      <h3>Video Status</h3>
+
+      {/* Progress Bar */}
+      <div className="progress-bar">
+        <div className="progress-fill" style={{ width: `${status.percent_complete}%` }} />
+      </div>
+      <p>{status.percent_complete}% Complete</p>
+
+      {/* Status Indicators */}
+      <div className="status-info">
+        <p>
+          <strong>Status:</strong> {status.status}
+        </p>
+        {status.is_complete && <p className="success">✅ Video is ready!</p>}
+        {status.is_processing && <p className="info">⏳ Video is processing...</p>}
+        {status.is_failed && <p className="error">❌ Video generation failed</p>}
+      </div>
+
+      {/* Video Ready */}
+      {status.is_complete && status.video_url && (
+        <div className="video-result">
+          <h4>Your Video is Ready!</h4>
+
+          {/* Video Player */}
+          <video src={status.video_url} controls width="100%">
+            Your browser does not support the video tag.
+          </video>
+
+          {/* Download Link */}
+          <a
+            href={status.video_url}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="download-button"
+          >
+            Download Video
+          </a>
+
+          {/* Thumbnail */}
+          {status.thumbnail_url && (
+            <div>
+              <h5>Thumbnail:</h5>
+              <img src={status.thumbnail_url} alt="Video thumbnail" />
+            </div>
+          )}
+
+          {/* Duration */}
+          {status.duration && (
+            <p>
+              <strong>Duration:</strong> {status.duration.toFixed(1)}s
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Error Message */}
+      {status.error && (
+        <div className="error">
+          <strong>Error:</strong> {status.error}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## Complete Example App
+
+### `src/App.tsx`
+
+```typescript
+import React, { useState } from 'react';
+import { AvatarCreator } from './components/AvatarCreator';
+import { StatusTracker } from './components/StatusTracker';
+import { VideoGenerator } from './components/VideoGenerator';
+import { VideoStatusTracker } from './components/VideoStatusTracker';
+import './App.css';
+
+function App() {
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(null);
+
+  return (
+    <div className="App">
+      <h1>Avatar & Video Generator</h1>
+
+      <section>
+        <AvatarCreator />
+
+        {/* Show this after creating an avatar */}
+        {groupId && (
+          <StatusTracker
+            groupId={groupId}
+            onComplete={(status) => {
+              console.log('Workflow complete!', status);
+            }}
+          />
+        )}
+      </section>
+
+      <hr />
+
+      <section>
+        <VideoGenerator />
+
+        {/* Show this after generating a video */}
+        {videoId && (
+          <VideoStatusTracker
+            videoId={videoId}
+            onComplete={(status) => {
+              console.log('Video ready!', status.video_url);
+            }}
+          />
+        )}
+      </section>
+    </div>
+  );
+}
+
+export default App;
+```
+
+---
+
+## Environment Variables
+
+Create `.env` file in your React project root:
+
+```bash
+# Development
+REACT_APP_API_URL=http://localhost:3001
+
+# Production
+# REACT_APP_API_URL=http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com
+# REACT_APP_API_URL=https://api.imakevideo.com
+```
+
+---
+
+## Custom Hooks
+
+### `src/hooks/useAvatarCreation.ts`
+
+```typescript
+import { useState } from 'react';
+import {
+  createAvatarWithLooks,
+  CreateAvatarRequest,
+  CreateAvatarResponse,
+} from '../services/avatarApi';
+
+export function useAvatarCreation() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<CreateAvatarResponse | null>(null);
+
+  const createAvatar = async (request: CreateAvatarRequest) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await createAvatarWithLooks(request);
+      setResult(data);
+      return data;
+    } catch (err: any) {
+      const errorMsg = err.response?.data?.error || 'Failed to create avatar';
+      setError(errorMsg);
+      throw new Error(errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reset = () => {
+    setLoading(false);
+    setError(null);
+    setResult(null);
+  };
+
+  return { createAvatar, loading, error, result, reset };
+}
+```
+
+### `src/hooks/useWorkflowStatus.ts`
+
+```typescript
+import { useState, useEffect } from 'react';
+import { getWorkflowStatus, WorkflowStatus } from '../services/avatarApi';
+
+export function useWorkflowStatus(groupId: string | null, pollInterval = 30000) {
+  const [status, setStatus] = useState<WorkflowStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!groupId) return;
+
+    let intervalId: NodeJS.Timeout;
+    let isActive = true;
+
+    const fetchStatus = async () => {
+      try {
+        setLoading(true);
+        const data = await getWorkflowStatus(groupId);
+
+        if (isActive) {
+          setStatus(data);
+          setError(null);
+
+          // Stop polling when 100% complete
+          if (data.workflow_status.percent_complete === 100) {
+            clearInterval(intervalId);
+          }
+        }
+      } catch (err: any) {
+        if (isActive) {
+          setError(err.response?.data?.error || 'Failed to fetch status');
+        }
+      } finally {
+        if (isActive) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchStatus();
+    intervalId = setInterval(fetchStatus, pollInterval);
+
+    return () => {
+      isActive = false;
+      clearInterval(intervalId);
+    };
+  }, [groupId, pollInterval]);
+
+  return { status, loading, error };
+}
+```
+
+---
+
+## Error Handling
+
+### Example with Error Boundaries
+
+```typescript
+import React from 'react';
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Avatar API Error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="error-boundary">
+          <h2>Something went wrong</h2>
+          <p>{this.state.error?.message}</p>
+          <button onClick={() => window.location.reload()}>Reload Page</button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+```
+
+---
+
+## TypeScript Types Reference
+
+All types are exported from `src/services/avatarApi.ts`:
+
+- `CreateAvatarRequest`
+- `CreateAvatarResponse`
+- `GenerateVideoRequest`
+- `GenerateVideoResponse`
+- `WorkflowStatus`
+- `VideoStatus`
+
+---
+
+## Common Issues
+
+### 1. CORS Errors
+
+If you get CORS errors in development, configure proxy in `package.json`:
+
+```json
+{
+  "proxy": "http://localhost:3001"
+}
+```
+
+Then use relative URLs in your API calls:
+
+```typescript
+const API_BASE_URL = ''; // Empty string for relative URLs
+```
+
+### 2. File Size Errors
+
+Ensure files are under 50MB:
+
+```typescript
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+if (file.size > MAX_FILE_SIZE) {
+  alert('File too large. Maximum size is 50MB');
+  return;
+}
+```
+
+### 3. Session/Authentication
+
+The API requires email verification. Include credentials in axios config:
+
+```typescript
+axios.defaults.withCredentials = true;
+```
+
+---
+
+## Production Deployment
+
+Update `.env.production`:
+
+```bash
+REACT_APP_API_URL=http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com
+```
+
+Or use your custom domain:
+
+```bash
+REACT_APP_API_URL=https://api.imakevideo.com
+```
+
+Build and deploy:
+
+```bash
+npm run build
+# Deploy the build/ folder to your hosting service
+```

@@ -1,0 +1,234 @@
+T https://multi-users-realtyflow.replit.app/api/ai/opportunities 500 (Internal Server Error)
+(anonymous) @ index-CgXWrCin.js:233
+c @ index-CgXWrCin.js:212
+E @ index-CgXWrCin.js:212
+start @ index-CgXWrCin.js:212
+fetch @ index-CgXWrCin.js:212
+Tp @ index-CgXWrCin.js:212
+onSubscribe @ index-CgXWrCin.js:212
+subscribe @ index-CgXWrCin.js:212
+(anonymous) @ index-CgXWrCin.js:233
+Pj @ index-CgXWrCin.js:143
+hl @ index-CgXWrCin.js:161
+Uz @ index-CgXWrCin.js:174
+Fz @ index-CgXWrCin.js:174
+Lz @ index-CgXWrCin.js:174
+Iz @ index-CgXWrCin.js:174
+wB @ index-CgXWrCin.js:174
+xc @ index-CgXWrCin.js:174
+n2 @ index-CgXWrCin.js:174
+ol @ index-CgXWrCin.js:91
+xB @ index-CgXWrCin.js:174
+Iu @ index-CgXWrCin.js:174
+lB @ index-CgXWrCin.js:174
+e2 @ index-CgXWrCin.js:174
+mt @ index-CgXWrCin.js:62
+De @ index-CgXWrCin.js:62
+$ @ index-CgXWrCin.js:62Understand this error
+index-CgXWrCin.js:875  POST https://multi-users-realtyflow.replit.app/api/photo-avatars/upload 500 (Internal Server Error)
+mutationFn @ index-CgXWrCin.js:875
+fn @ index-CgXWrCin.js:212
+E @ index-CgXWrCin.js:212
+start @ index-CgXWrCin.js:212
+execute @ index-CgXWrCin.js:212
+await in execute
+mutate @ index-CgXWrCin.js:212
+Z @ index-CgXWrCin.js:875
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875 Upload error: Error: Upload failed
+    at Object.mutationFn (index-CgXWrCin.js:875:99353)
+Z @ index-CgXWrCin.js:875
+await in Z
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875  POST https://multi-users-realtyflow.replit.app/api/photo-avatars/upload 500 (Internal Server Error)
+mutationFn @ index-CgXWrCin.js:875
+fn @ index-CgXWrCin.js:212
+E @ index-CgXWrCin.js:212
+start @ index-CgXWrCin.js:212
+execute @ index-CgXWrCin.js:212
+await in execute
+mutate @ index-CgXWrCin.js:212
+Z @ index-CgXWrCin.js:875
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875 Upload error: Error: Upload failed
+    at Object.mutationFn (index-CgXWrCin.js:875:99353)
+Z @ index-CgXWrCin.js:875
+await in Z
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875  POST https://multi-users-realtyflow.replit.app/api/photo-avatars/upload 500 (Internal Server Error)
+mutationFn @ index-CgXWrCin.js:875
+fn @ index-CgXWrCin.js:212
+E @ index-CgXWrCin.js:212
+start @ index-CgXWrCin.js:212
+execute @ index-CgXWrCin.js:212
+await in execute
+mutate @ index-CgXWrCin.js:212
+Z @ index-CgXWrCin.js:875
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875 Upload error: Error: Upload failed
+    at Object.mutationFn (index-CgXWrCin.js:875:99353)
+Z @ index-CgXWrCin.js:875
+await in Z
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:233  POST https://multi-users-realtyflow.replit.app/api/photo-avatars/groups 500 (Internal Server Error)
+jt @ index-CgXWrCin.js:233
+(anonymous) @ index-CgXWrCin.js:875
+setInterval
+onSuccess @ index-CgXWrCin.js:875
+execute @ index-CgXWrCin.js:212
+await in execute
+mutate @ index-CgXWrCin.js:212
+(anonymous) @ index-CgXWrCin.js:233
+onClick @ index-CgXWrCin.js:875
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875 Failed to create avatar group: Error: 500: {"error":"Failed to create avatar group"}
+    at __ (index-CgXWrCin.js:233:3270)
+    at async jt (index-CgXWrCin.js:233:3504)
+    at async index-CgXWrCin.js:875:98295
+(anonymous) @ index-CgXWrCin.js:875
+setInterval
+onSuccess @ index-CgXWrCin.js:875
+execute @ index-CgXWrCin.js:212
+await in execute
+mutate @ index-CgXWrCin.js:212
+(anonymous) @ index-CgXWrCin.js:233
+onClick @ index-CgXWrCin.js:875
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875  POST https://multi-users-realtyflow.replit.app/api/custom-voices 500 (Internal Server Error)
+mutationFn @ index-CgXWrCin.js:875
+fn @ index-CgXWrCin.js:212
+E @ index-CgXWrCin.js:212
+start @ index-CgXWrCin.js:212
+execute @ index-CgXWrCin.js:212
+await in execute
+mutate @ index-CgXWrCin.js:212
+(anonymous) @ index-CgXWrCin.js:233
+N @ index-CgXWrCin.js:875
+Vt @ index-CgXWrCin.js:78
+fC @ index-CgXWrCin.js:78
+S0 @ index-CgXWrCin.js:78
+l9 @ index-CgXWrCin.js:78
+TT @ index-CgXWrCin.js:90
+rF @ index-CgXWrCin.js:90
+jT @ index-CgXWrCin.js:90
+sF @ index-CgXWrCin.js:90
+(anonymous) @ index-CgXWrCin.js:90
+Uk @ index-CgXWrCin.js:174
+mC @ index-CgXWrCin.js:78
+Cy @ index-CgXWrCin.js:90
+PL @ index-CgXWrCin.js:78
+my @ index-CgXWrCin.js:78
+VL @ index-CgXWrCin.js:78Understand this error
+index-CgXWrCin.js:875  POST https://multi-users-realtyflow.replit.app/api/custom-voices 500 (Internal Server Error)

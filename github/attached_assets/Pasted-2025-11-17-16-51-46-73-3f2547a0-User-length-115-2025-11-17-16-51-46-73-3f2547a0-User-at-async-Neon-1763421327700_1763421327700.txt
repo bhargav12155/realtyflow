@@ -1,0 +1,156 @@
+2025-11-17 16:51:46.73
+3f2547a0
+User
+length: 115,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+at async NeonPreparedQuery.execute (file:///home/runner/workspace/node_modules/drizzle-orm/neon-serverless/session.js:76:20)
+2025-11-17 16:51:46.73
+3f2547a0
+User
+at async file:///home/runner/workspace/dist/index.js:10824:21 {
+2025-11-17 16:51:46.73
+3f2547a0
+User
+Get scheduled posts error: error: relation "scheduled_posts" does not exist
+2025-11-17 16:51:46.73
+3f2547a0
+User
+where: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+constraint: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+dataType: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+at async MemStorage.getScheduledPosts (file:///home/runner/workspace/dist/index.js:2210:16)
+2025-11-17 16:51:46.73
+3f2547a0
+User
+hint: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+line: '1449',
+2025-11-17 16:51:46.73
+3f2547a0
+User
+column: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+internalQuery: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+code: '42P01',
+2025-11-17 16:51:46.73
+3f2547a0
+User
+routine: 'parserOpenTable'
+2025-11-17 16:51:46.73
+3f2547a0
+User
+table: undefined,
+2025-11-17 16:51:46.73
+3f2547a0
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-11-17 16:51:46.73
+3f2547a0
+User
+position: '225',
+2025-11-17 16:51:46.73
+3f2547a0
+User
+detail: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+length: 115,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+internalPosition: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+}
+2025-11-17 16:51:46.74
+3f2547a0
+User
+at async file:///home/runner/workspace/dist/index.js:8039:36 {
+2025-11-17 16:51:46.74
+3f2547a0
+User
+at async NeonPreparedQuery.execute (file:///home/runner/workspace/node_modules/drizzle-orm/neon-serverless/session.js:76:20)
+2025-11-17 16:51:46.74
+3f2547a0
+User
+Failed to fetch engagement leads, using static data: error: relation "engagement_leads" does not exist
+2025-11-17 16:51:46.74
+3f2547a0
+User
+schema: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+routine: 'parserOpenTable'
+2025-11-17 16:51:46.74
+3f2547a0
+User
+table: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+position: '22',
+2025-11-17 16:51:46.74
+3f2547a0
+User
+hint: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+internalQuery: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+dataType: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+column: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+where: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+code: '42P01',
+2025-11-17 16:51:46.74
+3f2547a0
+User
+constraint: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+2025-11-17 16:51:46.74
+3f2547a0
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2025-11-17 16:51:46.74
+3f2547a0
+User
+detail: undefined,
+2025-11-17 16:51:46.74
+3f2547a0
+User
+line: '1449',

@@ -1,0 +1,284 @@
+getTooltip1(result: any): string {
+    console.log(result);
+    return this.composer.getTooltipData1(
+      result.origin?.carrier,
+      result.destination?.carrier,
+      result,
+      result.storedOriginalOriginCarrier,
+      result.storedOriginalDestCarrier
+    );
+  }
+
+
+  /**
+   * Main function to get tooltip data for handling carriers
+   */
+  getTooltipData1(
+    originCarrier: string,
+    destinationCarrier: string,
+    results: HandlingCarrierResults,
+    originalOriginCarrier?: string,
+    originalDestCarrier?: string
+  ): string {
+    const params: TooltipParams = {
+      originCarrier,
+      destinationCarrier,
+      results,
+      originalOriginCarrier,
+      originalDestCarrier,
+    };
+
+    console.log('getTooltipData called with:', JSON.stringify(params));
+
+    // For hc-adjusted type:  Show message about the alternative UP search
+    if (results?.type === 'hc-adjusted') {
+      return this.getHcAdjustedTooltip(params);
+    }
+
+    // For hc-original type: Only show carriers that will CHANGE to UP
+    if (results?.type === 'hc-original') {
+      return this.getHcOriginalTooltip(params);
+    }
+
+    // Fallback logic for other cases (if type is not specified)
+    return this.getFallbackTooltip(params);
+  }
+
+  /**
+   * Generates tooltip message for hc-adjusted type
+   */
+  private getHcAdjustedTooltip(params: TooltipParams): string {
+    let handlingCarriers = this.collectChangedHandlingCarriers(params);
+
+    // Fallback to results object if no carriers found
+    if (handlingCarriers.length === 0) {
+      handlingCarriers = this.collectHandlingCarriersFromResults(
+        params.results
+      );
+    }
+
+    if (handlingCarriers.length > 0) {
+      const carrierList = handlingCarriers.join(' and ');
+      const isPlural = handlingCarriers.length > 1;
+      return `The ${carrierList} handling carrier ${
+        isPlural ? 'fees are' : 'fee is'
+      } included within the Union Pacific portion of this rate. `;
+    }
+
+    return '';
+  }
+
+  /**
+   * Generates tooltip message for hc-original type
+   */
+  private getHcOriginalTooltip(params: TooltipParams): string {
+    const { originCarrier, destinationCarrier, results } = params;
+    const handlingCarriers: string[] = [];
+
+    // Check if origin is non-UP and will change to UP
+    if (originCarrier && originCarrier !== 'UP') {
+      const adjustedOriginCarrier =
+        results?.adjusted?.origin?.carrier || results?.adjustedOrigin?.carrier;
+      if (adjustedOriginCarrier === 'UP') {
+        handlingCarriers.push(originCarrier);
+      }
+    }
+
+    // Check if destination is non-UP and will change to UP
+    if (
+      destinationCarrier &&
+      destinationCarrier !== 'UP' &&
+      !handlingCarriers.includes(destinationCarrier)
+    ) {
+      const adjustedDestCarrier =
+        results?.adjusted?.destination?.carrier ||
+        results?.adjustedDestination?.carrier;
+      if (adjustedDestCarrier === 'UP') {
+        handlingCarriers.push(destinationCarrier);
+      }
+    }
+
+    // Fallback - check storedOriginalOriginCarrier
+    if (
+      handlingCarriers.length === 0 &&
+      results?.storedOriginalOriginCarrier &&
+      results.storedOriginalOriginCarrier !== 'UP'
+    ) {
+      handlingCarriers.push(results.storedOriginalOriginCarrier);
+    }
+
+    if (handlingCarriers.length > 0) {
+      const carrierList = handlingCarriers.join(', ');
+      return `Handling carriers for the Union Pacific (${carrierList}, etc) should not be included in rate searches as their fees are included within the Union Pacific portion of a rate.`;
+    }
+
+    return '';
+  }
+
+  /**
+   * Fallback tooltip when type is not specified
+   */
+  private getFallbackTooltip(params: TooltipParams): string {
+    const { originCarrier, destinationCarrier, results } = params;
+
+    if (originCarrier === 'UP' && destinationCarrier === 'UP') {
+      const foundCarriers = this.collectAllNonUpCarriers(results);
+
+      if (foundCarriers.length > 0) {
+        const carrierList = foundCarriers.join(' and ');
+        const isPlural = foundCarriers.length > 1;
+        return `The ${carrierList} handling carrier ${
+          isPlural ? 'fees are' : 'fee is'
+        } included within the Union Pacific portion of this rate. `;
+      }
+
+      return '';
+    } else if (originCarrier === 'UP') {
+      return destinationCarrier;
+    } else if (destinationCarrier === 'UP') {
+      return originCarrier;
+    } else {
+      return `${originCarrier} and ${destinationCarrier}`;
+    }
+  }
+
+  /**
+   * Collects handling carriers that changed from non-UP to UP
+   */
+  private collectChangedHandlingCarriers(params: TooltipParams): string[] {
+    const {
+      originCarrier,
+      destinationCarrier,
+      results,
+      originalOriginCarrier,
+      originalDestCarrier,
+    } = params;
+
+    const handlingCarriers: string[] = [];
+
+    // Check if origin carrier CHANGED from non-UP to UP
+    if (
+      originalOriginCarrier &&
+      originalOriginCarrier !== 'UP' &&
+      originCarrier === 'UP'
+    ) {
+      handlingCarriers.push(originalOriginCarrier);
+    }
+
+    // Check if destination carrier CHANGED from non-UP to UP
+    if (
+      originalDestCarrier &&
+      originalDestCarrier !== 'UP' &&
+      destinationCarrier === 'UP' &&
+      !handlingCarriers.includes(originalDestCarrier)
+    ) {
+      handlingCarriers.push(originalDestCarrier);
+    }
+
+    // Check storedOriginalOriginCarrier from results
+    if (
+      results?.storedOriginalOriginCarrier &&
+      results.storedOriginalOriginCarrier !== 'UP' &&
+      originCarrier === 'UP' &&
+      !handlingCarriers.includes(results.storedOriginalOriginCarrier)
+    ) {
+      handlingCarriers.push(results.storedOriginalOriginCarrier);
+    }
+
+    // Check storedOriginalDestCarrier from results
+    if (
+      results?.storedOriginalDestCarrier &&
+      results.storedOriginalDestCarrier !== 'UP' &&
+      destinationCarrier === 'UP' &&
+      !handlingCarriers.includes(results.storedOriginalDestCarrier)
+    ) {
+      handlingCarriers.push(results.storedOriginalDestCarrier);
+    }
+
+    return handlingCarriers;
+  }
+
+  /**
+   * Fallback to results object to find handling carriers
+   */
+  private collectHandlingCarriersFromResults(
+    results: HandlingCarrierResults
+  ): string[] {
+    const handlingCarriers: string[] = [];
+
+    if (
+      results?.originalDestination?.carrier &&
+      results.originalDestination.carrier !== 'UP'
+    ) {
+      handlingCarriers.push(results.originalDestination.carrier);
+    }
+
+    if (
+      results?.originalCarrier &&
+      results.originalCarrier !== 'UP' &&
+      !handlingCarriers.includes(results.originalCarrier)
+    ) {
+      handlingCarriers.push(results.originalCarrier);
+    }
+
+    return handlingCarriers;
+  }
+
+  /**
+   * Collects all non-UP carriers from results object
+   */
+  private collectAllNonUpCarriers(results: HandlingCarrierResults): string[] {
+    const foundCarriers: string[] = [];
+
+    // Check storedOriginalOriginCarrier first
+    if (
+      results?.storedOriginalOriginCarrier &&
+      results.storedOriginalOriginCarrier !== 'UP'
+    ) {
+      foundCarriers.push(results.storedOriginalOriginCarrier);
+    }
+
+    // Check storedOriginalDestCarrier
+    if (
+      results?.storedOriginalDestCarrier &&
+      results.storedOriginalDestCarrier !== 'UP' &&
+      !foundCarriers.includes(results.storedOriginalDestCarrier)
+    ) {
+      foundCarriers.push(results.storedOriginalDestCarrier);
+    }
+
+    if (
+      results?.originalDestination?.carrier &&
+      results.originalDestination.carrier !== 'UP' &&
+      !foundCarriers.includes(results.originalDestination.carrier)
+    ) {
+      foundCarriers.push(results.originalDestination.carrier);
+    }
+
+    if (
+      results?.originalCarrier &&
+      results.originalCarrier !== 'UP' &&
+      !foundCarriers.includes(results.originalCarrier)
+    ) {
+      foundCarriers.push(results.originalCarrier);
+    }
+
+    if (
+      results?.origin?.carrier &&
+      results.origin.carrier !== 'UP' &&
+      !foundCarriers.includes(results.origin.carrier)
+    ) {
+      foundCarriers.push(results.origin.carrier);
+    }
+
+    if (
+      results?.destination?.carrier &&
+      results.destination.carrier !== 'UP' &&
+      !foundCarriers.includes(results.destination.carrier)
+    ) {
+      foundCarriers.push(results.destination.carrier);
+    }
+
+    return foundCarriers;
+  }
+}

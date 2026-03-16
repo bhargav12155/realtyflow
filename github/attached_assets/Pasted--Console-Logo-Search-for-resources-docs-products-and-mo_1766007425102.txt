@@ -1,0 +1,68 @@
+
+Console Logo
+Search (/) for resources, docs, products, and more
+
+You are now incurring charges in your billing account My Billing Account, as of November 15, 2025. Learn more
+Google Auth Platform
+/
+/
+Client ID for Web application
+Name
+AI-SEO
+The name of your OAuth 2.0 client. This name is only used to identify the client in the console and will not be shown to end users.
+The domains of the URIs you add below will be automatically added to your OAuth consent screen as authorized domains .
+
+Authorized JavaScript origins
+For use with requests from a browser
+URIs 1 
+https://multi-users-realtyflow.replit.app
+URIs 2 
+http://localhost:5000
+URIs 3 
+https://287db4a3-c866-4401-95b5-d5a0805fcd5e-00-1ve3wv1codjy9.kirk.replit.dev
+URIs 4 
+http://127.0.0.1:5000
+
+Authorized redirect URIs
+For use with requests from a web server
+URIs 1 
+http://localhost:5000/api/social/callback/youtube
+URIs 2 
+http://127.0.0.1:5000/api/social/callback/youtube
+URIs 3 
+https://multi-users-realtyflow.replit.app/api/social/callback/youtube
+URIs 4 
+https://287db4a3-c866-4401-95b5-d5a0805fcd5e-00-1ve3wv1codjy9.kirk.replit.dev/api/social/callback/youtube
+URIs 5 
+https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev
+URIs 6 
+https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/api/social/callback/youtube
+Note: It may take 5 minutes to a few hours for settings to take effect
+
+Additional information
+Client ID
+647103536424-5dc9vkodrj78ksm1qtt7ldcrk0i1aqtk.apps.googleusercontent.com
+Creation date
+September 21, 2025, 11:52:52 PM GMT-5
+Last used date
+December 15, 2025 (Note: this data could be delayed by a day or more.)
+Inactive OAuth clients are subject to deletion if they are not used for 6 months. You will be notified of deletion due to inactivity, and can restore clients up to 30 days after deletion. Learn more 
+Client secrets
+If you are in the process of changing client secrets, you can manually rotate them without downtime. Learn more 
+Having more than one secret increases security risks. Disable and delete the old secret once you have verified that your app is using the new secret instead of the old secret.
+Viewing and downloading client secrets is no longer available. If you have lost the secret below, please add a new one. Remember to store client secrets securely and treat them with extreme care. Secrets should never be checked into code repositories. Learn more 
+Client secret
+****DoOD
+Creation date
+September 21, 2025, 11:52:51 PM GMT-5
+Status
+ Enabled
+Client secret
+****cBHt
+Creation date
+November 13, 2025, 1:04:33 PM GMT-6
+Status
+ Enabled
+
+
+Branding changes saved!

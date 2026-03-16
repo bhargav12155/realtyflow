@@ -1,0 +1,237 @@
+
+TikTok for Developers
+
+Products
+Docs
+Support
+Events
+Blog
+Open Innovation
+
+Developer Portal
+
+
+AI Assistant
+MyGoldenBrick
+
+Production
+Sandbox
+
+URL properties
+
+
+Production
+
+
+Draft
+App details
+Credentials
+
+Basic information
+
+App review
+Products
+Login Kit
+
+Content Posting API
+
+Scopes
+
+Import
+This form has 1 error.
+Review
+
+Save
+
+Submit for review
+App details
+
+Credentials
+Client key
+•••••••••••••••••
+Client secret
+•••••••••••••••••
+
+Basic information
+App icon *
+This will be displayed publicly to TikTok users.
+
+Requirements:
+1024px x 1024px
+Up to 5MB
+JPEG, JPG, or PNG formats
+App name *
+This will be displayed to TikTok users
+MyGoldenBrick
+13 / 50
+Category *
+
+Productivity
+Description *
+Describe what your website or mobile app does and how it works. This will be displayed to TikTok users.
+Examples:
+A website that sells pet supplies.
+Manage all your social media content in one place.
+A real estate marketing platform where agents and homebuilders create personalized websites, showcase property listings
+119 / 120
+Terms of Service URL *
+Link to your app or website's official Terms of Service
+https://www.imakepage.com/terms-of-service
+Privacy Policy URL *
+Link to your app or website's official privacy policy
+https://www.imakepage.com/privacy-policy
+Platforms *
+
+Web
+
+Desktop
+
+Android
+
+iOS
+Configure for Web/Desktop
+Web/Desktop URL *
+Link to the official website for your app or service
+https://www.imakepage.com
+App review
+
+Required information for app submission
+Please review the App Review Guidelines for more details.
+Explain how each product and scope works within your app or website. If submitting a revision, include the changes in this version. *
+Products
+Login Kit
+Content Posting API
+Scopes
+user.info.basic
+user.info.profile
+user.info.stats
+video.list
+video.publish
+video.upload
+Application Overview - imakepage.com TikTok Integration
+
+PLATFORM DESCRIPTION:
+imakepage.com is a comprehensive real estate marketing platform that empowers real estate agents, homebuilders, and property professionals to establish and grow their online presence. Our platform provides users with customizable website templates, property listing management tools, and integrated marketing capabilities designed specifically for the real estate industry.
+
+PURPOSE OF TIKTOK INTEGRATION:
+The TikTok API integration serves as a critical component of our social media marketing suite, enabling real estate professionals to expand their reach and engage with potential homebuyers on one of the fastest-growing social media platforms. With over 1 billion active users, TikTok has become an essential channel for real estate marketing, particularly for reaching younger first-time homebuyers and millennial audiences who actively use the platform for home search and inspiration.
+
+
+973 / 1000
+Upload at least one demo video that shows the complete end-to-end flow of the integration with TikTok. *
+
+Upload
+Accepted formats: mp4, mov
+Maximum 5 files, up to 50MB each
+For example, it should demonstrate how you use TikTok for Developers' capabilities, such as Login Kit, Share Kit, Display API, Content Posting API, and the relevant scopes.
+If your app has not been approved before, you are required to use a sandbox environment on the Developer Portal to demonstrate the integration.
+The demo video should showcase the website or app where the features will actually be integrated.
+All selected products and scopes must be clearly demonstrated in the video. If you don't need certain products or scopes, make sure to remove them before review. Otherwise, it will delay the review result.
+The video should clearly show the user interface and user interactions.
+If you intend to integrate with a web app, make sure the domain of the website shown in the demo video matches the website URL you provide.
+If you intend to integrate with a mobile app, the demo video should start by showing the app being opened.
+Screen Recording 2025-12-14 at 11.18.31 PM.mov
+
+Products
+
+Add products
+
+
+Login Kit
+
+Redirect URI
+ *
+
+Add up to 10 Redirect URIs. Users will be redirected to this path after they have authorized your app with TikTok.
+
+
+Web*
+
+Desktop*
+
+Android
+
+iOS
+https://multi-users-realtyflow.replit.app/api/social/callback/tiktok
+Enter a valid URI. Examples include http://localhost:*/callback/ and https://127.0.0.1:3455/callback/. See the documentation below for more details.
+
+Add a URI
+Add your app's Desktop Redirect URI to redirect back to your app from TikTok.
+
+
+Content Posting API
+
+By default, Upload to TikTok is enabled, allowing you to upload content to TikTok as a draft for creators to further edit and post.
+Direct Post
+
+Directly post content to authorized users' profiles.
+Verify domains
+The video/content can be posted in two ways, push_by_file and pull_by_url. To enable pull_by_url, you have to verify your domains. Check out the Media Transfer Guide to learn more.
+
+Verify
+
+Add products
+Scopes
+
+Search
+
+Add scopes
+user.info.basic
+user.info.basic
+Read a user's profile info (open id, avatar, display name ...)
+Included in Login Kit
+video.publish
+video.publish
+Directly post content to a user's TikTok profile.
+Included in Content Posting API
+video.upload
+video.upload
+Share content to creator's account as a draft to further edit and post in TikTok.
+Included in Content Posting API
+user.info.profile
+user.info.profile
+Read access to profile_web_link, profile_deep_link, bio_description, is_verified.
+
+user.info.stats
+user.info.stats
+Read access to a user's statistical data, such as likes count, follower count, following count, and video count
+
+video.list
+video.list
+Read a user's public videos on TikTok
+
+History
+
+Changelog
+
+Review comments
+
+All
+TikTok for Developers
+Products
+Share Kit
+Login Kit
+Content Posting API
+Research API
+Display API
+Embed Videos
+Data Portability API
+Green Screen Kit
+Commercial Content API
+Other platforms
+TikTok Embeds
+TikTok for Business
+Advertise on TikTok
+TikTok Creative Center
+TikTok.com
+Company
+About TikTok
+Newsroom
+Contact
+Careers
+ByteDance
+Transparency Center
+© 2025 TikTok
+Terms of Service
+Privacy Policy
+Resources & Legal

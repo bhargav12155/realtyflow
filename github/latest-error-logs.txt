@@ -1,0 +1,29 @@
+<workflow>
+<workflow_name>Start application</workflow_name>
+<status>FAILED</status><run_id>QbrjwQtuDlxWdEXZ2tMXZ</run_id><timestamp>2025-11-17T22:39:18.886568+00:00</timestamp>
+<logs>> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+🔥 [SOCIAL-LINKS MODULE] Routes file loaded!
+🔑 Loaded 1 OpenAI API keys: [ 'Primary Key (paid)' ]
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+✅ WebSocket server initialized on /ws
+10:38:39 PM [express] 🚀 RealtyFlow Multi-User Server running on http://localhost:5000
+10:38:39 PM [express] 📊 Database: Connected to Neon PostgreSQL
+10:38:39 PM [express] 🔐 Authentication: JWT Multi-User System Active
+10:38:39 PM [express] 
+🔗 Available endpoints:
+10:38:39 PM [express]    • Universal Login: POST /api/auth/login
+10:38:39 PM [express]    • Agent Registration: POST /api/auth/agent/register
+10:38:39 PM [express]    • Agent Login: POST /api/auth/agent/login
+10:38:39 PM [express]    • Public User Login: POST /api/auth/public/login
+10:38:39 PM [express]    • Check Auth: GET /api/auth/check
+10:38:39 PM [express]    • Dashboard: GET /api/dashboard/overview
+10:38:39 PM [express]    • WebSocket: ws://localhost:5000/ws
+🔌 WebSocket client connection attempt
+✅ WebSocket client authenticated: userId=6
+Browserslist: browsers data (caniuse-lite) is 13 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+10:38:41 PM [vite] Pre-transform error: Failed to resolve import "@/components/dashboard/facebook-test-posts" from "client/src/pages/dashboard.tsx". Does the file exist?</logs>
+</workflow>

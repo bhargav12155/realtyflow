@@ -1,0 +1,98 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+Facebook
+App authentication
+
+Native or desktop app?
+Enable if your app is a native or desktop app
+Authorize callback URL
+Download User Identifiers
+Download Files
+​
+To ensure compliance with applicable privacy laws and Section 3(d)(i) of the Platform Terms, please promptly review the list of either app-scoped or instant game IDs and delete all records of them from your database. If you would like to opt out of this requirement in the future, please implement a valid Data Deletion Callback URL. Learn More
+Upgrade API version
+Use these settings to control which API your app calls for different roles.
+all calls version
+v23.0
+​
+Upgrade all calls
+Change the API version your app calls for all users
+​
+app roles calls version
+v23.0
+​
+Upgrade calls for app roles
+Change the API version your app calls for developers
+​
+App restrictions
+
+References alcohol
+Restricts age in some locations
+​
+
+Social discovery
+App usage stories can appear in ticker or Feed
+
+Age restriction
+age restriction
+Anyone (13+)
+​
+
+
+GDPR Restricted
+Further restrict age in GDPR countries
+​
+
+
+
+Country restricted
+Restrict app to users in selected countries
+​
+Security
+Server IP allowlist
+​
+App requests using the app secret must originate from these IP addresses.
+Update settings IP allowlist
+​
+App settings can only be updated from these IP addresses.
+Update notification email
+A notification email will be sent to this address when updates are made to app settings.
+Client token
+6a687d6263d3c2032257393b9cca5d75
+
+Require app secret
+Require app secret or app secret proof for API calls with access tokens used outside of trusted contexts.
+
+Require 2-factor reauthorization
+Require 2-fac to change application settings
+
+Allow API Access to app settings
+Set to No to prevent changes to app settings through API calls
+Domain manager
+No domains have been set for this app
+App Page
+The name of the page should contain the name of the app.
+Advertising accounts
+Authorized ad account IDs (0/100)
+Share This App With a Partner? Get Started
+To assign an app to a business partner from Business Manager, select the business, click Assign Partners on the Accounts Apps page and enter the Partner Business ID.
+Share Redirect Allow List
+
+Allow Cross Domain Share Redirects
+Allow shares that redirect to your urls from cross domain urls. If disabled you can add an allowlist of domains that you allow redirects from.
+Share Redirect Domain Allow List
+​
+Only the domains optionally added to an allow list can redirect to your URLs when shared.
+Remove app
+Removing goldenbrickpublish from the platform will:
+Prevent the app from being accessed by all developers, regardless of role.
+Hide the app from public view and search results in the App Center.
+Invalidate user access tokens for people who have logged in with their Facebook account.
+Save changesDiscard

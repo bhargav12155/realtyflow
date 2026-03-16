@@ -1,0 +1,123 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+Facebook
+Use cases
+Customize
+Customize use case
+Customize use case settings and permissions to make your app work the way you want it to.
+Use case switcher
+​
+Manage Pages
+​
+Permissions and features
+API Calls
+​
+Status
+Action
+Business Asset User Profile Access
+The Business Asset User Profile Access feature allows your app to read the User Fields for users engaging with your business assets such as id, ids_for_business, name, and picture.
+…
+Full Description
+Found in 2 use cases
+Requirements
+12
+Ready for testing
+Live Video API
+The Live Video API feature allows an app to manage live videos to Pages, Groups and User timelines when combined with the correct matching permission.
+…
+Full Description
+Requirements
+business_management
+The business_management permission allows your app to read and write with the Business Manager API.
+…
+Full Description
+Found in 2 use cases
+Requirements
+78
+Ready for testing
+email
+The email permission allows your app to read a person's primary email address.
+…
+Full Description
+Found in 2 use cases
+Requirements
+0
+Ready for testing
+facebook_branded_content_ads_brand
+The facebook_branded_content_ads_brand allows an app to read Facebook posts where the app user's Facebook profile is tagged as a paid partner, and an app user to read, request, and revoke permissions to run Partnership Ads.
+…
+Full Description
+Requirements
+facebook_creator_marketplace_discovery
+The facebook_creator_marketplace_discovery permission allows an app to discover content creators on Facebook's creator discovery platform.
+…
+Full Description
+Requirements
+18
+Ready for testing
+pages_manage_engagement
+The pages_manage_engagement permission allows your app to create, edit and delete comments posted on the Page.
+…
+Full Description
+Requirements
+13
+Ready for testing
+pages_manage_metadata
+The pages_manage_metadata permission allows your app to subscribe and receive webhooks about activity on the Page, and to update settings on the Page.
+…
+Full Description
+Requirements
+339
+Ready for testing
+pages_manage_posts
+The pages_manage_posts permission allows your app to create, edit and delete your Page posts.
+…
+Full Description
+Requirements
+48
+Ready for testing
+pages_read_engagement
+The pages_read_engagement permission allows your app to read content (posts, photos, videos, events) posted by the Page, read followers data (including name, PSID), and profile picture, and read metadata and other insights about the Page.
+…
+Full Description
+Found in 2 use cases
+Requirements
+458
+Ready for testing
+pages_read_user_content
+The pages_read_user_content permission allows your app to read user-generated content on the Page, such as posts, comments and ratings by users or other Pages, and to delete user comments on Page posts.
+…
+Full Description
+Requirements
+99
+Ready for testing
+pages_show_list
+The pages_show_list permission allows your app to access the list of Pages a person manages.
+…
+Full Description
+Found in 2 use cases
+Requirements
+342
+Ready for testing
+public_profile
+The public_profile permission allows an app to read the Default Public Profile Fields on the User node. This permission is automatically granted to all apps.
+…
+Full Description
+Found in 2 use cases
+Requirements
+0
+Ready for testing
+read_insights
+The read_insights permission allows your app to read the Insights data for Pages, apps and web domains the person owns.
+…
+Full Description
+Requirements
+13
+Ready for testing

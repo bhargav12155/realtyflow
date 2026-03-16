@@ -1,0 +1,148 @@
+## ✅ WORKING AVATAR IV VIDEO GENERATION WORKFLOW
+
+### Complete API Flow (Tested & Working)
+
+#### **Step 1: Upload Photo**
+
+Upload an image to get the `image_key` required for video generation.
+
+```bash
+curl --request POST \
+     --url https://upload.heygen.com/v1/asset \
+     --header 'Content-Type: image/jpeg' \
+     --header 'X-API-KEY: sk_V2_hgu_kk35yjQg8as_smspcHMCB3dnwDbe03FhWC8EeltjIdSR' \
+     --header 'accept: application/json' \
+     --data-binary '@/path/to/your/photo.jpg'
+```
+
+**Response:**
+
+```json
+{
+  "code": 100,
+  "data": {
+    "id": "a05f5cb344a94f1ba296b05d4db9b9ef",
+    "name": "a05f5cb344a94f1ba296b05d4db9b9ef",
+    "file_type": "image",
+    "url": "https://resource2.heygen.ai/image/a05f5cb344a94f1ba296b05d4db9b9ef/original",
+    "image_key": "image/a05f5cb344a94f1ba296b05d4db9b9ef/original"
+  }
+}
+```
+
+**Copy the `image_key` from the response** - you'll need it for Step 2.
+
+---
+
+#### **Step 2: Generate Avatar IV Video**
+
+Use the `image_key` from Step 1 to create the video.
+
+```bash
+curl --request POST \
+     --url https://api.heygen.com/v2/video/av4/generate \
+     --header 'accept: application/json' \
+     --header 'content-type: application/json' \
+     --header 'x-api-key: sk_V2_hgu_kk35yjQg8as_smspcHMCB3dnwDbe03FhWC8EeltjIdSR' \
+     --data '{
+  "image_key": "image/a05f5cb344a94f1ba296b05d4db9b9ef/original",
+  "video_title": "test from portal",
+  "script": "Hello! Welcome to my video. This is a demonstration of HeyGen AI avatar technology",
+  "voice_id": "119caed25533477ba63822d5d1552d25",
+  "video_orientation": "landscape",
+  "fit": "cover",
+  "custom_motion_prompt": "nodding and smiling naturally while speaking, making gentle hand gestures",
+  "enhance_custom_motion_prompt": true
+}'
+```
+
+**Response:**
+
+```json
+{
+  "error": null,
+  "data": {
+    "video_id": "630e5300773c4639b6b278f10488294a"
+  }
+}
+```
+
+**Copy the `video_id`** - you'll need it to check the video status.
+
+---
+
+#### **Step 3: Check Video Status**
+
+Poll this endpoint to check if your video is ready.
+
+```bash
+curl --request GET \
+     --url https://api.heygen.com/v1/video_status.get?video_id=630e5300773c4639b6b278f10488294a \
+     --header 'accept: application/json' \
+     --header 'x-api-key: sk_V2_hgu_kk35yjQg8as_smspcHMCB3dnwDbe03FhWC8EeltjIdSR'
+```
+
+**Status Values:**
+
+- `"pending"` - Video is queued
+- `"processing"` - Video is being rendered
+- `"completed"` - ✅ Video is ready! Response includes `video_url`
+- `"failed"` - ❌ Generation failed
+
+**Completed Response:**
+
+```json
+{
+  "code": 100,
+  "data": {
+    "video_id": "630e5300773c4639b6b278f10488294a",
+    "status": "completed",
+    "video_url": "https://resource.heygen.com/video/...",
+    "title": "test from portal",
+    "duration": 8.5
+  }
+}
+```
+
+---
+
+### Key Parameters Explained
+
+**Required:**
+
+- `image_key` - From upload response (Step 1)
+- `video_title` - Name for your video
+- `script` - Text the avatar will speak (max 1500 chars)
+- `voice_id` - Voice ID from HeyGen voice library
+
+**Optional:**
+
+- `video_orientation` - `"portrait"` or `"landscape"` (default: portrait)
+- `fit` - `"cover"` or `"contain"` (how avatar fits in frame)
+- `custom_motion_prompt` - Text describing desired motion/gestures
+- `enhance_custom_motion_prompt` - `true` to let AI enhance motion
+
+**Alternative Audio Options (instead of script + voice_id):**
+
+- `audio_url` - URL to custom audio file
+- `audio_asset_id` - HeyGen asset ID from uploaded audio
+
+---
+
+### Example Motion Prompts
+
+- `"nodding and smiling naturally while speaking, making gentle hand gestures"`
+- `"professional business presenter with confident posture"`
+- `"enthusiastic and energetic with expressive hand gestures"`
+- `"calm and thoughtful, speaking slowly"`
+- `"friendly customer service representative"`
+
+---
+
+### Notes
+
+✅ **Upload endpoint:** `https://upload.heygen.com/v1/asset` (NOT api.heygen.com)
+✅ **Use binary upload:** `--data-binary '@/path/to/file'` (NOT `--form`)
+✅ **Set proper Content-Type:** `image/jpeg`, `image/png`, etc.
+✅ **Video generation typically takes 1-3 minutes**
+✅ **Poll status every 10-30 seconds until completed**

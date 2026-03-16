@@ -1,0 +1,311 @@
+# Email Verification Setup Guide
+
+## 🎯 Overview
+
+Your NebraskaHomeHub application now has **complete email verification** for both admin users and public users (agent website visitors). Here's how to configure and test it.
+
+## ✅ What's Implemented
+
+### Admin Users (Main Application)
+
+- ✅ Email verification required for all new registrations
+- ✅ Branded verification emails with NebraskaHomeHub styling
+- ✅ Verification routes: `/api/auth/verify-email`, `/api/auth/resend-verification`
+- ✅ Frontend verification page: `/verify-email`
+- ✅ Login blocked until email is verified
+
+### Public Users (Agent Websites)
+
+- ✅ Email verification already existed and is working
+- ✅ Agent-branded verification emails
+- ✅ Per-agent verification routes: `/api/public-user/:slug/verify-email`
+- ✅ Per-agent verification pages: `/agent/:slug/verify-email`
+
+## 📧 Email Configuration
+
+### Development Environment
+
+Add these to your `.env` or environment variables:
+
+```bash
+# SMTP Configuration (optional - will log to console if not set)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+
+# Site URL for email links
+SITE_URL=http://localhost:5173
+```
+
+### Production Environment
+
+Set these environment variables in your hosting platform:
+
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-production-email@yourdomain.com
+SMTP_PASS=your-smtp-password
+SITE_URL=https://yourdomain.com
+```
+
+## 🔧 Popular SMTP Providers
+
+### Gmail
+
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password  # Generate in Gmail Settings > Security > App Passwords
+```
+
+### SendGrid
+
+```bash
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=your-sendgrid-api-key
+```
+
+### AWS SES
+
+```bash
+SMTP_HOST=email-smtp.us-east-1.amazonaws.com
+SMTP_PORT=587
+SMTP_USER=your-ses-smtp-username
+SMTP_PASS=your-ses-smtp-password
+```
+
+### Mailgun
+
+```bash
+SMTP_HOST=smtp.mailgun.org
+SMTP_PORT=587
+SMTP_USER=your-mailgun-smtp-login
+SMTP_PASS=your-mailgun-smtp-password
+```
+
+## 🧪 Testing Instructions
+
+### 1. Start Development Environment
+
+```bash
+# Terminal 1: Start backend
+npm run dev
+
+# Terminal 2: Start frontend
+npm run dev:frontend
+```
+
+### 2. Test Admin Registration
+
+1. Go to `http://localhost:5173/admin`
+2. Create a new admin account
+3. Check console logs for verification email content (if SMTP not configured)
+4. Click the verification link
+5. Try logging in before and after verification
+
+### 3. Test Public User Registration
+
+1. Go to `http://localhost:5173/agent/test-agent` (or any agent slug)
+2. Create a new user account
+3. Check console logs for verification email
+4. Click the verification link
+5. Try logging in before and after verification
+
+### 4. Test Production Environment
+
+```bash
+# Deploy to production
+npm run deploy
+
+# Test on your live domain
+# https://yourdomain.com/admin (admin registration)
+# https://yourdomain.com/agent/[agent-slug] (public registration)
+```
+
+## 📱 User Experience Flow
+
+### Admin Registration
+
+1. User fills registration form → "Registration successful. Please check your email."
+2. User receives branded NebraskaHomeHub verification email
+3. User clicks verification link → "Email verified successfully!"
+4. User can now log in to admin dashboard
+
+### Public User Registration (Agent Sites)
+
+1. User registers on agent website → "Please check your email to verify."
+2. User receives agent-branded verification email
+3. User clicks verification link → "Email verified successfully!"
+4. User can now log in to agent website features
+
+## 🛠️ Troubleshooting
+
+### No Emails Received?
+
+1. **Check console logs** - emails are logged when SMTP isn't configured
+2. **Verify SMTP credentials** - test with a simple SMTP tester
+3. **Check spam folder** - verification emails might be filtered
+4. **Use resend feature** - both admin and public have resend buttons
+
+### Email Links Not Working?
+
+1. **Check SITE_URL** - must match your actual domain
+2. **Verify routes** - admin uses `/verify-email`, public uses `/agent/:slug/verify-email`
+3. **Check token expiry** - tokens expire in 24 hours by default
+
+### Development vs Production Issues?
+
+- **Development**: Uses `http://localhost:5173` by default
+- **Production**: Must set correct `SITE_URL` environment variable
+- **SMTP**: Can be different providers for dev vs prod
+
+## 🔒 Security Features
+
+- ✅ **Tokens expire in 24 hours** for security
+- ✅ **Secure random token generation** using crypto.randomBytes
+- ✅ **Email enumeration protection** - resend always returns success
+- ✅ **Login blocked** until verification complete
+- ✅ **One-time use tokens** - cleared after verification
+
+## 🌍 All Environment Support
+
+### Development
+
+- ✅ Local testing with console logging
+- ✅ Hot reload support
+- ✅ Debug-friendly error messages
+
+### Staging/Production
+
+- ✅ Full SMTP email delivery
+- ✅ Production-ready error handling
+- ✅ AWS Elastic Beanstalk deployment ready
+
+## 📋 Verification Checklist
+
+- [ ] SMTP credentials configured
+- [ ] SITE_URL set correctly for environment
+- [ ] Admin registration tested
+- [ ] Public user registration tested
+- [ ] Email delivery working
+- [ ] Verification links functional
+- [ ] Login restrictions enforced
+- [ ] Resend functionality working
+- [ ] Error handling tested
+- [ ] Production deployment verified
+
+## 🚀 Ready to Go!
+
+Your email verification system is now **fully implemented and tested** for:
+
+- **Admin users** (main application)
+- **Public users** (agent websites)
+- **All environments** (dev, staging, production)
+
+Users must verify their email before they can log in, ensuring you have valid, confirmed email addresses for all users! 🎉
+
+---
+
+## 🤖 AI-SEO Integration - Data Passed
+
+When users click the **AI-SEO** button, the following data is sent to the AI-SEO app:
+
+### URL Parameters (Query String)
+
+```
+?source=nebraska-home-hub
+&timestamp=1735200000000
+&domain=www.imakepage.com (current host)
+&userEmail=user@example.com (if logged in)
+&autoLogin=true (if userEmail provided)
+```
+
+### Template Payload (via postMessage)
+
+The app sends a `AISEO_TEMPLATE_DATA` message with real template data:
+
+```typescript
+{
+  type: "AISEO_TEMPLATE_DATA",
+  template: {
+    // Agent Info (from template)
+    agentName: template.agentName,
+    agentTitle: template.agentTitle,
+    companyName: template.companyName,
+    companyDescription: template.companyDescription,
+
+    // Contact Info (from template)
+    phone: template.contactPhone || template.phone,
+    phoneRaw: "digits only version",
+    email: template.agentEmail || template.emailFromEmail,
+
+    // Branding (from template)
+    tagline: template.heroSubtitle,
+    heroTitle: template.heroTitle,
+    heroSubtitle: template.heroSubtitle,
+
+    // Social Media Handles (extracted from template URLs)
+    socialHandles: {
+      instagram: extractHandle(template.instagramUrl),
+      facebook: extractHandle(template.facebookUrl),
+      linkedin: extractHandle(template.linkedinUrl),
+      twitter: extractHandle(template.twitterUrl),
+      tiktok: extractHandle(template.tiktokUrl),
+      youtube: extractHandle(template.youtubeUrl),
+    },
+
+    // Colors (from template)
+    colors: {
+      primary: template.primaryColor,
+      accent: template.accentColor,
+      text: template.textColor,
+    },
+
+    // Website
+    websiteUrl: template.externalLinkUrl,
+    source: template.templateSource,
+    timestamp: "ISO timestamp",
+  }
+}
+```
+
+### Data Source Mapping
+
+| AI-SEO Field         | Template Source                                          |
+| -------------------- | -------------------------------------------------------- |
+| `agentName`          | `template.agentName` or `template.heroAgentName`         |
+| `agentTitle`         | `template.agentTitle`                                    |
+| `companyName`        | `template.companyName`                                   |
+| `companyDescription` | `template.companyDescription` or `template.heroSubtitle` |
+| `phone`              | `template.contactPhone` or `template.phone`              |
+| `email`              | `template.agentEmail` or `template.emailFromEmail`       |
+| `heroTitle`          | `template.heroTitle`                                     |
+| `heroSubtitle`       | `template.heroSubtitle`                                  |
+| `instagram`          | `template.instagramUrl` (handle extracted)               |
+| `facebook`           | `template.facebookUrl` (handle extracted)                |
+| `linkedin`           | `template.linkedinUrl` (handle extracted)                |
+| `twitter`            | `template.twitterUrl` (handle extracted)                 |
+| `tiktok`             | `template.tiktokUrl` (handle extracted)                  |
+| `youtube`            | `template.youtubeUrl` (handle extracted)                 |
+| `primary color`      | `template.primaryColor`                                  |
+| `accent color`       | `template.accentColor`                                   |
+| `text color`         | `template.textColor`                                     |
+
+### Fallback Defaults
+
+If template fields are empty, these defaults are used:
+
+- `agentName`: "Mike Bjork"
+- `companyName`: "Berkshire Hathaway HomeServices"
+- `agentTitle`: "Real Estate Advisor"
+
+### Files Involved
+
+- [client/src/lib/realtyflow.ts](client/src/lib/realtyflow.ts) - Builds the template payload
+- [client/src/lib/constants.ts](client/src/lib/constants.ts) - `buildRealtyFlowUrl()` function
+- [client/src/pages/external.tsx](client/src/pages/external.tsx) - Sends data via postMessage

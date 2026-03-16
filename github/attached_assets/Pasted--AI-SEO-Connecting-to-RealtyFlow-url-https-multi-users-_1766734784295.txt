@@ -1,0 +1,175 @@
+[AI-SEO] Connecting to RealtyFlow {url: 'https://multi-users-realtyflow.replit.app/integrat…erEmail=mygoldenbrick2%40gmail.com&autoLogin=true', userEmail: 'mygoldenbrick2@gmail.com'}
+index-DCJJ9YFP.js:5123 [AI-SEO] Received message from iframe: {origin: 'https://multi-users-realtyflow.replit.app', type: 'SELECTOR_SCRIPT_LOADED', data: {…}}
+index-DCJJ9YFP.js:5123 [AI-SEO] Received message from iframe: {origin: 'https://multi-users-realtyflow.replit.app', type: undefined, data: {…}}
+index-DCJJ9YFP.js:5123 [AI-SEO] Sent template payload (iframe-ready) {type: 'AISEO_TEMPLATE_DATA', template: {…}}
+index-Cq8nk9bE.js:773 📬 Received postMessage: AISEO_TEMPLATE_DATA from: https://www.imakepage.com
+index-Cq8nk9bE.js:773 ✅ Valid template data received: {agentName: 'bhargav sidda', agentTitle: 'Principal Broker', companyName: "bhargav's Real Estate Company", companyDescription: 'We believe that luxury is not a price point but an experience.', phone: '(402) 522-6131', …}
+index-Cq8nk9bE.js:773 📥 Importing template data from imakepage.com
+index-Cq8nk9bE.js:822 🔌 Connecting to WebSocket: wss://multi-users-realtyflow.replit.app/ws?userId=1
+index-Cq8nk9bE.js:909 🔍 Social accounts data: undefined
+index-Cq8nk9bE.js:909 🔍 Is loading: true
+index-Cq8nk9bE.js:909 🔍 Error: null
+index-Cq8nk9bE.js:909 🔍 Document cookies: 
+index-Cq8nk9bE.js:822 🔌 Connecting to WebSocket: wss://multi-users-realtyflow.replit.app/ws?userId=17
+index-DCJJ9YFP.js:5123 [AI-SEO] Received message from iframe: {origin: 'https://multi-users-realtyflow.replit.app', type: undefined, data: {…}}
+index-Cq8nk9bE.js:233  POST https://multi-users-realtyflow.replit.app/api/company/profile/import 400 (Bad Request)
+xt @ index-Cq8nk9bE.js:233
+i @ index-Cq8nk9bE.js:773Understand this error
+index-Cq8nk9bE.js:822 ❌ WebSocket error: Event {isTrusted: true, type: 'error', target: WebSocket, currentTarget: WebSocket, eventPhase: 2, …}
+T.onerror @ index-Cq8nk9bE.js:822Understand this error
+index-Cq8nk9bE.js:822 🔌 WebSocket disconnected
+index-Cq8nk9bE.js:773 ❌ Failed to import template data: Error: 400: {"error":"Invalid template data","details":[{"code":"invalid_type","expected":"string","received":"number","path":["userId"],"message":"Expected string, received number"}]}
+    at c_ (index-Cq8nk9bE.js:233:3272)
+    at async xt (index-Cq8nk9bE.js:233:3506)
+    at async i (index-Cq8nk9bE.js:773:66913)
+i @ index-Cq8nk9bE.js:773Understand this error
+index-Cq8nk9bE.js:822 ✅ WebSocket connected
+index-Cq8nk9bE.js:822 📨 WebSocket message: {type: 'notification', data: {…}, timestamp: '2025-12-26T07:39:32.820Z'}
+index-Cq8nk9bE.js:39 Warning: Each child in a list should have a unique "key" prop.
+
+Check the render method of `mM`. See https://reactjs.org/link/warning-keys for more information.
+    at mM (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:909:248915)
+    at div
+    at main
+    at div
+    at eP (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:1240:195546)
+    at Yc (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:1243:97818)
+    at Ci (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:212:4345)
+    at vW (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:212:5158)
+    at zde
+    at h (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:233:6426)
+    at yA (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:773:52526)
+    at jJ (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:773:64670)
+    at EJ (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:773:60479)
+    at IW (https://multi-users-realtyflow.replit.app/assets/index-Cq8nk9bE.js:233:427)
+    at $de
+C @ index-Cq8nk9bE.js:39
+T @ index-Cq8nk9bE.js:39
+ge @ index-Cq8nk9bE.js:49
+mt @ index-Cq8nk9bE.js:49
+Wr @ index-Cq8nk9bE.js:49
+mM @ index-Cq8nk9bE.js:1123
+zm @ index-Cq8nk9bE.js:143
+xk @ index-Cq8nk9bE.js:159
+e3 @ index-Cq8nk9bE.js:161
+Kk @ index-Cq8nk9bE.js:178
+O3 @ index-Cq8nk9bE.js:174
+Mq @ index-Cq8nk9bE.js:174
+Og @ index-Cq8nk9bE.js:174
+T3 @ index-Cq8nk9bE.js:174
+Al @ index-Cq8nk9bE.js:91
+(anonymous) @ index-Cq8nk9bE.js:174
+setTimeout
+i @ index-Cq8nk9bE.js:212
+l @ index-Cq8nk9bE.js:212
+batch @ index-Cq8nk9bE.js:212
+Qc @ index-Cq8nk9bE.js:212
+setData @ index-Cq8nk9bE.js:212
+onSuccess @ index-Cq8nk9bE.js:212
+b @ index-Cq8nk9bE.js:212
+Promise.then
+E @ index-Cq8nk9bE.js:212
+start @ index-Cq8nk9bE.js:212
+fetch @ index-Cq8nk9bE.js:212
+fb @ index-Cq8nk9bE.js:212
+onSubscribe @ index-Cq8nk9bE.js:212
+subscribe @ index-Cq8nk9bE.js:212
+(anonymous) @ index-Cq8nk9bE.js:233
+iT @ index-Cq8nk9bE.js:143
+zl @ index-Cq8nk9bE.js:161
+aq @ index-Cq8nk9bE.js:174
+sq @ index-Cq8nk9bE.js:174
+rq @ index-Cq8nk9bE.js:174
+nq @ index-Cq8nk9bE.js:174
+zq @ index-Cq8nk9bE.js:174
+qc @ index-Cq8nk9bE.js:174
+T3 @ index-Cq8nk9bE.js:174
+Al @ index-Cq8nk9bE.js:91
+Fq @ index-Cq8nk9bE.js:174
+pd @ index-Cq8nk9bE.js:174
+Vq @ index-Cq8nk9bE.js:174
+V3 @ index-Cq8nk9bE.js:174
+ut @ index-Cq8nk9bE.js:62
+Te @ index-Cq8nk9bE.js:62
+L @ index-Cq8nk9bE.js:62Understand this error
+index-Cq8nk9bE.js:909 🔍 Social accounts data: (6) [{…}, {…}, {…}, {…}, {…}, {…}]
+index-Cq8nk9bE.js:909 🔍 Is loading: false
+index-Cq8nk9bE.js:909 🔍 Error: null
+index-Cq8nk9bE.js:909 🔍 Document cookies: 
+index-Cq8nk9bE.js:233  GET https://multi-users-realtyflow.replit.app/api/videos 500 (Internal Server Error)
+(anonymous) @ index-Cq8nk9bE.js:233
+c @ index-Cq8nk9bE.js:212
+E @ index-Cq8nk9bE.js:212
+start @ index-Cq8nk9bE.js:212
+fetch @ index-Cq8nk9bE.js:212
+fb @ index-Cq8nk9bE.js:212
+onSubscribe @ index-Cq8nk9bE.js:212
+subscribe @ index-Cq8nk9bE.js:212
+(anonymous) @ index-Cq8nk9bE.js:233
+iT @ index-Cq8nk9bE.js:143
+zl @ index-Cq8nk9bE.js:161
+aq @ index-Cq8nk9bE.js:174
+sq @ index-Cq8nk9bE.js:174
+rq @ index-Cq8nk9bE.js:174
+nq @ index-Cq8nk9bE.js:174
+zq @ index-Cq8nk9bE.js:174
+qc @ index-Cq8nk9bE.js:174
+Fq @ index-Cq8nk9bE.js:174
+pd @ index-Cq8nk9bE.js:174
+T3 @ index-Cq8nk9bE.js:174
+Al @ index-Cq8nk9bE.js:91
+(anonymous) @ index-Cq8nk9bE.js:174
+setTimeout
+i @ index-Cq8nk9bE.js:212
+l @ index-Cq8nk9bE.js:212
+batch @ index-Cq8nk9bE.js:212
+Qc @ index-Cq8nk9bE.js:212
+setData @ index-Cq8nk9bE.js:212
+onSuccess @ index-Cq8nk9bE.js:212
+b @ index-Cq8nk9bE.js:212
+Promise.then
+E @ index-Cq8nk9bE.js:212
+start @ index-Cq8nk9bE.js:212
+fetch @ index-Cq8nk9bE.js:212
+fb @ index-Cq8nk9bE.js:212
+onSubscribe @ index-Cq8nk9bE.js:212
+subscribe @ index-Cq8nk9bE.js:212
+(anonymous) @ index-Cq8nk9bE.js:233
+iT @ index-Cq8nk9bE.js:143
+zl @ index-Cq8nk9bE.js:161
+aq @ index-Cq8nk9bE.js:174
+sq @ index-Cq8nk9bE.js:174
+rq @ index-Cq8nk9bE.js:174
+nq @ index-Cq8nk9bE.js:174
+zq @ index-Cq8nk9bE.js:174
+qc @ index-Cq8nk9bE.js:174
+T3 @ index-Cq8nk9bE.js:174
+Al @ index-Cq8nk9bE.js:91
+Fq @ index-Cq8nk9bE.js:174
+pd @ index-Cq8nk9bE.js:174
+Vq @ index-Cq8nk9bE.js:174
+V3 @ index-Cq8nk9bE.js:174
+ut @ index-Cq8nk9bE.js:62
+Te @ index-Cq8nk9bE.js:62
+L @ index-Cq8nk9bE.js:62Understand this error
+index-Cq8nk9bE.js:909 Google Maps loaded successfully
+index-Cq8nk9bE.js:909  GET https://multi-users-realtyflow.replit.app/api/facebook/pages 500 (Internal Server Error)
+(anonymous) @ index-Cq8nk9bE.js:909
+(anonymous) @ index-Cq8nk9bE.js:909
+zl @ index-Cq8nk9bE.js:161
+aq @ index-Cq8nk9bE.js:174
+sq @ index-Cq8nk9bE.js:174
+rq @ index-Cq8nk9bE.js:174
+nq @ index-Cq8nk9bE.js:174
+zq @ index-Cq8nk9bE.js:174
+qc @ index-Cq8nk9bE.js:174
+T3 @ index-Cq8nk9bE.js:174
+Al @ index-Cq8nk9bE.js:91
+Fq @ index-Cq8nk9bE.js:174
+pd @ index-Cq8nk9bE.js:174
+Vq @ index-Cq8nk9bE.js:174
+V3 @ index-Cq8nk9bE.js:174
+ut @ index-Cq8nk9bE.js:62
+Te @ index-Cq8nk9bE.js:62
+L @ index-Cq8nk9bE.js:62Understand this error
+index-Cq8nk9bE.js:822 🔄 Attempting to reconnect...

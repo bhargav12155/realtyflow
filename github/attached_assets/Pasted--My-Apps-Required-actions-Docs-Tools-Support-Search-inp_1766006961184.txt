@@ -1,0 +1,57 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+Facebook
+Request for App Review
+Verification
+App settings
+Allowed usage
+Data handling
+Reviewer instructions
+Auto-saved
+Reviewer instructions
+Provide your website for review
+Site URL:
+https://www.imakepage.com/
+Edit your website login URL
+instructions-web-2
+Provide instructions for accessing the app so we may complete our review.
+Explain how to navigate to the app, and provide instructions for testing.
+
+In your response, please include confirmation of any use of Meta APIs or integrations pertaining to Facebook Login. If you are no longer using Facebook Login please tell us why and share general instructions for testing. We may reach out to you for more information.
+Meta APIs refer to endpoints such as email, public profile, user permissions (user_friends, user_gender, user_birthday etc.). For some apps, this is called advanced access.
+Provide instructions for accessing the app:
+
+Visit https://www.imakepage.com
+Click "Sign in" or sign up and then  log in with your account credentials
+After logging in, locate and click the "AISEO" button in the dashboard
+This opens our AI-powered marketing tools where Meta oEmbed Read is used
+Navigate to "AI Content Generator" or "Quick Posts" to see embedded Facebook/Instagram post previews
+The Meta oEmbed Read feature is used to display previews of Facebook and Instagram posts within our content creation and social media publishing tools. This helps real estate agents preview how their content will appear on social platforms before publishing.
+accesscode-web-1
+(optional) If payment or membership is required to access the full functionality of this app, provide access codes or test credentials so we can access and review all features on this app.
+Codes should be active for one year after submission.
+If you are using Facebook Login on this app, you can create a Facebook test user and register it with your app. About Facebook test users
+nothing as of now
+accesscode-web-2
+(optional) If payment is required to download this app, provide 8–10 gift codes so we can download it from app stores without payment.
+Codes should be active for one year after submission.
+Include any codes or test credentials required to access in-app subscriptions, purchases, or features.
+none
+geo-web-5
+(optional) If access to this app or any of its features is limited to users within a specific geographic location or restricted by geo-blocking or geo-fencing, explain the restrictions and provide a list of locations.
+For example, specify the countries where the app can be accessed.
+Available only in Swiss, USA and India
+documents-web-1
+(Optional) Include supporting documentation.
+For example, you can upload a screen recording or images that show how to access the app, log in, and how the app uses Meta APIs.
+
+You can upload multiple files, maximum 2 GB each. We accept .xls, .xlsx, .csv, .doc, .docx, .pdf, .txt, .jpeg, .jpg, .png, .ppt, .pptx, .mov, .mp4, .zip and .zipx.
+Drag and drop files
+Or choose files on your device

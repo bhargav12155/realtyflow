@@ -1,0 +1,91 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+1
+Notification count
+Facebook
+App ID
+774122798836725
+App secret
+App secret
+●●●●●●●●
+Display name
+Display name
+goldenbrickpublish
+Namespace
+Namespace
+App domains
+multi-users-realtyflow.replit.app
+imakepage.com
+Contact email
+​
+Contact email
+bhargav00s@yahoo.co.in
+Privacy policy URL
+Privacy policy URL
+https://www.imakepage.com/privacy-policy
+Terms of Service URL
+Terms of Service URL
+Terms of Service for Login dialog and app details
+User data deletion
+Data deletion instructions URL
+​
+User data deletion
+https://www.imakepage.com/data-deletion
+App icon (1024 x 1024)
+Category
+Business and pages
+​
+Threads app ID
+662703863091240
+Threads display name
+Threads display name
+goldenbrickpublish
+Threads app secret
+Threads app secret
+●●●●●●●●
+Verification
+Meta requires the following verification processes to help us understand who is creating apps on this platform.
+Business verification
+This is required to get access to data from users (for some apps this is called advanced access). Only people with full control of a Business Account can complete this process. Learn more about business verification.
+my_golden_brick_
+ID: 1490332435644430
+Verified
+Data Protection Officer contact information
+The General Data Protection Regulation (GDPR) requires certain companies doing business in the European Union to designate a Data Protection Officer who people can contact for information about how their data is being processed.
+This contact information will be available to people on Facebook along with other information about your app or website. Learn More.
+Name
+∙
+Optional
+Name∙Optional
+michael bjork
+Email
+Email
+mike.bjork@bhhsamb.com
+Address
+Street Address
+Street Address
+17130 Valley Drive
+Apt/Suite/Other∙Optional
+City/District
+Omaha
+State/Province/Region
+NE
+ZIP/Postal Code
+68130
+Country
+United States
+​
+Website
+Site URL
+Site URL
+https://www.imakepage.com/
+Provide testing instructions
+Meta performs regular reviews of apps on the platform in order to verify that an app's access to permissions follows our terms and policies. Avoid unexpected restrictions by keeping this required testing information up to date.
+Save changesDiscard

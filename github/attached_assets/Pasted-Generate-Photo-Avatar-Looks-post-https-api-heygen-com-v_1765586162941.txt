@@ -1,0 +1,138 @@
+Generate Photo Avatar Looks
+post
+https://api.heygen.com/v2/photo_avatar/look/generate
+
+Generates additional looks (images) for a trained avatar group.
+
+Recent Requests
+Log in to see full request history
+Time	Status	User Agent	
+Make a request to see history.
+0 Requests This Month
+
+📘
+Note:
+
+The avatar group must be trained to use this endpoint. Refer to the Train Photo Avatar Group endpoint for more details on training the avatar group.
+Scroll down to the Response section below and expand the status code(s) to view the detailed response schema.
+Refer to the RESPONSE section on the right and choose an example to see how the API response appears for each status code.
+Body Params
+group_id
+string
+required
+Unique identifier of the avatar group to which the new look will be added. Can be retrieved from the Create Photo Avatar Group endpoint.
+
+prompt
+string
+required
+Text prompt describing the look's appearance, such as clothing, mood, lightning, etc. Maximum 1000 characters.
+
+orientation
+string
+enum
+required
+Image orientation for the generated look.
+
+
+square
+Allowed:
+
+square
+
+horizontal
+
+vertical
+pose
+string
+enum
+required
+Framing or body coverage in the look.
+
+
+half_body
+Allowed:
+
+half_body
+
+close_up
+
+full_body
+style
+string
+enum
+required
+Visual or artistic style of the generated look.
+
+
+Realistic
+Allowed:
+
+Realistic
+
+Pixar
+
+Cinematic
+
+Vintage
+
+Noir
+
+Cyberpunk
+
+Unspecified
+Response
+
+200
+Looks generation initiated successfully - Expand to view the detailed response schema.
+
+Updated about 1 month ago
+
+Get Training Job Status
+Add Motion
+Did this page help you?
+Language
+
+Shell
+
+Node
+
+Ruby
+
+PHP
+
+Python
+Credentials
+Header
+<your-api-key>
+
+1
+curl --request POST \
+2
+     --url https://api.heygen.com/v2/photo_avatar/look/generate \
+3
+     --header 'accept: application/json' \
+4
+     --header 'content-type: application/json' \
+5
+     --header 'x-api-key: <your-api-key>' \
+6
+     --data '
+7
+{
+8
+  "orientation": "square",
+9
+  "pose": "half_body",
+10
+  "style": "Realistic"
+11
+}
+12
+'
+
+Try It!
+Response
+Click Try It! to start a request and see the response here! Or choose an example:
+application/json
+
+200 - Result

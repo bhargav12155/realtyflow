@@ -1,0 +1,203 @@
+
+TikTok for Developers
+
+Products
+Docs
+Support
+Events
+Blog
+Open Innovation
+
+Developer Portal
+
+
+AI Assistant
+MyGoldenBrick
+
+Production
+Sandbox
+
+URL properties
+
+
+Sandbox
+
+
+mygoldenbrick
+App details
+Credentials
+
+Basic information
+
+Products
+Login Kit
+
+Content Posting API
+
+Share Kit
+
+Scopes
+Sandbox settings
+Target users
+
+
+Delete Sandbox
+
+Apply changes
+You are editing mygoldenbrick, a Sandbox version of MyGoldenBrick
+App details
+
+Credentials
+Client key
+•••••••••••••••••
+Client secret
+•••••••••••••••••
+
+Basic information
+App icon *
+This will be displayed publicly to TikTok users.
+
+Requirements:
+1024px x 1024px
+Up to 5MB
+JPEG, JPG, or PNG formats
+App name *
+This will be displayed to TikTok users
+MyGoldenBrick
+13 / 50
+Category *
+
+Productivity
+Description *
+Describe what your website or mobile app does and how it works. This will be displayed to TikTok users.
+Examples:
+A website that sells pet supplies.
+Manage all your social media content in one place.
+A real estate marketing platform where agents and homebuilders create personalized websites, showcase property listings
+119 / 120
+Terms of Service URL *
+Link to your app or website's official Terms of Service
+https://www.imakepage.com/terms-of-service
+Privacy Policy URL *
+Link to your app or website's official privacy policy
+https://www.imakepage.com/privacy-policy
+Platforms *
+
+Web
+
+Desktop
+
+Android
+
+iOS
+Configure for Web/Desktop
+Web/Desktop URL *
+Link to the official website for your app or service
+https://www.imakepage.com
+Products
+
+Add products
+
+
+Login Kit
+
+Redirect URI
+ *
+
+Add up to 10 Redirect URIs. Users will be redirected to this path after they have authorized your app with TikTok.
+
+
+Web*
+
+Desktop*
+
+Android
+
+iOS
+https://596fe8f7-6151-4b60-9a63-924b1ec27201-00-2po7zhxr512nn.janeway.replit.dev/api/social/callback/tiktok
+
+Add a URI
+
+
+Share Kit
+
+
+
+Content Posting API
+
+By default, Upload to TikTok is enabled, allowing you to upload content to TikTok as a draft for creators to further edit and post.
+Direct Post
+
+Directly post content to authorized users' profiles.
+Verify domains
+The video/content can be posted in two ways, push_by_file and pull_by_url. To enable pull_by_url, you have to verify your domains. Check out the Media Transfer Guide to learn more.
+
+Verify
+
+Add products
+Scopes
+
+Search
+
+Add scopes
+user.info.basic
+user.info.basic
+Read a user's profile info (open id, avatar, display name ...)
+Included in Login Kit
+video.publish
+video.publish
+Directly post content to a user's TikTok profile.
+Included in Content Posting API
+video.upload
+video.upload
+Share content to creator's account as a draft to further edit and post in TikTok.
+Included in Content Posting API
+video.list
+video.list
+Read a user's public videos on TikTok
+
+Sandbox settings
+
+Target Users
+
+Add account
+TikTok username	Time added	
+mygoldenbrickstudio	Dec 14, 2025 8:15 PM	
+Remove
+Total 1 item
+History
+
+Changelog
+
+Review comments
+
+All
+TikTok for Developers
+Products
+Share Kit
+Login Kit
+Content Posting API
+Research API
+Display API
+Embed Videos
+Data Portability API
+Green Screen Kit
+Commercial Content API
+Other platforms
+TikTok Embeds
+TikTok for Business
+Advertise on TikTok
+TikTok Creative Center
+TikTok.com
+Company
+About TikTok
+Newsroom
+Contact
+Careers
+ByteDance
+Transparency Center
+© 2025 TikTok
+Terms of Service
+Privacy Policy
+Resources & Legal
+Saved

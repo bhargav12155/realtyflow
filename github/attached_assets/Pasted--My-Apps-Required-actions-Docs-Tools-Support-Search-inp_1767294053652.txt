@@ -1,0 +1,57 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+Facebook
+Use cases
+Customize
+Customize use case
+Customize use case settings and permissions to make your app work the way you want it to.
+Use case switcher
+​
+Instagram API
+​
+Welcome to the Instagram API
+Begin using the Instagram API to create, publish, and manage content. You can also interact with users by sending and receiving messages, as well as moderating comments. Learn more
+If you want to be able to track hashtags and insights, switch to the API setup with Facebook login.
+Instagram app name
+goldenbrickpublish-IG
+Instagram app ID
+1357417282537650
+Instagram app secret
+Instagram app secret
+•••••••••
+1. Add required messaging permissions
+Add the listed content management and messaging permissions to create, publish and manage content and respond directly to messages and send private replies with your Instagram account. Manage these and optional permissions and features on the Permissions and features page.
+instagram_business_basic
+instagram_manage_comments
+instagram_business_manage_messages
+2. Generate access tokens
+Add an Instagram account to generate access tokens and setup webhook subscriptions.
+3. Configure webhooks
+Configure a custom webhook URL or use services that help you set up an endpoint. Learn more
+To receive webhooks, your app must be in published state.
+Callback URL
+Verify token
+
+Attach a client certificate to Webhook requests. Learn more.
+4. Set up Instagram business login
+Provide a secure way for businesses to give your app permissions to access data with business login.
+5. Complete app review
+Instagram requires successful completion of the app review process before your app can access live data. Go through app review to get advanced access to Instagram permissions. Submit your app review request when you're ready.
+About
+Instagram API allows you to build applications to publish and engage with content and manage messages on Instagram...See more
+Resources
+We've gathered some resources to help you start building.
+Developer docs
+Getting started
+Developer community
+Policies
+By accessing and using the platform, you agree to the Meta Platform Terms and Developer Policies as well as all other applicable terms and policies.
+Platform policy
+Developer policy

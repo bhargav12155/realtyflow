@@ -1,0 +1,43 @@
+
+My Apps
+Required actions
+Docs
+Tools
+Support
+Search input
+​
+Search...
+Facebook
+Request for App Review
+Verification
+App settings
+Allowed usage
+Data handling
+Reviewer instructions
+Auto-saved
+Allowed usage
+Complete all allowed usage steps before submitting for review. If you need to remove any permissions from your submission, edit your submission.
+How will this app use Threads oEmbed Read?
+Review the policies for Threads oEmbed Read and tell us how you intend to use it
+Describe how your app uses this permission or feature
+Ensure you have performed required API test calls
+Agree that you will comply with allowed usage
+Please provide a url where we can test oembed
+How will this app use Meta oEmbed Read?
+Review the policies for Meta oEmbed Read and tell us how you intend to use it
+Describe how your app uses this permission or feature
+Agree that you will comply with allowed usage
+Please provide a url where we can test oembed
+Close
+Tell us why you're requesting Threads oEmbed Read
+The Threads oEmbed Read feature allows an app to embed content of Threads posts, such as photos and videos, in other websites. The allowed usage for this feature is to provide front-end views of Threads posts. You may also use this permission to request analytics insights to improve your app and for marketing or advertising purposes, through the use of aggregated and de-identified or anonymized information (provided such data cannot be re-identified).
+Please provide a detailed description of how your app uses the permission or feature requested, how it adds value for a person using your app, and why it's necessary for app functionality. [?]
+Please provide a URL where we can test Oembed Read. Include the URL of a page, post or video from our official Facebook or Instagram pages, or the pages themselves.
+https://www.facebook.com/<your_page>
+Make sure you've completed the required API test calls for added permissions. Completed test calls can take up to 24 hours to show for your app. To complete the requirements, go to Testing.
+Threads oEmbed Read
+0 of 1 API call(s) required
+If you haven't completed the required testing, save any information you've added above and go to the Testing page to complete the requirements. Then come back here to complete the App Review submission. Keep in mind, testing data can take 24 hours to show.
+
+If approved, I agree that any data I receive through Threads oEmbed Read will be used in accordance with the allowed usage.
+CancelSave

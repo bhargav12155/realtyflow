@@ -1,0 +1,99 @@
+username: undefined
+2025-12-26 01:33:36.58
+ec2f76ee
+User
+🔐 [AUTH] Token decoded: {
+2025-12-26 01:33:36.58
+ec2f76ee
+User
+type: 'public',
+2025-12-26 01:33:36.58
+ec2f76ee
+User
+email: 'bhargav12155@gmail.com',
+2025-12-26 01:33:36.58
+ec2f76ee
+User
+[STORAGE] getUser(1) - Not found
+2025-12-26 01:33:36.58
+ec2f76ee
+User
+7:33:36 AM [express] GET /api/search-console/status 200 in 32ms :: {"connected":false}
+2025-12-26 01:33:36.62
+ec2f76ee
+User
+7:33:36 AM [express] GET /api/user/is-admin 200 in 66ms :: {"isAdmin":false}
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+7:33:36 AM [express] GET /api/company/profile 200 in 135ms
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=1
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+7:33:36 AM [express] GET /api/social/accounts 200 in 131ms :: [{"id":"mX_ZIQ7-xHyOt-vU5d5ac","platfo…
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+[STORAGE] Found 3 social media accounts for user 1
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+🔍 Facebook Debug - Token first 20 chars: EAALAD4Jv6ZCUBQOakai
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+🔍 Facebook Debug - Token available: true
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+🔍 Facebook Debug - Making API call to me/accounts
+2025-12-26 01:33:36.70
+ec2f76ee
+User
+[STORAGE] Found 3 social media accounts for user 1
+2025-12-26 01:33:36.73
+ec2f76ee
+User
+📊 Dashboard: 0 engagement leads this month (+0.0% vs last month)
+2025-12-26 01:33:36.78
+ec2f76ee
+User
+fbtrace_id: 'AS5WL8m4o7M57BAW8Fafxab'
+2025-12-26 01:33:36.78
+ec2f76ee
+User
+🔍 Facebook Debug - Error response: {
+2025-12-26 01:33:36.78
+ec2f76ee
+User
+at SocialMediaService.getFacebookPageInfo (file:///home/runner/workspace/dist/index.js:4826:19)
+2025-12-26 01:33:36.78
+ec2f76ee
+User
+error: {
+2025-12-26 01:33:36.82
+ec2f76ee
+User
+username: undefined
+2025-12-26 01:33:36.82
+ec2f76ee
+User
+username: undefined
+2025-12-26 01:33:36.88
+ec2f76ee
+User
+7:33:36 AM [express] GET /api/media/ 200 in 67ms :: [{"id":"5b51961d-e514-4e06-a1e7-a1dbf7d0ac85","u…
+2025-12-26 01:34:22.56
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T07:34:22.563Z
+Wrap
+Colors

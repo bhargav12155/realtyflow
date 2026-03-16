@@ -1,0 +1,157 @@
+
+Time
+Deployment
+Source
+Log
+2025-12-26 00:43:22.29
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:43:22.291Z
+2025-12-26 00:43:25.73
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 00:43:25.73
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=1
+2025-12-26 00:44:22.29
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:44:22.298Z
+2025-12-26 00:45:22.30
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:45:22.306Z
+2025-12-26 00:46:22.31
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:46:22.312Z
+2025-12-26 00:47:09.76
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:47:13.78
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 00:47:13.78
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=4
+2025-12-26 00:47:22.32
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:47:22.319Z
+2025-12-26 00:48:22.32
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:48:22.327Z
+2025-12-26 00:48:26.72
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:48:30.73
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 00:48:30.73
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=1
+2025-12-26 00:49:22.33
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:49:22.333Z
+2025-12-26 00:50:22.34
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:50:22.341Z
+2025-12-26 00:51:22.34
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:51:22.347Z
+2025-12-26 00:52:14.78
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:52:18.76
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=4
+2025-12-26 00:52:18.76
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 00:52:22.34
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:52:22.348Z
+2025-12-26 00:53:22.35
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:53:22.356Z
+2025-12-26 00:53:31.73
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:53:35.74
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=1
+2025-12-26 00:54:22.36
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:54:22.362Z
+2025-12-26 00:55:22.36
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:55:22.368Z
+2025-12-26 00:56:22.37
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:56:22.375Z
+2025-12-26 00:57:19.76
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:57:22.37
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:57:22.378Z
+2025-12-26 00:57:23.79
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=4
+2025-12-26 00:57:23.79
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 00:58:22.38
+ec2f76ee
+User
+⏰ Checking for scheduled posts due at 2025-12-26T06:58:22.385Z
+2025-12-26 00:58:36.74
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:58:40.74
+ec2f76ee
+User
+✅ WebSocket client authenticated: userId=1
+2025-12-26 00:58:40.74
+ec2f76ee
+User
+🔌 WebSocket client connection attempt
+2025-12-26 00:59:10.69
+ec2f76ee
+User
+6:59:10 AM [express] GET /api/openai/status 304 in 2ms :: {"totalKeys":1,"availableKeys":1,"keys":[{…
+2025-12-26 00:59:11.73
+ec2f76ee
+User
+🔌 WebSocket client disconnected
+2025-12-26 00:59:16.67
+ec2f76ee
+User
+🔗 Integration request from nebraska-home-hub - domain: localhost:3001, agent: undefined

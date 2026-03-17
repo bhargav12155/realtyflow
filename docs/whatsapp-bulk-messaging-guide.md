@@ -42,6 +42,9 @@ Complete guide for sending bulk WhatsApp messages, creating templates, managing 
 
 Before you can use WhatsApp messaging through iMakePage, you need to set up a few things on Facebook/Meta's side. This is a one-time setup. Follow each step below in order.
 
+**Video Walkthrough:** If you prefer watching over reading, this YouTube video walks through the entire Meta/Facebook setup process:
+[How to Set Up WhatsApp Business API (Step by Step)](https://www.youtube.com/watch?v=4ty2t8EYZ6s)
+
 ### 1.1 What You Need Before Starting
 
 - A **Facebook account** (your personal account is fine — it's only used to manage the business account)

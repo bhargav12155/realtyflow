@@ -6,46 +6,209 @@ Complete guide for sending bulk WhatsApp messages, creating templates, managing 
 
 ## Table of Contents
 
-1. [Setting Up WhatsApp](#1-setting-up-whatsapp)
-2. [Creating Message Templates](#2-creating-message-templates)
-3. [Sending a Single WhatsApp Message](#3-sending-a-single-whatsapp-message)
-4. [Sending Bulk Messages](#4-sending-bulk-messages)
-5. [Understanding the Bulk Queue System](#5-understanding-the-bulk-queue-system)
-6. [Managing Bulk Queues](#6-managing-bulk-queues)
-7. [Downloading Reports](#7-downloading-reports)
-8. [WhatsApp Analytics](#8-whatsapp-analytics)
-9. [Multiple WhatsApp Accounts](#9-multiple-whatsapp-accounts)
-10. [Tips for Maximum Delivery](#10-tips-for-maximum-delivery)
-11. [Meta/Facebook Account Issues & Restrictions](#11-metafacebook-account-issues--restrictions)
-    - 11.1 Account Flagged or Restricted
-    - 11.2 Marketing Messages Not Delivering (US Restriction)
-    - 11.3 Template Paused by Meta
-    - 11.4 Facebook Business Manager Restrictions
-    - 11.5 Phone Number Quality Rating
-    - 11.6 Access Token Issues
-    - 11.7 Meta's Daily Messaging Limits & Tier Recovery
-12. [Troubleshooting](#12-troubleshooting)
+1. [Prerequisites — Setting Up on Facebook/Meta](#1-prerequisites--setting-up-on-facebookmeta)
+    - 1.1 What You Need Before Starting
+    - 1.2 Step 1: Create a Facebook Business Account (Meta Business Suite)
+    - 1.3 Step 2: Verify Your Business
+    - 1.4 Step 3: Create a Meta App (Facebook Developers)
+    - 1.5 Step 4: Add WhatsApp to Your Meta App
+    - 1.6 Step 5: Register a Phone Number
+    - 1.7 Step 6: Find Your Phone Number ID and WABA ID
+    - 1.8 Step 7: Create a System User & Permanent Access Token
+    - 1.9 Summary of What You Need
+2. [Connecting WhatsApp in iMakePage](#2-connecting-whatsapp-in-imakepage)
+3. [Creating Message Templates](#3-creating-message-templates)
+4. [Sending a Single WhatsApp Message](#4-sending-a-single-whatsapp-message)
+5. [Sending Bulk Messages](#5-sending-bulk-messages)
+6. [Understanding the Bulk Queue System](#6-understanding-the-bulk-queue-system)
+7. [Managing Bulk Queues](#7-managing-bulk-queues)
+8. [Downloading Reports](#8-downloading-reports)
+9. [WhatsApp Analytics](#9-whatsapp-analytics)
+10. [Multiple WhatsApp Accounts](#10-multiple-whatsapp-accounts)
+11. [Tips for Maximum Delivery](#11-tips-for-maximum-delivery)
+12. [Meta/Facebook Account Issues & Restrictions](#12-metafacebook-account-issues--restrictions)
+    - 12.1 Account Flagged or Restricted
+    - 12.2 Marketing Messages Not Delivering (US Restriction)
+    - 12.3 Template Paused by Meta
+    - 12.4 Facebook Business Manager Restrictions
+    - 12.5 Phone Number Quality Rating
+    - 12.6 Access Token Issues
+    - 12.7 Meta's Daily Messaging Limits & Tier Recovery
+13. [Troubleshooting](#13-troubleshooting)
 
 ---
 
-## 1. Setting Up WhatsApp
+## 1. Prerequisites — Setting Up on Facebook/Meta
 
-Before sending any messages, you need to connect your WhatsApp Business account.
+Before you can use WhatsApp messaging through iMakePage, you need to set up a few things on Facebook/Meta's side. This is a one-time setup. Follow each step below in order.
+
+### 1.1 What You Need Before Starting
+
+- A **Facebook account** (your personal account is fine — it's only used to manage the business account)
+- A **phone number** you want to use for WhatsApp Business (this number must NOT already be registered on regular WhatsApp or WhatsApp Business app — if it is, you'll need to delete that account first)
+- Your **business name, address, and website** (for business verification)
+- Access to your **business email** (for verification codes)
+
+### 1.2 Step 1: Create a Facebook Business Account (Meta Business Suite)
+
+If you already have a Meta Business account, skip to Step 2.
+
+1. Go to [business.facebook.com](https://business.facebook.com)
+2. Click **Create Account**
+3. Enter your **business name**, **your name**, and **business email**
+4. Follow the prompts to complete the setup
+5. You'll land on Meta Business Suite — this is your central hub for managing everything
+
+### 1.3 Step 2: Verify Your Business
+
+Business verification is required to send WhatsApp messages at scale. Without it, you're limited to very low volumes.
+
+1. In Meta Business Suite, go to **Settings** (gear icon, bottom left)
+2. Click **Business Settings**
+3. Under **Security Center**, find **Business Verification** (or go to **Settings > Business Info > Business Verification**)
+4. Click **Start Verification**
+5. Enter your **legal business name**, **address**, **phone number**, and **website**
+6. Meta will ask you to verify by one of these methods:
+   - **Domain verification** — Add a meta tag or DNS record to your website
+   - **Phone call** — Meta calls your business number with a verification code
+   - **Email** — Meta sends a code to an email address on your domain
+   - **Document upload** — Upload a utility bill, bank statement, or business license
+7. Submit and wait — verification usually takes **1-3 business days** but can take up to a week
+8. You'll get a notification when approved
+
+**Important:** You can proceed with the remaining steps while waiting for verification, but you won't be able to send messages at scale until verification is complete.
+
+### 1.4 Step 3: Create a Meta App (Facebook Developers)
+
+1. Go to [developers.facebook.com](https://developers.facebook.com)
+2. If prompted, register as a developer (it's free — just agree to the terms)
+3. Click **My Apps** (top right) then **Create App**
+4. Select **Business** as the app type (or "Other" > "Business" depending on the current UI)
+5. Enter an **App Name** (e.g., "My WhatsApp Business") and select your **Business Account** from the dropdown
+6. Click **Create App**
+7. You'll see your App Dashboard — note the **App ID** at the top (you'll need this later)
+
+### 1.5 Step 4: Add WhatsApp to Your Meta App
+
+1. In your App Dashboard, scroll down to **Add Products**
+2. Find **WhatsApp** and click **Set Up**
+3. You'll see the WhatsApp Getting Started page
+4. Select the **Business Account** you want to associate (from Step 1)
+5. Meta will automatically create a **WhatsApp Business Account (WABA)** for you
+
+### 1.6 Step 5: Register a Phone Number
+
+1. In the App Dashboard, go to **WhatsApp > Getting Started** (left sidebar)
+2. Under **Send and receive messages**, you'll see a section to add a phone number
+3. Click **Add Phone Number**
+4. Enter your **business display name** (this is what message recipients will see)
+5. Select your **category** (e.g., Restaurant, Real Estate, etc.)
+6. Enter the **phone number** you want to use
+7. Choose verification method: **Text message (SMS)** or **Phone call**
+8. Enter the **verification code** you receive
+9. Your number is now registered for WhatsApp Business API
+
+**Important notes about the phone number:**
+- The number **cannot** be currently registered on the regular WhatsApp app or WhatsApp Business app
+- If it is, open WhatsApp on that phone, go to **Settings > Account > Delete Account**, then wait a few minutes before registering it here
+- You can use a landline number — just choose "Phone call" for verification
+- Each phone number can only be linked to one WhatsApp Business Account
+
+### 1.7 Step 6: Find Your Phone Number ID and WABA ID
+
+These two values are what you'll enter into iMakePage.
+
+**Finding the Phone Number ID:**
+1. In the App Dashboard, go to **WhatsApp > Getting Started** (left sidebar)
+2. Under **Send and receive messages**, you'll see your registered phone number
+3. The **Phone Number ID** is displayed right below your phone number (it's a long number like `109933769892779`)
+4. Copy this value
+
+**Alternative way to find it:**
+1. Go to [business.facebook.com](https://business.facebook.com)
+2. Go to **Settings > Business Settings**
+3. In the left sidebar, under **Accounts**, click **WhatsApp Accounts**
+4. Click on your WhatsApp account
+5. Click the **Phone Numbers** tab
+6. You'll see your phone number listed with its **Phone Number ID**
+
+**Finding the WABA ID (WhatsApp Business Account ID):**
+1. In the same **WhatsApp Accounts** page in Business Settings
+2. Click on your WhatsApp account name
+3. The **WABA ID** is shown in the account details (it's a long number like `269043823800084`)
+4. You can also find it in the App Dashboard URL — when you're on the WhatsApp section, look at the URL: `...whatsapp_business_account_id=XXXXXXXXXX`
+5. Copy this value
+
+### 1.8 Step 7: Create a System User & Permanent Access Token
+
+A System User token is the recommended way to connect — it **never expires**, unlike temporary tokens.
+
+**Step A: Create a System User**
+1. Go to [business.facebook.com](https://business.facebook.com)
+2. Click **Settings** (gear icon) > **Business Settings**
+3. In the left sidebar, under **Users**, click **System Users**
+4. Click **Add** to create a new System User
+5. Enter a name (e.g., "iMakePage WhatsApp") and set the role to **Admin**
+6. Click **Create System User**
+
+**Step B: Assign Permissions**
+1. Click on the System User you just created
+2. Click **Add Assets**
+3. In the popup, select **Apps** from the left
+4. Find your Meta App (from Step 3) and check it
+5. Toggle on **Full Control** (or at minimum: Manage App)
+6. Click **Save Changes**
+7. Now go back and click **Add Assets** again
+8. Select **WhatsApp Accounts** from the left
+9. Find your WhatsApp Business Account and check it
+10. Toggle on **Full Control**
+11. Click **Save Changes**
+
+**Step C: Generate the Permanent Token**
+1. Back on the System User page, click **Generate New Token**
+2. Select the **App** you created (from Step 3)
+3. Check these permissions:
+   - `whatsapp_business_messaging` (required — lets you send and receive messages)
+   - `whatsapp_business_management` (recommended — lets you manage templates and settings)
+4. Set token expiration to **Never** (this creates a permanent token)
+5. Click **Generate Token**
+6. **Copy the token immediately** — you won't be able to see it again after closing the dialog
+7. Store it somewhere safe
+
+**Important:** If you accidentally used a temporary token (from the "Getting Started" page), it expires in 24 hours. Always use the System User token described above for a permanent connection.
+
+### 1.9 Summary of What You Need
+
+After completing all the steps above, you should have these three values ready:
+
+| What | Where to Find It | Example |
+|---|---|---|
+| **Phone Number ID** | App Dashboard > WhatsApp > Getting Started (below your phone number) | `109933769892779` |
+| **WABA ID** | Business Settings > WhatsApp Accounts > Account Details | `269043823800084` |
+| **Permanent Access Token** | Business Settings > System Users > Generate Token | `EAAIe5s...` (very long string) |
+
+Now you're ready to connect WhatsApp in iMakePage!
+
+---
+
+## 2. Connecting WhatsApp in iMakePage
+
+Now that you have your credentials from Meta, connect them in iMakePage.
 
 ### Steps:
 1. Go to **Settings** (gear icon in the sidebar)
 2. Scroll down to the **WhatsApp Settings** section
 3. Enter your credentials:
-   - **Phone Number ID** — Found in Meta Business Suite under WhatsApp > Phone Numbers
-   - **WhatsApp Business Account ID (WABA ID)** — Found in the same location
-   - **Permanent Access Token** — A System User token from Meta Business Settings (never expires)
+   - **Phone Number ID** — The Phone Number ID from Step 6 above
+   - **WhatsApp Business Account ID (WABA ID)** — The WABA ID from Step 6 above
+   - **Permanent Access Token** — The System User token from Step 7 above
 4. Click **Save Settings**
 
 Once saved, WhatsApp will appear as "Connected" in the Social Media Manager.
 
 ---
 
-## 2. Creating Message Templates
+## 3. Creating Message Templates
 
 Meta requires all business-initiated messages to use pre-approved templates. You must create and get a template approved before bulk sending.
 
@@ -87,7 +250,7 @@ Click a quick template to auto-fill the form, then customize it for your busines
 
 ---
 
-## 3. Sending a Single WhatsApp Message
+## 4. Sending a Single WhatsApp Message
 
 ### Steps:
 1. In the **Social Media Manager**, select **WhatsApp** as your only platform
@@ -101,7 +264,7 @@ Click a quick template to auto-fill the form, then customize it for your busines
 
 ---
 
-## 4. Sending Bulk Messages
+## 5. Sending Bulk Messages
 
 ### Step 1: Prepare Your Contact List
 
@@ -143,7 +306,7 @@ You can add phone numbers in two ways:
 
 ---
 
-## 5. Understanding the Bulk Queue System
+## 6. Understanding the Bulk Queue System
 
 When sending to large lists, the system intelligently manages delivery through a queue system.
 
@@ -172,7 +335,7 @@ Your tier is displayed in the WhatsApp Message section (e.g., "Meta limit: 2,000
 
 ---
 
-## 6. Managing Bulk Queues
+## 7. Managing Bulk Queues
 
 The **Queued Messages** section (below the WhatsApp Message area) shows all your active and recent bulk sends.
 
@@ -206,7 +369,7 @@ The **Queued Messages** section (below the WhatsApp Message area) shows all your
 
 ---
 
-## 7. Downloading Reports
+## 8. Downloading Reports
 
 You can download Excel reports for any bulk queue to track results.
 
@@ -222,7 +385,7 @@ Reports are downloaded as `.xlsx` Excel files that you can open in Excel, Google
 
 ---
 
-## 8. WhatsApp Analytics
+## 9. WhatsApp Analytics
 
 The **WhatsApp Analytics** section (below the messaging area) shows your account performance.
 
@@ -245,7 +408,7 @@ Meta's analytics data has a **24-48 hour delay**. The numbers you see in analyti
 
 ---
 
-## 9. Multiple WhatsApp Accounts
+## 10. Multiple WhatsApp Accounts
 
 iMakePage supports multiple WhatsApp Business phone numbers under one login.
 
@@ -267,7 +430,7 @@ Each account shows:
 
 ---
 
-## 10. Tips for Maximum Delivery
+## 11. Tips for Maximum Delivery
 
 ### Use UTILITY Templates for US Numbers
 Meta has restricted MARKETING template delivery to US (+1) numbers since April 2025. Use UTILITY category templates (order confirmations, appointment reminders, etc.) for reliable delivery to US contacts.
@@ -300,13 +463,13 @@ Meta has restricted MARKETING template delivery to US (+1) numbers since April 2
 
 ---
 
-## 11. Meta/Facebook Account Issues & Restrictions
+## 12. Meta/Facebook Account Issues & Restrictions
 
 Understanding how Meta monitors and restricts WhatsApp Business accounts is critical to maintaining your messaging ability. This section covers common account flags, marketing restrictions, and what you can do about each.
 
 ---
 
-### 11.1 Account Flagged or Restricted
+### 12.1 Account Flagged or Restricted
 
 Meta actively monitors all WhatsApp Business accounts for policy compliance. If your account gets flagged, you may experience:
 
@@ -333,7 +496,7 @@ Meta actively monitors all WhatsApp Business accounts for policy compliance. If 
 
 ---
 
-### 11.2 Marketing Messages Not Delivering (US Restriction)
+### 12.2 Marketing Messages Not Delivering (US Restriction)
 
 Since **April 2025**, Meta has imposed significant restrictions on MARKETING template messages sent to US (+1) phone numbers. This is one of the most impactful changes for US-based businesses.
 
@@ -362,7 +525,7 @@ Since **April 2025**, Meta has imposed significant restrictions on MARKETING tem
 
 ---
 
-### 11.3 Template Paused by Meta
+### 12.3 Template Paused by Meta
 
 Meta can **pause** your approved template at any time if it receives poor engagement or high complaint rates.
 
@@ -390,7 +553,7 @@ Meta can **pause** your approved template at any time if it receives poor engage
 
 ---
 
-### 11.4 Facebook Business Manager Restrictions
+### 12.4 Facebook Business Manager Restrictions
 
 Your WhatsApp Business account is tied to your Facebook Business Manager. Issues at the Business Manager level affect WhatsApp.
 
@@ -418,7 +581,7 @@ Your WhatsApp Business account is tied to your Facebook Business Manager. Issues
 
 ---
 
-### 11.5 Phone Number Quality Rating
+### 12.5 Phone Number Quality Rating
 
 Meta assigns a quality rating to each WhatsApp phone number: **GREEN**, **YELLOW**, or **RED**.
 
@@ -443,7 +606,7 @@ Meta assigns a quality rating to each WhatsApp phone number: **GREEN**, **YELLOW
 
 ---
 
-### 11.6 Access Token Issues
+### 12.6 Access Token Issues
 
 Your WhatsApp API access depends on a valid access token from Meta.
 
@@ -469,7 +632,7 @@ Your WhatsApp API access depends on a valid access token from Meta.
 
 ---
 
-### 11.7 Meta's Daily Messaging Limits & Tier Recovery
+### 12.7 Meta's Daily Messaging Limits & Tier Recovery
 
 If your messaging tier gets downgraded due to quality issues, here's how to recover:
 
@@ -489,7 +652,7 @@ If your messaging tier gets downgraded due to quality issues, here's how to reco
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 ### "Template not found" Error
 - Make sure the template is APPROVED (not PENDING or REJECTED)

@@ -20786,7 +20786,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
           delete incoming.accessToken;
         }
       }
-      const accounts = (existing?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>) || [];
+      const existingAccounts = (existing?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>) || [];
+      const accounts = existingAccounts.map(a => ({ ...a }));
 
       if (incoming.phoneNumberId) {
         const idx = accounts.findIndex((a: any) => a.phoneNumberId === incoming.phoneNumberId);
@@ -20806,8 +20807,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
         } else {
           accounts.push(entry);
         }
-        incoming.accounts = accounts;
       }
+      incoming.accounts = accounts;
 
       const settings = await storage.createOrUpdateWhatsappSettings({
         ...incoming,

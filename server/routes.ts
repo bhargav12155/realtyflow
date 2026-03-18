@@ -67,6 +67,26 @@ async function getWhatsappSettingsWithFallback(userId: string) {
   return settings;
 }
 
+function getActiveAccountToken(settings: any): { accessToken: string; wabaId: string; phoneNumberId: string } {
+  const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; accessToken?: string }>) || [];
+  const activePhoneId = settings?.phoneNumberId || "";
+  const activeAccount = accounts.find(a => a.phoneNumberId === activePhoneId);
+  
+  let accessToken: string;
+  if (activeAccount?.accessToken) {
+    accessToken = activeAccount.accessToken.trim();
+  } else {
+    accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+  }
+  
+  const wabaId = (activeAccount?.wabaId || settings?.wabaId || "").trim();
+  const phoneNumberId = (activeAccount?.phoneNumberId || settings?.phoneNumberId || "").trim();
+  
+  console.log(`📱 WhatsApp token resolution: phone=${phoneNumberId}, waba=${wabaId}, tokenSource=${activeAccount?.accessToken ? 'per-account' : 'main-settings'}, tokenLen=${accessToken.length}`);
+  
+  return { accessToken, wabaId, phoneNumberId };
+}
+
 async function getAllUserIds(userId: number | string): Promise<string[]> {
   const ids = new Set<string>([String(userId)]);
   try {
@@ -20586,11 +20606,12 @@ Be helpful, professional, and concise. Always let users know what the platform c
   app.get("/api/whatsapp/debug-token", requireAuth, async (req, res) => {
     const userId = req.user?.id;
     const settings = userId ? await getWhatsappSettingsWithFallback(String(userId)) : null;
-    const token = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "";
-    const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "";
+    const active = getActiveAccountToken(settings);
+    const token = active.accessToken;
+    const phoneNumberId = active.phoneNumberId;
     const trimmed = token.trim();
     res.json({
-      source: settings?.accessToken ? "database" : "environment_variable",
+      source: active.accessToken ? "per-account-resolved" : "environment_variable",
       token_length: token.length,
       trimmed_length: trimmed.length,
       has_leading_whitespace: token.length > 0 && token[0] !== trimmed[0],
@@ -20770,6 +20791,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (account.accessToken) {
         updates.accessToken = account.accessToken;
         console.log(`📱 WhatsApp: Auto-switching to account token for "${account.label}"`);
+      } else {
+        console.log(`📱 WhatsApp: Account "${account.label}" has no per-account token — keeping main settings token`);
       }
 
       await storage.createOrUpdateWhatsappSettings(updates);
@@ -20839,14 +20862,13 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
+      const active = getActiveAccountToken(settings);
 
-      if (!accessToken || !phoneNumberId) {
+      if (!active.accessToken || !active.phoneNumberId) {
         return res.json({ limit: 250, tier: "TIER_250", source: "default" });
       }
 
-      const url = `https://graph.facebook.com/v25.0/${phoneNumberId}?fields=whatsapp_business_manager_messaging_limit,quality_score&access_token=${accessToken}`;
+      const url = `https://graph.facebook.com/v25.0/${active.phoneNumberId}?fields=whatsapp_business_manager_messaging_limit,quality_score&access_token=${active.accessToken}`;
       const response = await fetch(url);
       const data = await response.json() as any;
 
@@ -20868,7 +20890,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const limit = tierMap[tier] || 250;
       const qualityScore = data.quality_score?.score || "UNKNOWN";
 
-      console.log(`📱 WhatsApp messaging limit (portfolio-level) for phone ${phoneNumberId}: ${tier} (${limit}/day), quality: ${qualityScore}`);
+      console.log(`📱 WhatsApp messaging limit (portfolio-level) for phone ${active.phoneNumberId}: ${tier} (${limit}/day), quality: ${qualityScore}`);
       res.json({ limit, tier, qualityScore, source: "meta_api" });
     } catch (error: any) {
       console.error("Error fetching WhatsApp messaging limit:", error);
@@ -21163,12 +21185,11 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const DEFAULT_WABA_ID = "2690438238000842";
-      const DEFAULT_PHONE_NUMBER_ID = "1009337698927791";
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID).trim();
-      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || DEFAULT_PHONE_NUMBER_ID).trim();
+      const active = getActiveAccountToken(settings);
+      const accessToken = active.accessToken;
+      const wabaId = active.wabaId;
+      const phoneNumberId = active.phoneNumberId;
 
       if (!accessToken) {
         return res.status(400).json({ error: "WhatsApp access token not configured" });
@@ -21414,8 +21435,9 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const wabaId = (req.query.wabaId as string || settings?.wabaId || "").trim();
+      const active = getActiveAccountToken(settings);
+      const accessToken = active.accessToken;
+      const wabaId = (req.query.wabaId as string || active.wabaId || "").trim();
 
       if (!accessToken || !wabaId) {
         return res.status(400).json({ error: "Access token and WABA ID required" });
@@ -21440,22 +21462,19 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const DEFAULT_WABA_ID = "2690438238000842";
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID).trim();
+      const active = getActiveAccountToken(settings);
 
-      if (!accessToken) {
+      if (!active.accessToken) {
         return res.status(400).json({ error: "WhatsApp access token not configured" });
       }
 
-      if (!wabaId) {
+      if (!active.wabaId) {
         return res.json({ templates: [], message: "WhatsApp Business Account ID (WABA ID) not configured in settings" });
       }
 
-      const lookupId = wabaId;
-
-      const templates = await whatsappService.getMessageTemplates(lookupId, accessToken);
+      console.log(`📱 WhatsApp: Fetching templates for WABA ${active.wabaId} (active phone: ${active.phoneNumberId})`);
+      const templates = await whatsappService.getMessageTemplates(active.wabaId, active.accessToken);
       res.json({ templates });
     } catch (error: any) {
       console.error("Error fetching WhatsApp templates:", error);
@@ -21476,14 +21495,14 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const safeName = name.toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 512);
       const safeCategory = ["MARKETING", "UTILITY"].includes(category) ? category : "MARKETING";
 
-      const DEFAULT_WABA_ID_POST = "2690438238000842";
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-      const wabaId = (settings?.wabaId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || DEFAULT_WABA_ID_POST).trim();
+      const active = getActiveAccountToken(settings);
 
-      if (!accessToken || !wabaId) {
+      if (!active.accessToken || !active.wabaId) {
         return res.status(400).json({ error: "WhatsApp Business Account not configured" });
       }
+      const accessToken = active.accessToken;
+      const wabaId = active.wabaId;
 
       const sanitizeText = (text: string) => text
         .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
@@ -21590,9 +21609,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
+      const active = getActiveAccountToken(settings);
       
-      const phoneNumberId = (settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
-      const accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+      const phoneNumberId = active.phoneNumberId;
+      const accessToken = active.accessToken;
 
       if (!accessToken) {
         return res.status(400).json({ error: "WhatsApp not configured. Please add a valid access token in your WhatsApp Business settings or set WHATSAPP_ACCESS_TOKEN environment variable." });
@@ -22459,8 +22479,12 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
             console.log(`📱 WhatsApp incoming from ${waId}: ${messageText.substring(0, 50)}...`);
 
+            // Resolve per-account token for this phone number
+            const webhookActive = getActiveAccountToken({ ...settings, phoneNumberId });
+            const resolvedToken = webhookActive.accessToken;
+
             // Mark as read
-            await whatsappService.markAsRead(phoneNumberId, settings.accessToken!, msg.id);
+            await whatsappService.markAsRead(phoneNumberId, resolvedToken, msg.id);
 
             // Get or create conversation
             let conversation = await storage.getWhatsappConversationByWaId(settings.userId, waId);
@@ -22491,7 +22515,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
             });
 
             // Generate AI response if enabled and properly configured
-            if (settings.isEnabled && settings.accessToken) {
+            if (settings.isEnabled && resolvedToken) {
               // Get conversation history for context
               const allMessages = await storage.getWhatsappMessagesByConversationId(conversation.id);
               const history = allMessages.slice(-10).map(m => ({
@@ -22528,7 +22552,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
               // Send AI response
               await whatsappService.sendTextMessage(
-                phoneNumberId, settings.accessToken!, waId, response
+                phoneNumberId, resolvedToken, waId, response
               );
 
               // Save outbound AI message
@@ -22647,12 +22671,13 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       try {
         const settings = await storage.getWhatsappSettingsByUserId(String(userId));
-        if (settings?.phoneNumberId && settings?.accessToken && settings?.displayPhoneNumber) {
+        const videoNotifActive = getActiveAccountToken(settings);
+        if (videoNotifActive.phoneNumberId && videoNotifActive.accessToken && settings?.displayPhoneNumber) {
           const userPhone = settings.displayPhoneNumber.replace(/[^0-9]/g, "");
           if (userPhone) {
             await whatsappService.sendTextMessage(
-              settings.phoneNumberId,
-              settings.accessToken,
+              videoNotifActive.phoneNumberId,
+              videoNotifActive.accessToken,
               userPhone,
               `Your AI video is ready!\n\nView it here: ${videoUrl}\n\n- iMakePage Video Studio`
             );

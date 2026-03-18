@@ -21525,6 +21525,22 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
+      
+      // Diagnostic: also read directly via raw SQL to compare
+      const rawCheck = await db.execute(sql`
+        SELECT elem->>'phoneNumberId' as phone, elem->>'wabaId' as waba, LENGTH(elem->>'accessToken') as tlen
+        FROM whatsapp_settings, jsonb_array_elements(accounts) elem
+        WHERE user_id = ${String(userId)}
+      `);
+      console.log(`📱 WhatsApp templates diag: ORM accounts=${(settings?.accounts as any[])?.length}, rawSQL rows=${rawCheck.rows.length}`);
+      for (const r of rawCheck.rows) {
+        console.log(`  rawSQL: phone=${r.phone}, waba=${r.waba}, tokenLen=${r.tlen}`);
+      }
+      const ormAccounts = (settings?.accounts as any[]) || [];
+      for (const a of ormAccounts) {
+        console.log(`  ORM: phone=${a.phoneNumberId}, waba=${a.wabaId}, tokenLen=${(a.accessToken||'').length}`);
+      }
+      
       const active = getActiveAccountToken(settings);
 
       if (!active.accessToken) {

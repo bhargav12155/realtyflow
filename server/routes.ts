@@ -135,43 +135,6 @@ setTimeout(async () => {
   }
 }, 2000);
 
-// Temporary admin endpoint to fix production tokens - will be removed after use
-app.post("/api/admin/fix-account-tokens", async (req, res) => {
-  try {
-    const { adminKey, wabaId, accessToken } = req.body;
-    if (adminKey !== "fix-prod-tokens-2026-03-18") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-    if (!wabaId || !accessToken) {
-      return res.status(400).json({ error: "wabaId and accessToken required" });
-    }
-    
-    const rows = await db.execute(sql`SELECT user_id, accounts FROM whatsapp_settings WHERE accounts IS NOT NULL`);
-    let fixed = 0;
-    for (const row of rows.rows) {
-      const accounts = row.accounts as any[];
-      if (!accounts || !Array.isArray(accounts)) continue;
-      
-      let changed = false;
-      for (const acc of accounts) {
-        if (acc.wabaId === wabaId && (!acc.accessToken || acc.accessToken !== accessToken)) {
-          acc.accessToken = accessToken;
-          changed = true;
-          console.log(`📱 Admin fix: Updated token for "${acc.label}" (user ${row.user_id}), waba=${wabaId}, len=${accessToken.length}`);
-          fixed++;
-        }
-      }
-      if (changed) {
-        await db.execute(sql`UPDATE whatsapp_settings SET accounts = ${JSON.stringify(accounts)}::jsonb WHERE user_id = ${row.user_id}`);
-      }
-    }
-    
-    res.json({ success: true, accountsFixed: fixed });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 async function getAllUserIds(userId: number | string): Promise<string[]> {
   const ids = new Set<string>([String(userId)]);
   try {

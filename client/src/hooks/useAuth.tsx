@@ -233,10 +233,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   );
 
   // Universal login - auto-detects user type
+  const isInIframe = () => {
+    try { return window.self !== window.top; } catch (e) { return true; }
+  };
+
   const universalLogin = useCallback(
     async (identifier: string): Promise<AuthResponse> => {
       try {
         setAuthState((prev) => ({ ...prev, error: null }));
+
+        const source = isInIframe() ? "iframe" : "direct";
 
         const response = await fetch("/api/auth/login", {
           method: "POST",
@@ -244,7 +250,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
             "Content-Type": "application/json",
           },
           credentials: "include",
-          body: JSON.stringify({ identifier }),
+          body: JSON.stringify({ identifier, source }),
         });
 
         const result = await response.json();

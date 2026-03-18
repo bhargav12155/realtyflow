@@ -9,7 +9,7 @@ import {
 } from "../utils/auth";
 import { db } from "../db";
 import { users } from "../../shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -305,7 +305,8 @@ router.get("/check", optionalAuth, async (req: Request, res: Response) => {
  */
 router.post("/login", async (req: Request, res: Response) => {
   try {
-    const { identifier } = req.body;
+    const { identifier, source } = req.body;
+    const loginSource = source === "iframe" ? "iframe" : "direct";
 
     if (!identifier || typeof identifier !== "string") {
       return res.status(400).json({
@@ -328,12 +329,15 @@ router.post("/login", async (req: Request, res: Response) => {
       if (loginResult.user) {
         const token = loginResult.token!;
 
-        // Set HTTP-only cookie for token (SameSite=None for iframe/mobile, conditional secure for dev)
+        try {
+          await db.execute(sql`UPDATE public_users SET login_source = ${loginSource}, login_count = COALESCE(login_count, 0) + 1, iframe_login_count = COALESCE(iframe_login_count, 0) + ${loginSource === 'iframe' ? 1 : 0} WHERE id = ${loginResult.user.id}`);
+        } catch (e) { /* tracking is non-critical */ }
+
         res.cookie("authToken", token, {
           httpOnly: true,
-          secure: process.env.NODE_ENV === "production", // Always secure in production for SameSite=None
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // None for production iframe support
-          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         return res.json({
@@ -363,12 +367,15 @@ router.post("/login", async (req: Request, res: Response) => {
     if (loginResult.user) {
       const token = loginResult.token!;
 
-      // Set HTTP-only cookie for token (SameSite=None for iframe/mobile, conditional secure for dev)
+      try {
+        await db.execute(sql`UPDATE public_users SET login_source = ${loginSource}, login_count = COALESCE(login_count, 0) + 1, iframe_login_count = COALESCE(iframe_login_count, 0) + ${loginSource === 'iframe' ? 1 : 0} WHERE id = ${loginResult.user.id}`);
+      } catch (e) { /* tracking is non-critical */ }
+
       res.cookie("authToken", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production", // Always secure in production for SameSite=None
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // None for production iframe support
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
       return res.json({

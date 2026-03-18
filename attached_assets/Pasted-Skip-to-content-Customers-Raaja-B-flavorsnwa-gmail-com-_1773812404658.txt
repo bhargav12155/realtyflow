@@ -1,0 +1,154 @@
+Skip to content
+Customers
+Raaja B
+flavorsnwa@gmail.com
+Create invoice
+Subscriptions
+​
+Product
+​
+Frequency
+Next invoice
+Elite Plan
+Active
+Billing monthly
+Mar 24 for $249.00
+1 result
+Payments
+
+Amount
+​
+​
+Description
+Date
+
+$249.00
+USD
+Succeeded
+Subscription creation
+Feb 24, 6:46 PM
+1 result
+Payment methods
+Mastercard •••• 3074
+ 
+Expires Jul 2029
+
+More options
+
+Financial Connections accounts
+Access financial data with users' permission to streamline payments, reduce fraud, and underwrite risk. Learn more
+No accounts
+Entitlements
+Entitlements are updated at subscription creation or on a new billing cycle. Learn more
+No active entitlements
+Invoices
+Total
+​
+​
+Frequency
+Invoice number
+Due
+Created
+$249.00
+USD
+Paid
+Monthly
+EN2I6AQJ-0001
+—
+Feb 24, 6:46 PM
+Download PDF
+1 result
+Pending invoice items
+No pending invoice items
+Quotes
+No quotes
+Credit grants
+Manage prepaid and promotional credits for usage-based billing that can apply to invoices pre-tax. View docs
+No credit grants
+Customer invoice balance
+The customer invoice balance can apply to future invoices post-tax. View docs
+Adjust balance
+No customer invoice balance
+Verifications
+Sign up for Stripe Identity to create your first verification.
+Recent activity
+Add note
+Subscribed to price_1T4WEEIAstckuXQoWcet1UKf
+Feb 24, 2026, 6:46 PM
+Customer was created
+Feb 24, 2026, 6:45 PM
+Sent emails
+Enable recovery emails
+No emails sent within the past 30 days
+Logs
+POST /v1/checkout/sessions
+200 OK
+2/24/26, 6:45:26 PM
+POST /v1/customers
+200 OK
+2/24/26, 6:45:26 PM
+Events
+has an upcoming invoice scheduled for automatic payment in 7 days
+3/17/26, 7:46:37 PM
+A Checkout Session was completed
+2/24/26, 6:46:38 PM
+Customer cus_U2bRmzpkIRUJv2 subscribed to price_1T4WEEIAstckuXQoWcet1UKf
+2/24/26, 6:46:37 PM
+flavorsnwa@gmail.com's payment for an invoice for $249.00 succeeded
+2/24/26, 6:46:37 PM
+flavorsnwa@gmail.com's invoice for $249.00 was paid
+2/24/26, 6:46:37 PM
+A draft invoice for $249.00 to flavorsnwa@gmail.com was finalized
+2/24/26, 6:46:37 PM
+A draft invoice was created
+2/24/26, 6:46:37 PM
+The payment pi_3T4WFKIAstckuXQo1HXJAMEY for $249.00 has succeeded
+2/24/26, 6:46:36 PM
+A card payment method ending in 3074 was attached to customer cus_U2bRmzpkIRUJv2
+2/24/26, 6:46:36 PM
+ch_3T4WFKIAstckuXQo1IDVjrGR was charged $249.00
+2/24/26, 6:46:35 PM
+Inspect more events in Workbench
+Insights
+Spent
+$249.00
+MRR
+$249.00
+Details
+Customer ID
+cus_U2bRmzpkIRUJv2
+Customer since
+ 
+Feb 24
+Billing emails
+flavorsnwa@gmail.com
+Business name
+—
+
+Show more
+Metadata
+userId
+179
+Navigated to Customers – My Golden brick LLC – Stripe
+
+My Golden brick LLC
+Home
+Balances
+Transactions
+Customers
+Product catalog
+Shortcuts
+Invoices
+Subscriptions
+Reports
+Payments analytics
+Tax
+Products
+Payments
+Billing
+Reporting
+More
+Search
+Setup guide
+Developers
+cus_U2bRmzpkIRUJv2

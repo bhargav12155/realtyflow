@@ -20629,9 +20629,19 @@ Be helpful, professional, and concise. Always let users know what the platform c
       ];
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      let accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
-
-      console.log(`📱 WhatsApp accounts for user ${userId}: found ${accounts.length} accounts (settings userId: ${settings?.userId})`);
+      
+      const rawAccountsResult = await db.execute(sql`SELECT accounts, phone_number_id FROM whatsapp_settings WHERE user_id = ${String(userId)}`);
+      const rawRow = rawAccountsResult.rows[0] as any;
+      let rawAccounts: any[] = [];
+      if (rawRow?.accounts) {
+        rawAccounts = typeof rawRow.accounts === 'string' ? JSON.parse(rawRow.accounts) : rawRow.accounts;
+      }
+      
+      const ormAccounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      
+      let accounts = rawAccounts.length >= ormAccounts.length ? rawAccounts : ormAccounts;
+      
+      console.log(`📱 WhatsApp accounts for user ${userId}: ORM=${ormAccounts.length}, rawSQL=${rawAccounts.length}, using=${accounts.length}, settingsUserId=${settings?.userId}`);
 
       if (accounts.length === 0) {
         accounts = DEFAULT_ACCOUNTS;

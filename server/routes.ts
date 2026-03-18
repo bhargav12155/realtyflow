@@ -87,6 +87,44 @@ function getActiveAccountToken(settings: any): { accessToken: string; wabaId: st
   return { accessToken, wabaId, phoneNumberId };
 }
 
+// Startup: ensure all WhatsApp accounts have per-account tokens
+// Backfills from env var for accounts that are missing their own token
+setTimeout(async () => {
+  try {
+    const envToken = (process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+    if (!envToken) return;
+    
+    const rows = await db.execute(sql`SELECT user_id, accounts, access_token FROM whatsapp_settings WHERE accounts IS NOT NULL`);
+    for (const row of rows.rows) {
+      const accounts = row.accounts as any[];
+      if (!accounts || !Array.isArray(accounts)) continue;
+      
+      let changed = false;
+      for (const acc of accounts) {
+        if (!acc.accessToken || acc.accessToken.length < 100) {
+          const mainToken = (row.access_token as string || "").trim();
+          if (mainToken.length >= 100) {
+            acc.accessToken = mainToken;
+            changed = true;
+          } else if (envToken.length >= 100) {
+            acc.accessToken = envToken;
+            changed = true;
+          }
+          if (changed) {
+            console.log(`📱 WhatsApp: Backfilled token for account "${acc.label}" (user ${row.user_id}), len=${(acc.accessToken || '').length}`);
+          }
+        }
+      }
+      
+      if (changed) {
+        await db.execute(sql`UPDATE whatsapp_settings SET accounts = ${JSON.stringify(accounts)}::jsonb WHERE user_id = ${row.user_id}`);
+      }
+    }
+  } catch (err) {
+    console.warn("WhatsApp token backfill skipped:", err);
+  }
+}, 2000);
+
 async function getAllUserIds(userId: number | string): Promise<string[]> {
   const ids = new Set<string>([String(userId)]);
   try {
@@ -20782,11 +20820,14 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       // Before switching, save the current main token to the departing account
       // so it's preserved for when we switch back
-      if (settings?.phoneNumberId && settings?.accessToken) {
+      if (settings?.phoneNumberId && settings?.accessToken && settings.accessToken.length >= 100) {
         const departingIdx = accounts.findIndex(a => a.phoneNumberId === settings.phoneNumberId);
-        if (departingIdx >= 0 && !accounts[departingIdx].accessToken) {
-          accounts[departingIdx].accessToken = settings.accessToken;
-          console.log(`📱 WhatsApp: Saved main token to departing account "${accounts[departingIdx].label}"`);
+        if (departingIdx >= 0) {
+          const existingLen = (accounts[departingIdx].accessToken || "").length;
+          if (!existingLen || existingLen < 100 || existingLen < settings.accessToken.length) {
+            accounts[departingIdx].accessToken = settings.accessToken;
+            console.log(`📱 WhatsApp: Saved main token to departing account "${accounts[departingIdx].label}" (len=${settings.accessToken.length})`);
+          }
         }
       }
 

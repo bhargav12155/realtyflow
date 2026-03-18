@@ -20646,7 +20646,12 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const activePhoneNumberId = settings?.phoneNumberId || DEFAULT_ACCOUNTS[0].phoneNumberId;
 
-      res.json({ accounts, activePhoneNumberId });
+      const safeAccounts = accounts.map(a => ({
+        ...a,
+        accessToken: a.accessToken ? "***saved***" : undefined,
+      }));
+
+      res.json({ accounts: safeAccounts, activePhoneNumberId });
     } catch (error: any) {
       console.error("Error getting WhatsApp accounts:", error);
       res.status(500).json({ error: "Failed to get WhatsApp accounts" });
@@ -20659,20 +20664,24 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
 
-      const { label, phoneNumberId, wabaId, displayPhoneNumber } = req.body;
+      const { label, phoneNumberId, wabaId, displayPhoneNumber, accessToken } = req.body;
       if (!label || !phoneNumberId) {
         return res.status(400).json({ error: "Label and Phone Number ID are required" });
       }
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>) || [];
 
       const exists = accounts.find(a => a.phoneNumberId === phoneNumberId);
       if (exists) {
         return res.status(400).json({ error: "Account with this Phone Number ID already exists" });
       }
 
-      accounts.push({ label, phoneNumberId, wabaId: wabaId || settings?.wabaId || "", displayPhoneNumber: displayPhoneNumber || "" });
+      const newAccount: any = { label, phoneNumberId, wabaId: wabaId || settings?.wabaId || "", displayPhoneNumber: displayPhoneNumber || "" };
+      if (accessToken && accessToken.trim()) {
+        newAccount.accessToken = accessToken.trim();
+      }
+      accounts.push(newAccount);
 
       await storage.createOrUpdateWhatsappSettings({
         ...settings,
@@ -20696,7 +20705,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       const { phoneNumberId } = req.params;
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const allAccounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const allAccounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>) || [];
       const accounts = allAccounts.filter(a => a.phoneNumberId !== phoneNumberId);
 
       const updates: any = { ...settings, userId: String(userId), accounts: accounts as any };
@@ -20705,6 +20714,9 @@ Be helpful, professional, and concise. Always let users know what the platform c
         updates.phoneNumberId = accounts[0].phoneNumberId;
         updates.wabaId = accounts[0].wabaId || settings?.wabaId;
         updates.displayPhoneNumber = accounts[0].displayPhoneNumber || "";
+        if (accounts[0].accessToken) {
+          updates.accessToken = accounts[0].accessToken;
+        }
       }
 
       await storage.createOrUpdateWhatsappSettings(updates);
@@ -20728,23 +20740,30 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       const settings = await getWhatsappSettingsWithFallback(String(userId));
-      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>) || [];
       const account = accounts.find(a => a.phoneNumberId === phoneNumberId);
 
       if (!account) {
         return res.status(404).json({ error: "Account not found" });
       }
 
-      await storage.createOrUpdateWhatsappSettings({
+      const updates: any = {
         ...settings,
         userId: String(userId),
         phoneNumberId: account.phoneNumberId,
         wabaId: account.wabaId || settings?.wabaId || "",
         displayPhoneNumber: account.displayPhoneNumber || "",
-      });
+      };
+
+      if (account.accessToken) {
+        updates.accessToken = account.accessToken;
+        console.log(`📱 WhatsApp: Auto-switching to account token for "${account.label}"`);
+      }
+
+      await storage.createOrUpdateWhatsappSettings(updates);
 
       console.log(`📱 WhatsApp: Switched to account "${account.label}" (${phoneNumberId}) for user ${userId}`);
-      res.json({ success: true, activePhoneNumberId: phoneNumberId, label: account.label });
+      res.json({ success: true, activePhoneNumberId: phoneNumberId, label: account.label, hasOwnToken: !!account.accessToken });
     } catch (error: any) {
       console.error("Error switching WhatsApp account:", error);
       res.status(500).json({ error: "Failed to switch WhatsApp account" });
@@ -20767,16 +20786,21 @@ Be helpful, professional, and concise. Always let users know what the platform c
           delete incoming.accessToken;
         }
       }
-      const accounts = (existing?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
+      const accounts = (existing?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>) || [];
 
       if (incoming.phoneNumberId) {
         const idx = accounts.findIndex((a: any) => a.phoneNumberId === incoming.phoneNumberId);
-        const entry = {
+        const entry: any = {
           label: incoming.displayPhoneNumber || incoming.phoneNumberId,
           phoneNumberId: incoming.phoneNumberId,
           wabaId: incoming.wabaId || existing?.wabaId || "",
           displayPhoneNumber: incoming.displayPhoneNumber || "",
         };
+        if (incoming.accessToken && incoming.accessToken.trim()) {
+          entry.accessToken = incoming.accessToken.trim();
+        } else if (idx >= 0 && accounts[idx].accessToken) {
+          entry.accessToken = accounts[idx].accessToken;
+        }
         if (idx >= 0) {
           accounts[idx] = { ...accounts[idx], ...entry };
         } else {

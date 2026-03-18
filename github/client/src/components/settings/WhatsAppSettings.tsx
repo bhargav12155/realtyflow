@@ -100,20 +100,22 @@ function WhatsAppAccountManager() {
   const [newPhoneNumberId, setNewPhoneNumberId] = useState("");
   const [newWabaId, setNewWabaId] = useState("");
   const [newDisplayPhone, setNewDisplayPhone] = useState("");
+  const [newAccessToken, setNewAccessToken] = useState("");
 
-  const { data: accountsData, isLoading } = useQuery<{ accounts: Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>; activePhoneNumberId: string }>({
+  const { data: accountsData, isLoading } = useQuery<{ accounts: Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string; accessToken?: string }>; activePhoneNumberId: string }>({
     queryKey: ["/api/whatsapp/accounts"],
   });
 
   const addMutation = useMutation({
-    mutationFn: async (data: { label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber: string }) => {
+    mutationFn: async (data: { label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber: string; accessToken?: string }) => {
       const res = await apiRequest("POST", "/api/whatsapp/accounts", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/whatsapp/settings"] });
       setShowAdd(false);
-      setNewLabel(""); setNewPhoneNumberId(""); setNewWabaId(""); setNewDisplayPhone("");
+      setNewLabel(""); setNewPhoneNumberId(""); setNewWabaId(""); setNewDisplayPhone(""); setNewAccessToken("");
       toast({ title: "Account added" });
     },
     onError: () => toast({ title: "Failed to add account", variant: "destructive" }),
@@ -179,6 +181,13 @@ function WhatsAppAccountManager() {
                     <div className="text-xs text-muted-foreground">
                       ID: {acct.phoneNumberId}
                       {acct.displayPhoneNumber && ` · ${acct.displayPhoneNumber}`}
+                    </div>
+                    <div className="text-[10px] mt-0.5">
+                      {acct.accessToken && acct.accessToken !== "" ? (
+                        <span className="text-green-600 dark:text-green-400 flex items-center gap-0.5"><CheckCircle className="h-2.5 w-2.5" /> Own token saved</span>
+                      ) : (
+                        <span className="text-amber-600 dark:text-amber-400 flex items-center gap-0.5"><Key className="h-2.5 w-2.5" /> Uses shared token</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -246,8 +255,13 @@ function WhatsAppAccountManager() {
                 <p className="text-[10px] text-muted-foreground mt-0.5">Your actual phone number for display</p>
               </div>
             </div>
+            <div>
+              <Label className="text-xs flex items-center gap-1">Access Token (recommended) <Key className="h-3 w-3 text-muted-foreground" /></Label>
+              <Input placeholder="Paste this account's token (starts with EAAM...)" value={newAccessToken} onChange={e => setNewAccessToken(e.target.value)} data-testid="input-new-account-token" className="mt-1" type="password" autoComplete="off" />
+              <p className="text-[10px] text-muted-foreground mt-0.5">Each account can have its own token — auto-switches when you switch accounts</p>
+            </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => addMutation.mutate({ label: newLabel, phoneNumberId: newPhoneNumberId, wabaId: newWabaId, displayPhoneNumber: newDisplayPhone })} disabled={!newLabel || !newPhoneNumberId || addMutation.isPending} data-testid="btn-save-new-account">
+              <Button size="sm" onClick={() => addMutation.mutate({ label: newLabel, phoneNumberId: newPhoneNumberId, wabaId: newWabaId, displayPhoneNumber: newDisplayPhone, accessToken: newAccessToken || undefined })} disabled={!newLabel || !newPhoneNumberId || addMutation.isPending} data-testid="btn-save-new-account">
                 {addMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
                 Save Account
               </Button>

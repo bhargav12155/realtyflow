@@ -88,30 +88,40 @@ function getActiveAccountToken(settings: any): { accessToken: string; wabaId: st
 }
 
 // Startup: ensure all WhatsApp accounts have per-account tokens
-// Backfills from env var for accounts that are missing their own token
+// WABA-aware: only shares tokens between accounts on the SAME WABA
 setTimeout(async () => {
   try {
     const envToken = (process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-    if (!envToken) return;
     
     const rows = await db.execute(sql`SELECT user_id, accounts, access_token FROM whatsapp_settings WHERE accounts IS NOT NULL`);
     for (const row of rows.rows) {
       const accounts = row.accounts as any[];
       if (!accounts || !Array.isArray(accounts)) continue;
       
+      // Build a map of WABA -> best available token from sibling accounts
+      const wabaTokenMap: Record<string, string> = {};
+      for (const acc of accounts) {
+        if (acc.accessToken && acc.accessToken.length >= 100 && acc.wabaId) {
+          if (!wabaTokenMap[acc.wabaId] || acc.accessToken.length > wabaTokenMap[acc.wabaId].length) {
+            wabaTokenMap[acc.wabaId] = acc.accessToken;
+          }
+        }
+      }
+      
       let changed = false;
       for (const acc of accounts) {
         if (!acc.accessToken || acc.accessToken.length < 100) {
-          const mainToken = (row.access_token as string || "").trim();
-          if (mainToken.length >= 100) {
-            acc.accessToken = mainToken;
+          // First try: use a token from a sibling account on the same WABA
+          if (acc.wabaId && wabaTokenMap[acc.wabaId]) {
+            acc.accessToken = wabaTokenMap[acc.wabaId];
             changed = true;
-          } else if (envToken.length >= 100) {
+            console.log(`📱 WhatsApp: Backfilled token for "${acc.label}" from same-WABA sibling (user ${row.user_id}), len=${acc.accessToken.length}`);
+          }
+          // Fallback: use env token only if no WABA-matched sibling exists
+          else if (envToken.length >= 100) {
             acc.accessToken = envToken;
             changed = true;
-          }
-          if (changed) {
-            console.log(`📱 WhatsApp: Backfilled token for account "${acc.label}" (user ${row.user_id}), len=${(acc.accessToken || '').length}`);
+            console.log(`📱 WhatsApp: Backfilled token for "${acc.label}" from env var (user ${row.user_id}), len=${acc.accessToken.length}`);
           }
         }
       }

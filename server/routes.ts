@@ -20780,12 +20780,23 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(404).json({ error: "Account not found" });
       }
 
+      // Before switching, save the current main token to the departing account
+      // so it's preserved for when we switch back
+      if (settings?.phoneNumberId && settings?.accessToken) {
+        const departingIdx = accounts.findIndex(a => a.phoneNumberId === settings.phoneNumberId);
+        if (departingIdx >= 0 && !accounts[departingIdx].accessToken) {
+          accounts[departingIdx].accessToken = settings.accessToken;
+          console.log(`📱 WhatsApp: Saved main token to departing account "${accounts[departingIdx].label}"`);
+        }
+      }
+
       const updates: any = {
         ...settings,
         userId: String(userId),
         phoneNumberId: account.phoneNumberId,
         wabaId: account.wabaId || settings?.wabaId || "",
         displayPhoneNumber: account.displayPhoneNumber || "",
+        accounts,
       };
 
       if (account.accessToken) {

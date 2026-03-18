@@ -20631,6 +20631,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const settings = await getWhatsappSettingsWithFallback(String(userId));
       let accounts = (settings?.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; displayPhoneNumber?: string }>) || [];
 
+      console.log(`📱 WhatsApp accounts for user ${userId}: found ${accounts.length} accounts (settings userId: ${settings?.userId})`);
+
       if (accounts.length === 0) {
         accounts = DEFAULT_ACCOUNTS;
         try {

@@ -48,7 +48,15 @@ import {
   Key,
   Phone,
   Pencil,
+  Info,
+  HelpCircle,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const whatsappSettingsSchema = z.object({
   isEnabled: z.boolean().default(false),
@@ -210,22 +218,32 @@ function WhatsAppAccountManager() {
 
         {showAdd ? (
           <div className="space-y-3 p-3 rounded-lg border border-dashed">
+            <div className="rounded-md bg-muted/50 p-2 mb-1">
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Info className="h-3 w-3 flex-shrink-0" />
+                Find Phone Number ID and WABA ID at developers.facebook.com &rarr; Your App &rarr; WhatsApp &rarr; API Setup
+              </p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Label</Label>
                 <Input placeholder="e.g., Main Business" value={newLabel} onChange={e => setNewLabel(e.target.value)} data-testid="input-new-account-label" className="mt-1" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">A friendly name for this account</p>
               </div>
               <div>
                 <Label className="text-xs">Phone Number ID</Label>
-                <Input placeholder="e.g., 123456789012345" value={newPhoneNumberId} onChange={e => setNewPhoneNumberId(e.target.value)} data-testid="input-new-account-phoneId" className="mt-1" />
+                <Input placeholder="e.g., 1009337698927791" value={newPhoneNumberId} onChange={e => setNewPhoneNumberId(e.target.value)} data-testid="input-new-account-phoneId" className="mt-1" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Numeric ID from API Setup (not your phone number)</p>
               </div>
               <div>
                 <Label className="text-xs">WABA ID (optional)</Label>
-                <Input placeholder="e.g., 987654321098765" value={newWabaId} onChange={e => setNewWabaId(e.target.value)} data-testid="input-new-account-wabaId" className="mt-1" />
+                <Input placeholder="e.g., 2690438238000842" value={newWabaId} onChange={e => setNewWabaId(e.target.value)} data-testid="input-new-account-wabaId" className="mt-1" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">WhatsApp Business Account ID — not the Business Portfolio ID</p>
               </div>
               <div>
                 <Label className="text-xs">Display Phone (optional)</Label>
-                <Input placeholder="+1 (555) 123-4567" value={newDisplayPhone} onChange={e => setNewDisplayPhone(e.target.value)} data-testid="input-new-account-displayPhone" className="mt-1" />
+                <Input placeholder="+1 (479) 585-9713" value={newDisplayPhone} onChange={e => setNewDisplayPhone(e.target.value)} data-testid="input-new-account-displayPhone" className="mt-1" />
+                <p className="text-[10px] text-muted-foreground mt-0.5">Your actual phone number for display</p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -357,22 +375,45 @@ export function WhatsAppSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800 p-3 mb-2">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                    <p className="font-medium">Where to find these values:</p>
+                    <p>Go to <span className="font-mono bg-blue-100 dark:bg-blue-800 px-1 rounded">developers.facebook.com</span> &rarr; Your App &rarr; WhatsApp &rarr; API Setup</p>
+                    <p>The Phone Number ID and WABA ID are shown on that page. They are long numeric IDs (15-20 digits), not your actual phone number.</p>
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <TooltipProvider>
                 <FormField
                   control={form.control}
                   name="phoneNumberId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Phone Number ID</FormLabel>
+                      <FormLabel className="flex items-center gap-1.5">
+                        Phone Number ID
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-left">
+                            <p className="font-medium mb-1">Not your actual phone number!</p>
+                            <p>This is a numeric ID assigned by Meta. Find it at: developers.facebook.com &rarr; Your App &rarr; WhatsApp &rarr; API Setup &rarr; listed under your phone number.</p>
+                            <p className="mt-1 font-mono text-[10px]">Example: 1009337698927791</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </FormLabel>
                       <FormControl>
                         <Input
                           data-testid="input-wa-phoneNumberId"
                           {...field}
-                          placeholder="e.g., 123456789012345"
+                          placeholder="e.g., 1009337698927791"
                         />
                       </FormControl>
                       <FormDescription>
-                        From Meta Developer Dashboard
+                        Numeric ID from Meta API Setup page (not your phone number)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -384,21 +425,36 @@ export function WhatsAppSettings() {
                   name="wabaId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>WhatsApp Business Account ID</FormLabel>
+                      <FormLabel className="flex items-center gap-1.5">
+                        WhatsApp Business Account ID (WABA)
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-left">
+                            <p className="font-medium mb-1">This is NOT the Business Portfolio ID!</p>
+                            <p>Find it at: developers.facebook.com &rarr; Your App &rarr; WhatsApp &rarr; API Setup. Look for "WhatsApp Business Account ID" on that page.</p>
+                            <p className="mt-1">Or: business.facebook.com &rarr; Settings &rarr; WhatsApp Accounts &rarr; click the account &rarr; the ID is in the URL as "selected_asset_id".</p>
+                            <p className="mt-1 font-mono text-[10px]">Example: 2690438238000842</p>
+                            <p className="mt-1 text-yellow-300">The Business Portfolio ID (from the URL bar, "business_id=...") is a different number — do NOT use that here.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </FormLabel>
                       <FormControl>
                         <Input
                           data-testid="input-wa-businessAccountId"
                           {...field}
-                          placeholder="e.g., 987654321098765"
+                          placeholder="e.g., 2690438238000842"
                         />
                       </FormControl>
                       <FormDescription>
-                        Your WABA ID from Meta
+                        From API Setup page — different from the Business Portfolio ID
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                </TooltipProvider>
               </div>
 
               <FormField
@@ -406,7 +462,20 @@ export function WhatsAppSettings() {
                 name="displayPhoneNumber"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Display Phone Number</FormLabel>
+                    <FormLabel className="flex items-center gap-1.5">
+                      Display Phone Number
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-left">
+                            <p>Your actual phone number in international format. This is shown to message recipients and is for display purposes only.</p>
+                            <p className="mt-1 font-mono text-[10px]">Example: +1 (479) 585-9713</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </FormLabel>
                     <FormControl>
                       <Input
                         data-testid="input-wa-displayPhoneNumber"
@@ -416,7 +485,7 @@ export function WhatsAppSettings() {
                       />
                     </FormControl>
                     <FormDescription>
-                      The phone number displayed to recipients
+                      Your actual phone number shown to recipients
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -428,7 +497,22 @@ export function WhatsAppSettings() {
                 name="accessToken"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Access Token</FormLabel>
+                    <FormLabel className="flex items-center gap-1.5">
+                      Access Token
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-left">
+                            <p className="font-medium mb-1">Permanent System User Token</p>
+                            <p>Go to: business.facebook.com &rarr; Settings &rarr; Users &rarr; System Users &rarr; select your system user &rarr; Generate Token.</p>
+                            <p className="mt-1">Required permissions: whatsapp_business_management, whatsapp_business_messaging</p>
+                            <p className="mt-1 font-mono text-[10px]">Starts with: EAAM...</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </FormLabel>
                     {settings?.accessToken && !changingToken ? (
                       <div className="flex items-center gap-3 rounded-md border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 px-3 py-2">
                         <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
@@ -450,14 +534,14 @@ export function WhatsAppSettings() {
                         <Input
                           data-testid="input-wa-accessToken"
                           {...field}
-                          placeholder="Paste your permanent token from Meta"
+                          placeholder="Paste your permanent token (starts with EAAM...)"
                           type="password"
                           autoComplete="off"
                         />
                       </FormControl>
                     )}
                     <FormDescription>
-                      Permanent access token from Meta Developer Dashboard
+                      Permanent System User token from Business Settings
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

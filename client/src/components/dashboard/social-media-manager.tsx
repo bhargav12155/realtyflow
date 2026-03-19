@@ -307,7 +307,7 @@ function WhatsAppAccountSwitcher() {
   );
 }
 
-function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate, onSelectLanguage }: { selectedTemplate: string; onSelectTemplate: (name: string) => void; onSelectLanguage?: (lang: string) => void }) {
+function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate, onSelectLanguage, onTemplateBodyChange }: { selectedTemplate: string; onSelectTemplate: (name: string) => void; onSelectLanguage?: (lang: string) => void; onTemplateBodyChange?: (body: string) => void }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [newHeader, setNewHeader] = useState("");
@@ -578,6 +578,8 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate, onSelect
         onSelectTemplate(val);
         const tpl = templates.find((t: any) => t.name === val);
         if (onSelectLanguage) onSelectLanguage(tpl?.language || "en_US");
+        const bodyComp = tpl?.components?.find((c: any) => c.type === "BODY");
+        if (onTemplateBodyChange) onTemplateBodyChange(bodyComp?.text || "");
       }}>
         <SelectTrigger className="h-9 text-xs rounded-lg border-green-200 dark:border-green-800 focus:ring-green-500" data-testid="select-whatsapp-template">
           <SelectValue placeholder="Send as free text (no template)" />
@@ -623,6 +625,8 @@ function WhatsAppTemplateSelector({ selectedTemplate, onSelectTemplate, onSelect
                   if (!isPending) {
                     onSelectTemplate(t.name);
                     if (onSelectLanguage) onSelectLanguage(t.language || "en_US");
+                    const bc = t.components?.find((c: any) => c.type === "BODY");
+                    if (onTemplateBodyChange) onTemplateBodyChange(bc?.text || "");
                   }
                   setPreviewTemplate(previewTemplate?.name === t.name ? null : t);
                 }}
@@ -1043,6 +1047,8 @@ export function SocialMediaManager() {
   const [whatsappTo, setWhatsappTo] = useState("");
   const [whatsappTemplateName, setWhatsappTemplateName] = useState<string>("");
   const [whatsappTemplateLanguage, setWhatsappTemplateLanguage] = useState<string>("");
+  const [whatsappTemplateBody, setWhatsappTemplateBody] = useState<string>("");
+  const [whatsappTemplateParams, setWhatsappTemplateParams] = useState<Record<string, string>>({});
   const [isExtractingNumbers, setIsExtractingNumbers] = useState(false);
   const [fileBreakdown, setFileBreakdown] = useState<{
     filename: string;
@@ -1609,6 +1615,11 @@ export function SocialMediaManager() {
           whatsappPayload.templateName = whatsappTemplateName;
           if (whatsappTemplateLanguage) {
             whatsappPayload.templateLanguage = whatsappTemplateLanguage;
+          }
+          const paramKeys = Object.keys(whatsappTemplateParams).filter(k => whatsappTemplateParams[k]?.trim());
+          if (paramKeys.length > 0) {
+            const sortedParams = paramKeys.sort((a, b) => Number(a) - Number(b)).map(k => ({ type: "text", text: whatsappTemplateParams[k] }));
+            whatsappPayload.templateComponents = [{ type: "body", parameters: sortedParams }];
           }
         }
         const whatsappResponse = await apiRequest(
@@ -3093,9 +3104,57 @@ ${agentName} | ${brokerageName}
               </div>
               <WhatsAppTemplateSelector
                 selectedTemplate={whatsappTemplateName}
-                onSelectTemplate={(name) => setWhatsappTemplateName(name)}
+                onSelectTemplate={(name) => {
+                  setWhatsappTemplateName(name);
+                  setWhatsappTemplateParams({});
+                }}
                 onSelectLanguage={(lang) => setWhatsappTemplateLanguage(lang)}
+                onTemplateBodyChange={(body) => setWhatsappTemplateBody(body)}
               />
+              {whatsappTemplateName && whatsappTemplateName !== "none" && whatsappTemplateBody && (() => {
+                const paramMatches = whatsappTemplateBody.match(/\{\{\d+\}\}/g);
+                if (!paramMatches || paramMatches.length === 0) return null;
+                const paramNums = [...new Set(paramMatches.map(m => m.replace(/[{}]/g, "")))].sort((a, b) => Number(a) - Number(b));
+                const labelMap: Record<string, string> = {};
+                const bodyLower = whatsappTemplateBody.toLowerCase();
+                paramNums.forEach(num => {
+                  const idx = whatsappTemplateBody.indexOf(`{{${num}}}`);
+                  const before = whatsappTemplateBody.substring(Math.max(0, idx - 40), idx).trim();
+                  const lastLine = before.split("\n").pop()?.trim() || "";
+                  const match = lastLine.match(/([A-Za-z][A-Za-z\s]*?):\s*$/);
+                  if (match) {
+                    labelMap[num] = match[1].trim();
+                  } else if (num === "1" && (bodyLower.includes("hi {{1}}") || bodyLower.includes("hello {{1}}") || bodyLower.includes("dear {{1}}"))) {
+                    labelMap[num] = "Name";
+                  }
+                });
+                const previewText = paramNums.reduce((text, num) => {
+                  return text.replace(new RegExp(`\\{\\{${num}\\}\\}`, "g"), whatsappTemplateParams[num] || `{{${num}}}`);
+                }, whatsappTemplateBody);
+                return (
+                  <div className="space-y-2 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20" data-testid="template-params-section">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Fill in template values ({paramNums.length} field{paramNums.length > 1 ? "s" : ""})</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {paramNums.map(num => (
+                        <div key={num} className="space-y-0.5">
+                          <Label className="text-[10px] text-muted-foreground">{labelMap[num] || `Field ${num}`} {`{{${num}}}`}</Label>
+                          <Input
+                            value={whatsappTemplateParams[num] || ""}
+                            onChange={(e) => setWhatsappTemplateParams(prev => ({ ...prev, [num]: e.target.value }))}
+                            placeholder={labelMap[num] || `Value for {{${num}}}`}
+                            className="h-7 text-xs"
+                            data-testid={`input-template-param-${num}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground bg-white dark:bg-gray-900 rounded p-2 border border-border/50 whitespace-pre-wrap">
+                      <span className="font-semibold text-foreground block mb-1">Preview:</span>
+                      {previewText}
+                    </div>
+                  </div>
+                );
+              })()}
               {(!whatsappTemplateName || whatsappTemplateName === "none") && (
                 <div className="space-y-1">
                   <Label className="text-xs font-medium">Message</Label>

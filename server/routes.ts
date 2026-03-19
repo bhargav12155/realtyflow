@@ -21677,7 +21677,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Authentication required" });
       
-      const { to, message, imageUrl, templateName, templateLanguage } = req.body;
+      const { to, message, imageUrl, templateName, templateLanguage, templateComponents } = req.body;
 
       if (!to || typeof to !== "string" || !to.trim()) {
         return res.status(400).json({ error: "Missing required field: 'to' (recipient phone number)" });
@@ -21745,7 +21745,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         let result;
         if (templateName) {
           result = await whatsappService.sendTemplateMessage(
-            phoneNumberId, accessToken, singlePhone, templateName, resolvedLang
+            phoneNumberId, accessToken, singlePhone, templateName, resolvedLang, templateComponents || undefined
           );
         } else if (imageUrl) {
           result = await whatsappService.sendImageMessage(
@@ -21852,7 +21852,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
             const sendOneWithRetry = async (phone: string, attempt = 1): Promise<{ success: boolean; phone: string; errorType?: string }> => {
               try {
                 if (templateName) {
-                  await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName, resolvedLang);
+                  await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName, resolvedLang, templateComponents || undefined);
                 } else {
                   await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
                 }
@@ -22054,7 +22054,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
           const sendOneSyncRetry = async (phone: string, attempt = 1): Promise<boolean> => {
             try {
               if (templateName) {
-                await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName, resolvedLang);
+                await whatsappService.sendTemplateMessage(phoneNumberId, accessToken, phone, templateName, resolvedLang, templateComponents || undefined);
               } else {
                 await whatsappService.sendTextMessage(phoneNumberId, accessToken, phone, message);
               }

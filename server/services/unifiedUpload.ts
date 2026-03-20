@@ -1,11 +1,34 @@
 import { S3UploadService } from './s3Upload';
 import { objectStorageClient, ObjectStorageService } from '../objectStorage';
 
+const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+
 function parseObjectPath(path: string): { bucketName: string; objectName: string } {
   if (!path.startsWith("/")) path = `/${path}`;
   const parts = path.split("/");
   if (parts.length < 3) throw new Error("Invalid path: must contain at least a bucket name");
   return { bucketName: parts[1], objectName: parts.slice(2).join("/") };
+}
+
+async function getSignedPutUrl(bucketName: string, objectName: string, ttlSec: number = 900): Promise<string> {
+  const response = await fetch(
+    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bucket_name: bucketName,
+        object_name: objectName,
+        method: "PUT",
+        expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
+      }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to get signed URL from sidecar: ${response.status}`);
+  }
+  const { signed_url } = await response.json();
+  return signed_url;
 }
 
 function hasS3Credentials(): boolean {
@@ -107,17 +130,21 @@ export class UnifiedUploadService {
     const fullPath = `${basePath}/${key}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
 
-    await file.save(buffer, {
-      contentType,
-      resumable: false,
-      metadata: { cacheControl: "public, max-age=31536000" },
+    const signedUrl = await getSignedPutUrl(bucketName, objectName);
+    const putResponse = await fetch(signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": contentType },
+      body: buffer,
     });
 
+    if (!putResponse.ok) {
+      const errorText = await putResponse.text().catch(() => "unknown");
+      throw new Error(`Object Storage signed PUT failed (${putResponse.status}): ${errorText}`);
+    }
+
     const publicUrl = `${this.getBaseUrl()}/public-objects/${key}`;
-    console.log(`✅ [UnifiedUpload] File saved to Object Storage: ${publicUrl}`);
+    console.log(`✅ [UnifiedUpload] File saved to Object Storage via signed URL: ${publicUrl}`);
     return publicUrl;
   }
 

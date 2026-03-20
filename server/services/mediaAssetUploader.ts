@@ -1,4 +1,4 @@
-import { S3UploadService } from './s3Upload';
+import { UnifiedUploadService } from './unifiedUpload';
 import { storage } from '../storage';
 import type { MediaAsset, InsertMediaAsset } from '@shared/schema';
 import { randomUUID } from 'crypto';
@@ -32,7 +32,7 @@ interface UploadOptions {
   metadata?: Record<string, any>;
 }
 
-const s3Service = new S3UploadService();
+const s3Service = new UnifiedUploadService();
 
 export async function uploadAndRecord(
   fileBuffer: Buffer,

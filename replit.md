@@ -27,7 +27,7 @@ Key features include:
 
 ### System Design Choices
 - **Database**: PostgreSQL with Drizzle ORM is used for data persistence, supporting multi-tenancy.
-- **Storage Architecture**: A dual-storage approach utilizes HeyGen API for specific media processing and AWS S3 for general media storage.
+- **Storage Architecture**: `UnifiedUploadService` (`server/services/unifiedUpload.ts`) wraps S3 and Replit Object Storage with automatic fallback. When AWS S3 credentials are valid, S3 is used as primary storage. If S3 credentials are missing or invalid (e.g., expired keys), uploads automatically fall back to Replit Object Storage via the `/public-objects/` proxy route. HeyGen API is used for specific media processing.
 - **Real-time Communication**: WebSockets facilitate live updates and interactive features throughout the platform.
 - **Photo Avatar Privacy**: Photo avatar data is strictly user-scoped to ensure privacy and data security.
 
@@ -38,5 +38,5 @@ Key features include:
 - **Social Media APIs**: Twitter/X OAuth 2.0, YouTube OAuth, Meta Graph API (for Facebook, Instagram, WhatsApp)
 - **UI Components**: Radix UI, Tailwind CSS
 - **Video Generation**: HeyGen API (via external proxy service)
-- **File Storage**: AWS S3
+- **File Storage**: AWS S3 (primary) with Replit Object Storage (automatic fallback)
 - **SMS/Voice**: Twilio API

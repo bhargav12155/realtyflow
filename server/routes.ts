@@ -42,11 +42,10 @@ import { VideoStudioService } from "./services/video-studio";
 import { IDXService } from "./services/idx";
 import { MLSService } from "./services/mls";
 import { getAPIKeyStatus, openaiService, multiOpenAI } from "./services/openai";
-import { S3UploadService } from "./services/s3Upload";
+import { UnifiedUploadService } from "./services/unifiedUpload";
 import { seoService } from "./services/seo";
 
-// S3 upload service instance for presigned URL uploads
-const s3UploadService = new S3UploadService();
+const s3UploadService = new UnifiedUploadService();
 import { SocialMediaError, socialMediaService } from "./services/socialMedia";
 import { whatsappService } from "./services/whatsapp";
 import { seedVideoTemplates } from "./services/template-seeder";
@@ -661,7 +660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return urlOrKey;
     }
     // Otherwise, convert S3 key to full URL
-    const s3Service = new S3UploadService();
+    const s3Service = new UnifiedUploadService();
     return s3Service.getS3Url(urlOrKey);
   };
   // =====================================================
@@ -1660,8 +1659,8 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
       const fs = await import("fs");
       const path = await import("path");
       const os = await import("os");
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
 
       const boostedPath = path.join(os.tmpdir(), `veo-boosted-${operationId}.mp4`);
       await normalizeVideoAudio(localPath, boostedPath);
@@ -1732,8 +1731,8 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         );
       }
 
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
       const videoBuffer = fsSync.readFileSync(outputPath);
       const s3Key = `ai-videos/${userId}/veo-combined-${compositeId}-${Date.now()}.mp4`;
       const publicUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, "video/mp4", true);
@@ -2393,8 +2392,8 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       console.log(`📤 Reference image upload for user ${userId}: ${req.file.originalname}`);
 
       // Use S3 with presigned URL so external services (OpenAI Vision) can access
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
       
       const timestamp = Date.now();
       const ext = req.file.originalname?.split('.').pop() || 'jpg';
@@ -2432,8 +2431,8 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
       console.log(`📤 Video source image upload for user ${userId}: ${req.file.originalname}`);
 
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
       
       const timestamp = Date.now();
       const ext = req.file.originalname?.split('.').pop() || 'jpg';
@@ -2607,21 +2606,22 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
               .png()
               .toBuffer();
             
-            // Upload the composited image to S3
             const timestamp = Date.now();
             const key = `user-${userId}/generated/${timestamp}-branded.png`;
-            const uploadUrl = await s3UploadService.getPresignedPutUrl(key, "image/png", 900);
-            
-            // Upload to S3
-            const uploadResponse = await fetch(uploadUrl, {
-              method: "PUT",
-              headers: { "Content-Type": "image/png" },
-              body: compositedBuffer
-            });
-            
-            if (uploadResponse.ok) {
-              imageUrl = s3UploadService.getS3Url(key);
-              console.log("Logo composite uploaded to S3:", imageUrl);
+            try {
+              const uploadUrl = await s3UploadService.getPresignedPutUrl(key, "image/png", 900);
+              const uploadResponse = await fetch(uploadUrl, {
+                method: "PUT",
+                headers: { "Content-Type": "image/png" },
+                body: compositedBuffer
+              });
+              if (uploadResponse.ok) {
+                imageUrl = s3UploadService.getS3Url(key);
+                console.log("Logo composite uploaded:", imageUrl);
+              }
+            } catch {
+              imageUrl = await s3UploadService.uploadBuffer(compositedBuffer as Buffer, key, "image/png");
+              console.log("Logo composite uploaded via fallback:", imageUrl);
             }
           }
         } catch (compositeError) {
@@ -8689,7 +8689,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         const fileName = `voice-library/${nanoid()}${ext}`;
 
         // Upload audio file to S3
-        const s3Service = new S3UploadService();
+        const s3Service = new UnifiedUploadService();
         const audioUrl = await s3Service.uploadFile(
           Number(user.id),
           fileBuffer,
@@ -8786,7 +8786,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       }
 
       console.log(`📥 Fetching file from S3: ${voice.audioUrl}`);
-      const s3Service = new S3UploadService();
+      const s3Service = new UnifiedUploadService();
       
       // Extract the key from the full S3 URL
       // URL format: https://bucket-name.s3.region.amazonaws.com/key
@@ -12291,8 +12291,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const filename = `audio-${userId}-${timestamp}.${ext}`;
       
       // Upload to S3 with presigned URL so HeyGen can access it
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
       
       const s3FileName = `avatar-iv-audio/${userId}/${filename}`;
       // Use presigned URL (valid for 1 hour) since bucket doesn't allow public ACLs
@@ -13184,7 +13184,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const fileBuffer = fs.readFileSync(req.file.path);
 
         // Upload audio file to S3
-        const s3Service = new S3UploadService();
+        const s3Service = new UnifiedUploadService();
         const audioUrl = await s3Service.uploadFile(
           userId,
           fileBuffer,
@@ -13275,7 +13275,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const fileBuffer = fs.readFileSync(req.file.path);
 
         // Upload to S3
-        const s3Service = new S3UploadService();
+        const s3Service = new UnifiedUploadService();
         const s3VideoUrl = await s3Service.uploadFile(
           userId,
           fileBuffer,
@@ -13408,7 +13408,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         }
 
         // Upload to S3 for backup
-        const s3Service = new S3UploadService();
+        const s3Service = new UnifiedUploadService();
         const s3ImageUrl = await s3Service.uploadFile(
           userId,
           fileBuffer,
@@ -15164,7 +15164,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                 );
 
                 // Upload to S3
-                const s3Service = new S3UploadService();
+                const s3Service = new UnifiedUploadService();
                 const s3VideoUrl = await s3Service.uploadFile(
                   userId,
                   videoBuffer,
@@ -16140,13 +16140,20 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const uniqueFileName = fileName || `upload-${timestamp}${extension}`;
       const key = `user-${userId}/uploads/${timestamp}-${uniqueFileName}`;
       
-      // Get S3 presigned URL for direct upload
-      const uploadURL = await s3UploadService.getPresignedPutUrl(key, contentType, 900);
-      const fileUrl = s3UploadService.getS3Url(key);
-      
-      res.json({ uploadURL, fileUrl, key });
+      try {
+        const uploadURL = await s3UploadService.getPresignedPutUrl(key, contentType, 900);
+        const fileUrl = s3UploadService.getS3Url(key);
+        res.json({ uploadURL, fileUrl, key });
+      } catch (presignedErr: any) {
+        if (presignedErr?.message === "S3_FALLBACK_USE_UPLOAD_BUFFER") {
+          const fileUrl = s3UploadService.getS3Url(key);
+          res.json({ uploadURL: null, fileUrl, key, useServerUpload: true });
+        } else {
+          throw presignedErr;
+        }
+      }
     } catch (error) {
-      console.error("Error getting S3 upload URL:", error);
+      console.error("Error getting upload URL:", error);
       res.status(500).json({ error: "Failed to get upload URL" });
     }
   });
@@ -17047,8 +17054,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       }
 
       // Upload to S3 and get presigned URL for Kling API access
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
       
       const fileName = `lip-sync-audio/${user.id}/${Date.now()}-${finalFileName}`;
       // Use presigned URL (valid for 1 hour) since bucket doesn't allow public ACLs
@@ -17082,8 +17089,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       console.log(`🎬 Video file received: ${req.file.originalname}, size: ${req.file.size} bytes, type: ${req.file.mimetype}`);
 
       // Upload to S3 and get presigned URL for Kling API access
-      const { S3UploadService } = await import("./services/s3Upload");
-      const s3Service = new S3UploadService();
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
       
       const fileName = `lip-sync-video/${user.id}/${Date.now()}-${req.file.originalname}`;
       // Use presigned URL (valid for 1 hour) since bucket doesn't allow public ACLs
@@ -17275,7 +17282,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       );
 
       // Convert S3 paths to full URLs (handle both keys and existing URLs)
-      const s3Service = new S3UploadService();
+      const s3Service = new UnifiedUploadService();
       const videosWithUrls = videos.map((video) => ({
         ...video,
         videoUrl: video.videoUrl.startsWith("http")
@@ -17324,7 +17331,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const fileBuffer = fs.readFileSync(req.file.path);
 
         // Upload to S3 under RealtyFlow Tutorials structure
-        const s3Service = new S3UploadService();
+        const s3Service = new UnifiedUploadService();
         const s3VideoUrl = await s3Service.uploadFile(
           0, // Admin user ID for tutorials
           fileBuffer,
@@ -18283,7 +18290,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           process.env.AWS_ACCESS_KEY_ID &&
           process.env.AWS_SECRET_ACCESS_KEY
         ) {
-          const s3Service = new S3UploadService();
+          const s3Service = new UnifiedUploadService();
           const fileBuffer = await fs.promises.readFile(file.path);
           fileUrl = await s3Service.uploadFile(
             parseInt(userId!),
@@ -18404,7 +18411,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           
           console.log(`📤 Received ${fileBuffer.length} bytes, uploading to S3...`);
           
-          const s3Service = new S3UploadService();
+          const s3Service = new UnifiedUploadService();
           const fileUrl = await s3Service.uploadBuffer(fileBuffer, fileName, contentType, true, 3600);
           
           console.log(`✅ File uploaded successfully: ${fileUrl.substring(0, 80)}...`);
@@ -18570,7 +18577,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
         // Read the file and upload to S3
         const fileBuffer = fs.readFileSync(req.file.path);
-        const s3Service = new S3UploadService();
+        const s3Service = new UnifiedUploadService();
         
         const uploadedUrl = await s3Service.uploadFile(
           0, // Use 0 for mobile uploads since we have session-based auth
@@ -19274,8 +19281,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     const filename = `property-tour-${userId}-${Date.now()}-${Math.random().toString(36).substring(7)}.${ext}`;
     
     // Use S3 storage (same as working video-source upload)
-    const { S3UploadService } = await import("./services/s3Upload");
-    const s3Service = new S3UploadService();
+    const { UnifiedUploadService } = await import("./services/unifiedUpload");
+    const s3Service = new UnifiedUploadService();
     
     const s3Key = `property-tour/${userId}/${filename}`;
     
@@ -19529,7 +19536,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               
               // Upload combined video to S3
               const combinedBuffer = await fsPromises.readFile(combinedPath);
-              const s3Service = new S3UploadService();
+              const s3Service = new UnifiedUploadService();
               const s3Key = `property-tour-videos/${job.userId}/${combinedFilename}`;
               const uploadedUrl = await s3Service.uploadBuffer(combinedBuffer, s3Key, 'video/mp4', true, 86400);
               
@@ -19554,7 +19561,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               if (clipUrls.length > 0) {
                 try {
                   const fallbackBuffer = await fsPromises.readFile(clipUrls[0]);
-                  const s3Service = new S3UploadService();
+                  const s3Service = new UnifiedUploadService();
                   const fallbackKey = `property-tour-videos/${job.userId}/fallback-${job.id}-${room.roomType}.mp4`;
                   const fallbackUrl = await s3Service.uploadBuffer(fallbackBuffer, fallbackKey, 'video/mp4', true, 86400);
                   if (fallbackUrl) {
@@ -19570,7 +19577,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             // Only one clip succeeded - upload it to S3
             try {
               const singleBuffer = await fsPromises.readFile(clipUrls[0]);
-              const s3Service = new S3UploadService();
+              const s3Service = new UnifiedUploadService();
               const singleKey = `property-tour-videos/${job.userId}/single-${job.id}-${room.roomType}.mp4`;
               const singleUrl = await s3Service.uploadBuffer(singleBuffer, singleKey, 'video/mp4', true, 86400);
               if (singleUrl) {
@@ -19718,7 +19725,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               
               // Upload combined tour to S3
               const combinedBuffer = await fsPromises.readFile(finalPath);
-              const s3Service = new S3UploadService();
+              const s3Service = new UnifiedUploadService();
               const tourKey = `property-tour-videos/${job.userId}/complete-tour-${job.id}.mp4`;
               const tourUrl = await s3Service.uploadBuffer(combinedBuffer, tourKey, 'video/mp4', true, 86400);
               
@@ -20118,9 +20125,9 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         });
       }
 
-      const { S3UploadService } = await import("./services/s3Upload");
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
       const combinedBuffer = await fsPromises.readFile(finalPath);
-      const s3Service = new S3UploadService();
+      const s3Service = new UnifiedUploadService();
       const tourKey = `property-tour-videos/${userId}/custom-tour-${Date.now()}.mp4`;
       const tourUrl = await s3Service.uploadBuffer(combinedBuffer, tourKey, 'video/mp4', true, 86400);
 

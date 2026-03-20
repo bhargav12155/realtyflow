@@ -25,10 +25,29 @@ function isS3CredentialError(error: any): boolean {
   );
 }
 
+function normalizeToKey(input: string): string {
+  if (input.includes("/public-objects/")) {
+    return input.split("/public-objects/").pop() || input;
+  }
+  try {
+    const url = new URL(input);
+    const path = url.pathname;
+    if (path.includes("/public-objects/")) {
+      return path.split("/public-objects/").pop() || input;
+    }
+    return path.startsWith("/") ? path.slice(1) : path;
+  } catch {
+    return input;
+  }
+}
+
+const S3_RETRY_INTERVAL_MS = 5 * 60 * 1000;
+
 export class UnifiedUploadService {
   private s3Service: S3UploadService | null = null;
   private objStorage: ObjectStorageService;
   private s3Disabled = false;
+  private s3DisabledAt: number = 0;
 
   constructor() {
     this.objStorage = new ObjectStorageService();
@@ -38,15 +57,35 @@ export class UnifiedUploadService {
       } catch {
         console.warn("⚠️ [UnifiedUpload] Failed to initialize S3, using Object Storage");
         this.s3Disabled = true;
+        this.s3DisabledAt = Date.now();
       }
     } else {
       console.log("📦 [UnifiedUpload] No AWS credentials, using Replit Object Storage");
       this.s3Disabled = true;
+      this.s3DisabledAt = Date.now();
     }
   }
 
   private canUseS3(): boolean {
-    return !this.s3Disabled && this.s3Service !== null;
+    if (!this.s3Disabled) return this.s3Service !== null;
+    if (Date.now() - this.s3DisabledAt > S3_RETRY_INTERVAL_MS && hasS3Credentials()) {
+      console.log("🔄 [UnifiedUpload] Retrying S3 after cooldown...");
+      try {
+        this.s3Service = new S3UploadService();
+        this.s3Disabled = false;
+        console.log("✅ [UnifiedUpload] S3 re-enabled successfully");
+        return true;
+      } catch {
+        this.s3DisabledAt = Date.now();
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private disableS3() {
+    this.s3Disabled = true;
+    this.s3DisabledAt = Date.now();
   }
 
   private getBaseUrl(): string {
@@ -86,9 +125,11 @@ export class UnifiedUploadService {
     if (!this.objStorage.isConfigured()) {
       throw new Error("Object Storage not configured for read");
     }
+    const normalizedKey = normalizeToKey(key);
+
     const publicPaths = this.objStorage.getPublicObjectSearchPaths();
     const basePath = publicPaths[0];
-    const fullPath = `${basePath}/${key}`;
+    const fullPath = `${basePath}/${normalizedKey}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
     const bucket = objectStorageClient.bucket(bucketName);
@@ -100,7 +141,7 @@ export class UnifiedUploadService {
     }
 
     const privateDir = this.objStorage.getPrivateObjectDir();
-    const privatePath = `${privateDir}/${key}`;
+    const privatePath = `${privateDir}/${normalizedKey}`;
     const { bucketName: pBucket, objectName: pObject } = parseObjectPath(privatePath);
     const pFile = objectStorageClient.bucket(pBucket).file(pObject);
     const [pExists] = await pFile.exists();
@@ -109,7 +150,7 @@ export class UnifiedUploadService {
       return contents;
     }
 
-    throw new Error(`File not found in Object Storage: ${key}`);
+    throw new Error(`File not found in Object Storage: ${normalizedKey}`);
   }
 
   async uploadBuffer(
@@ -125,7 +166,7 @@ export class UnifiedUploadService {
       } catch (error: any) {
         if (isS3CredentialError(error)) {
           console.warn("⚠️ [UnifiedUpload] S3 credentials invalid, falling back to Object Storage");
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
@@ -147,7 +188,7 @@ export class UnifiedUploadService {
       } catch (error: any) {
         if (isS3CredentialError(error)) {
           console.warn("⚠️ [UnifiedUpload] S3 credentials invalid, falling back to Object Storage");
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
@@ -157,28 +198,30 @@ export class UnifiedUploadService {
   }
 
   async getFile(key: string): Promise<Buffer> {
+    const normalizedKey = normalizeToKey(key);
     if (this.canUseS3()) {
       try {
-        return await this.s3Service!.getFile(key);
+        return await this.s3Service!.getFile(normalizedKey);
       } catch (error: any) {
         if (isS3CredentialError(error)) {
           console.warn("⚠️ [UnifiedUpload] S3 credentials invalid for getFile, trying Object Storage");
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
       }
     }
-    return this.readFromObjectStorage(key);
+    return this.readFromObjectStorage(normalizedKey);
   }
 
   async deleteFile(key: string): Promise<void> {
+    const normalizedKey = normalizeToKey(key);
     if (this.canUseS3()) {
       try {
-        return await this.s3Service!.deleteFile(key);
+        return await this.s3Service!.deleteFile(normalizedKey);
       } catch (error: any) {
         if (isS3CredentialError(error)) {
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
@@ -200,7 +243,7 @@ export class UnifiedUploadService {
         return await this.s3Service!.getPresignedUrl(key, expiresInSeconds);
       } catch (error: any) {
         if (isS3CredentialError(error)) {
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
@@ -215,7 +258,7 @@ export class UnifiedUploadService {
         return await this.s3Service!.getPresignedPutUrl(key, contentType, expiresInSeconds);
       } catch (error: any) {
         if (isS3CredentialError(error)) {
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
@@ -236,7 +279,7 @@ export class UnifiedUploadService {
         return { url: putUrl, method: "presigned" };
       } catch (error: any) {
         if (isS3CredentialError(error)) {
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           throw error;
         }
@@ -253,7 +296,7 @@ export class UnifiedUploadService {
       } catch (error: any) {
         if (isS3CredentialError(error)) {
           console.warn("⚠️ [UnifiedUpload] S3 credentials invalid for persistImageFromUrl, falling back");
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           console.error("Failed to persist image to S3:", error);
           return null;
@@ -284,7 +327,7 @@ export class UnifiedUploadService {
       } catch (error: any) {
         if (isS3CredentialError(error)) {
           console.warn("⚠️ [UnifiedUpload] S3 credentials invalid for persistVideoFromUrl, falling back");
-          this.s3Disabled = true;
+          this.disableS3();
         } else {
           console.error("Failed to persist video to S3:", error);
           return null;

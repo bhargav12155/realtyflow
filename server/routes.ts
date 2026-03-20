@@ -1900,14 +1900,20 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         const userId = req.user?.id || "unknown";
         const uploaded = await uploadVeoVideoToS3(status.videoUrl, operationId, userId);
         publicVideoUrl = uploaded || status.videoUrl;
+      }
 
-        if (uploaded && req.user?.id) {
-          try {
+      if (status.done && publicVideoUrl && req.user?.id) {
+        try {
+          const existing = await db.select({ id: videoContent.id })
+            .from(videoContent)
+            .where(sql`${videoContent.metadata}->>'operationId' = ${operationId} AND ${videoContent.userId} = ${String(req.user.id)}`)
+            .limit(1);
+          if (existing.length === 0) {
             await storage.createVideoContent({
               userId: String(req.user.id),
               title: `VEO Video - ${new Date().toLocaleDateString()}`,
               script: "VEO 3.1 generated video",
-              videoUrl: uploaded,
+              videoUrl: publicVideoUrl,
               thumbnailUrl: null,
               duration: 8,
               status: "ready",
@@ -1915,9 +1921,9 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
               metadata: { operationId, source: "veo" },
             });
             console.log(`💾 [VEO] Single-segment video saved to database for user ${req.user.id}`);
-          } catch (dbErr: any) {
-            console.error(`⚠️ [VEO] Failed to save single video to DB:`, dbErr.message);
           }
+        } catch (dbErr: any) {
+          console.error(`⚠️ [VEO] Failed to save single video to DB:`, dbErr.message);
         }
       }
 
@@ -22750,6 +22756,31 @@ Be helpful, professional, and concise. Always let users know what the platform c
       const { videoUrl, chatId } = req.body;
       if (!videoUrl || !chatId) {
         return res.status(400).json({ error: "videoUrl and chatId are required" });
+      }
+
+      if (userId && videoUrl) {
+        try {
+          const existing = await db.select({ id: videoContent.id })
+            .from(videoContent)
+            .where(sql`${videoContent.metadata}->>'chatId' = ${chatId} AND ${videoContent.userId} = ${String(userId)} AND ${videoContent.metadata}->>'source' = 'sjinn'`)
+            .limit(1);
+          if (existing.length === 0) {
+            await storage.createVideoContent({
+              userId: String(userId),
+              title: `SJinn AI Video - ${new Date().toLocaleDateString()}`,
+              script: "SJinn AI generated video",
+              videoUrl,
+              thumbnailUrl: null,
+              duration: null,
+              status: "ready",
+              videoType: "sjinn",
+              metadata: { chatId, source: "sjinn" },
+            });
+            console.log(`💾 [SJinn] Video saved to database for user ${userId}`);
+          }
+        } catch (dbErr: any) {
+          console.error(`⚠️ [SJinn] Failed to save video to DB:`, dbErr.message);
+        }
       }
 
       let notifiedVia = "in-app";

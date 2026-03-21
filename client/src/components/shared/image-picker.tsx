@@ -453,13 +453,14 @@ export function ImagePicker({
     });
   };
 
-  const getUploadParams = useCallback(async () => {
+  const getUploadParams = useCallback(async (file?: File) => {
     const authHeaders = getAuthHeaders();
+    const fileMimeType = file?.type || "image/jpeg";
     const response = await fetch("/api/upload-url", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders },
       credentials: "include",
-      body: JSON.stringify({ contentType: "image/jpeg" }),
+      body: JSON.stringify({ contentType: fileMimeType }),
     });
     if (!response.ok) {
       throw new Error(`Upload URL request failed: ${response.status}`);

@@ -133,8 +133,8 @@ export function VideoGenerator() {
   const [uploadVideoTitle, setUploadVideoTitle] = useState("");
   const [uploadVideoDescription, setUploadVideoDescription] = useState("");
 
-  // SJinn AI state
-  const [aiEngine, setAiEngine] = useState<"heygen" | "sjinn_auto" | "sjinn_veo3" | "sjinn_sora2">("heygen");
+  // Sora 2 AI state
+  const [aiEngine, setAiEngine] = useState<"heygen" | "sora2">("heygen");
   const [sjinnChatId, setSjinnChatId] = useState<string | null>(null);
   const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
@@ -269,7 +269,7 @@ export function VideoGenerator() {
     },
   });
 
-  // SJinn polling helpers
+  // Sora 2 polling helpers
   const stopSjinnPolling = () => {
     if (sjinnPollRef.current) {
       clearInterval(sjinnPollRef.current);
@@ -288,10 +288,10 @@ export function VideoGenerator() {
     setSjinnStatus("idle");
     setSjinnChatId(null);
     setSjinnVideoUrl(null);
-    toast({ title: "Video Generation Cancelled", description: "SJinn video generation has been cancelled." });
+    toast({ title: "Video Generation Cancelled", description: "Sora 2 video generation has been cancelled." });
   };
 
-  const startSjinnPolling = (chatId: string) => {
+  const startSjinnPolling = (taskId: string) => {
     stopSjinnPolling();
     sjinnStartTimeRef.current = Date.now();
     setSjinnElapsed(0);
@@ -302,24 +302,24 @@ export function VideoGenerator() {
     }, 1000);
     sjinnPollRef.current = setInterval(async () => {
       try {
-        const response = await apiRequest("GET", `/api/sjinn/status/${chatId}`);
+        const response = await apiRequest("GET", `/api/sora2/status/${taskId}`);
         const data = await response.json();
         if (data.status === "completed" && data.videoUrl) {
           stopSjinnPolling();
           setSjinnStatus("completed");
           setSjinnVideoUrl(data.videoUrl);
-          toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view." });
-          apiRequest("POST", "/api/sjinn/notify-completion", { videoUrl: data.videoUrl, chatId })
-            .catch((err) => console.warn("SJinn completion notification failed:", err));
+          toast({ title: "Sora 2 Video Ready!", description: "Your AI-generated video is ready to view." });
+          apiRequest("POST", "/api/sora2/notify-completion", { videoUrl: data.videoUrl, taskId })
+            .catch((err) => console.warn("Sora2 completion notification failed:", err));
         } else if (data.status === "failed") {
           stopSjinnPolling();
           setSjinnStatus("failed");
-          toast({ title: "SJinn Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+          toast({ title: "Sora 2 Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
         } else {
           setSjinnStatus("processing");
         }
       } catch (err) {
-        console.error("SJinn poll error:", err);
+        console.error("Sora2 poll error:", err);
       }
     }, 15000);
   };
@@ -328,34 +328,29 @@ export function VideoGenerator() {
     mutationFn: async () => {
       const prompt = generatedScript || videoTopic || videoTitle;
       if (!prompt?.trim()) throw new Error("Please enter a topic or generate a script first");
-      const modelMap: Record<string, string> = {
-        sjinn_auto: "auto",
-        sjinn_veo3: "veo3",
-        sjinn_sora2: "sora2",
-      };
-      const response = await apiRequest("POST", "/api/sjinn/create-video", {
+      const response = await apiRequest("POST", "/api/sora2/create-video", {
         prompt: prompt.trim(),
-        model: modelMap[aiEngine] || "auto",
-        quality: "quality",
+        aspectRatio: "landscape",
+        quality: "hd",
       });
       return response.json();
     },
     onSuccess: (data: any) => {
       if (data.error) {
-        toast({ title: "SJinn Error", description: data.error, variant: "destructive" });
+        toast({ title: "Sora 2 Error", description: data.error, variant: "destructive" });
         return;
       }
-      setSjinnChatId(data.chatId);
+      setSjinnChatId(data.taskId);
       setSjinnStatus("pending");
       toast({
-        title: "SJinn Video Started!",
-        description: "SJinn AI is creating your video. This can take 5-15 minutes.",
+        title: "Sora 2 Video Started!",
+        description: "Sora 2 AI is generating your video. Please wait a few minutes.",
         duration: 8000,
       });
-      startSjinnPolling(data.chatId);
+      startSjinnPolling(data.taskId);
     },
     onError: (error: any) => {
-      toast({ title: "SJinn Failed", description: error?.message || "Could not start SJinn video", variant: "destructive" });
+      toast({ title: "Sora 2 Failed", description: error?.message || "Could not start Sora 2 video", variant: "destructive" });
     },
   });
 
@@ -1123,29 +1118,17 @@ export function VideoGenerator() {
                         <span className="text-xs text-muted-foreground">Animate an avatar with voice — 1-3 min</span>
                       </div>
                     </SelectItem>
-                    <SelectItem value="sjinn_auto">
+                    <SelectItem value="sora2">
                       <div className="flex flex-col items-start">
-                        <span>SJinn Auto (Kling / Seedance / Hailuo)</span>
-                        <span className="text-xs text-muted-foreground">AI auto-selects best model — 5-15 min</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="sjinn_veo3">
-                      <div className="flex flex-col items-start">
-                        <span>SJinn Veo3</span>
-                        <span className="text-xs text-muted-foreground">Google Veo3 cinematic video with audio — 5-15 min</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="sjinn_sora2">
-                      <div className="flex flex-col items-start">
-                        <span>SJinn Sora2</span>
-                        <span className="text-xs text-muted-foreground">OpenAI Sora2 consistent characters — 5-15 min</span>
+                        <span>Sora 2 (OpenAI)</span>
+                        <span className="text-xs text-muted-foreground">HD cinematic AI video generation — 3-10 min</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
                 </Select>
                 {aiEngine !== "heygen" && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                    SJinn will use your topic/script as the video prompt. Avatar selection is not needed.
+                    Sora 2 will use your topic/script as the video prompt. Avatar selection is not needed.
                   </p>
                 )}
               </div>
@@ -1301,14 +1284,14 @@ export function VideoGenerator() {
                     onClick={() => sjinnMutation.mutate()}
                     disabled={sjinnMutation.isPending || sjinnStatus === "processing" || sjinnStatus === "pending"}
                     className="bg-primary text-primary-foreground hover:bg-primary/90"
-                    data-testid="button-generate-sjinn"
+                    data-testid="button-generate-sora2"
                   >
                     <FileVideo className="mr-2 h-4 w-4" />
                     {sjinnMutation.isPending || sjinnStatus === "pending" || sjinnStatus === "processing"
-                      ? "SJinn is working..."
+                      ? "Sora 2 is working..."
                       : sjinnStatus === "completed"
                         ? "Generate Another"
-                        : "Generate with SJinn"}
+                        : "Generate with Sora 2"}
                   </Button>
                 ) : (
                 <Button
@@ -1344,13 +1327,13 @@ export function VideoGenerator() {
                 )}
               </div>
 
-              {/* SJinn result panel */}
+              {/* Sora 2 result panel */}
               {aiEngine !== "heygen" && (sjinnStatus === "pending" || sjinnStatus === "processing" || sjinnStatus === "completed" || sjinnStatus === "failed") && (
                 <div className="mt-4 border rounded-lg p-4">
                   {sjinnStatus === "completed" && sjinnVideoUrl ? (
                     <div className="space-y-3">
-                      <p className="font-medium text-green-700 dark:text-green-400">SJinn video is ready!</p>
-                      <video src={sjinnVideoUrl} controls className="w-full rounded-lg max-h-64" data-testid="sjinn-video-result" />
+                      <p className="font-medium text-green-700 dark:text-green-400">Sora 2 video is ready!</p>
+                      <video src={sjinnVideoUrl} controls className="w-full rounded-lg max-h-64" data-testid="sora2-video-result" />
                       <div className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={() => { window.open(sjinnVideoUrl!, "_blank"); }}>
                           Open in New Tab
@@ -1362,7 +1345,7 @@ export function VideoGenerator() {
                     </div>
                   ) : sjinnStatus === "failed" ? (
                     <div className="text-center py-6 space-y-2">
-                      <p className="text-red-500 font-medium">SJinn generation failed. Please try again.</p>
+                      <p className="text-red-500 font-medium">Sora 2 generation failed. Please try again.</p>
                       <Button variant="outline" size="sm" onClick={() => { setSjinnStatus("idle"); setSjinnVideoUrl(null); }}>Reset</Button>
                     </div>
                   ) : (
@@ -1370,12 +1353,12 @@ export function VideoGenerator() {
                       <div className="flex items-center gap-3">
                         <div className="animate-spin h-5 w-5 border-2 border-[#D4AF37] border-t-transparent rounded-full" />
                         <div>
-                          <p className="font-medium">SJinn AI is generating your video...</p>
+                          <p className="font-medium">Sora 2 AI is generating your video...</p>
                           <p className="text-sm text-muted-foreground">Elapsed: {Math.floor(sjinnElapsed / 60)}:{String(sjinnElapsed % 60).padStart(2, "0")} — Status: {sjinnStatus}</p>
                         </div>
                       </div>
                       {sjinnElapsed >= 600 && (
-                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sjinn-timeout-warning-vg">
+                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sora2-timeout-warning-vg">
                           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                           <span>This is taking longer than expected. You can keep waiting or cancel.</span>
                         </div>
@@ -1385,7 +1368,7 @@ export function VideoGenerator() {
                         variant="outline"
                         size="sm"
                         className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
-                        data-testid="button-cancel-sjinn-vg"
+                        data-testid="button-cancel-sora2-vg"
                       >
                         <X className="h-4 w-4 mr-1" />Cancel Generation
                       </Button>

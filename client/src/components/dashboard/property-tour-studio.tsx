@@ -227,7 +227,7 @@ export function PropertyTourStudio() {
   const [connectionTo, setConnectionTo] = useState<string>("");
   const [connectionLabel, setConnectionLabel] = useState<string>("");
 
-  const [tourVideoEngine, setTourVideoEngine] = useState<"veo" | "sjinn_auto" | "sjinn_veo3" | "sjinn_sora2">("veo");
+  const [tourVideoEngine, setTourVideoEngine] = useState<"veo" | "sora2">("veo");
   const [sjinnTourChatId, setSjinnTourChatId] = useState<string | null>(null);
   const [sjinnTourStatus, setSjinnTourStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnTourVideoUrl, setSjinnTourVideoUrl] = useState<string | null>(null);
@@ -850,13 +850,7 @@ ${propertyDetails}`;
     }
   }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, getRoomsWithPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData]);
 
-  const handleGenerateSjinnTour = useCallback(async () => {
-    const modelMap: Record<string, string> = {
-      sjinn_auto: "auto",
-      sjinn_veo3: "veo3",
-      sjinn_sora2: "sora2",
-    };
-    const model = modelMap[tourVideoEngine] || "auto";
+  const handleGenerateSora2Tour = useCallback(async () => {
     const rooms = getRoomsWithPhotos().map(r => r.roomId.replace(/-/g, " "));
     const address = selectedProperty
       ? `${selectedProperty.address}, ${selectedProperty.city}, ${selectedProperty.state}`
@@ -868,19 +862,19 @@ ${propertyDetails}`;
     setSjinnTourVideoUrl(null);
 
     try {
-      const res = await fetch("/api/sjinn/create-video", {
+      const res = await fetch("/api/sora2/create-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ prompt, model }),
+        body: JSON.stringify({ prompt, aspectRatio: "landscape", quality: "hd" }),
       });
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.error || "Failed to start SJinn generation");
+        throw new Error(err.error || "Failed to start Sora 2 generation");
       }
       const data = await res.json();
-      const chatId = data.chatId;
-      setSjinnTourChatId(chatId);
+      const taskId = data.taskId;
+      setSjinnTourChatId(taskId);
       setSjinnTourStatus("processing");
 
       sjinnTourStartTimeRef.current = Date.now();
@@ -895,7 +889,7 @@ ${propertyDetails}`;
       if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
       sjinnTourPollRef.current = setInterval(async () => {
         try {
-          const statusRes = await fetch(`/api/sjinn/status/${chatId}`, { credentials: "include" });
+          const statusRes = await fetch(`/api/sora2/status/${taskId}`, { credentials: "include" });
           if (!statusRes.ok) return;
           const statusData = await statusRes.json();
           if (statusData.status === "completed" && statusData.videoUrl) {
@@ -904,28 +898,28 @@ ${propertyDetails}`;
             if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
             if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
             sjinnTourStartTimeRef.current = null;
-            toast({ title: "SJinn Video Ready", description: "Your property tour video has been generated." });
-            fetch("/api/sjinn/notify-completion", {
+            toast({ title: "Sora 2 Video Ready", description: "Your property tour video has been generated." });
+            fetch("/api/sora2/notify-completion", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
-              body: JSON.stringify({ videoUrl: statusData.videoUrl, chatId }),
-            }).catch((err) => console.warn("SJinn completion notification failed:", err));
+              body: JSON.stringify({ videoUrl: statusData.videoUrl, taskId }),
+            }).catch((err) => console.warn("Sora2 completion notification failed:", err));
           } else if (statusData.status === "failed") {
             setSjinnTourStatus("failed");
             if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
             if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
             sjinnTourStartTimeRef.current = null;
-            toast({ title: "SJinn Generation Failed", description: statusData.error || "Video generation failed.", variant: "destructive" });
+            toast({ title: "Sora 2 Generation Failed", description: statusData.error || "Video generation failed.", variant: "destructive" });
           }
         } catch {
         }
       }, 15000);
     } catch (error: any) {
       setSjinnTourStatus("failed");
-      toast({ title: "SJinn Error", description: error.message || "Failed to start video generation.", variant: "destructive" });
+      toast({ title: "Sora 2 Error", description: error.message || "Failed to start video generation.", variant: "destructive" });
     }
-  }, [tourVideoEngine, getRoomsWithPhotos, selectedProperty, generatedScript, toast, sjinnTourPollRef]);
+  }, [getRoomsWithPhotos, selectedProperty, generatedScript, toast, sjinnTourPollRef]);
 
   const handleSaveToLibrary = useCallback(async () => {
     if (!currentJobId) return;
@@ -1830,15 +1824,13 @@ ${propertyDetails}`;
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="veo">Google VEO 3.1 — Cinematic Room Videos</SelectItem>
-                  <SelectItem value="sjinn_auto">SJinn Auto (Kling / Seedance / Hailuo)</SelectItem>
-                  <SelectItem value="sjinn_veo3">SJinn Veo3</SelectItem>
-                  <SelectItem value="sjinn_sora2">SJinn Sora2</SelectItem>
+                  <SelectItem value="sora2">Sora 2 (OpenAI) — HD Cinematic AI Video</SelectItem>
                 </SelectContent>
               </Select>
               {tourVideoEngine === "veo" ? (
                 <p className="text-xs text-muted-foreground">VEO 3.1 generates individual cinematic clips per room using your uploaded photos.</p>
               ) : (
-                <p className="text-xs text-amber-600 dark:text-amber-400">SJinn generates a single AI video from your property details and script — no photos required. Estimated time: 5–15 minutes.</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400">Sora 2 generates a single AI video from your property details and script — no photos required. Estimated time: 3–10 minutes.</p>
               )}
             </div>
 
@@ -2243,12 +2235,12 @@ ${propertyDetails}`;
                   <div className="flex justify-center">
                     <Button
                       size="lg"
-                      onClick={handleGenerateSjinnTour}
+                      onClick={handleGenerateSora2Tour}
                       className="gap-2"
                       data-testid="sjinn-generate-btn"
                     >
                       <Video className="h-5 w-5" />
-                      Generate with SJinn
+                      Generate with Sora 2
                     </Button>
                   </div>
                 )}
@@ -2258,7 +2250,7 @@ ${propertyDetails}`;
                     <div className="flex items-center gap-3">
                       <Loader2 className="h-5 w-5 text-amber-600 animate-spin" />
                       <div>
-                        <p className="text-sm font-medium text-amber-700 dark:text-amber-400">SJinn is generating your video…</p>
+                        <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Sora 2 is generating your video…</p>
                         <p className="text-xs text-muted-foreground">Elapsed: {Math.floor(sjinnTourElapsed / 60)}:{String(sjinnTourElapsed % 60).padStart(2, "0")} — Estimated: 5–15 minutes</p>
                       </div>
                     </div>
@@ -2284,7 +2276,7 @@ ${propertyDetails}`;
                         setSjinnTourStatus("idle");
                         setSjinnTourChatId(null);
                         setSjinnTourVideoUrl(null);
-                        toast({ title: "Video Generation Cancelled", description: "SJinn video generation has been cancelled." });
+                        toast({ title: "Video Generation Cancelled", description: "Sora 2 video generation has been cancelled." });
                       }}
                     >
                       <X className="h-4 w-4 mr-1" />Cancel Generation
@@ -2294,7 +2286,7 @@ ${propertyDetails}`;
 
                 {sjinnTourStatus === "failed" && (
                   <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg space-y-3" data-testid="sjinn-failed">
-                    <p className="text-sm font-medium text-red-600 dark:text-red-400">SJinn generation failed. Please try again.</p>
+                    <p className="text-sm font-medium text-red-600 dark:text-red-400">Sora 2 generation failed. Please try again.</p>
                     <Button size="sm" variant="outline" onClick={() => { setSjinnTourStatus("idle"); setSjinnTourChatId(null); setSjinnTourVideoUrl(null); }}>
                       Try Again
                     </Button>
@@ -2306,7 +2298,7 @@ ${propertyDetails}`;
                     <div className="flex items-center gap-3">
                       <Check className="h-6 w-6 text-green-500" />
                       <div>
-                        <h4 className="font-medium text-green-600 dark:text-green-400">SJinn Video Ready</h4>
+                        <h4 className="font-medium text-green-600 dark:text-green-400">Sora 2 Video Ready</h4>
                         <p className="text-sm text-muted-foreground">Your AI-generated property tour video is ready.</p>
                       </div>
                     </div>
@@ -2318,7 +2310,7 @@ ${propertyDetails}`;
                         data-testid="sjinn-tour-video"
                       />
                       <div className="bg-muted p-2 flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">SJinn AI Property Tour</span>
+                        <span className="text-xs text-muted-foreground">Sora 2 AI Property Tour</span>
                         <Button size="sm" variant="ghost" className="h-6 gap-1 text-xs" asChild>
                           <a href={sjinnTourVideoUrl} download target="_blank" rel="noopener noreferrer">
                             <Download className="h-3 w-3" />

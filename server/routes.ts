@@ -53,7 +53,7 @@ import { twilioService } from "./services/twilio";
 import { storage } from "./storage";
 import twilio from "twilio";
 import { realtimeService } from "./websocket";
-import { sjinnService } from "./services/sjinn";
+import { sora2Service } from "./services/sora2";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   let settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -22776,69 +22776,70 @@ Be helpful, professional, and concise. Always let users know what the platform c
   // BUSINESS LOCATIONS ROUTES
   // =====================================================
   // =====================================================
-  // SJinn AI Video Generation Routes
+  // Sora2 AI Video Generation Routes
   // =====================================================
-  app.post("/api/sjinn/create-video", requireAuth, async (req: any, res) => {
+  app.post("/api/sora2/create-video", requireAuth, async (req: any, res) => {
     try {
-      const { prompt, model } = req.body;
+      const { prompt, aspectRatio, quality, imageUrls } = req.body;
       if (!prompt || typeof prompt !== "string") {
         return res.status(400).json({ error: "prompt is required" });
       }
-      const result = await sjinnService.createVideoTask(
-        prompt,
-        model || "auto"
-      );
+      const result = await sora2Service.createVideoTask(prompt, {
+        aspectRatio: aspectRatio || "landscape",
+        quality: quality || "hd",
+        imageUrls,
+      });
       res.json(result);
     } catch (error: any) {
-      console.error("SJinn create-video error:", error);
-      res.status(500).json({ error: error.message || "Failed to start SJinn video task" });
+      console.error("Sora2 create-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to start Sora2 video task" });
     }
   });
 
-  app.get("/api/sjinn/status/:chatId", requireAuth, async (req: any, res) => {
+  app.get("/api/sora2/status/:taskId", requireAuth, async (req: any, res) => {
     try {
-      const { chatId } = req.params;
-      if (!chatId) {
-        return res.status(400).json({ error: "chatId is required" });
+      const { taskId } = req.params;
+      if (!taskId) {
+        return res.status(400).json({ error: "taskId is required" });
       }
-      const result = await sjinnService.getTaskStatus(chatId);
+      const result = await sora2Service.getTaskStatus(taskId);
       res.json(result);
     } catch (error: any) {
-      console.error("SJinn status error:", error);
-      res.status(500).json({ error: error.message || "Failed to get SJinn task status" });
+      console.error("Sora2 status error:", error);
+      res.status(500).json({ error: error.message || "Failed to get Sora2 task status" });
     }
   });
 
-  app.post("/api/sjinn/notify-completion", requireAuth, async (req: any, res) => {
+  app.post("/api/sora2/notify-completion", requireAuth, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
-      const { videoUrl, chatId } = req.body;
-      if (!videoUrl || !chatId) {
-        return res.status(400).json({ error: "videoUrl and chatId are required" });
+      const { videoUrl, taskId } = req.body;
+      if (!videoUrl || !taskId) {
+        return res.status(400).json({ error: "videoUrl and taskId are required" });
       }
 
       if (userId && videoUrl) {
         try {
           const existing = await db.select({ id: videoContent.id })
             .from(videoContent)
-            .where(sql`${videoContent.metadata}->>'chatId' = ${chatId} AND ${videoContent.userId} = ${String(userId)} AND ${videoContent.metadata}->>'source' = 'sjinn'`)
+            .where(sql`${videoContent.metadata}->>'taskId' = ${taskId} AND ${videoContent.userId} = ${String(userId)} AND ${videoContent.metadata}->>'source' = 'sora2'`)
             .limit(1);
           if (existing.length === 0) {
             await storage.createVideoContent({
               userId: String(userId),
-              title: `SJinn AI Video - ${new Date().toLocaleDateString()}`,
-              script: "SJinn AI generated video",
+              title: `Sora 2 AI Video - ${new Date().toLocaleDateString()}`,
+              script: "Sora 2 AI generated video",
               videoUrl,
               thumbnailUrl: null,
               duration: null,
               status: "ready",
-              videoType: "sjinn",
-              metadata: { chatId, source: "sjinn" },
+              videoType: "sora2",
+              metadata: { taskId, source: "sora2" },
             });
-            console.log(`💾 [SJinn] Video saved to database for user ${userId}`);
+            console.log(`💾 [Sora2] Video saved to database for user ${userId}`);
           }
         } catch (dbErr: any) {
-          console.error(`⚠️ [SJinn] Failed to save video to DB:`, dbErr.message);
+          console.error(`⚠️ [Sora2] Failed to save video to DB:`, dbErr.message);
         }
       }
 
@@ -22864,12 +22865,12 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       if (notifiedVia !== "whatsapp") {
-        realtimeService.notifySjinnVideoReady(String(userId), videoUrl, chatId);
+        realtimeService.notifySjinnVideoReady(String(userId), videoUrl, taskId);
       }
 
       res.json({ success: true, notifiedVia });
     } catch (error: any) {
-      console.error("SJinn notify-completion error:", error);
+      console.error("Sora2 notify-completion error:", error);
       res.status(500).json({ error: error.message || "Failed to send notification" });
     }
   });

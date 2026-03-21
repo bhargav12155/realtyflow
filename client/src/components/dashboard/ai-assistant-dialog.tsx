@@ -293,17 +293,17 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
-  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sjinn_auto" | "sjinn_veo3" | "sjinn_sora2">("veo");
-  const [sjinnPrompt, setSjinnPrompt] = useState("");
-  const [sjinnChatId, setSjinnChatId] = useState<string | null>(null);
-  const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
-  const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
-  const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
-  const sjinnStartTimeRef = useRef<number | null>(null);
-  const [sjinnElapsed, setSjinnElapsed] = useState(0);
-  const sjinnElapsedRef = useRef<NodeJS.Timeout | null>(null);
-  const [sjinnImages, setSjinnImages] = useState<Array<{ url: string; preview: string }>>([]);
-  const [sjinnImageUploading, setSjinnImageUploading] = useState(false);
+  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2">("veo");
+  const [sora2Prompt, setSora2Prompt] = useState("");
+  const [sora2TaskId, setSora2TaskId] = useState<string | null>(null);
+  const [sora2Status, setSora2Status] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [sora2VideoUrl, setSora2VideoUrl] = useState<string | null>(null);
+  const sora2PollRef = useRef<NodeJS.Timeout | null>(null);
+  const sora2StartTimeRef = useRef<number | null>(null);
+  const [sora2Elapsed, setSora2Elapsed] = useState(0);
+  const sora2ElapsedRef = useRef<NodeJS.Timeout | null>(null);
+  const [sora2Images, setSora2Images] = useState<Array<{ url: string; preview: string }>>([]);
+  const [sora2ImageUploading, setSora2ImageUploading] = useState(false);
   const [videoPreset, setVideoPreset] = useState<string>("tiktok");
   const [spaceType, setSpaceType] = useState<"interior" | "exterior" | "none">("interior");
   const [customDescription, setCustomDescription] = useState("");
@@ -326,7 +326,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoImageInputRef = useRef<HTMLInputElement>(null);
-  const sjinnImageInputRef = useRef<HTMLInputElement>(null);
+  const sora2ImageInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { businessType } = useBusinessType();
   const videoPanel = useMemo(() => VIDEO_PANEL_BY_BUSINESS[businessType] ?? VIDEO_PANEL_BY_BUSINESS.real_estate, [businessType]);
@@ -720,10 +720,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     });
   };
 
-  const handleSjinnImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSora2ImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (sjinnImages.length >= 3) {
+    if (sora2Images.length >= 3) {
       toast({ title: "Maximum images reached", description: "You can upload up to 3 reference images.", variant: "destructive" });
       return;
     }
@@ -735,7 +735,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       toast({ title: "File too large", description: "Image must be under 10MB.", variant: "destructive" });
       return;
     }
-    setSjinnImageUploading(true);
+    setSora2ImageUploading(true);
     const previewUrl = URL.createObjectURL(file);
     try {
       const token = getAuthToken();
@@ -749,136 +749,131 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       });
       if (!response.ok) throw new Error("Failed to upload image");
       const data = await response.json();
-      setSjinnImages(prev => [...prev, { url: data.url, preview: previewUrl }]);
-      toast({ title: "Image added", description: `Reference image ${sjinnImages.length + 1} of 3 added.` });
+      setSora2Images(prev => [...prev, { url: data.url, preview: previewUrl }]);
+      toast({ title: "Image added", description: `Reference image ${sora2Images.length + 1} of 3 added.` });
     } catch (error) {
       toast({ title: "Upload failed", description: "Failed to upload image. Please try again.", variant: "destructive" });
       URL.revokeObjectURL(previewUrl);
     } finally {
-      setSjinnImageUploading(false);
-      if (sjinnImageInputRef.current) sjinnImageInputRef.current.value = "";
+      setSora2ImageUploading(false);
+      if (sora2ImageInputRef.current) sora2ImageInputRef.current.value = "";
     }
   };
 
-  const removeSjinnImage = (index: number) => {
-    setSjinnImages(prev => {
+  const removeSora2Image = (index: number) => {
+    setSora2Images(prev => {
       const removed = prev[index];
       if (removed?.preview) URL.revokeObjectURL(removed.preview);
       return prev.filter((_, i) => i !== index);
     });
   };
 
-  const stopSjinnPolling = () => {
-    if (sjinnPollRef.current) {
-      clearInterval(sjinnPollRef.current);
-      sjinnPollRef.current = null;
+  const stopSora2Polling = () => {
+    if (sora2PollRef.current) {
+      clearInterval(sora2PollRef.current);
+      sora2PollRef.current = null;
     }
-    if (sjinnElapsedRef.current) {
-      clearInterval(sjinnElapsedRef.current);
-      sjinnElapsedRef.current = null;
+    if (sora2ElapsedRef.current) {
+      clearInterval(sora2ElapsedRef.current);
+      sora2ElapsedRef.current = null;
     }
-    sjinnStartTimeRef.current = null;
-    setSjinnElapsed(0);
+    sora2StartTimeRef.current = null;
+    setSora2Elapsed(0);
   };
 
-  const cancelSjinnGeneration = () => {
-    stopSjinnPolling();
-    setSjinnStatus("idle");
-    setSjinnChatId(null);
-    setSjinnVideoUrl(null);
-    toast({ title: "Video Generation Cancelled", description: "SJinn video generation has been cancelled." });
+  const cancelSora2Generation = () => {
+    stopSora2Polling();
+    setSora2Status("idle");
+    setSora2TaskId(null);
+    setSora2VideoUrl(null);
+    toast({ title: "Video Generation Cancelled", description: "Sora 2 video generation has been cancelled." });
   };
 
-  const startSjinnPolling = (chatId: string) => {
-    stopSjinnPolling();
-    sjinnStartTimeRef.current = Date.now();
-    setSjinnElapsed(0);
-    sjinnElapsedRef.current = setInterval(() => {
-      if (sjinnStartTimeRef.current) {
-        setSjinnElapsed(Math.floor((Date.now() - sjinnStartTimeRef.current) / 1000));
+  const startSora2Polling = (taskId: string) => {
+    stopSora2Polling();
+    sora2StartTimeRef.current = Date.now();
+    setSora2Elapsed(0);
+    sora2ElapsedRef.current = setInterval(() => {
+      if (sora2StartTimeRef.current) {
+        setSora2Elapsed(Math.floor((Date.now() - sora2StartTimeRef.current) / 1000));
       }
     }, 1000);
-    sjinnPollRef.current = setInterval(async () => {
+    sora2PollRef.current = setInterval(async () => {
       try {
         const token = getAuthToken();
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(`/api/sjinn/status/${chatId}`, { headers, credentials: "include" });
+        const res = await fetch(`/api/sora2/status/${taskId}`, { headers, credentials: "include" });
         const data = await res.json();
         if (data.status === "completed" && data.videoUrl) {
-          setSjinnStatus("completed");
-          setSjinnVideoUrl(data.videoUrl);
-          stopSjinnPolling();
+          setSora2Status("completed");
+          setSora2VideoUrl(data.videoUrl);
+          stopSora2Polling();
           const assistantMsg: Message = {
             role: "assistant",
-            content: "Your SJinn AI video is ready!",
+            content: "Your Sora 2 AI video is ready!",
             videoUrl: data.videoUrl,
           };
           setMessages(prev => [...prev, assistantMsg]);
           setVideoMode(false);
-          toast({ title: "SJinn Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
+          toast({ title: "Sora 2 Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
           const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
           if (token) notifyHeaders["Authorization"] = `Bearer ${token}`;
-          fetch("/api/sjinn/notify-completion", {
+          fetch("/api/sora2/notify-completion", {
             method: "POST",
             headers: notifyHeaders,
             credentials: "include",
-            body: JSON.stringify({ videoUrl: data.videoUrl, chatId }),
-          }).catch((err) => console.warn("SJinn completion notification failed:", err));
+            body: JSON.stringify({ videoUrl: data.videoUrl, taskId }),
+          }).catch((err) => console.warn("Sora2 completion notification failed:", err));
         } else if (data.status === "failed") {
-          setSjinnStatus("failed");
-          stopSjinnPolling();
-          toast({ title: "SJinn Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+          setSora2Status("failed");
+          stopSora2Polling();
+          toast({ title: "Sora 2 Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
         } else {
-          setSjinnStatus(data.status || "processing");
+          setSora2Status(data.status || "processing");
         }
       } catch (err) {
-        console.error("SJinn poll error:", err);
+        console.error("Sora2 poll error:", err);
       }
     }, 15000);
   };
 
-  const startSjinnGeneration = async () => {
-    if (!sjinnPrompt.trim()) {
+  const startSora2Generation = async () => {
+    if (!sora2Prompt.trim()) {
       toast({ title: "Prompt Required", description: "Please enter a video prompt.", variant: "destructive" });
       return;
     }
-    setSjinnStatus("pending");
-    const modelMap: Record<string, string> = {
-      sjinn_auto: "auto",
-      sjinn_veo3: "veo3",
-      sjinn_sora2: "sora2",
-    };
-    const finalPrompt = sjinnImages.length > 0
-      ? `Reference image URLs for visual context:\n${sjinnImages.map(img => `- ${img.url}`).join("\n")}\n\n${sjinnPrompt}`
-      : sjinnPrompt;
+    setSora2Status("pending");
+    const imageUrls = sora2Images.length > 0 ? sora2Images.map(img => img.url) : undefined;
+    const finalPrompt = sora2Prompt;
     try {
       const token = getAuthToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      const res = await fetch("/api/sjinn/create-video", {
+      const res = await fetch("/api/sora2/create-video", {
         method: "POST",
         headers,
         credentials: "include",
-        body: JSON.stringify({ prompt: finalPrompt, model: modelMap[assistantVideoPlatform] || "auto" }),
+        body: JSON.stringify({ prompt: finalPrompt, aspectRatio: "landscape", quality: "hd", imageUrls }),
       });
       const data = await res.json();
-      if (!res.ok || !data.chatId) {
-        throw new Error(data.error || "Failed to start SJinn");
+      if (!res.ok || !data.taskId) {
+        throw new Error(data.error || "Failed to start Sora 2");
       }
-      setSjinnChatId(data.chatId);
-      setSjinnStatus("processing");
-      startSjinnPolling(data.chatId);
-      const imageNote = sjinnImages.length > 0 ? ` (with ${sjinnImages.length} reference image${sjinnImages.length > 1 ? "s" : ""})` : "";
-      const userMsg: Message = { role: "user", content: `Generate a video${imageNote}: ${sjinnPrompt}` };
-      const assistantMsg: Message = { role: "assistant", content: "SJinn AI is creating your video. This can take 5–15 minutes. I'll show it here when it's ready..." };
+      setSora2TaskId(data.taskId);
+      setSora2Status("processing");
+      startSora2Polling(data.taskId);
+      const imageNote = sora2Images.length > 0 ? ` (with ${sora2Images.length} reference image${sora2Images.length > 1 ? "s" : ""})` : "";
+      const userMsg: Message = { role: "user", content: `Generate a video${imageNote}: ${sora2Prompt}` };
+      const assistantMsg: Message = { role: "assistant", content: "Sora 2 is creating your video. This can take 3–10 minutes. I'll show it here when it's ready..." };
       setMessages(prev => [...prev, userMsg, assistantMsg]);
-      setSjinnImages([]);
+      setSora2Images([]);
+      setSora2Prompt("");
       setVideoMode(false);
-      toast({ title: "SJinn Video Started!", description: "SJinn AI is generating your video. This can take 5-15 minutes." });
+      toast({ title: "Sora 2 Video Started!", description: "Sora 2 AI is generating your video. Please wait a few minutes." });
     } catch (error: any) {
-      setSjinnStatus("failed");
-      toast({ title: "SJinn Failed", description: error?.message || "Could not start SJinn video", variant: "destructive" });
+      setSora2Status("failed");
+      toast({ title: "Sora 2 Failed", description: error?.message || "Could not start Sora 2 video", variant: "destructive" });
     }
   };
 
@@ -1295,40 +1290,28 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         <span className="text-xs text-gray-500">Upload room photos — cinematic walk-through</span>
                       </div>
                     </SelectItem>
-                    <SelectItem value="sjinn_auto">
+                    <SelectItem value="sora2">
                       <div className="flex flex-col">
-                        <span>SJinn Auto (Kling / Seedance / Hailuo)</span>
-                        <span className="text-xs text-gray-500">AI auto-selects best model — 5-15 min</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="sjinn_veo3">
-                      <div className="flex flex-col">
-                        <span>SJinn Veo3</span>
-                        <span className="text-xs text-gray-500">Google Veo3 cinematic video with audio — 5-15 min</span>
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="sjinn_sora2">
-                      <div className="flex flex-col">
-                        <span>SJinn Sora2</span>
-                        <span className="text-xs text-gray-500">OpenAI Sora2 consistent characters — 5-15 min</span>
+                        <span>Sora 2 (OpenAI)</span>
+                        <span className="text-xs text-gray-500">HD cinematic AI video generation — 3-10 min</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* SJinn flow */}
-              {assistantVideoPlatform !== "veo" && (
+              {/* Sora 2 flow */}
+              {assistantVideoPlatform === "sora2" && (
                 <div className="space-y-2">
                   <div>
                     <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Video Prompt</label>
                     <textarea
-                      value={sjinnPrompt}
-                      onChange={(e) => setSjinnPrompt(e.target.value)}
+                      value={sora2Prompt}
+                      onChange={(e) => setSora2Prompt(e.target.value)}
                       placeholder="e.g. A cinematic walk-through of a modern kitchen with marble countertops, warm lighting, and open shelving..."
                       className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                       rows={3}
-                      data-testid="input-sjinn-prompt"
+                      data-testid="input-sora2-prompt"
                     />
                   </div>
 
@@ -1338,15 +1321,15 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       Reference Images (optional, up to 3)
                     </label>
                     <input
-                      ref={sjinnImageInputRef}
+                      ref={sora2ImageInputRef}
                       type="file"
                       accept="image/*"
-                      onChange={handleSjinnImageUpload}
+                      onChange={handleSora2ImageUpload}
                       className="hidden"
-                      data-testid="input-sjinn-image-file"
+                      data-testid="input-sora2-image-file"
                     />
                     <div className="space-y-2">
-                      {sjinnImages.map((img, index) => (
+                      {sora2Images.map((img, index) => (
                         <div key={index} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
                           <div className="relative w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
                             <img src={img.preview || img.url} alt={`Reference ${index + 1}`} className="w-full h-full object-cover" />
@@ -1356,24 +1339,24 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                           </div>
                           <span className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">Reference image {index + 1}</span>
                           <button
-                            onClick={() => removeSjinnImage(index)}
+                            onClick={() => removeSora2Image(index)}
                             className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 flex-shrink-0"
-                            data-testid={`button-remove-sjinn-image-${index}`}
+                            data-testid={`button-remove-sora2-image-${index}`}
                           >
                             <X className="h-3 w-3" />
                           </button>
                         </div>
                       ))}
-                      {sjinnImages.length < 3 && (
+                      {sora2Images.length < 3 && (
                         <div
-                          onClick={() => !sjinnImageUploading && sjinnImageInputRef.current?.click()}
+                          onClick={() => !sora2ImageUploading && sora2ImageInputRef.current?.click()}
                           className={cn(
                             "border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg py-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors",
-                            sjinnImageUploading && "opacity-50 cursor-wait"
+                            sora2ImageUploading && "opacity-50 cursor-wait"
                           )}
-                          data-testid="button-upload-sjinn-image"
+                          data-testid="button-upload-sora2-image"
                         >
-                          {sjinnImageUploading ? (
+                          {sora2ImageUploading ? (
                             <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
                           ) : (
                             <>
@@ -1384,21 +1367,21 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         </div>
                       )}
                     </div>
-                    {sjinnImages.length > 0 && (
+                    {sora2Images.length > 0 && (
                       <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
                         Image URLs will be included in the prompt as visual reference for the AI.
                       </p>
                     )}
                   </div>
 
-                  {(sjinnStatus === "pending" || sjinnStatus === "processing") && (
+                  {(sora2Status === "pending" || sora2Status === "processing") && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>SJinn is generating your video ({Math.floor(sjinnElapsed / 60)}:{String(sjinnElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                        <span>Sora 2 is generating your video ({Math.floor(sora2Elapsed / 60)}:{String(sora2Elapsed % 60).padStart(2, "0")} elapsed)…</span>
                       </div>
-                      {sjinnElapsed >= 600 && (
-                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sjinn-timeout-warning">
+                      {sora2Elapsed >= 600 && (
+                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="sora2-timeout-warning">
                           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                           <span>This is taking longer than expected. You can keep waiting or cancel.</span>
                         </div>
@@ -1407,23 +1390,23 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   )}
                   <div className="flex gap-2">
                     <Button
-                      onClick={startSjinnGeneration}
-                      disabled={sjinnStatus === "pending" || sjinnStatus === "processing" || !sjinnPrompt.trim()}
+                      onClick={startSora2Generation}
+                      disabled={sora2Status === "pending" || sora2Status === "processing" || !sora2Prompt.trim()}
                       className="flex-1 bg-primary hover:bg-primary/90"
-                      data-testid="button-generate-sjinn-assistant"
+                      data-testid="button-generate-sora2-assistant"
                     >
-                      {(sjinnStatus === "pending" || sjinnStatus === "processing") ? (
+                      {(sora2Status === "pending" || sora2Status === "processing") ? (
                         <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating...</>
                       ) : (
-                        <><Video className="h-4 w-4 mr-2" />Generate with SJinn</>
+                        <><Video className="h-4 w-4 mr-2" />Generate with Sora 2</>
                       )}
                     </Button>
-                    {(sjinnStatus === "pending" || sjinnStatus === "processing") && (
+                    {(sora2Status === "pending" || sora2Status === "processing") && (
                       <Button
-                        onClick={cancelSjinnGeneration}
+                        onClick={cancelSora2Generation}
                         variant="outline"
                         className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
-                        data-testid="button-cancel-sjinn-assistant"
+                        data-testid="button-cancel-sora2-assistant"
                       >
                         <X className="h-4 w-4 mr-1" />Cancel
                       </Button>

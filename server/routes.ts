@@ -2387,6 +2387,58 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
     }
   });
 
+  app.post("/api/upload-url", async (req, res) => {
+    try {
+      const { contentType } = req.body || {};
+      const mimeType = contentType || "application/octet-stream";
+
+      const ext = mimeType.startsWith("image/")
+        ? (mimeType.split("/")[1] || "jpg").replace("jpeg", "jpg")
+        : mimeType.startsWith("video/")
+          ? (mimeType.split("/")[1] || "mp4")
+          : "bin";
+      const key = `uploads/${nanoid()}.${ext}`;
+
+      try {
+        const uploadUrl = await s3UploadService.getPresignedPutUrl(key, mimeType, 900);
+        const fileUrl = s3UploadService.getS3Url(key);
+        return res.json({ uploadUrl, fileUrl });
+      } catch (s3Err: any) {
+        console.log(`⚠️ [upload-url] S3 presigned PUT unavailable, using Object Storage signed URL`);
+      }
+
+      const objStorage = new (await import("./objectStorage")).ObjectStorageService();
+      const publicPaths = objStorage.getPublicObjectSearchPaths();
+      const basePath = publicPaths[0];
+      const fullPath = `${basePath}/${key}`;
+      const parts = fullPath.startsWith("/") ? fullPath.split("/") : `/${fullPath}`.split("/");
+      const bucketName = parts[1];
+      const objectName = parts.slice(2).join("/");
+
+      const sidecarResp = await fetch("http://127.0.0.1:1106/object-storage/signed-object-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bucket_name: bucketName,
+          object_name: objectName,
+          method: "PUT",
+          expires_at: new Date(Date.now() + 900 * 1000).toISOString(),
+        }),
+      });
+
+      if (!sidecarResp.ok) {
+        throw new Error(`Sidecar signed URL failed: ${sidecarResp.status}`);
+      }
+
+      const { signed_url } = await sidecarResp.json();
+      const fileUrl = `/public-objects/${key}`;
+      res.json({ uploadUrl: signed_url, fileUrl });
+    } catch (error: any) {
+      console.error("Upload URL generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate upload URL" });
+    }
+  });
+
   // Upload reference image for AI generation
   app.post("/api/upload-reference", requireAuth, memoryImageUpload.single("file"), async (req, res) => {
     try {

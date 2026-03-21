@@ -281,6 +281,7 @@ export function AvatarIVStudio() {
   const [sjinnChatId, setSjinnChatId] = useState<string | null>(null);
   const [sjinnStatus, setSjinnStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnVideoUrl, setSjinnVideoUrl] = useState<string | null>(null);
+  const [sora2VideoLoadError, setSora2VideoLoadError] = useState(false);
   const sjinnPollRef = useRef<NodeJS.Timeout | null>(null);
   
   // Audio recording state
@@ -2234,13 +2235,29 @@ export function AvatarIVStudio() {
               <div className="mx-auto max-w-2xl">
                 {sjinnStatus === "completed" && sjinnVideoUrl ? (
                   <div className="space-y-4">
-                    <video
-                      src={sjinnVideoUrl}
-                      controls
-                      className="w-full max-h-[70vh] rounded-xl shadow-lg object-contain mx-auto"
-                      data-testid="video-player-sora2"
-                    />
+                    {!sora2VideoLoadError ? (
+                      <video
+                        src={`/api/sora2/proxy-video?url=${encodeURIComponent(sjinnVideoUrl)}`}
+                        controls
+                        className="w-full max-h-[70vh] rounded-xl shadow-lg object-contain mx-auto"
+                        data-testid="video-player-sora2"
+                        onError={() => setSora2VideoLoadError(true)}
+                      />
+                    ) : (
+                      <div className="text-center py-8 border rounded-xl bg-gray-50 dark:bg-gray-900">
+                        <p className="text-gray-600 dark:text-gray-400 mb-3">Video cannot be played inline. Use the buttons below to view or download it.</p>
+                        <a href={sjinnVideoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all text-sm" data-testid="link-video-url-sora2">{sjinnVideoUrl}</a>
+                      </div>
+                    )}
                     <div className="flex flex-wrap justify-center gap-3">
+                      <Button
+                        variant="outline"
+                        onClick={() => { window.open(sjinnVideoUrl!, "_blank"); }}
+                        data-testid="button-open-tab-sora2"
+                      >
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Open in New Tab
+                      </Button>
                       <Button
                         variant="outline"
                         onClick={() => {
@@ -2272,6 +2289,7 @@ export function AvatarIVStudio() {
                           setSjinnStatus("idle");
                           setSjinnVideoUrl(null);
                           setSjinnChatId(null);
+                          setSora2VideoLoadError(false);
                           setCurrentStep(1);
                         }}
                         className="bg-[#D4AF37] hover:bg-[#D4AF37]/90 text-white"

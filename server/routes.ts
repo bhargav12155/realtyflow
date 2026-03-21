@@ -22875,6 +22875,44 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.get("/api/sora2/proxy-video", requireAuth, async (req: any, res) => {
+    try {
+      const videoUrl = req.query.url as string;
+      if (!videoUrl || !videoUrl.startsWith("https://")) {
+        return res.status(400).json({ error: "Valid https video URL required" });
+      }
+      const allowed = ["tempfile.aiquickdraw.com", "sora2api.ai"];
+      const urlObj = new URL(videoUrl);
+      if (!allowed.some(d => urlObj.hostname.endsWith(d))) {
+        return res.status(403).json({ error: "Domain not allowed for proxy" });
+      }
+      const upstream = await fetch(videoUrl);
+      if (!upstream.ok) {
+        return res.status(upstream.status).json({ error: `Upstream error ${upstream.status}` });
+      }
+      const contentType = upstream.headers.get("content-type") || "video/mp4";
+      const contentLength = upstream.headers.get("content-length");
+      res.setHeader("Content-Type", contentType);
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+      res.setHeader("Accept-Ranges", "bytes");
+      const reader = upstream.body as any;
+      if (reader && typeof reader.pipe === "function") {
+        reader.pipe(res);
+      } else if (reader) {
+        const nodeStream = await import("stream");
+        const webStream = reader as ReadableStream;
+        const readable = nodeStream.Readable.fromWeb(webStream as any);
+        readable.pipe(res);
+      } else {
+        const buffer = await upstream.arrayBuffer();
+        res.send(Buffer.from(buffer));
+      }
+    } catch (error: any) {
+      console.error("Video proxy error:", error);
+      res.status(500).json({ error: "Failed to proxy video" });
+    }
+  });
+
   app.get("/api/business-locations", requireAuth, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;

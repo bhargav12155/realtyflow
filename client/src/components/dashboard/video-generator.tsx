@@ -1333,7 +1333,11 @@ export function VideoGenerator() {
                   {sjinnStatus === "completed" && sjinnVideoUrl ? (
                     <div className="space-y-3">
                       <p className="font-medium text-green-700 dark:text-green-400">Sora 2 video is ready!</p>
-                      <video src={sjinnVideoUrl} controls className="w-full rounded-lg max-h-64" data-testid="sora2-video-result" />
+                      <video src={`/api/sora2/proxy-video?url=${encodeURIComponent(sjinnVideoUrl)}`} controls className="w-full rounded-lg max-h-64" data-testid="sora2-video-result" onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; (e.target as HTMLVideoElement).nextElementSibling?.classList.remove('hidden'); }} />
+                      <div className="hidden text-center py-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
+                        <p className="text-gray-600 dark:text-gray-400 text-sm mb-2">Video cannot be played inline. Use "Open in New Tab" to view it.</p>
+                        <a href={sjinnVideoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline break-all text-xs">{sjinnVideoUrl}</a>
+                      </div>
                       <div className="flex gap-2">
                         <Button variant="outline" size="sm" onClick={() => { window.open(sjinnVideoUrl!, "_blank"); }}>
                           Open in New Tab

@@ -12,6 +12,7 @@ export interface Sora2StatusResult {
   status: Sora2Status;
   videoUrl?: string;
   error?: string;
+  errorCode?: "missing_video_url" | "task_creation_failed" | "generation_failed";
 }
 
 function getApiKey(): string {
@@ -110,7 +111,12 @@ export async function getTaskStatus(taskId: string): Promise<Sora2StatusResult> 
     if (videoUrl) {
       return { status: "completed", videoUrl };
     }
-    return { status: "completed" };
+    console.error(`⚠️ [Sora2] Task ${taskId} completed (successFlag=1) but no videoUrl found. Full response:`, JSON.stringify(taskData));
+    return { 
+      status: "failed", 
+      errorCode: "missing_video_url",
+      error: "Video generation completed but no video was returned. This may be a temporary issue — please try again." 
+    };
   }
 
   if (successFlag === 2) {

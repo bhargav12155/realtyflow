@@ -22802,7 +22802,16 @@ Be helpful, professional, and concise. Always let users know what the platform c
       if (!taskId) {
         return res.status(400).json({ error: "taskId is required" });
       }
-      const result = await sora2Service.getTaskStatus(taskId);
+      let result = await sora2Service.getTaskStatus(taskId);
+      if (result.status === "failed" && result.errorCode === "missing_video_url") {
+        console.log(`🔄 [Sora2] Retrying status check for ${taskId} after empty response...`);
+        await new Promise(r => setTimeout(r, 3000));
+        const retry = await sora2Service.getTaskStatus(taskId);
+        if (retry.status === "completed" && retry.videoUrl) {
+          console.log(`✅ [Sora2] Retry succeeded for ${taskId}`);
+          result = retry;
+        }
+      }
       res.json(result);
     } catch (error: any) {
       console.error("Sora2 status error:", error);

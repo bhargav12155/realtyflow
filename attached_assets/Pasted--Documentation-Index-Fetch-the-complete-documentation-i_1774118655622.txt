@@ -1,0 +1,335 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.sora2api.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Generate Sora2API Video
+
+> Create video generation tasks using the Sora2API AI model.
+
+### Usage Guide
+
+* This endpoint creates videos based on your text prompt
+* Supports multiple modes including text-to-video and image-to-video
+* Customizable quality, aspect ratio, and watermark
+
+### Developer Notes
+
+* Recommendation for First-Time Users: Start with simple prompts for best results
+* Generated files are retained for 15 days before being deleted
+* Only the prompt parameter is required, all other parameters are optional
+
+
+## OpenAPI
+
+````yaml sora2-api/sora2-api.json post /api/v1/sora2api/generate
+openapi: 3.0.0
+info:
+  title: Sora2API API
+  description: sora2api.ai Sora2API API Documentation - AI Video Generation API
+  version: 1.0.0
+  contact:
+    name: Technical Support
+    email: support@sora2api.ai
+servers:
+  - url: https://api.sora2api.ai
+    description: API Server
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/sora2api/generate:
+    post:
+      summary: Generate Sora2API Video
+      description: |-
+        Create video and image generation tasks using the Sora2API AI model.
+
+        ### Usage Guide
+        - This endpoint creates videos or images based on your text prompt
+        - Supports multiple modes including text-to-video and image-to-video
+        - Customizable quality, aspect ratio, and watermark
+      operationId: generate-sora2-video
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - prompt
+                - aspectRatio
+                - quality
+              properties:
+                prompt:
+                  type: string
+                  description: >-
+                    Prompt for content generation. Detailed description of the
+                    desired video or image content.
+
+
+                    - Should be detailed and specific in describing the content
+
+                    - Can include style, composition, lighting, and other visual
+                    elements
+
+                    - Maximum length: 2000 characters
+                  example: A cute kitten playing in a garden on a bright spring day
+                imageUrls:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    Array of image URLs. Used as input images for image-to-image
+                    or image-to-video.
+
+
+                    - Optional parameter
+
+                    - Must be valid image URLs
+
+                    - Images must be accessible by the API server
+
+                    - Can be left empty for text-to-image
+                  example:
+                    - https://example.com/image.jpg
+                aspectRatio:
+                  type: string
+                  description: >-
+                    Aspect ratio of the output video.
+
+
+                    **Supported Aspect Ratios:**
+
+
+                    | Option | Description | Common Use |
+
+                    |--------|-------------|------------|
+
+                    | `landscape` | Landscape | HD video, desktop wallpaper,
+                    horizontal viewing |
+
+                    | `portrait` | Portrait | Phone wallpaper, short videos,
+                    vertical viewing |
+                  enum:
+                    - landscape
+                    - portrait
+                  example: landscape
+                quality:
+                  type: string
+                  description: |-
+                    Quality of the generated content.
+
+                    - **standard**: Standard quality
+                    - **hd**: High Definition
+                  enum:
+                    - standard
+                    - hd
+                  example: hd
+                watermark:
+                  type: string
+                  description: >-
+                    Watermark text.
+
+
+                    - Optional parameter
+
+                    - If provided, watermark text will be added to the generated
+                    content
+                  example: My Watermark
+                callBackUrl:
+                  type: string
+                  format: uri
+                  description: >-
+                    Callback URL for receiving task completion updates.
+
+
+                    - Optional but recommended for production use
+
+                    - System will send task completion status to this URL via
+                    POST request
+
+                    - Alternatively, you can use the get task details endpoint
+                    to check status
+                  example: https://api.example.com/callback
+              example:
+                prompt: A cute kitten playing in a garden on a bright spring day
+                imageUrls:
+                  - https://example.com/image.jpg
+                aspectRatio: landscape
+                quality: hd
+                watermark: My Watermark
+                callBackUrl: https://api.example.com/callback
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      code:
+                        type: integer
+                        enum:
+                          - 200
+                          - 400
+                          - 401
+                          - 402
+                          - 404
+                          - 422
+                          - 429
+                          - 455
+                          - 500
+                          - 501
+                          - 505
+                        description: >-
+                          Response status code
+
+
+                          - **200**: Success - Request processed successfully
+
+                          - **400**: Bad Request - Invalid request parameters
+
+                          - **401**: Unauthorized - Authentication credentials
+                          missing or invalid
+
+                          - **402**: Insufficient Credits - Account does not
+                          have enough credits to perform operation
+
+                          - **404**: Not Found - Requested resource or endpoint
+                          does not exist
+
+                          - **422**: Validation Error - Request parameter
+                          validation failed
+
+                          - **429**: Rate Limit - Request limit exceeded for
+                          this resource
+
+                          - **455**: Service Unavailable - System is undergoing
+                          maintenance
+
+                          - **500**: Server Error - Unexpected error occurred
+                          while processing request
+
+                          - **501**: Generation Failed - Image generation task
+                          failed
+
+                          - **505**: Feature Disabled - Requested feature is
+                          currently disabled
+                      msg:
+                        type: string
+                        description: Response message
+                        example: success
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          taskId:
+                            type: string
+                            description: Task ID, can be used to query task status
+                            example: sora2_task_abcdef123456
+              example:
+                code: 200
+                msg: success
+                data:
+                  taskId: sora2_task_abcdef123456
+        '500':
+          $ref: '#/components/responses/Error'
+      callbacks:
+        onGenerated:
+          '{$request.body#/callBackUrl}':
+            post:
+              summary: Sora2API Video Generation Callback
+              description: >-
+                When video or image generation is complete, the system will send
+                a POST request to this URL
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        code:
+                          type: integer
+                          description: Status code
+                          example: 200
+                        msg:
+                          type: string
+                          description: Response message
+                          example: success
+                        data:
+                          type: object
+                          properties:
+                            taskId:
+                              type: string
+                              description: Task ID
+                            paramJson:
+                              type: string
+                              description: Call parameters JSON
+                            completeTime:
+                              type: string
+                              description: Task completion time
+                              example: '2024-03-20 10:30:00'
+                            response:
+                              type: object
+                              description: Final result
+                              properties:
+                                imageUrl:
+                                  type: string
+                                  description: Image URL from our server
+                            successFlag:
+                              type: integer
+                              description: >-
+                                Generation status: 0-Generating, 1-Success,
+                                2-Task Creation Failed, 3-Generation Failed
+                              example: 1
+                            errorCode:
+                              type: integer
+                              description: Error code
+                              example: 0
+                            errorMessage:
+                              type: string
+                              description: Error message
+                              nullable: true
+                            createTime:
+                              type: string
+                              description: Creation time
+                              example: '2024-03-20 10:25:00'
+              responses:
+                '200':
+                  description: Callback received successfully
+components:
+  responses:
+    Error:
+      description: Server Error
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: >-
+        All APIs require authentication via Bearer Token.
+
+
+        Get API Key:
+
+        1. Visit [API Key Management Page](https://sora2api.ai/api-key) to get
+        your API Key
+
+
+        Usage:
+
+        Add to request header:
+
+        Authorization: Bearer YOUR_API_KEY
+
+
+        Note:
+
+        - Keep your API Key secure and do not share it with others
+
+        - If you suspect your API Key has been compromised, reset it immediately
+        in the management page
+
+````
+
+Built with [Mintlify](https://mintlify.com).

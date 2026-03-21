@@ -1,0 +1,232 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.sora2api.ai/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Get Sora2API Task Details
+
+> Retrieve the status and details of a Sora2API generation task.
+
+### Status Descriptions
+
+* successFlag: 0 (Generating) - Task is currently being processed
+* successFlag: 1 (Success) - Task completed successfully
+* successFlag: 2 (Task Creation Failed) - Task creation failed
+* successFlag: 3 (Generation Failed) - Task created successfully but generation failed
+
+
+## OpenAPI
+
+````yaml sora2-api/sora2-api.json get /api/v1/sora2api/record-info
+openapi: 3.0.0
+info:
+  title: Sora2API API
+  description: sora2api.ai Sora2API API Documentation - AI Video Generation API
+  version: 1.0.0
+  contact:
+    name: Technical Support
+    email: support@sora2api.ai
+servers:
+  - url: https://api.sora2api.ai
+    description: API Server
+security:
+  - BearerAuth: []
+paths:
+  /api/v1/sora2api/record-info:
+    get:
+      summary: Get Sora2API Task Details
+      description: >-
+        Retrieve the status and details of a Sora2API generation task.
+
+
+        ### Status Descriptions
+
+        - successFlag: 0 (Generating) - Task is currently being processed
+
+        - successFlag: 1 (Success) - Task completed successfully
+
+        - successFlag: 2 (Task Creation Failed) - Task creation failed
+
+        - successFlag: 3 (Generation Failed) - Task created successfully but
+        generation failed
+      operationId: get-sora2-task-details
+      parameters:
+        - name: taskId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Task ID returned from the generation request
+          example: 4edb3c5XXXXX75e3f0aa5cc
+      responses:
+        '200':
+          description: Request successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      code:
+                        type: integer
+                        enum:
+                          - 200
+                          - 400
+                          - 401
+                          - 402
+                          - 404
+                          - 422
+                          - 429
+                          - 455
+                          - 500
+                          - 501
+                          - 505
+                        description: >-
+                          Response status code
+
+
+                          - **200**: Success - Request processed successfully
+
+                          - **400**: Bad Request - Invalid request parameters
+
+                          - **401**: Unauthorized - Authentication credentials
+                          missing or invalid
+
+                          - **402**: Insufficient Credits - Account does not
+                          have enough credits to perform operation
+
+                          - **404**: Not Found - Requested resource or endpoint
+                          does not exist
+
+                          - **422**: Validation Error - Request parameter
+                          validation failed
+
+                          - **429**: Rate Limit - Request limit exceeded for
+                          this resource
+
+                          - **455**: Service Unavailable - System is undergoing
+                          maintenance
+
+                          - **500**: Server Error - Unexpected error occurred
+                          while processing request
+
+                          - **501**: Generation Failed - Image generation task
+                          failed
+
+                          - **505**: Feature Disabled - Requested feature is
+                          currently disabled
+                      msg:
+                        type: string
+                        description: Response message
+                        example: success
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          taskId:
+                            type: string
+                            description: Task ID
+                            example: sora2_task_abcdef123456
+                          paramJson:
+                            type: string
+                            description: Call parameters JSON
+                            example: >-
+                              {"prompt":"A cute kitten playing in a garden on a
+                              bright spring
+                              day","imageUrls":["https://example.com/image.jpg"],"aspectRatio":"landscape","quality":"hd","watermark":"My
+                              Watermark","callBackUrl":"https://api.example.com/callback"}
+                          completeTime:
+                            type: string
+                            description: Task completion time
+                            format: date-time
+                            example: '2024-03-20 10:30:00'
+                          response:
+                            type: object
+                            description: Final result
+                            properties:
+                              imageUrl:
+                                type: string
+                                description: Image URL from our server
+                                example: >-
+                                  https://cdn.sora2api.ai/videos/example_video.mp4
+                          successFlag:
+                            type: integer
+                            description: >-
+                              Generation status: 0-Generating, 1-Success, 2-Task
+                              Creation Failed, 3-Generation Failed
+                            enum:
+                              - 0
+                              - 1
+                              - 2
+                              - 3
+                            example: 1
+                          errorCode:
+                            type: integer
+                            description: Error code
+                            nullable: true
+                            example: 0
+                          errorMessage:
+                            type: string
+                            description: Error message
+                            nullable: true
+                            example: null
+                          createTime:
+                            type: string
+                            description: Creation time
+                            format: date-time
+                            example: '2024-03-20 10:25:00'
+              example:
+                code: 200
+                msg: success
+                data:
+                  taskId: sora2_task_abcdef123456
+                  paramJson: >-
+                    {"prompt":"A cute kitten playing in a garden on a bright
+                    spring
+                    day","imageUrls":["https://example.com/image.jpg"],"aspectRatio":"landscape","quality":"hd","watermark":"My
+                    Watermark","callBackUrl":"https://api.example.com/callback"}
+                  completeTime: '2024-03-20 10:30:00'
+                  response:
+                    imageUrl: https://cdn.sora2api.ai/videos/example_video.mp4
+                  successFlag: 1
+                  errorCode: 0
+                  errorMessage: null
+                  createTime: '2024-03-20 10:25:00'
+        '500':
+          $ref: '#/components/responses/Error'
+components:
+  responses:
+    Error:
+      description: Server Error
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: >-
+        All APIs require authentication via Bearer Token.
+
+
+        Get API Key:
+
+        1. Visit [API Key Management Page](https://sora2api.ai/api-key) to get
+        your API Key
+
+
+        Usage:
+
+        Add to request header:
+
+        Authorization: Bearer YOUR_API_KEY
+
+
+        Note:
+
+        - Keep your API Key secure and do not share it with others
+
+        - If you suspect your API Key has been compromised, reset it immediately
+        in the management page
+
+````
+
+Built with [Mintlify](https://mintlify.com).

@@ -2401,7 +2401,9 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         ? (mimeType.split("/")[1] || "jpg").replace("jpeg", "jpg")
         : mimeType.startsWith("video/")
           ? (mimeType.split("/")[1] || "mp4")
-          : "bin";
+          : mimeType === "application/pdf"
+            ? "pdf"
+            : "bin";
       const key = `uploads/${nanoid()}.${ext}`;
 
       try {

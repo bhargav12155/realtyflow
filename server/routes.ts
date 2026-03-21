@@ -2387,10 +2387,15 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
     }
   });
 
-  app.post("/api/upload-url", async (req, res) => {
+  app.post("/api/upload-url", requireAuth, async (req, res) => {
     try {
       const { contentType } = req.body || {};
       const mimeType = contentType || "application/octet-stream";
+
+      const allowedPrefixes = ["image/", "video/", "application/pdf"];
+      if (!allowedPrefixes.some(p => mimeType.startsWith(p))) {
+        return res.status(400).json({ error: `Unsupported content type: ${mimeType}` });
+      }
 
       const ext = mimeType.startsWith("image/")
         ? (mimeType.split("/")[1] || "jpg").replace("jpeg", "jpg")

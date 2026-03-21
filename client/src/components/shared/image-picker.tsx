@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
 import {
   Wand2,
   Search,
@@ -453,11 +454,16 @@ export function ImagePicker({
   };
 
   const getUploadParams = useCallback(async () => {
+    const authHeaders = getAuthHeaders();
     const response = await fetch("/api/upload-url", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      credentials: "include",
       body: JSON.stringify({ contentType: "image/jpeg" }),
     });
+    if (!response.ok) {
+      throw new Error(`Upload URL request failed: ${response.status}`);
+    }
     const data = await response.json();
     return {
       method: "PUT" as const,

@@ -46,3 +46,7 @@ waitForPort = 5000
 
 [userenv.shared]
 FACEBOOK_CONFIG_ID = "1310292357563578"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000

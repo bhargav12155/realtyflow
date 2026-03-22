@@ -193,51 +193,6 @@ const scheduledPosts = [
   },
 ];
 
-const STOCK_PHOTOS_BY_BUSINESS: Record<string, { id: number; url: string; title: string }[]> = {
-  real_estate: [
-    { id: 1, url: "https://images.unsplash.com/photo-1564013799919-ab600027ffc6?auto=format&fit=crop&w=400&q=80", title: "Modern House Exterior" },
-    { id: 2, url: "https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&w=400&q=80", title: "Home Keys" },
-    { id: 3, url: "https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=400&q=80", title: "Kitchen Interior" },
-    { id: 4, url: "https://images.unsplash.com/photo-1484154218962-a197022b5858?auto=format&fit=crop&w=400&q=80", title: "Living Room" },
-    { id: 5, url: "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=400&q=80", title: "Home Exterior" },
-  ],
-  restaurant: [
-    { id: 1, url: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=400&q=80", title: "Restaurant Interior" },
-    { id: 2, url: "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=400&q=80", title: "Gourmet Dish" },
-    { id: 3, url: "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=400&q=80", title: "Food Plating" },
-    { id: 4, url: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=400&q=80", title: "Bar Area" },
-    { id: 5, url: "https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?auto=format&fit=crop&w=400&q=80", title: "Fresh Ingredients" },
-  ],
-  home_services: [
-    { id: 1, url: "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=400&q=80", title: "Home Renovation" },
-    { id: 2, url: "https://images.unsplash.com/photo-1585771724684-38269d6639fd?auto=format&fit=crop&w=400&q=80", title: "Tools & Equipment" },
-    { id: 3, url: "https://images.unsplash.com/photo-1558618666-fcd25c85f82e?auto=format&fit=crop&w=400&q=80", title: "Landscaping" },
-    { id: 4, url: "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=400&q=80", title: "Construction Work" },
-    { id: 5, url: "https://images.unsplash.com/photo-1523413651479-597eb2da0ad6?auto=format&fit=crop&w=400&q=80", title: "Modern Bathroom" },
-  ],
-  retail: [
-    { id: 1, url: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=400&q=80", title: "Store Display" },
-    { id: 2, url: "https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=400&q=80", title: "Shopping Bags" },
-    { id: 3, url: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&w=400&q=80", title: "Product Shelf" },
-    { id: 4, url: "https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=400&q=80", title: "Online Shopping" },
-    { id: 5, url: "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=400&q=80", title: "Fashion Display" },
-  ],
-  professional_services: [
-    { id: 1, url: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=400&q=80", title: "Modern Office" },
-    { id: 2, url: "https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=400&q=80", title: "Team Meeting" },
-    { id: 3, url: "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?auto=format&fit=crop&w=400&q=80", title: "Business Discussion" },
-    { id: 4, url: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=400&q=80", title: "Strategy Planning" },
-    { id: 5, url: "https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=400&q=80", title: "Handshake" },
-  ],
-  general: [
-    { id: 1, url: "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?auto=format&fit=crop&w=400&q=80", title: "Business Storefront" },
-    { id: 2, url: "https://images.unsplash.com/photo-1556740738-b6a63e27c4df?auto=format&fit=crop&w=400&q=80", title: "Team Collaboration" },
-    { id: 3, url: "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&w=400&q=80", title: "Presentation" },
-    { id: 4, url: "https://images.unsplash.com/photo-1556742044-3c52d6e88c62?auto=format&fit=crop&w=400&q=80", title: "Open Sign" },
-    { id: 5, url: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=400&q=80", title: "Working Together" },
-  ],
-};
-
 const VIDEO_DEFAULTS_BY_BUSINESS: Record<string, { title: string; description: string }> = {
   real_estate: { title: "Real Estate Video Update", description: "Check out this update from my real estate business!" },
   restaurant: { title: "Restaurant Video Update", description: "Check out what's cooking at our restaurant!" },
@@ -2526,7 +2481,6 @@ ${agentName} | ${brokerageName}
                     onClick={() => {
                       const videoDefaults = VIDEO_DEFAULTS_BY_BUSINESS[businessType] || VIDEO_DEFAULTS_BY_BUSINESS.general;
                       const videoTitle = postContent.trim() || videoDefaults.title;
-                      const videoDescription = postContent.trim() || videoDefaults.description;
                       
                       postMutation.mutate({
                         content: videoTitle.substring(0, 100),

@@ -19186,6 +19186,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     avatarVideoUrl?: string;
     finalVideoUrl?: string;
     error?: string;
+    errorType?: string;
     quotaExceeded?: boolean;
     quotaError?: string;
     createdAt: Date;
@@ -19458,27 +19459,28 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             
             console.log(`📸 [PropertyTour] Batch 1: ${batch1Photos.length} photos for first 8-sec clip`);
             
-            const veoResult1 = await veoVideoService.generateVideo({
+            const completion1 = await veoVideoService.generateVideoWithRetry({
               imageUrl: primaryPhoto,
               prompt: prompt1,
               aspectRatio: "16:9",
               duration: 8,
-            });
+            }, 180000);
             
-            // Check for quota exceeded - don't silently fall back
-            if (veoResult1.quotaExceeded) {
+            if (completion1.quotaExceeded) {
               console.error(`⚠️ [PropertyTour] VEO QUOTA EXCEEDED - cannot generate high-quality video`);
               job.quotaExceeded = true;
-              job.quotaError = veoResult1.error || "Gemini VEO quota exceeded";
-            } else if (veoResult1.success && veoResult1.operationId) {
-              const completion1 = await veoVideoService.waitForCompletion(veoResult1.operationId, 180000);
-              if (completion1.quotaExceeded) {
-                job.quotaExceeded = true;
-                job.quotaError = completion1.error || "Gemini VEO quota exceeded during processing";
-              } else if (completion1.done && completion1.videoUrl) {
-                clipUrls.push(completion1.videoUrl);
-                console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 1 ready (from ${batch1Photos.length} photos)`);
-              }
+              job.quotaError = completion1.error || "Gemini VEO quota exceeded";
+            } else if (completion1.errorType === "safety_filter") {
+              console.error(`🚫 [PropertyTour] Room ${roomIdx + 1} clip 1 blocked by safety filter`);
+              job.error = completion1.error;
+              job.errorType = "safety_filter";
+            } else if (completion1.done && completion1.videoUrl) {
+              clipUrls.push(completion1.videoUrl);
+              console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 1 ready (from ${batch1Photos.length} photos)`);
+            } else if (completion1.error) {
+              console.error(`❌ [PropertyTour] Room ${roomIdx + 1} clip 1 failed: ${completion1.error}`);
+              if (!job.error) job.error = completion1.error;
+              if (!job.errorType) job.errorType = completion1.errorType || "unknown";
             }
           }
           
@@ -19488,25 +19490,27 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             
             console.log(`📸 [PropertyTour] Batch 2: ${batch2Photos.length} photos for second 8-sec clip`);
             
-            const veoResult2 = await veoVideoService.generateVideo({
+            const completion2 = await veoVideoService.generateVideoWithRetry({
               imageUrl: primaryPhoto,
               prompt: prompt2,
               aspectRatio: "16:9",
               duration: 8,
-            });
+            }, 180000);
             
-            if (veoResult2.quotaExceeded) {
+            if (completion2.quotaExceeded) {
               job.quotaExceeded = true;
-              job.quotaError = veoResult2.error || "Gemini VEO quota exceeded";
-            } else if (veoResult2.success && veoResult2.operationId) {
-              const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
-              if (completion2.quotaExceeded) {
-                job.quotaExceeded = true;
-                job.quotaError = completion2.error || "Gemini VEO quota exceeded during processing";
-              } else if (completion2.done && completion2.videoUrl) {
-                clipUrls.push(completion2.videoUrl);
-                console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready (from ${batch2Photos.length} photos)`);
-              }
+              job.quotaError = completion2.error || "Gemini VEO quota exceeded";
+            } else if (completion2.errorType === "safety_filter") {
+              console.error(`🚫 [PropertyTour] Room ${roomIdx + 1} clip 2 blocked by safety filter`);
+              job.error = completion2.error;
+              job.errorType = "safety_filter";
+            } else if (completion2.done && completion2.videoUrl) {
+              clipUrls.push(completion2.videoUrl);
+              console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready (from ${batch2Photos.length} photos)`);
+            } else if (completion2.error) {
+              console.error(`❌ [PropertyTour] Room ${roomIdx + 1} clip 2 failed: ${completion2.error}`);
+              if (!job.error) job.error = completion2.error;
+              if (!job.errorType) job.errorType = completion2.errorType || "unknown";
             }
           } else if (wantsDualClips && clipUrls.length === 1) {
             const primaryPhoto = batch1Photos[batch1Photos.length - 1] || batch1Photos[0];
@@ -19514,25 +19518,27 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             
             console.log(`📸 [PropertyTour] Generating second clip from same batch (${batch1Photos.length} photos)`);
             
-            const veoResult2 = await veoVideoService.generateVideo({
+            const completion2 = await veoVideoService.generateVideoWithRetry({
               imageUrl: primaryPhoto,
               prompt: prompt2,
               aspectRatio: "16:9",
               duration: 8,
-            });
+            }, 180000);
             
-            if (veoResult2.quotaExceeded) {
+            if (completion2.quotaExceeded) {
               job.quotaExceeded = true;
-              job.quotaError = veoResult2.error || "Gemini VEO quota exceeded";
-            } else if (veoResult2.success && veoResult2.operationId) {
-              const completion2 = await veoVideoService.waitForCompletion(veoResult2.operationId, 180000);
-              if (completion2.quotaExceeded) {
-                job.quotaExceeded = true;
-                job.quotaError = completion2.error || "Gemini VEO quota exceeded during processing";
-              } else if (completion2.done && completion2.videoUrl) {
-                clipUrls.push(completion2.videoUrl);
-                console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready`);
-              }
+              job.quotaError = completion2.error || "Gemini VEO quota exceeded";
+            } else if (completion2.errorType === "safety_filter") {
+              console.error(`🚫 [PropertyTour] Room ${roomIdx + 1} clip 2 blocked by safety filter`);
+              job.error = completion2.error;
+              job.errorType = "safety_filter";
+            } else if (completion2.done && completion2.videoUrl) {
+              clipUrls.push(completion2.videoUrl);
+              console.log(`✅ [PropertyTour] Room ${roomIdx + 1} clip 2 ready`);
+            } else if (completion2.error) {
+              console.error(`❌ [PropertyTour] Room ${roomIdx + 1} clip 2 failed: ${completion2.error}`);
+              if (!job.error) job.error = completion2.error;
+              if (!job.errorType) job.errorType = completion2.errorType || "unknown";
             }
           }
           
@@ -19887,9 +19893,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         console.log(`✅ [PropertyTour] Job ${job.id} completed with ${job.motionVideos.length} videos`);
       } else {
         job.status = "failed";
-        job.error = "No motion videos could be generated";
+        if (!job.error) {
+          job.error = "No motion videos could be generated. Please try again or use different photos.";
+        }
+        if (!job.errorType) {
+          job.errorType = "unknown";
+        }
         job.message = "Video generation failed";
-        console.error(`❌ [PropertyTour] Job ${job.id} failed - no videos generated`);
+        console.error(`❌ [PropertyTour] Job ${job.id} failed - no videos generated (errorType: ${job.errorType})`);
       }
     } catch (error: any) {
       console.error(`❌ [PropertyTour] Job ${job.id} error:`, error);
@@ -20057,6 +20068,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         avatarVideoUrl: job.avatarVideoUrl,
         finalVideoUrl: finalUrl,
         error: job.error,
+        errorType: job.errorType,
         quotaExceeded: job.quotaExceeded,
         quotaError: job.quotaError,
       });

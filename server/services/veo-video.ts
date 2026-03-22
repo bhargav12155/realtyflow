@@ -8,11 +8,14 @@ interface VeoVideoRequest {
   agentPhotoUrl?: string;
 }
 
+type VeoErrorType = "safety_filter" | "transient" | "quota_exceeded" | "unknown";
+
 interface VeoVideoResult {
   success: boolean;
   videoUrl?: string;
   operationId?: string;
   error?: string;
+  errorType?: VeoErrorType;
   quotaExceeded?: boolean;
 }
 
@@ -20,6 +23,7 @@ interface VeoOperationStatus {
   done: boolean;
   videoUrl?: string;
   error?: string;
+  errorType?: VeoErrorType;
   quotaExceeded?: boolean;
 }
 
@@ -179,8 +183,42 @@ export class VeoVideoService {
           }
         }
         
-        console.error(`❌ [VeoVideo] No video in VEO response`);
-        return { done: true, error: "No video in response" };
+        console.error(`❌ [VeoVideo] No video in VEO response. Full response: ${JSON.stringify(response, null, 2)}`);
+        
+        const responseStr = JSON.stringify(response || {}).toLowerCase();
+        const blockedReason = response?.blockedReason || response?.blocked_reason;
+        const finishReason = response?.finishReason || response?.finish_reason;
+        const safetyRatings = response?.safetyRatings || response?.safety_ratings;
+        const promptFeedback = response?.promptFeedback || response?.prompt_feedback;
+        
+        const hasStructuredSignal = 
+          blockedReason ||
+          finishReason === "SAFETY" ||
+          finishReason === "BLOCKED" ||
+          (safetyRatings && Array.isArray(safetyRatings) && safetyRatings.some((r: any) => r.blocked || r.probability === "HIGH")) ||
+          (promptFeedback?.blockReason || promptFeedback?.block_reason);
+        
+        const hasTextSignal = !hasStructuredSignal && (
+          responseStr.includes("blockedreason") ||
+          responseStr.includes("blocked_reason") ||
+          responseStr.includes("safety_filter") ||
+          responseStr.includes("content_policy") ||
+          responseStr.includes("prohibited_content")
+        );
+        
+        const isSafetyBlock = hasStructuredSignal || hasTextSignal;
+        
+        if (isSafetyBlock) {
+          const reason = blockedReason || finishReason || promptFeedback?.blockReason || "content policy violation";
+          console.error(`🚫 [VeoVideo] Video blocked by safety/content filter: ${reason}`);
+          return { 
+            done: true, 
+            error: `Video was blocked by content filters (${reason}). Try rephrasing your prompt or using a different image.`,
+            errorType: "safety_filter" as VeoErrorType,
+          };
+        }
+        
+        return { done: true, error: "No video in response", errorType: "transient" as VeoErrorType };
       }
 
       this.pendingOperations.set(operationId, updatedOperation);
@@ -229,6 +267,55 @@ export class VeoVideoService {
 
     console.error(`❌ [VeoVideo] VEO operation timed out after ${maxWaitMs/1000}s`);
     return { done: false, error: "Video generation timed out" };
+  }
+
+  async generateVideoWithRetry(request: VeoVideoRequest, maxWaitMs: number = 180000): Promise<VeoOperationStatus> {
+    console.log(`🔄 [VeoVideo] generateVideoWithRetry: starting first attempt`);
+    
+    const result1 = await this.generateVideo(request);
+    if (!result1.success || !result1.operationId) {
+      return { done: true, error: result1.error || "Generation failed", errorType: result1.errorType, quotaExceeded: result1.quotaExceeded };
+    }
+    
+    const status1 = await this.waitForCompletion(result1.operationId, maxWaitMs);
+    
+    if (status1.done && status1.videoUrl) {
+      return status1;
+    }
+    
+    if (status1.errorType === "safety_filter" || status1.quotaExceeded) {
+      return status1;
+    }
+    
+    if (status1.done && status1.errorType === "transient") {
+      console.log(`🔄 [VeoVideo] First attempt returned no video (transient). Retrying with modified prompt...`);
+      
+      const retryPrompt = `High quality cinematic footage. ${request.prompt}`;
+      const retryRequest = { ...request, prompt: retryPrompt };
+      
+      const result2 = await this.generateVideo(retryRequest);
+      if (!result2.success || !result2.operationId) {
+        return { done: true, error: result2.error || "Retry generation failed", errorType: result2.errorType, quotaExceeded: result2.quotaExceeded };
+      }
+      
+      const status2 = await this.waitForCompletion(result2.operationId, maxWaitMs);
+      
+      if (status2.done && status2.videoUrl) {
+        console.log(`✅ [VeoVideo] Retry succeeded!`);
+        return status2;
+      }
+      
+      if (status2.quotaExceeded) {
+        return status2;
+      }
+      
+      const finalError = status2.errorType === "safety_filter"
+        ? status2.error
+        : "Video generation failed after retry. The API returned no video data. Please try a different image or prompt.";
+      return { done: true, error: finalError, errorType: status2.errorType || "unknown", quotaExceeded: status2.quotaExceeded };
+    }
+    
+    return status1;
   }
 
   private async fetchImageAsBase64(url: string): Promise<{ bytes: string; mimeType: string } | null> {

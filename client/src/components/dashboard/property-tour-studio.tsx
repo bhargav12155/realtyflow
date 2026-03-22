@@ -739,9 +739,24 @@ ${propertyDetails}`;
       
       if (data.status === "failed") {
         setIsGenerating(false);
+        
+        let errorTitle = "Generation Failed";
+        let errorDescription = data.error || "Video generation failed. Please try again.";
+        
+        if (data.errorType === "safety_filter") {
+          errorTitle = "Content Blocked";
+          errorDescription = data.error || "Video was blocked by content filters. Try rephrasing your prompt or using a different image.";
+        } else if (data.errorType === "transient" || (data.error && data.error.includes("No video in response"))) {
+          errorTitle = "Generation Failed — Temporary Issue";
+          errorDescription = "The video API returned an empty response. This is usually a temporary issue. Please try again, or use a different photo.";
+        } else if (data.quotaExceeded) {
+          errorTitle = "API Quota Exceeded";
+          errorDescription = data.error || "Your Gemini API quota has been exceeded. Please wait for it to reset or upgrade your plan.";
+        }
+        
         toast({
-          title: "Generation Failed",
-          description: data.error || "Video generation failed",
+          title: errorTitle,
+          description: errorDescription,
           variant: "destructive",
         });
         return true;

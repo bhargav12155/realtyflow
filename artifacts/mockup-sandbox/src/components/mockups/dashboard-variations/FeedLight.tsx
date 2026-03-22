@@ -1,11 +1,5 @@
 import { Bot, Share2, Calendar, Video, Search, BarChart3, Bell, Sparkles, Clock, CheckCircle2, XCircle, Facebook, Instagram, Linkedin, Twitter } from 'lucide-react';
 
-const SiFacebook = (props: any) => <Facebook {...props} />;
-const SiInstagram = (props: any) => <Instagram {...props} />;
-const SiLinkedin = (props: any) => <Linkedin {...props} />;
-const SiTiktok = (props: any) => <svg {...props} viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.5a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 006.34 6.34 6.34 6.34 0 006.34-6.34V8.73a8.19 8.19 0 004.76 1.52V6.8a4.84 4.84 0 01-1-.11z"/></svg>;
-const FaXTwitter = (props: any) => <Twitter {...props} />;
-
 export function FeedLight() {
   return (
     <div className="min-h-screen bg-[#FFFFFF] text-slate-900 font-sans selection:bg-[#D97706] selection:text-white">
@@ -96,7 +90,7 @@ export function FeedLight() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-[#0A66C2]">
-                  <SiLinkedin className="w-5 h-5" />
+                  <Linkedin className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="font-medium text-slate-900">LinkedIn Network</div>
@@ -128,7 +122,7 @@ export function FeedLight() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-pink-50 flex items-center justify-center text-[#E4405F]">
-                  <SiInstagram className="w-5 h-5" />
+                  <Instagram className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="font-medium text-slate-900">Instagram Feed</div>
@@ -172,7 +166,7 @@ export function FeedLight() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-[#1877F2]">
-                  <SiFacebook className="w-5 h-5" />
+                  <Facebook className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="font-medium text-slate-900">Facebook Business Page</div>
@@ -211,7 +205,7 @@ export function FeedLight() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900">
-                  <FaXTwitter className="w-5 h-5" />
+                  <Twitter className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="font-medium text-slate-900">X (Twitter)</div>
@@ -245,7 +239,7 @@ export function FeedLight() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-900">
-                  <SiTiktok className="w-5 h-5" />
+                  <Video className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="font-medium text-slate-900">TikTok</div>

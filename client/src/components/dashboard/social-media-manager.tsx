@@ -83,6 +83,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useBusinessType } from "@/lib/businessContext";
+import { getIndustryContent } from "@shared/industryContent";
 import { MediaLibrary } from "./media-library";
 import { PropertySelector } from "./property-selector";
 import { PostComposer } from "./post-composer";
@@ -167,7 +168,7 @@ const POST_TYPES_BY_BUSINESS: Record<string, { id: string; label: string; icon: 
     { id: "team_spotlight", label: "Team Spotlight", icon: Users, color: "text-teal-600", bgColor: "bg-teal-600/10" },
     { id: "create_your_own", label: "Custom", icon: Upload, color: "text-indigo-600", bgColor: "bg-indigo-600/10" },
   ],
-  general_business: [
+  general: [
     { id: "announcement", label: "Announcement", icon: Megaphone, color: "text-orange-600", bgColor: "bg-orange-600/10" },
     { id: "behind_scenes", label: "Behind Scenes", icon: Eye, color: "text-blue-600", bgColor: "bg-blue-600/10" },
     { id: "team_spotlight", label: "Team Spotlight", icon: Users, color: "text-teal-600", bgColor: "bg-teal-600/10" },
@@ -2754,6 +2755,37 @@ ${agentName} | ${brokerageName}
                 Promote App
               </Button>
             )}
+
+            {selectedPostType && selectedPostType !== "create_your_own" && selectedPostType !== "promote_app" && (() => {
+              const starters = getIndustryContent(businessType).contentStarters.filter(
+                (s) => s.postTypeId === selectedPostType
+              );
+              if (starters.length === 0) return null;
+              return (
+                <div className="mt-2 space-y-1.5" data-testid="quick-start-starters">
+                  <div className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+                    <Sparkles className="h-3 w-3" />
+                    Quick Start
+                  </div>
+                  {starters.map((starter, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="w-full text-left text-[11px] px-2.5 py-2 rounded-md border border-dashed border-muted-foreground/20 hover:border-primary/40 hover:bg-primary/5 text-muted-foreground hover:text-foreground transition-all"
+                      onClick={() => {
+                        setPostContent(starter.template);
+                      }}
+                      data-testid={`quick-start-${starter.postTypeId}-${idx}`}
+                    >
+                      <span className="font-medium text-foreground">{starter.label}:</span>{" "}
+                      {starter.template.length > 80
+                        ? starter.template.substring(0, 80) + "..."
+                        : starter.template}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
           </div>}
 
           {!isTikTokOnly && !isWhatsAppOnly && selectedPostType === "promote_app" && isAppPromoUser && (

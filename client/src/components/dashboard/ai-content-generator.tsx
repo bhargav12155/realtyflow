@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useBusinessType } from "@/lib/businessContext";
+import { getIndustryContent } from "@shared/industryContent";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -375,6 +376,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const [longTailKeywords, setLongTailKeywords] = useState(true);
 
   // Style selection for each content type
+  const industryContent = getIndustryContent(businessType);
+
   const [contentStyles, setContentStyles] = useState<Record<string, string>>({
     blog: "None",
     social_media: "None",
@@ -383,6 +386,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     newsletter: "Things around town",
     listing_description: "Luxury",
   });
+
+  useEffect(() => {
+    const defaultStyle = industryContent.defaultStyle;
+    if (defaultStyle && defaultStyle !== "None") {
+      setContentStyles((prev) => ({
+        ...prev,
+        blog: prev.blog === "None" ? defaultStyle : prev.blog,
+        social: prev.social === "None" ? defaultStyle : prev.social,
+        property_feature: prev.property_feature === "None" ? defaultStyle : prev.property_feature,
+      }));
+    }
+    if (!topic && industryContent.suggestedTopics.length > 0) {
+      setTopic(industryContent.suggestedTopics[0]);
+    }
+  }, [businessType]);
   const [lastGenerated, setLastGenerated] = useState<GeneratedContent | null>(
     null
   );
@@ -1733,6 +1751,23 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     className="w-full text-lg py-6"
                     data-testid="input-topic"
                   />
+                  <div className="flex flex-wrap gap-1.5 mt-2" data-testid="suggested-topics">
+                    {industryContent.suggestedTopics.map((suggestedTopic, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`text-xs px-2.5 py-1 rounded-full transition-all ${
+                          topic === suggestedTopic
+                            ? "bg-primary/15 text-primary border border-primary/30"
+                            : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-transparent"
+                        }`}
+                        onClick={() => setTopic(suggestedTopic)}
+                        data-testid={`suggested-topic-${idx}`}
+                      >
+                        {suggestedTopic}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Neighborhood Selection */}

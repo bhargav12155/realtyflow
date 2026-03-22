@@ -36,6 +36,9 @@ import {
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useBusinessType } from "@/lib/businessContext";
+import { getIndustryContent } from "@shared/industryContent";
+import { Hash } from "lucide-react";
 
 interface Avatar {
   id: string;
@@ -75,6 +78,8 @@ const platformIcons = {
 };
 
 export function PostComposer({ open, onOpenChange }: PostComposerProps) {
+  const { businessType } = useBusinessType();
+  const industryContent = getIndustryContent(businessType);
   const [postText, setPostText] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<{
@@ -324,6 +329,43 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                     . Please shorten your message.
                   </div>
                 )}
+              </div>
+
+              <div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">Suggested Hashtags</span>
+                </div>
+                <div
+                  className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin"
+                  data-testid="hashtag-suggestions"
+                >
+                  {industryContent.hashtags.map((tag) => {
+                    const isUsed = postText.includes(tag);
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                          isUsed
+                            ? "bg-primary/15 text-primary border border-primary/30"
+                            : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-transparent"
+                        }`}
+                        onClick={() => {
+                          if (!isUsed) {
+                            const separator = postText.endsWith(" ") || postText === "" ? "" : " ";
+                            setPostText(postText + separator + tag);
+                          }
+                        }}
+                        disabled={isUsed}
+                        data-testid={`hashtag-chip-${tag.replace("#", "")}`}
+                      >
+                        {tag}
+                        {isUsed && <CheckCircle className="ml-1 h-3 w-3" />}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {postText.trim().length > 10 && (

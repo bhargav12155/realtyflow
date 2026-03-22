@@ -10,6 +10,7 @@ import { CheckCircle, AlertCircle, TrendingUp, TrendingDown, Search, Globe, Smar
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { useBusinessType } from "@/lib/businessContext";
 
 interface SeoKeyword {
   id: string;
@@ -34,6 +35,7 @@ const getRankColor = (rank: number) => {
 export function SEOOptimizer() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { businessType } = useBusinessType();
   const [showFullReport, setShowFullReport] = useState(false);
   const [aiGeneratedKeywords, setAiGeneratedKeywords] = useState<SeoKeyword[] | null>(null);
   
@@ -73,7 +75,8 @@ export function SEOOptimizer() {
     mutationFn: async () => {
       const response = await apiRequest('POST', '/api/content/generate-plan', {
         keywords: displayKeywords || [],
-        durationDays: 30
+        durationDays: 30,
+        businessType,
       });
       return await response.json();
     },

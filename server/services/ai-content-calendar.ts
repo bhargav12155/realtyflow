@@ -1,5 +1,6 @@
 import type { InsertScheduledPost, MarketData } from "@shared/schema";
 import { PLATFORM_CONFIGS } from "@shared/platform-prompts";
+import { INDUSTRY_CALENDAR_BLUEPRINTS, PLATFORM_OPTIMIZATION_CHEATSHEET, type IndustryCalendarBlueprint } from "@shared/industryCalendarBlueprints";
 
 export interface GeneratedContentPlan {
   posts: InsertScheduledPost[];
@@ -11,17 +12,19 @@ export interface GeneratedContentPlan {
   };
 }
 
-// Research-backed posting frequency per platform
-// 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
 const PLATFORM_POSTING_DAYS: Record<string, number[]> = {
-  facebook:  [0, 1, 2, 3, 4, 5, 6], // every day (1x/day)
-  instagram: [1, 3, 5, 6],            // Mon, Wed, Fri, Sat (4x/week)
-  linkedin:  [1, 3, 5],               // Mon, Wed, Fri (3x/week)
-  x:         [1, 2, 3, 4, 5],         // Mon–Fri (5x/week)
-  tiktok:    [1, 2, 4, 6],            // Mon, Tue, Thu, Sat (4x/week)
+  facebook:  [0, 1, 2, 3, 4, 5, 6],
+  instagram: [1, 3, 5, 6],
+  linkedin:  [1, 3, 5],
+  x:         [1, 2, 3, 4, 5],
+  tiktok:    [1, 2, 4, 6],
 };
 
-// Platform-friendly day names for the AI prompt
+const DAY_NAME_TO_NUMBER: Record<string, number> = {
+  Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
+  Thursday: 4, Friday: 5, Saturday: 6,
+};
+
 const PLATFORM_SCHEDULE_DESCRIPTION: Record<string, string> = {
   facebook:  "every day (daily posting works well for Facebook's algorithm)",
   instagram: "Monday, Wednesday, Friday, Saturday only (4x/week — daily posting drops engagement 20%)",
@@ -30,22 +33,15 @@ const PLATFORM_SCHEDULE_DESCRIPTION: Record<string, string> = {
   tiktok:    "Monday, Tuesday, Thursday, Saturday only (4x/week — algorithm rewards consistent schedule over volume)",
 };
 
-/**
- * Calculate which platforms should post on a given day offset from today.
- * dayOffset 0 = tomorrow, 1 = day after tomorrow, etc.
- */
 function getPlatformsForDay(dayOffset: number, startDate: Date): string[] {
   const date = new Date(startDate);
   date.setDate(startDate.getDate() + dayOffset + 1);
-  const dayOfWeek = date.getDay(); // 0=Sun, 1=Mon, ...
+  const dayOfWeek = date.getDay();
   return Object.entries(PLATFORM_POSTING_DAYS)
     .filter(([, days]) => days.includes(dayOfWeek))
     .map(([platform]) => platform);
 }
 
-/**
- * Calculate total expected posts across all days for a given number of weeks.
- */
 function calculateExpectedPosts(weeks: number, startDate: Date): number {
   const days = weeks * 7;
   let total = 0;
@@ -53,6 +49,124 @@ function calculateExpectedPosts(weeks: number, startDate: Date): number {
     total += getPlatformsForDay(day, startDate).length;
   }
   return total;
+}
+
+function getBlueprintPostsForDay(dayOffset: number, startDate: Date, blueprint: IndustryCalendarBlueprint): { contentType: string; platforms: string[] } | null {
+  const date = new Date(startDate);
+  date.setDate(startDate.getDate() + dayOffset + 1);
+  const dayOfWeek = date.getDay();
+  const weekIndex = Math.floor(dayOffset / 7) % 2;
+  const weekPosts = weekIndex === 0 ? blueprint.week1 : blueprint.week2;
+  const match = weekPosts.find(p => DAY_NAME_TO_NUMBER[p.day] === dayOfWeek);
+  return match ? { contentType: match.contentType, platforms: match.platforms } : null;
+}
+
+function calculateBlueprintExpectedPosts(weeks: number, startDate: Date, blueprint: IndustryCalendarBlueprint): number {
+  const days = weeks * 7;
+  let total = 0;
+  for (let day = 0; day < days; day++) {
+    const match = getBlueprintPostsForDay(day, startDate, blueprint);
+    if (match) {
+      total += match.platforms.length;
+    }
+  }
+  return total;
+}
+
+function buildBlueprintDaySchedule(weeks: number, startDate: Date, blueprint: IndustryCalendarBlueprint): string[] {
+  const days = weeks * 7;
+  const lines: string[] = [];
+  for (let day = 0; day < days; day++) {
+    const match = getBlueprintPostsForDay(day, startDate, blueprint);
+    if (match) {
+      lines.push(`Day ${day + 1}: ${match.platforms.join(', ')} — ${match.contentType.replace(/_/g, ' ')}`);
+    }
+  }
+  return lines;
+}
+
+function buildIndustryPrompt(
+  businessType: string,
+  serviceAreas: string[],
+  targetAudience: string,
+  specialties: string,
+  weeks: number,
+  days: number,
+  expectedPosts: number,
+  dayScheduleLines: string[]
+): string {
+  const blueprint = INDUSTRY_CALENDAR_BLUEPRINTS[businessType];
+  if (!blueprint) return "";
+
+  const areasText = serviceAreas.length > 0 ? serviceAreas.join(', ') : 'the local area';
+
+  const week1Schedule = blueprint.week1.map(p =>
+    `  - **${p.day}:** ${p.contentType.replace(/_/g, ' ')} — ${p.description} *(${p.platforms.join('/')})*`
+  ).join('\n');
+
+  const week2Schedule = blueprint.week2.map(p =>
+    `  - **${p.day}:** ${p.contentType.replace(/_/g, ' ')} — ${p.description} *(${p.platforms.join('/')})*`
+  ).join('\n');
+
+  const platformOptLines = blueprint.focusPlatforms.map(p => {
+    const opt = PLATFORM_OPTIMIZATION_CHEATSHEET[p];
+    const config = PLATFORM_CONFIGS[p];
+    if (!opt) return "";
+    return `${p.toUpperCase()}:
+- Frequency: ${opt.optimalFrequency}
+- Ideal character count: ${opt.idealCharacterCount}
+- Strategy: ${opt.strategyFocus}${config ? `\n- Optimal chars: ${config.optimalCharacters.min}-${config.optimalCharacters.max}` : ''}`;
+  }).filter(Boolean).join('\n\n');
+
+  const businessLabel = businessType.replace(/_/g, ' ');
+
+  return `You are a social media content strategist for a ${businessLabel} business. Create a ${weeks}-week (${days}-day) content calendar.
+
+**Business Profile:**
+- Business Type: ${businessLabel}
+- Service Areas: ${areasText}
+- Target Audience: ${targetAudience}${specialties}
+
+**Industry Tone & Style:**
+${blueprint.tone}
+
+**Content Mix:**
+${blueprint.contentMix}
+
+**14-Day Rotating Content Blueprint (follow this pattern, repeating for ${weeks} weeks):**
+* Week 1:
+${week1Schedule}
+* Week 2:
+${week2Schedule}
+
+**Focus Platforms:** ${blueprint.focusPlatforms.join(', ')}
+
+**Platform Optimization:**
+${platformOptLines}
+
+**Per-Day Platform Schedule (research-backed frequency):**
+${dayScheduleLines.slice(0, 14).join('\n')}
+(This pattern repeats for the full ${weeks} weeks)
+
+Total posts to generate: ${expectedPosts}
+
+**Post Type IDs to use:** ${blueprint.postTypes.map(t => `"${t}"`).join(', ')}
+
+Vary posting times: mornings (9-10am), afternoons (2-3pm), evenings (6-7pm).
+Include 1-2 relevant hashtags for Instagram posts only (empty array for others).
+Reference actual service areas and local context.
+
+Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
+[
+  {
+    "platform": "${blueprint.focusPlatforms.join('|')}",
+    "postType": "${blueprint.postTypes.join('|')}",
+    "content": "engaging post text optimized for platform character limits and tone",
+    "hashtags": ["tag1"] (only for instagram, 1-2 max, empty array for others),
+    "neighborhood": "area name or null",
+    "dayOffset": day_number (0-${days-1}, where 0 = tomorrow)
+  }
+]`;
 }
 
 export class AIContentCalendarGenerator {
@@ -72,15 +186,13 @@ export class AIContentCalendarGenerator {
     this.openai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   }
 
-  /**
-   * Generate content plan for specified number of weeks
-   */
   async generateContentPlan(
     serviceAreas: string[],
     marketData: MarketData[],
     targetAudience?: string,
     specialties?: string[],
-    weeks: number = 4
+    weeks: number = 4,
+    businessType: string = 'real_estate'
   ): Promise<GeneratedContentPlan> {
     if (!this.openai) {
       await this.initialize();
@@ -88,33 +200,62 @@ export class AIContentCalendarGenerator {
 
     const days = weeks * 7;
     const today = new Date();
-    const areasText = serviceAreas.length > 0 ? serviceAreas.join(', ') : 'the local area';
-    const audienceText = targetAudience || 'home buyers and sellers';
-    const specialtiesText = specialties && specialties.length > 0 
-      ? ` Specialties: ${specialties.join(', ')}.` 
-      : '';
 
-    const marketInsights = marketData.map(m => 
-      `${m.neighborhood}: avg $${Math.round((m.avgPrice || 0) / 1000)}K, ${m.daysOnMarket} days on market, ${m.trend} market`
-    ).join('; ');
+    const blueprint = INDUSTRY_CALENDAR_BLUEPRINTS[businessType];
+    const isIndustryType = businessType !== 'real_estate' && !!blueprint;
 
-    const fbConfig = PLATFORM_CONFIGS.facebook;
-    const igConfig = PLATFORM_CONFIGS.instagram;
-    const liConfig = PLATFORM_CONFIGS.linkedin;
-    const xConfig = PLATFORM_CONFIGS.x;
+    let expectedPosts: number;
+    let dayScheduleLines: string[];
 
-    const expectedPosts = calculateExpectedPosts(weeks, today);
-
-    // Build the per-day schedule for the prompt so AI knows exactly which platforms each day
-    const dayScheduleLines: string[] = [];
-    for (let day = 0; day < days; day++) {
-      const platforms = getPlatformsForDay(day, today);
-      if (platforms.length > 0) {
-        dayScheduleLines.push(`Day ${day + 1}: ${platforms.join(', ')}`);
+    if (isIndustryType) {
+      expectedPosts = calculateBlueprintExpectedPosts(weeks, today, blueprint);
+      dayScheduleLines = buildBlueprintDaySchedule(weeks, today, blueprint);
+    } else {
+      expectedPosts = calculateExpectedPosts(weeks, today);
+      dayScheduleLines = [];
+      for (let day = 0; day < days; day++) {
+        const platforms = getPlatformsForDay(day, today);
+        if (platforms.length > 0) {
+          dayScheduleLines.push(`Day ${day + 1}: ${platforms.join(', ')}`);
+        }
       }
     }
 
-    const prompt = `You are a social media content strategist for real estate agents. Create a ${weeks}-week (${days}-day) content calendar for a real estate agent.
+    let prompt: string;
+
+    if (isIndustryType) {
+      const audienceText = targetAudience || 'local customers';
+      const specialtiesText = specialties && specialties.length > 0
+        ? ` Specialties: ${specialties.join(', ')}.`
+        : '';
+
+      prompt = buildIndustryPrompt(
+        businessType,
+        serviceAreas,
+        audienceText,
+        specialtiesText,
+        weeks,
+        days,
+        expectedPosts,
+        dayScheduleLines
+      );
+    } else {
+      const areasText = serviceAreas.length > 0 ? serviceAreas.join(', ') : 'the local area';
+      const audienceText = targetAudience || 'home buyers and sellers';
+      const specialtiesText = specialties && specialties.length > 0 
+        ? ` Specialties: ${specialties.join(', ')}.` 
+        : '';
+
+      const marketInsights = marketData.map(m => 
+        `${m.neighborhood}: avg $${Math.round((m.avgPrice || 0) / 1000)}K, ${m.daysOnMarket} days on market, ${m.trend} market`
+      ).join('; ');
+
+      const fbConfig = PLATFORM_CONFIGS.facebook;
+      const igConfig = PLATFORM_CONFIGS.instagram;
+      const liConfig = PLATFORM_CONFIGS.linkedin;
+      const xConfig = PLATFORM_CONFIGS.x;
+
+      prompt = `You are a social media content strategist for real estate agents. Create a ${weeks}-week (${days}-day) content calendar for a real estate agent.
 
 **Agent Profile:**
 - Service Areas: ${areasText}
@@ -183,6 +324,7 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
     "dayOffset": day_number (0-${days-1}, where 0 = tomorrow)
   }
 ]`;
+    }
 
     try {
       const completion = await this.openai.models.generateContent({
@@ -212,22 +354,26 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
       
       if (posts.length < minPosts) {
         console.warn(`AI generated only ${posts.length} posts, expected ${expectedPosts}. Using fallback.`);
-        return this.getFallbackContentPlan(serviceAreas, marketData, weeks);
+        return this.getFallbackContentPlan(serviceAreas, marketData, weeks, businessType);
       }
 
-      const validPlatforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
-      const validTypes = ['local_market', 'neighborhood_spotlight', 'buyer_tips', 'seller_tips', 'community'];
+      const allPlatforms = ['facebook', 'instagram', 'linkedin', 'x', 'tiktok'];
+      const validPlatforms = (isIndustryType && blueprint) ? blueprint.focusPlatforms : allPlatforms;
+      const realEstateTypes = ['local_market', 'neighborhood_spotlight', 'buyer_tips', 'seller_tips', 'community'];
+      const validTypes = (isIndustryType && blueprint) ? blueprint.postTypes : realEstateTypes;
 
       const validatedPosts: InsertScheduledPost[] = posts.map((p, index) => {
         if (!p.platform || !p.postType || !p.content) {
           throw new Error(`Invalid post at index ${index}: missing required fields`);
         }
 
-        if (!validPlatforms.includes(p.platform)) {
-          p.platform = 'facebook';
+        if (!allPlatforms.includes(p.platform)) {
+          p.platform = validPlatforms[0] || 'facebook';
+        } else if (isIndustryType && !validPlatforms.includes(p.platform)) {
+          p.platform = validPlatforms[0] || 'facebook';
         }
         if (!validTypes.includes(p.postType)) {
-          p.postType = 'local_market';
+          p.postType = validTypes[0];
         }
 
         const dayOffset = typeof p.dayOffset === 'number' ? p.dayOffset : index;
@@ -252,11 +398,12 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
           metadata: { 
             aiGenerated: true,
             generatedAt: new Date().toISOString(),
+            businessType,
           },
         };
       });
 
-      console.log(`✅ AI generated ${weeks}-week calendar with ${validatedPosts.length} posts (research-backed frequency) for user ${this.userId}`);
+      console.log(`✅ AI generated ${weeks}-week calendar with ${validatedPosts.length} posts (${businessType}) for user ${this.userId}`);
 
       return {
         posts: validatedPosts,
@@ -264,19 +411,16 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
           generatedAt: new Date().toISOString(),
           model: 'gemini-2.5-flash',
           planDuration: `${weeks} weeks (${days} days)`,
-          userContext: `Service areas: ${areasText}, Audience: ${audienceText}`,
+          userContext: `Business: ${businessType}, Service areas: ${serviceAreas.join(', ')}`,
         },
       };
     } catch (error) {
       console.error('❌ AI content calendar generation failed:', error);
       console.log('🔄 Using fallback content plan...');
-      return this.getFallbackContentPlan(serviceAreas, marketData, weeks);
+      return this.getFallbackContentPlan(serviceAreas, marketData, weeks, businessType);
     }
   }
 
-  /**
-   * Legacy method - calls generateContentPlan with 4 weeks
-   */
   async generate30DayPlan(
     serviceAreas: string[],
     marketData: MarketData[],
@@ -286,13 +430,17 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
     return this.generateContentPlan(serviceAreas, marketData, targetAudience, specialties, 4);
   }
 
-  /**
-   * Generate fallback content plan following the same platform frequency rules
-   */
-  getFallbackContentPlan(serviceAreas: string[], marketData: MarketData[], weeks: number = 4): GeneratedContentPlan {
+  getFallbackContentPlan(serviceAreas: string[], marketData: MarketData[], weeks: number = 4, businessType: string = 'real_estate'): GeneratedContentPlan {
     const areas = serviceAreas.length > 0 ? serviceAreas : ['your area'];
     const today = new Date();
     const days = weeks * 7;
+
+    const blueprint = INDUSTRY_CALENDAR_BLUEPRINTS[businessType];
+    const isIndustryType = businessType !== 'real_estate' && blueprint;
+
+    if (isIndustryType) {
+      return this.getIndustryFallbackPlan(areas, blueprint, weeks, today);
+    }
 
     const contentTemplates: Record<string, { type: string; content: string }> = {
       facebook: {
@@ -348,6 +496,64 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
           },
         });
       });
+    }
+
+    return {
+      posts: fallbackPosts,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        model: 'fallback',
+        planDuration: `${weeks} weeks (${days} days)`,
+        userContext: `Service areas: ${areas.join(', ')}`,
+      },
+    };
+  }
+
+  private getIndustryFallbackPlan(
+    areas: string[],
+    blueprint: typeof INDUSTRY_CALENDAR_BLUEPRINTS[string],
+    weeks: number,
+    today: Date
+  ): GeneratedContentPlan {
+    const days = weeks * 7;
+
+    const fallbackPosts: InsertScheduledPost[] = [];
+
+    for (let day = 0; day < days; day++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + day + 1);
+      const dayOfWeek = date.getDay();
+      const weekIndex = Math.floor(day / 7) % 2;
+
+      const weekPosts = weekIndex === 0 ? blueprint.week1 : blueprint.week2;
+      const matchingPost = weekPosts.find(p => DAY_NAME_TO_NUMBER[p.day] === dayOfWeek);
+
+      if (matchingPost) {
+        matchingPost.platforms.forEach((platform, pIdx) => {
+          const scheduleDate = new Date(date);
+          scheduleDate.setHours(9 + (pIdx * 3), 0, 0, 0);
+
+          fallbackPosts.push({
+            userId: this.userId,
+            platform,
+            postType: matchingPost.contentType,
+            content: `${matchingPost.description} — serving ${areas[day % areas.length]} and surrounding areas.`,
+            hashtags: platform === 'instagram' ? ['SmallBusiness', 'LocalBusiness'] : [],
+            scheduledFor: scheduleDate,
+            status: 'pending',
+            isEdited: false,
+            isAiGenerated: false,
+            originalContent: matchingPost.description,
+            neighborhood: areas[day % areas.length],
+            seoScore: 70,
+            metadata: {
+              aiGenerated: false,
+              fallback: true,
+              blueprintContentType: matchingPost.contentType,
+            },
+          });
+        });
+      }
     }
 
     return {

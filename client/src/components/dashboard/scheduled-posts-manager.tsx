@@ -225,7 +225,7 @@ export function ScheduledPostsManager() {
 
   const generateContentPlanMutation = useMutation({
     mutationFn: async (weeks: number) => {
-      const response = await apiRequest('POST', '/api/content/generate-plan', { weeks });
+      const response = await apiRequest('POST', '/api/content/generate-plan', { weeks, businessType });
       return response.json();
     },
     onSuccess: (data) => {

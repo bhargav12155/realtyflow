@@ -7580,22 +7580,23 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.post("/api/content/generate-plan", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user.id);
-      const weeks = req.body.weeks || 4; // Default to 4 weeks (30 days) if not specified
-      console.log(`🗓️  Generating ${weeks}-week content plan for user ${userId}...`);
+      const weeks = req.body.weeks || 4;
 
-      // Get user's market data for service areas
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = (companyProfile as any)?.businessType || 'real_estate';
+
+      console.log(`🗓️  Generating ${weeks}-week content plan (${businessType}) for user ${userId}...`);
+
       const marketData = await storage.getMarketData(userId);
       const serviceAreas = marketData
         .map((m) => m.neighborhood)
         .filter(Boolean);
 
       if (serviceAreas.length === 0) {
-        const companyProfile = await storage.getCompanyProfile(userId);
         const city = (companyProfile as any)?.city || "";
         serviceAreas.push(city || "the local area");
       }
 
-      // Import and initialize AI content calendar generator
       const { AIContentCalendarGenerator } = await import(
         "./services/ai-content-calendar"
       );
@@ -7608,7 +7609,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           marketData,
           req.body.targetAudience,
           req.body.specialties,
-          weeks
+          weeks,
+          businessType
         );
       } catch (aiError) {
         console.warn(
@@ -7618,7 +7620,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         generatedPlan = generator.getFallbackContentPlan(
           serviceAreas,
           marketData,
-          weeks
+          weeks,
+          businessType
         );
       }
 

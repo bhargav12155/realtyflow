@@ -26,6 +26,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { AiGeneratedBadge } from "@/components/shared/ai-generated-badge";
 import { useAuth } from "@/hooks/useAuth";
+import { useBusinessType } from "@/lib/businessContext";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Progress } from "@/components/ui/progress";
 import { CharacterCounter, getPlatformConfig } from "@/components/ui/character-counter";
@@ -206,6 +207,7 @@ export default function UnifiedCalendarPage() {
   const { toast } = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
+  const { businessType } = useBusinessType();
   const [activeTab, setActiveTab] = useState("calendar");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -441,9 +443,10 @@ export default function UnifiedCalendarPage() {
   const generateContentPlanMutation = useMutation({
     mutationFn: async (weeks: number = 4) => {
       const response = await apiRequest('POST', '/api/content/generate-plan', {
-        targetAudience: 'home buyers and sellers',
+        targetAudience: businessType === 'real_estate' ? 'home buyers and sellers' : 'local customers',
         specialties: [],
         weeks,
+        businessType,
       });
       return await response.json();
     },

@@ -529,9 +529,10 @@ export function ContentCalendar() {
   const generateContentPlanMutation = useMutation({
     mutationFn: async (weeks: number = 4) => {
       const response = await apiRequest('POST', '/api/content/generate-plan', {
-        targetAudience: 'home buyers and sellers',
+        targetAudience: businessType === 'real_estate' ? 'home buyers and sellers' : 'local customers',
         specialties: [],
         weeks,
+        businessType,
       });
       return await response.json();
     },

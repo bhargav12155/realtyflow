@@ -354,17 +354,19 @@ export class OpenAIService {
 
       const agentName = request.companyProfile?.agentName || profile.agentName || "[Your Name]";
       const businessName = request.companyProfile?.businessName || profile.businessName || profile.brokerageName || "[Your Business]";
-      const agentTitle = request.companyProfile?.agentTitle || profile.agentTitle || "real estate professional";
+      const agentTitle = request.companyProfile?.agentTitle || profile.agentTitle || "professional";
       const city = (request.companyProfile as any)?.city || (profile as any)?.city || "";
       const state = (request.companyProfile as any)?.state || (profile as any)?.state || "";
       const locationStr = city && state ? `${city}, ${state}` : city || state || "the local market";
+      const bType = request.companyProfile?.businessType || (profile as any)?.businessType || "real_estate";
+      const { roleLabel } = getBusinessContext(bType, request.companyProfile);
 
       const genAI = getGeminiClient();
       const response = await genAI.models.generateContent({
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: `You are an expert real estate content writer and SEO specialist focused on ${locationStr}. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in ${locationStr}. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON only — no markdown, no code blocks.`,
+          systemInstruction: `You are an expert ${roleLabel} content writer and SEO specialist focused on ${locationStr}. Generate high-quality, SEO-optimized content for ${agentName}, a top ${agentTitle} with ${businessName} in ${locationStr}. Always include ${agentName}'s name and credentials for better SEO and personal branding. Always respond with valid JSON only — no markdown, no code blocks.`,
           maxOutputTokens: 2000,
         },
       });
@@ -390,7 +392,9 @@ export class OpenAIService {
     if (request.neighborhood) {
       prompt += ` focusing on the ${request.neighborhood} neighborhood`;
     }
-    prompt += ` for the local real estate market`;
+    const bTypeForPrompt = request.companyProfile?.businessType || "general";
+    const { roleLabel: promptRole } = getBusinessContext(bTypeForPrompt, request.companyProfile);
+    prompt += ` for the local ${promptRole} market`;
 
     if (request.aiPrompt && request.aiPrompt.trim()) {
       prompt += `\n\nCustom Instructions: ${request.aiPrompt.trim()}`;
@@ -428,7 +432,7 @@ export class OpenAIService {
     if (request.seoOptimized) {
       prompt += `
       - Optimize for SEO with natural keyword integration (aim for 80%+ SEO score)
-      - Include relevant long-tail keywords for local real estate
+      - Include relevant long-tail keywords for the local market
       - Use proper heading structure (H1, H2, H3) for blog posts`;
     }
 
@@ -550,7 +554,9 @@ export class OpenAIService {
   }): Promise<string> {
     try {
       const { topic, neighborhood, duration = 30, platform = "Instagram Reel", videoType = "market update", customPrompt, companyProfile } = params;
-      const agentName = companyProfile?.agentName || "your real estate agent";
+      const bTypeVideo = companyProfile?.businessType || "general";
+      const { roleLabel: videoRole } = getBusinessContext(bTypeVideo, companyProfile);
+      const agentName = companyProfile?.agentName || `your ${videoRole} professional`;
       const businessName = companyProfile?.businessName || companyProfile?.brokerageName || "our brokerage";
       const city = (companyProfile as any)?.city || "";
       const state = (companyProfile as any)?.state || "";
@@ -574,7 +580,7 @@ RULES:
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are a professional video script writer specializing in real estate social media content. Output ONLY the script text - no stage directions, no brackets, no timestamps.",
+          systemInstruction: `You are a professional video script writer specializing in ${videoRole} social media content. Output ONLY the script text - no stage directions, no brackets, no timestamps.`,
           maxOutputTokens: 800,
         },
       });
@@ -586,7 +592,7 @@ RULES:
       const businessName = params.companyProfile?.businessName || params.companyProfile?.brokerageName || "our team";
       const fbCity = (params.companyProfile as any)?.city || "";
       const fbLoc = params.neighborhood || fbCity || "our area";
-      return `Hi, I'm ${agentName} with ${businessName}. Today I want to talk to you about ${params.topic} in ${fbLoc}. I'd love to help you navigate these opportunities. Give me a call — I'm ${agentName} and I'm here to make your real estate dreams a reality.`;
+      return `Hi, I'm ${agentName} with ${businessName}. Today I want to talk to you about ${params.topic} in ${fbLoc}. I'd love to help you navigate these opportunities. Give me a call — I'm ${agentName} and I'm here to help.`;
     }
   }
 
@@ -692,7 +698,7 @@ Please enhance this content while keeping the same core message and format. Retu
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
-          systemInstruction: "You are an expert content optimizer specializing in real estate social media and SEO.",
+          systemInstruction: "You are an expert content optimizer specializing in social media and SEO for local businesses.",
           maxOutputTokens: 500,
         },
       });
@@ -706,18 +712,21 @@ Please enhance this content while keeping the same core message and format. Retu
 
   private getFallbackContent(request: ContentGenerationRequest): GeneratedContent {
     const { type, topic, neighborhood } = request;
-    const agentName = request.companyProfile?.agentName || "your local real estate agent";
-    const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our brokerage";
+    const bTypeFallback = request.companyProfile?.businessType || "general";
+    const { roleLabel: fallbackRole, fallbackHashtags } = getBusinessContext(bTypeFallback, request.companyProfile);
+    const agentName = request.companyProfile?.agentName || `your local ${fallbackRole} professional`;
+    const businessName = request.companyProfile?.businessName || request.companyProfile?.brokerageName || "our team";
+    const primaryTag = fallbackHashtags[0] || "Business";
 
     const loc = neighborhood || "your area";
     const content = type === "social"
-      ? `🏡 Thinking about ${topic.toLowerCase()} in ${loc}? Contact ${agentName} with ${businessName} for expert real estate guidance! #RealEstate`
-      : `Looking for expert real estate guidance in ${loc}? Contact ${agentName} with ${businessName} for professional service and local market expertise.`;
+      ? `Thinking about ${topic.toLowerCase()} in ${loc}? Contact ${agentName} with ${businessName} for expert guidance! #${primaryTag}`
+      : `Looking for expert ${fallbackRole} guidance in ${loc}? Contact ${agentName} with ${businessName} for professional service and local market expertise.`;
 
     return {
-      title: `${topic} - ${loc} Real Estate`,
+      title: `${topic} - ${loc} ${fallbackRole.charAt(0).toUpperCase() + fallbackRole.slice(1)}`,
       content,
-      keywords: ["real estate", neighborhood ? `${neighborhood} homes` : "local homes", topic],
+      keywords: [fallbackRole, neighborhood ? `${neighborhood} ${fallbackRole}` : `local ${fallbackRole}`, topic],
       metaDescription: `${topic} in ${loc} with ${agentName}`,
       seoScore: 45,
       wordCount: content.split(" ").length,

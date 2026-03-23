@@ -990,6 +990,14 @@ export function ContentCalendar() {
                 >
                   3 Week Plan
                 </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => generateContentPlanMutation.mutate(4)}
+                  data-testid="menu-full-month-plan"
+                  className="flex flex-col items-start"
+                >
+                  <span>Full Month</span>
+                  <span className="text-[10px] text-muted-foreground">4 weeks of content across all platforms</span>
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <Button 

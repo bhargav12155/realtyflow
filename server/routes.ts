@@ -8250,6 +8250,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         postsPerWeek = 3,
         month,
         year,
+        weeks: requestedWeeks,
         categories: userCategories,
         agentName,
       } = req.body;
@@ -8259,6 +8260,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       }
 
       const clampedPostsPerWeek = Math.min(Math.max(1, postsPerWeek), 7);
+      const isTwoWeekMode = requestedWeeks === 2;
 
       const companyProfile = await storage.getCompanyProfile(userId);
       const businessType = (companyProfile as any)?.businessType || 'real_estate';
@@ -8301,8 +8303,9 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
       const firstDay = new Date(year, month, 1);
       const lastDay = new Date(year, month + 1, 0);
-      const daysInMonth = lastDay.getDate();
-      const totalWeeks = Math.ceil(daysInMonth / 7);
+      const fullMonthDays = lastDay.getDate();
+      const daysInMonth = isTwoWeekMode ? 14 : fullMonthDays;
+      const totalWeeks = isTwoWeekMode ? 2 : Math.ceil(fullMonthDays / 7);
 
       const realEstateCategoryKeywords: Record<string, string[]> = {
         market_update: ["market trends", "home prices", "real estate market"],

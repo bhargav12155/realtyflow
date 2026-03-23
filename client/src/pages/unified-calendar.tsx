@@ -537,14 +537,18 @@ export default function UnifiedCalendarPage() {
   const generateTwoWeekMutation = useMutation({
     mutationFn: async () => {
       setAutoFillProgress(10);
-      const res = await apiRequest('POST', '/api/content/generate-plan', {
-        targetAudience: businessType === 'real_estate' ? 'home buyers and sellers' : 'local customers',
-        specialties: [],
+      const month = selectedDate.getMonth();
+      const year = selectedDate.getFullYear();
+      const res = await apiRequest("POST", "/api/scheduled-posts/generate-monthly", {
+        platforms: autoFillPlatforms.length > 0 ? autoFillPlatforms : ["facebook", "instagram", "linkedin", "x"],
+        postsPerWeek: 3,
+        month,
+        year,
         weeks: 2,
-        businessType,
+        categories: autoFillCategories,
       });
       setAutoFillProgress(90);
-      return await res.json();
+      return res.json();
     },
     onSuccess: (data) => {
       setAutoFillProgress(100);
@@ -555,14 +559,14 @@ export default function UnifiedCalendarPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
       toast({
         title: "Two-Week Blueprint Generated!",
-        description: `Created ${data.posts?.length || 0} SEO-optimized posts using your industry blueprint with question hooks and keyword-rich captions.`,
+        description: `Created ${data.count} SEO-optimized posts for the first 2 weeks of ${format(selectedDate, "MMMM yyyy")} with question hooks and keyword-rich captions.`,
       });
     },
-    onError: () => {
+    onError: (error: Error) => {
       setAutoFillProgress(0);
       toast({
         title: "Blueprint Generation Failed",
-        description: "Could not generate two-week blueprint. Please try again.",
+        description: error.message,
         variant: "destructive",
       });
     },

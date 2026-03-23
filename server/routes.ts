@@ -7893,7 +7893,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
-  app.post("/api/scheduled-posts/upload-media", requireAuth, videoUpload.single("media"), async (req: any, res) => {
+  app.post("/api/scheduled-posts/upload-media", requireAuth, upload.single("media"), autoProcessImageMiddleware, async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });

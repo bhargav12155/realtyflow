@@ -125,6 +125,19 @@ function buildIndustryPrompt(
   const topHashtags = industryContent.hashtags.slice(0, 8).join(', ');
   const topTopics = industryContent.suggestedTopics.join('; ');
 
+  const startersByType: Record<string, string[]> = {};
+  for (const starter of industryContent.contentStarters) {
+    if (!startersByType[starter.postTypeId]) {
+      startersByType[starter.postTypeId] = [];
+    }
+    if (startersByType[starter.postTypeId].length < 2) {
+      startersByType[starter.postTypeId].push(`"${starter.label}": ${starter.template.substring(0, 80)}...`);
+    }
+  }
+  const contentStarterLines = Object.entries(startersByType)
+    .map(([type, examples]) => `  ${type}: ${examples.join(' | ')}`)
+    .join('\n');
+
   return `You are a social media content strategist for a ${businessLabel} business. Create a ${weeks}-week (${days}-day) content calendar.
 
 **Business Profile:**
@@ -157,6 +170,9 @@ Every post MUST follow these SEO/AEO rules:
 4. **Trending Topics:** Draw from these suggested topics for content variety: ${topTopics}
 5. **Call-to-Action (CTA):** Every post must end with a clear CTA (e.g., "Book today", "DM us", "Visit us at...", "Call now", "Link in bio").
 6. **Snippet-Friendly Format:** Write posts so the first sentence could serve as a featured snippet answer — concise, factual, and directly answering a common customer question.
+
+**Content Starter Templates (use these as inspiration for tone and structure):**
+${contentStarterLines}
 
 **Per-Day Platform Schedule (research-backed frequency):**
 ${dayScheduleLines.slice(0, 14).join('\n')}
@@ -300,6 +316,13 @@ Every post MUST follow these SEO/AEO rules:
 3. **Local SEO Signals:** Mention specific neighborhoods (${areasText}) by name. Include "near me" style phrasing (e.g., "homes for sale in [neighborhood]", "best realtor near [area]").
 4. **Call-to-Action (CTA):** Every post must end with a clear CTA (e.g., "Schedule a showing", "DM me for details", "Call today", "Link in bio").
 5. **Snippet-Friendly Format:** Write so the first sentence could be a featured snippet answer — concise and directly answering a common real estate question.
+
+**Content Starter Templates (use as inspiration for tone and structure):**
+  open_houses: "You're invited! Join us this [day] for an open house..." | "This weekend only! Tour this gorgeous home..."
+  just_listed: "Exciting new listing! This [beds]bd/[baths]ba home features..." | "Just hit the market! [address] — won't last long..."
+  just_sold: "SOLD! Congratulations to the new owners..." | "Another successful closing! Ready to make your move?"
+  buyer_tips: "Get pre-approved before house hunting..." | "First-time buyer? Here are key things to consider..."
+  seller_tips: "Proper staging can increase your home's value 5-10%..." | "Thinking of selling? Let's chat about pricing strategy..."
 
 **📊 Platform Character Optimization:**
 

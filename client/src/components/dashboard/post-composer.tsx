@@ -99,6 +99,7 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
     thumbnailUrl: null,
   });
   const [activeTab, setActiveTab] = useState("compose");
+  const [aiTopic, setAiTopic] = useState("");
   const [showAvatarCreator, setShowAvatarCreator] = useState(false);
   const [showVideoCreator, setShowVideoCreator] = useState(false);
   const { toast } = useToast();
@@ -175,6 +176,32 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
         description: errorDescription,
         variant: "destructive",
       });
+    },
+  });
+
+  const aiGenerateMutation = useMutation({
+    mutationFn: async (topic: string) => {
+      const hasEmail = selectedPlatforms.includes("email");
+      const contentType = hasEmail ? "email_campaign" : "social_media_post";
+      const emailPrompt = hasEmail
+        ? "Format the output as an email marketing message. Start with 'Subject: ' on the first line followed by the subject line, then a blank line, then the email body with a professional greeting, compelling content, and a clear call-to-action."
+        : "";
+      const response = await apiRequest("POST", "/api/content/generate", {
+        type: contentType,
+        topic: topic || "marketing content",
+        aiPrompt: emailPrompt || undefined,
+        businessType: undefined,
+      });
+      return response;
+    },
+    onSuccess: (data: any) => {
+      if (data.content) {
+        setPostText(data.content);
+        toast({ title: "Content Generated!", description: "AI-generated content has been added to your post" });
+      }
+    },
+    onError: () => {
+      toast({ title: "Generation Failed", description: "Failed to generate content. Please try again.", variant: "destructive" });
     },
   });
 
@@ -335,6 +362,30 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                     . Please shorten your message.
                   </div>
                 )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder={selectedPlatforms.includes("email") ? "Enter topic for email content..." : "Enter topic to generate with AI..."}
+                  value={aiTopic}
+                  onChange={(e) => setAiTopic(e.target.value)}
+                  className="flex-1"
+                  data-testid="input-ai-topic"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => aiGenerateMutation.mutate(aiTopic)}
+                  disabled={aiGenerateMutation.isPending}
+                  data-testid="button-ai-generate"
+                >
+                  {aiGenerateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-1.5" />
+                  )}
+                  {selectedPlatforms.includes("email") ? "Generate Email" : "AI Assist"}
+                </Button>
               </div>
 
               <div>

@@ -190,7 +190,6 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
         type: contentType,
         topic: topic || "marketing content",
         aiPrompt: emailPrompt || undefined,
-        businessType: undefined,
       });
       return await response.json();
     },
@@ -739,11 +738,15 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  navigator.clipboard.writeText(postText).then(() => {
-                                    toast({ title: "Copied!", description: "Email content copied to clipboard" });
-                                  }).catch(() => {
+                                  if (navigator.clipboard?.writeText) {
+                                    navigator.clipboard.writeText(postText).then(() => {
+                                      toast({ title: "Copied!", description: "Email content copied to clipboard" });
+                                    }).catch(() => {
+                                      toast({ title: "Copy Failed", description: "Please select and copy the text manually", variant: "destructive" });
+                                    });
+                                  } else {
                                     toast({ title: "Copy Failed", description: "Please select and copy the text manually", variant: "destructive" });
-                                  });
+                                  }
                                 }}
                                 data-testid="button-copy-email"
                               >

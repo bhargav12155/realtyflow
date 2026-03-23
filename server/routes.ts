@@ -8363,12 +8363,19 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             ? [...keywords, `${neighborhood} real estate`, "homes"]
             : [...keywords, `${neighborhood} ${businessLabel}`, businessLabel];
 
+          const seoAeoPrompt = blueprintDescription
+            ? `Content direction: ${blueprintDescription}. Write with SEO/AEO optimization: start with a question hook, front-load keywords, include a clear CTA, and use snippet-friendly format.`
+            : undefined;
+
+          const topicLabel = category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
           const aiContent = await openaiService.generateContent({
             type: "social",
+            topic: topicLabel,
             neighborhood,
             keywords: contextKeywords,
             ...(agentName ? { companyProfile: { agentName } } : {}),
-            ...(blueprintDescription ? { additionalContext: blueprintDescription } : {}),
+            ...(seoAeoPrompt ? { aiPrompt: seoAeoPrompt } : {}),
           });
           content = aiContent.content;
           hashtags = (aiContent as any).hashtags || aiContent.keywords || [];

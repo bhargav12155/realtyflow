@@ -16,7 +16,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, Check, X, ChevronDown, Trash2 } from "lucide-react";
+import { Plus, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, Check, X, ChevronDown, Trash2, Mail } from "lucide-react";
 import { FaFacebook, FaInstagram, FaLinkedin, FaYoutube } from "react-icons/fa";
 import { useState, useMemo } from "react";
 import { format } from "date-fns";
@@ -939,6 +939,8 @@ export function ContentCalendar() {
       case 'Instagram': return FaInstagram;
       case 'LinkedIn': return FaLinkedin;
       case 'YouTube': return FaYoutube;
+      case 'Email':
+      case 'email': return Mail;
       default: return FaFacebook;
     }
   };

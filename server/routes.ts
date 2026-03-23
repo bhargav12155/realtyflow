@@ -4471,6 +4471,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
     instagram: 2200,
     youtube: 5000,
     tiktok: 2200,
+    email: 10000,
   };
 
   // Validate character limits for a given platform
@@ -4671,8 +4672,8 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
               : "Not found"
           );
 
-          // Check if account is connected (except YouTube which uses mock token)
-          if (platform.toLowerCase() !== "youtube") {
+          // Check if account is connected (except YouTube which uses mock token, and email which doesn't need one)
+          if (platform.toLowerCase() !== "youtube" && platform.toLowerCase() !== "email") {
             if (!connectedAccount) {
               return res.status(401).json({
                 error: `${platform} account not connected. Please connect your ${platform} account first.`,
@@ -4775,6 +4776,9 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
                 }
               );
               postResult = { postId: tiktokResult.publishId };
+            } else if (platform.toLowerCase() === "email") {
+              console.log(`📧 Email content saved (no sending configured)`);
+              postResult = { postId: `email-${Date.now()}` };
             } else {
               throw new Error(`Unsupported platform: ${platform}`);
             }
@@ -4856,8 +4860,8 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
                   targetPlatform.toLowerCase()
               );
 
-              // Check if account is connected (except YouTube which uses mock)
-              if (targetPlatform.toLowerCase() !== "youtube") {
+              // Check if account is connected (except YouTube which uses mock, and email which doesn't need one)
+              if (targetPlatform.toLowerCase() !== "youtube" && targetPlatform.toLowerCase() !== "email") {
                 if (!connectedAccount) {
                   errors.push({
                     platform: targetPlatform,
@@ -4944,6 +4948,9 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
                   }
                 );
                 postResult = { postId: tiktokResult.publishId };
+              } else if (targetPlatform.toLowerCase() === "email") {
+                console.log(`📧 Email content saved (no sending configured)`);
+                postResult = { postId: `email-${Date.now()}` };
               } else {
                 errors.push({
                   platform: targetPlatform,

@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, ArrowLeft, Wand2, ListChecks, CheckCircle2, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, ChevronDown, Filter, AlertCircle, Image, XCircle, AlertTriangle } from "lucide-react";
+import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, ArrowLeft, Wand2, ListChecks, CheckCircle2, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, ChevronDown, Filter, AlertCircle, Image, XCircle, AlertTriangle, Mail } from "lucide-react";
 import { FaFacebook, FaInstagram, FaLinkedin, FaYoutube, FaTiktok } from "react-icons/fa";
 import { FaXTwitter } from "react-icons/fa6";
 import { Button } from "@/components/ui/button";
@@ -780,6 +780,7 @@ export default function UnifiedCalendarPage() {
       case "twitter": return <FaXTwitter className={`${iconClass} text-black dark:text-white`} />;
       case "youtube": return <FaYoutube className={`${iconClass} text-red-600`} />;
       case "tiktok": return <FaTiktok className={`${iconClass} text-black dark:text-white`} />;
+      case "email": return <Mail className={`${iconClass} text-emerald-600`} />;
       default: return <span className="text-sm font-medium">{platform.charAt(0).toUpperCase()}</span>;
     }
   };

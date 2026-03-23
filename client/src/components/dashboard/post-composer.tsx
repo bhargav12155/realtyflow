@@ -32,6 +32,8 @@ import {
   Loader2,
   CheckCircle,
   XCircle,
+  Mail,
+  Copy,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +77,10 @@ const platformIcons = {
   x: { icon: X, color: "text-black dark:text-white", label: "X (Twitter)" },
   tiktok: { icon: Music, color: "text-red-500", label: "TikTok" },
   youtube: { icon: Video, color: "text-red-600", label: "YouTube" },
+  email: { icon: Mail, color: "text-emerald-600", label: "Email" },
 };
+
+const ALWAYS_AVAILABLE_PLATFORMS = ["email"];
 
 export function PostComposer({ open, onOpenChange }: PostComposerProps) {
   const { businessType } = useBusinessType();
@@ -252,6 +257,7 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
       instagram: 2200,
       youtube: 5000,
       tiktok: 2200,
+      email: 10000,
     };
     return limits[platform] || 5000;
   };
@@ -384,7 +390,8 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
                   {Object.entries(platformIcons).map(([platform, config]) => {
                     const Icon = config.icon;
-                    const isConnected = connectedPlatforms.includes(platform);
+                    const isAlwaysAvailable = ALWAYS_AVAILABLE_PLATFORMS.includes(platform);
+                    const isConnected = isAlwaysAvailable || connectedPlatforms.includes(platform);
                     const isSelected = selectedPlatforms.includes(platform);
 
                     return (
@@ -661,6 +668,9 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                     {selectedPlatforms.map((platform) => {
                       const config = platformIcons[platform as keyof typeof platformIcons];
                       const Icon = config.icon;
+                      const isEmail = platform === "email";
+                      const emailSubject = isEmail && postText ? (postText.match(/^Subject:\s*(.+?)(?:\n|$)/i)?.[1] || "") : "";
+                      const emailBody = isEmail && postText ? postText.replace(/^Subject:\s*.+?\n?/i, "").trim() : postText;
 
                       return (
                         <div
@@ -668,10 +678,33 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                           className="border rounded-lg p-4"
                           data-testid={`preview-${platform}`}
                         >
-                          <div className="flex items-center mb-3">
-                            <Icon className={`h-5 w-5 mr-2 ${config.color}`} />
-                            <span className="font-semibold">{config.label}</span>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center">
+                              <Icon className={`h-5 w-5 mr-2 ${config.color}`} />
+                              <span className="font-semibold">{config.label}</span>
+                            </div>
+                            {isEmail && postText && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(postText);
+                                  toast({ title: "Copied!", description: "Email content copied to clipboard" });
+                                }}
+                                data-testid="button-copy-email"
+                              >
+                                <Copy className="h-3.5 w-3.5 mr-1.5" />
+                                Copy
+                              </Button>
+                            )}
                           </div>
+
+                          {isEmail && emailSubject && (
+                            <div className="mb-3 p-2.5 bg-muted/50 rounded-md border" data-testid="email-subject-preview">
+                              <span className="text-xs font-medium text-muted-foreground">Subject:</span>
+                              <p className="font-semibold text-sm mt-0.5">{emailSubject}</p>
+                            </div>
+                          )}
 
                           {selectedMedia.type && selectedMedia.thumbnailUrl && (
                             <div className="mb-3">
@@ -684,9 +717,9 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                           )}
 
                           <div className="whitespace-pre-wrap text-sm">
-                            {postText || (
+                            {(isEmail ? emailBody : postText) || (
                               <span className="text-muted-foreground italic">
-                                Your post content will appear here...
+                                {isEmail ? "Write your email content. Start with \"Subject: Your Subject\" on the first line..." : "Your post content will appear here..."}
                               </span>
                             )}
                           </div>

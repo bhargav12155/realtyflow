@@ -30,6 +30,7 @@ Key features include:
 - **Storage Architecture**: `UnifiedUploadService` (`server/services/unifiedUpload.ts`) wraps S3 and Replit Object Storage with automatic fallback. When AWS S3 credentials are valid, S3 is used as primary storage. If S3 credentials are missing or invalid (e.g., expired keys), uploads automatically fall back to Replit Object Storage via the `/public-objects/` proxy route. HeyGen API is used for specific media processing.
 - **Real-time Communication**: WebSockets facilitate live updates and interactive features throughout the platform.
 - **Photo Avatar Privacy**: Photo avatar data is strictly user-scoped to ensure privacy and data security.
+- **Auto Image Processing**: All image uploads pass through `autoProcessImageMiddleware` (using `sharp`) which auto-resizes images exceeding 4096px and compresses to target 5MB. Accepts any image format (JPEG, PNG, WebP, HEIC, TIFF, BMP, AVIF). Upload limit is 50MB across all endpoints. Content-sniffing via `isDecodableImage()` handles `application/octet-stream` files. Processing preserves alpha channels for PNG/GIF, converts everything else to JPEG for optimal size. Implementation in `server/services/imageProcessor.ts`.
 
 ## External Dependencies
 - **Database**: PostgreSQL (Neon)

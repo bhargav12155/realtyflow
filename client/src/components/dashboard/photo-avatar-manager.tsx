@@ -3046,7 +3046,7 @@ export function PhotoAvatarManager() {
                 <input
                   type="file"
                   ref={aiLookFileRef}
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/*"
                   className="hidden"
                   data-testid="input-ai-look-file"
                   onChange={(e) => {

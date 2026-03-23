@@ -837,11 +837,10 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        // 10MB limit
+      if (file.size > 50 * 1024 * 1024) {
         toast({
           title: "File Too Large",
-          description: "Please select an image under 10MB",
+          description: "Please select an image under 50MB. Large images are auto-compressed.",
           variant: "destructive",
         });
         return;

@@ -23,6 +23,7 @@ import fs from "fs";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import { nanoid } from "nanoid";
+import { processImage, processImageFile, isDecodableImage } from "./services/imageProcessor";
 import os from "os";
 import path from "path";
 import { execSync } from "child_process";
@@ -247,16 +248,15 @@ setInterval(async () => {
 const upload = multer({
   dest: "uploads/",
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit for general uploads
+    fileSize: 50 * 1024 * 1024, // 50MB limit - images auto-compressed after upload
   },
   fileFilter: (req, file, cb) => {
-    // Allow image, audio, and video files
     if (
       file.mimetype.startsWith("image/") ||
       file.mimetype.startsWith("audio/") ||
-      file.mimetype.startsWith("video/")
+      file.mimetype.startsWith("video/") ||
+      file.mimetype === "application/octet-stream"
     ) {
-      // Support all video formats
       cb(null, true);
     } else {
       cb(new Error("Only image, audio, and video files are allowed"));
@@ -314,10 +314,10 @@ const memoryVideoUpload = multer({
 const memoryImageUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit for images
+    fileSize: 50 * 1024 * 1024, // 50MB limit - images auto-compressed after upload
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
+    if (file.mimetype.startsWith("image/") || file.mimetype === "application/octet-stream") {
       cb(null, true);
     } else {
       cb(new Error("Only image files are allowed"));
@@ -328,7 +328,7 @@ const memoryImageUpload = multer({
 const documentUpload = multer({
   dest: "uploads/",
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: 50 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
@@ -346,6 +346,60 @@ const documentUpload = multer({
     }
   },
 });
+
+async function autoProcessSingleFile(file: any): Promise<void> {
+  const isImageMime = file?.mimetype?.startsWith("image/");
+  const isOctetStream = file?.mimetype === "application/octet-stream";
+  if (!isImageMime && !isOctetStream) return;
+
+  if (file.buffer) {
+    if (isOctetStream) {
+      const decodable = await isDecodableImage(file.buffer);
+      if (!decodable) return;
+    }
+    const processed = await processImage(file.buffer);
+    file.buffer = processed.buffer;
+    file.mimetype = processed.contentType;
+    file.size = processed.processedSize;
+  } else if (file.path) {
+    if (isOctetStream) {
+      const fileBuffer = fs.readFileSync(file.path);
+      const decodable = await isDecodableImage(fileBuffer);
+      if (!decodable) return;
+    }
+    const processed = await processImageFile(file.path);
+    fs.writeFileSync(file.path, processed.buffer);
+    file.mimetype = processed.contentType;
+    file.size = processed.processedSize;
+  }
+}
+
+async function autoProcessImageMiddleware(req: any, _res: Response, next: NextFunction) {
+  try {
+    if (req.file) {
+      await autoProcessSingleFile(req.file);
+    }
+    if (req.files) {
+      if (Array.isArray(req.files)) {
+        for (const file of req.files) {
+          await autoProcessSingleFile(file);
+        }
+      } else {
+        for (const fieldFiles of Object.values(req.files)) {
+          if (Array.isArray(fieldFiles)) {
+            for (const file of fieldFiles) {
+              await autoProcessSingleFile(file);
+            }
+          }
+        }
+      }
+    }
+    next();
+  } catch (error: any) {
+    console.error("🖼️ [ImageProcessor] Error processing image:", error?.message);
+    next();
+  }
+}
 
 function generateFallbackScript(
   topic: string,
@@ -2436,7 +2490,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   });
 
   // Upload reference image for AI generation
-  app.post("/api/upload-reference", requireAuth, memoryImageUpload.single("file"), async (req, res) => {
+  app.post("/api/upload-reference", requireAuth, memoryImageUpload.single("file"), autoProcessImageMiddleware, async (req, res) => {
     try {
       const userId = String(req.user!.id);
       if (!req.file) {
@@ -2476,7 +2530,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   });
 
   // Video source image upload endpoint
-  app.post("/api/upload/video-source", requireAuth, memoryImageUpload.single("file"), async (req, res) => {
+  app.post("/api/upload/video-source", requireAuth, memoryImageUpload.single("file"), autoProcessImageMiddleware, async (req, res) => {
     try {
       const userId = String(req.user!.id);
       if (!req.file) {
@@ -4423,7 +4477,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   app.post(
     "/api/social/post",
     requireAuth,
-    upload.single("photo"),
+    upload.single("photo"), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         const {
@@ -5537,7 +5591,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   app.post(
     "/api/facebook/post",
     requireAuth,
-    upload.single("photo"),
+    upload.single("photo"), autoProcessImageMiddleware,
     async (req: any, res) => {
       try {
         const { content, pageId } = req.body;
@@ -5864,7 +5918,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   app.post(
     "/api/instagram/post",
     requireAuth,
-    upload.single("photo"),
+    upload.single("photo"), autoProcessImageMiddleware,
     async (req: any, res) => {
       try {
         const { content } = req.body;
@@ -6096,7 +6150,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   app.post(
     "/api/twitter/post",
     requireAuth,
-    upload.single("photo"),
+    upload.single("photo"), autoProcessImageMiddleware,
     async (req: any, res) => {
       try {
         // Require authentication
@@ -7961,7 +8015,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   // Upload image for scheduled post
   app.post(
     "/api/scheduled-posts/upload-image",
-    upload.single("image"),
+    upload.single("image"), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         const { postId } = req.body;
@@ -8378,7 +8432,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
-  app.post("/api/avatars", requireAuth, upload.single("avatarPhoto"), async (req, res) => {
+  app.post("/api/avatars", requireAuth, upload.single("avatarPhoto"), autoProcessImageMiddleware, async (req, res) => {
     try {
       const userId = String(req.user?.id);
       if (!userId) {
@@ -8486,7 +8540,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     upload.fields([
       { name: "avatarPhoto", maxCount: 1 },
       { name: "voiceRecording", maxCount: 1 },
-    ]),
+    ]), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         const { id } = req.params;
@@ -9514,7 +9568,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   // STEP 1: Upload - Create avatar from image using Avatar IV API
   // Note: For persistent per-user avatar management, use the Photo Avatars section
   // Video Studio avatars are session-based and use Avatar IV's imageKey directly
-  app.post("/api/studio/avatars", requireAuth, upload.single("image"), async (req: any, res) => {
+  app.post("/api/studio/avatars", requireAuth, upload.single("image"), autoProcessImageMiddleware, async (req: any, res) => {
     const tempFilePath = req.file?.path;
     
     try {
@@ -12091,7 +12145,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   });
 
   // Upload photo and get image_key for Avatar IV
-  app.post("/api/avatar-iv/upload", requireAuth, memoryImageUpload.single("image"), async (req, res) => {
+  app.post("/api/avatar-iv/upload", requireAuth, memoryImageUpload.single("image"), autoProcessImageMiddleware, async (req, res) => {
     try {
       const userId = String(req.user?.id);
       if (!userId) {
@@ -12992,7 +13046,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   app.post(
     "/api/photo-avatars/groups/:groupId/upload-looks",
     requireAuth,
-    upload.array("photos", 4), // Max 4 photos per HeyGen API limit
+    upload.array("photos", 4), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         const { groupId } = req.params;
@@ -13413,7 +13467,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   app.post(
     "/api/photo-avatars/upload",
     requireAuth,
-    upload.single("photo"),
+    upload.single("photo"), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         if (!req.file) {
@@ -13634,7 +13688,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   app.post(
     "/api/photo-avatars/create-with-looks",
     requireAuth,
-    upload.single("image"),
+    upload.single("image"), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         if (!req.file) {
@@ -14007,7 +14061,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   app.post(
     "/api/photo-avatars/generate-video-from-image",
     requireAuth,
-    upload.single("image"),
+    upload.single("image"), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         if (!req.file) {
@@ -18316,7 +18370,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   app.post(
     "/api/media/upload",
     requireAuth,
-    upload.single("file"),
+    upload.single("file"), autoProcessImageMiddleware,
     async (req, res) => {
       try {
         const userId = req.user?.id;
@@ -20440,17 +20494,18 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   const aiAssistantUpload = multer({
     storage: multer.memoryStorage(),
     limits: {
-      fileSize: 20 * 1024 * 1024, // 20MB limit
-      files: 5, // Max 5 files per request
+      fileSize: 50 * 1024 * 1024, // 50MB limit - images auto-compressed after upload
+      files: 5,
     },
     fileFilter: (req, file, cb) => {
       const allowedMimes = [
-        'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-        'application/pdf',
+        'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+        'image/tiff', 'image/bmp', 'image/svg+xml', 'image/avif',
+        'application/pdf', 'application/octet-stream',
         'text/plain', 'text/csv',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       ];
-      if (allowedMimes.includes(file.mimetype)) {
+      if (allowedMimes.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
         cb(null, true);
       } else {
         cb(new Error(`File type ${file.mimetype} not allowed`));
@@ -20480,7 +20535,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   });
 
   // POST /api/ai-assistant/chat - Send message with optional file uploads
-  app.post("/api/ai-assistant/chat", requireAuth, aiAssistantUpload.array('files', 5), async (req: any, res) => {
+  app.post("/api/ai-assistant/chat", requireAuth, aiAssistantUpload.array('files', 5), autoProcessImageMiddleware, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {

@@ -2577,7 +2577,7 @@ ${propertyDetails}`;
                 <label className="cursor-pointer">
                   <Input
                     type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    accept="image/*"
                     multiple
                     className="hidden"
                     onChange={(e) => handleRoomFileUpload(e.target.files, selectedRoomId)}
@@ -2901,7 +2901,7 @@ ${propertyDetails}`;
                   <label className="cursor-pointer">
                     <Input
                       type="file"
-                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      accept="image/*"
                       multiple
                       className="hidden"
                       onChange={(e) => {

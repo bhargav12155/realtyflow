@@ -659,7 +659,7 @@ export function VideoStudio() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp"
+                    accept="image/*"
                     className="hidden"
                     id="avatar-upload"
                     onChange={(e) => {

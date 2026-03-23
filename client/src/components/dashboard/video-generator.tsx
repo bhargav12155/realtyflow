@@ -269,7 +269,20 @@ export function VideoGenerator() {
     },
   });
 
-  // Sora 2 polling helpers
+  const SORA2_STORAGE_KEY = "sora2_pending_task";
+  const SORA2_MAX_POLL_MS = 15 * 60 * 1000;
+  const sjinnErrorCountRef = useRef(0);
+
+  const saveSora2Task = (taskId: string) => {
+    try {
+      localStorage.setItem(SORA2_STORAGE_KEY, JSON.stringify({ taskId, startedAt: Date.now() }));
+    } catch {}
+  };
+
+  const clearSora2Task = () => {
+    try { localStorage.removeItem(SORA2_STORAGE_KEY); } catch {}
+  };
+
   const stopSjinnPolling = () => {
     if (sjinnPollRef.current) {
       clearInterval(sjinnPollRef.current);
@@ -281,31 +294,43 @@ export function VideoGenerator() {
     }
     sjinnStartTimeRef.current = null;
     setSjinnElapsed(0);
+    sjinnErrorCountRef.current = 0;
   };
 
   const cancelSjinnGeneration = () => {
     stopSjinnPolling();
+    clearSora2Task();
     setSjinnStatus("idle");
     setSjinnChatId(null);
     setSjinnVideoUrl(null);
     toast({ title: "Video Generation Cancelled", description: "Sora 2 video generation has been cancelled." });
   };
 
-  const startSjinnPolling = (taskId: string) => {
+  const startSjinnPolling = (taskId: string, startedAt?: number) => {
     stopSjinnPolling();
-    sjinnStartTimeRef.current = Date.now();
-    setSjinnElapsed(0);
+    const actualStartTime = startedAt || Date.now();
+    sjinnStartTimeRef.current = actualStartTime;
+    setSjinnElapsed(Math.floor((Date.now() - actualStartTime) / 1000));
     sjinnElapsedRef.current = setInterval(() => {
       if (sjinnStartTimeRef.current) {
         setSjinnElapsed(Math.floor((Date.now() - sjinnStartTimeRef.current) / 1000));
       }
     }, 1000);
     sjinnPollRef.current = setInterval(async () => {
+      if (sjinnStartTimeRef.current && Date.now() - sjinnStartTimeRef.current > SORA2_MAX_POLL_MS) {
+        stopSjinnPolling();
+        clearSora2Task();
+        setSjinnStatus("failed");
+        toast({ title: "Sora 2 Timeout", description: "Video generation took too long. Please try again.", variant: "destructive" });
+        return;
+      }
       try {
         const response = await apiRequest("GET", `/api/sora2/status/${taskId}`);
         const data = await response.json();
+        sjinnErrorCountRef.current = 0;
         if (data.status === "completed" && data.videoUrl) {
           stopSjinnPolling();
+          clearSora2Task();
           setSjinnStatus("completed");
           setSjinnVideoUrl(data.videoUrl);
           toast({ title: "Sora 2 Video Ready!", description: "Your AI-generated video is ready to view." });
@@ -313,16 +338,43 @@ export function VideoGenerator() {
             .catch((err) => console.warn("Sora2 completion notification failed:", err));
         } else if (data.status === "failed") {
           stopSjinnPolling();
+          clearSora2Task();
           setSjinnStatus("failed");
           toast({ title: "Sora 2 Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
         } else {
           setSjinnStatus("processing");
         }
       } catch (err) {
+        sjinnErrorCountRef.current++;
         console.error("Sora2 poll error:", err);
+        if (sjinnErrorCountRef.current >= 20) {
+          stopSjinnPolling();
+          clearSora2Task();
+          setSjinnStatus("failed");
+          toast({ title: "Sora 2 Connection Lost", description: "Lost connection to server. Please try generating again.", variant: "destructive" });
+        }
       }
     }, 15000);
   };
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SORA2_STORAGE_KEY);
+      if (stored) {
+        const { taskId, startedAt } = JSON.parse(stored);
+        if (taskId && startedAt && Date.now() - startedAt < SORA2_MAX_POLL_MS) {
+          console.log(`🔄 Resuming Sora 2 polling for task ${taskId}`);
+          setSjinnChatId(taskId);
+          setSjinnStatus("processing");
+          setAiEngine("sora2");
+          startSjinnPolling(taskId, startedAt);
+        } else {
+          clearSora2Task();
+        }
+      }
+    } catch {}
+    return () => stopSjinnPolling();
+  }, []);
 
   const sjinnMutation = useMutation({
     mutationFn: async () => {
@@ -342,6 +394,7 @@ export function VideoGenerator() {
       }
       setSjinnChatId(data.taskId);
       setSjinnStatus("pending");
+      saveSora2Task(data.taskId);
       toast({
         title: "Sora 2 Video Started!",
         description: "Sora 2 AI is generating your video. Please wait a few minutes.",

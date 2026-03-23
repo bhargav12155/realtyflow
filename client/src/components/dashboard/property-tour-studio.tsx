@@ -865,6 +865,104 @@ ${propertyDetails}`;
     }
   }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, getRoomsWithPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData]);
 
+  const SORA2_TOUR_STORAGE_KEY = "sora2_tour_pending_task";
+  const SORA2_TOUR_MAX_POLL_MS = 15 * 60 * 1000;
+  const sjinnTourErrorCountRef = useRef(0);
+
+  const stopSjinnTourPolling = useCallback(() => {
+    if (sjinnTourPollRef.current) { clearInterval(sjinnTourPollRef.current); sjinnTourPollRef.current = null; }
+    if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
+    sjinnTourStartTimeRef.current = null;
+    setSjinnTourElapsed(0);
+    sjinnTourErrorCountRef.current = 0;
+  }, []);
+
+  const clearSora2TourTask = useCallback(() => {
+    try { localStorage.removeItem(SORA2_TOUR_STORAGE_KEY); } catch {}
+  }, []);
+
+  const startSjinnTourPolling = useCallback((taskId: string, startedAt?: number) => {
+    stopSjinnTourPolling();
+    const actualStartTime = startedAt || Date.now();
+    sjinnTourStartTimeRef.current = actualStartTime;
+    setSjinnTourElapsed(Math.floor((Date.now() - actualStartTime) / 1000));
+    sjinnTourElapsedRef.current = setInterval(() => {
+      if (sjinnTourStartTimeRef.current) {
+        setSjinnTourElapsed(Math.floor((Date.now() - sjinnTourStartTimeRef.current) / 1000));
+      }
+    }, 1000);
+    sjinnTourPollRef.current = setInterval(async () => {
+      if (sjinnTourStartTimeRef.current && Date.now() - sjinnTourStartTimeRef.current > SORA2_TOUR_MAX_POLL_MS) {
+        stopSjinnTourPolling();
+        clearSora2TourTask();
+        setSjinnTourStatus("failed");
+        toast({ title: "Sora 2 Timeout", description: "Video generation took too long. Please try again.", variant: "destructive" });
+        return;
+      }
+      try {
+        const statusRes = await fetch(`/api/sora2/status/${taskId}`, { credentials: "include" });
+        if (!statusRes.ok) {
+          sjinnTourErrorCountRef.current++;
+          if (sjinnTourErrorCountRef.current >= 20) {
+            stopSjinnTourPolling();
+            clearSora2TourTask();
+            setSjinnTourStatus("failed");
+            toast({ title: "Sora 2 Connection Lost", description: "Lost connection to server. Please try generating again.", variant: "destructive" });
+          }
+          return;
+        }
+        const statusData = await statusRes.json();
+        sjinnTourErrorCountRef.current = 0;
+        if (statusData.status === "completed" && statusData.videoUrl) {
+          setSjinnTourVideoUrl(statusData.videoUrl);
+          setSjinnTourStatus("completed");
+          stopSjinnTourPolling();
+          clearSora2TourTask();
+          toast({ title: "Sora 2 Video Ready", description: "Your property tour video has been generated." });
+          fetch("/api/sora2/notify-completion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ videoUrl: statusData.videoUrl, taskId }),
+          }).catch((err) => console.warn("Sora2 completion notification failed:", err));
+        } else if (statusData.status === "failed") {
+          setSjinnTourStatus("failed");
+          stopSjinnTourPolling();
+          clearSora2TourTask();
+          toast({ title: "Sora 2 Generation Failed", description: statusData.error || "Video generation failed.", variant: "destructive" });
+        }
+      } catch {
+        sjinnTourErrorCountRef.current++;
+        if (sjinnTourErrorCountRef.current >= 20) {
+          stopSjinnTourPolling();
+          clearSora2TourTask();
+          setSjinnTourStatus("failed");
+          toast({ title: "Sora 2 Connection Lost", description: "Lost connection to server. Please try generating again.", variant: "destructive" });
+        }
+      }
+    }, 15000);
+  }, [stopSjinnTourPolling, clearSora2TourTask, toast]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SORA2_TOUR_STORAGE_KEY);
+      if (stored) {
+        const { taskId, startedAt } = JSON.parse(stored);
+        if (taskId && startedAt && Date.now() - startedAt < SORA2_TOUR_MAX_POLL_MS) {
+          console.log(`🔄 Resuming Sora 2 tour polling for task ${taskId}`);
+          setSjinnTourChatId(taskId);
+          setSjinnTourStatus("processing");
+          setTourVideoEngine("sora2");
+          setCurrentStep(4);
+          startSjinnTourPolling(taskId, startedAt);
+        } else {
+          clearSora2TourTask();
+        }
+      }
+    } catch {}
+    return () => stopSjinnTourPolling();
+  }, []);
+
   const handleGenerateSora2Tour = useCallback(async () => {
     const rooms = getRoomsWithPhotos().map(r => r.roomId.replace(/-/g, " "));
     const address = selectedProperty
@@ -891,50 +989,15 @@ ${propertyDetails}`;
       const taskId = data.taskId;
       setSjinnTourChatId(taskId);
       setSjinnTourStatus("processing");
-
-      sjinnTourStartTimeRef.current = Date.now();
-      setSjinnTourElapsed(0);
-      if (sjinnTourElapsedRef.current) clearInterval(sjinnTourElapsedRef.current);
-      sjinnTourElapsedRef.current = setInterval(() => {
-        if (sjinnTourStartTimeRef.current) {
-          setSjinnTourElapsed(Math.floor((Date.now() - sjinnTourStartTimeRef.current) / 1000));
-        }
-      }, 1000);
-
-      if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
-      sjinnTourPollRef.current = setInterval(async () => {
-        try {
-          const statusRes = await fetch(`/api/sora2/status/${taskId}`, { credentials: "include" });
-          if (!statusRes.ok) return;
-          const statusData = await statusRes.json();
-          if (statusData.status === "completed" && statusData.videoUrl) {
-            setSjinnTourVideoUrl(statusData.videoUrl);
-            setSjinnTourStatus("completed");
-            if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
-            if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
-            sjinnTourStartTimeRef.current = null;
-            toast({ title: "Sora 2 Video Ready", description: "Your property tour video has been generated." });
-            fetch("/api/sora2/notify-completion", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ videoUrl: statusData.videoUrl, taskId }),
-            }).catch((err) => console.warn("Sora2 completion notification failed:", err));
-          } else if (statusData.status === "failed") {
-            setSjinnTourStatus("failed");
-            if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
-            if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
-            sjinnTourStartTimeRef.current = null;
-            toast({ title: "Sora 2 Generation Failed", description: statusData.error || "Video generation failed.", variant: "destructive" });
-          }
-        } catch {
-        }
-      }, 15000);
+      try {
+        localStorage.setItem(SORA2_TOUR_STORAGE_KEY, JSON.stringify({ taskId, startedAt: Date.now() }));
+      } catch {}
+      startSjinnTourPolling(taskId);
     } catch (error: any) {
       setSjinnTourStatus("failed");
       toast({ title: "Sora 2 Error", description: error.message || "Failed to start video generation.", variant: "destructive" });
     }
-  }, [getRoomsWithPhotos, selectedProperty, generatedScript, toast, sjinnTourPollRef]);
+  }, [getRoomsWithPhotos, selectedProperty, generatedScript, toast, startSjinnTourPolling]);
 
   const handleSaveToLibrary = useCallback(async () => {
     if (!currentJobId) return;
@@ -1829,10 +1892,11 @@ ${propertyDetails}`;
               <Label className="text-sm font-semibold">AI Video Engine</Label>
               <Select value={tourVideoEngine} onValueChange={(v) => {
                 setTourVideoEngine(v as typeof tourVideoEngine);
+                stopSjinnTourPolling();
+                clearSora2TourTask();
                 setSjinnTourStatus("idle");
                 setSjinnTourChatId(null);
                 setSjinnTourVideoUrl(null);
-                if (sjinnTourPollRef.current) clearInterval(sjinnTourPollRef.current);
               }}>
                 <SelectTrigger data-testid="tour-engine-select">
                   <SelectValue />
@@ -2284,10 +2348,8 @@ ${propertyDetails}`;
                       className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
                       data-testid="button-cancel-sjinn-tour"
                       onClick={() => {
-                        if (sjinnTourPollRef.current) { clearInterval(sjinnTourPollRef.current); sjinnTourPollRef.current = null; }
-                        if (sjinnTourElapsedRef.current) { clearInterval(sjinnTourElapsedRef.current); sjinnTourElapsedRef.current = null; }
-                        sjinnTourStartTimeRef.current = null;
-                        setSjinnTourElapsed(0);
+                        stopSjinnTourPolling();
+                        clearSora2TourTask();
                         setSjinnTourStatus("idle");
                         setSjinnTourChatId(null);
                         setSjinnTourVideoUrl(null);

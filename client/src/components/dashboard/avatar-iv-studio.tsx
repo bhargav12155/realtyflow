@@ -735,38 +735,84 @@ export function AvatarIVStudio() {
     },
   });
 
-  // Sora 2 polling cleanup
+  const SORA2_AVATAR_STORAGE_KEY = "sora2_avatar_pending_task";
+  const SORA2_AVATAR_MAX_POLL_MS = 15 * 60 * 1000;
+  const sjinnErrorCountRef = useRef(0);
+
   const stopSjinnPolling = () => {
     if (sjinnPollRef.current) {
       clearInterval(sjinnPollRef.current);
       sjinnPollRef.current = null;
     }
+    sjinnErrorCountRef.current = 0;
   };
 
-  const startSjinnPolling = (taskId: string) => {
+  const clearSora2AvatarTask = () => {
+    try { localStorage.removeItem(SORA2_AVATAR_STORAGE_KEY); } catch {}
+  };
+
+  const startSjinnPolling = (taskId: string, startedAt?: number) => {
     stopSjinnPolling();
+    const actualStartTime = startedAt || Date.now();
     sjinnPollRef.current = setInterval(async () => {
+      if (Date.now() - actualStartTime > SORA2_AVATAR_MAX_POLL_MS) {
+        stopSjinnPolling();
+        clearSora2AvatarTask();
+        setSjinnStatus("failed");
+        toast({ title: "Sora 2 Timeout", description: "Video generation took too long. Please try again.", variant: "destructive" });
+        return;
+      }
       try {
         const response = await apiRequest("GET", `/api/sora2/status/${taskId}`);
         const data = await response.json();
+        sjinnErrorCountRef.current = 0;
         if (data.status === "completed" && data.videoUrl) {
           stopSjinnPolling();
+          clearSora2AvatarTask();
           setSjinnStatus("completed");
           setSjinnVideoUrl(data.videoUrl);
           setCurrentStep(3);
           toast({ title: "Sora 2 Video Ready!", description: "Your AI-generated video is ready to view." });
         } else if (data.status === "failed") {
           stopSjinnPolling();
+          clearSora2AvatarTask();
           setSjinnStatus("failed");
           toast({ title: "Sora 2 Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
         } else {
           setSjinnStatus("processing");
         }
       } catch (err: any) {
+        sjinnErrorCountRef.current++;
         console.error("Sora2 poll error:", err);
+        if (sjinnErrorCountRef.current >= 20) {
+          stopSjinnPolling();
+          clearSora2AvatarTask();
+          setSjinnStatus("failed");
+          toast({ title: "Sora 2 Connection Lost", description: "Lost connection to server. Please try generating again.", variant: "destructive" });
+        }
       }
     }, 15000);
   };
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SORA2_AVATAR_STORAGE_KEY);
+      if (stored) {
+        const { taskId, startedAt } = JSON.parse(stored);
+        if (taskId && startedAt && Date.now() - startedAt < SORA2_AVATAR_MAX_POLL_MS) {
+          console.log(`🔄 Resuming Sora 2 avatar polling for task ${taskId}`);
+          setSjinnChatId(taskId);
+          setSjinnStatus("processing");
+          setVideoPlatform("sora2");
+          setCurrentStep(3);
+          startSjinnPolling(taskId, startedAt);
+        } else {
+          clearSora2AvatarTask();
+        }
+      }
+    } catch {}
+    return () => stopSjinnPolling();
+  }, []);
 
   const sjinnMutation = useMutation({
     mutationFn: async () => {
@@ -787,6 +833,9 @@ export function AvatarIVStudio() {
       setSjinnChatId(data.taskId);
       setSjinnStatus("pending");
       setCurrentStep(3);
+      try {
+        localStorage.setItem(SORA2_AVATAR_STORAGE_KEY, JSON.stringify({ taskId: data.taskId, startedAt: Date.now() }));
+      } catch {}
       toast({
         title: "Sora 2 Video Started!",
         description: "Sora 2 AI is generating your video. Please wait a few minutes.",

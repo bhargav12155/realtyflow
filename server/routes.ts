@@ -8334,126 +8334,169 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         ? industryKeywords
         : realEstateCategoryKeywords;
 
-      const scheduleDates: Date[] = [];
-      for (let week = 0; week < totalWeeks; week++) {
-        const weekStart = week * 7;
-        const availableDays: number[] = [];
-        for (let d = weekStart; d < Math.min(weekStart + 7, daysInMonth); d++) {
-          availableDays.push(d + 1);
-        }
-        const step = Math.max(1, Math.floor(availableDays.length / clampedPostsPerWeek));
-        for (let p = 0; p < clampedPostsPerWeek && p < availableDays.length; p++) {
-          const dayIndex = Math.min(p * step, availableDays.length - 1);
-          const day = availableDays[dayIndex];
-          const hour = postingHours[(week * clampedPostsPerWeek + p) % postingHours.length];
-          const date = new Date(year, month, day, hour, 0, 0, 0);
-          scheduleDates.push(date);
-        }
-      }
-
       const generatedPosts: any[] = [];
       const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
       let postCounter = 0;
-      for (let i = 0; i < scheduleDates.length; i++) {
-        const scheduleDate = scheduleDates[i];
-        const category = categories[i % categories.length];
-        const neighborhood = neighborhoods[i % neighborhoods.length];
-        const keywords = categoryKeywordsMap[category] || ["Omaha real estate", "homes for sale"];
 
-        for (let pi = 0; pi < platforms.length; pi++) {
-          const platform = platforms[pi];
-          const staggeredDate = new Date(scheduleDate.getTime());
-          staggeredDate.setMinutes(staggeredDate.getMinutes() + pi * 3);
+      const dayNameToOffset: Record<string, number> = {
+        Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
+        Thursday: 4, Friday: 5, Saturday: 6,
+      };
 
-          let content = "";
-          let hashtags: string[] = [];
-          let seoScore = 80;
-          let isAiGenerated = true;
+      const generatePost = async (
+        scheduleDate: Date,
+        category: string,
+        neighborhood: string,
+        platform: string,
+        blueprintDescription?: string,
+      ) => {
+        const keywords = categoryKeywordsMap[category] || ["marketing", "local business"];
+        let content = "";
+        let hashtags: string[] = [];
+        let seoScore = 80;
+        let isAiGenerated = true;
 
-          try {
-            if (postCounter > 0) {
-              await delay(500);
+        try {
+          if (postCounter > 0) await delay(500);
+          const businessLabel = businessType.replace(/_/g, ' ');
+          const contextKeywords = businessType === 'real_estate'
+            ? [...keywords, `${neighborhood} real estate`, "homes"]
+            : [...keywords, `${neighborhood} ${businessLabel}`, businessLabel];
+
+          const aiContent = await openaiService.generateContent({
+            type: "social",
+            neighborhood,
+            keywords: contextKeywords,
+            ...(agentName ? { companyProfile: { agentName } } : {}),
+            ...(blueprintDescription ? { additionalContext: blueprintDescription } : {}),
+          });
+          content = aiContent.content;
+          hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
+          seoScore = aiContent.seoScore || 80;
+        } catch (aiError) {
+          console.error(`Failed to generate AI content for post ${postCounter + 1}:`, aiError);
+          isAiGenerated = false;
+          const businessLabel = businessType.replace(/_/g, ' ');
+          const genericFallback = `Discover what makes ${neighborhood} special! Contact ${agentName || "us"} for ${businessLabel} insights.`;
+
+          const realEstateFallbackTemplates: Record<string, string> = {
+            market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}.`,
+            buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this neighborhood!`,
+            seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat!`,
+            neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it!`,
+            home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns!`,
+            investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment. Let me show you the numbers!`,
+            community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities.`,
+            success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home.`,
+            open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today.`,
+            just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone!`,
+          };
+
+          const industryFallbackTemplates: Record<string, string> = {};
+          if (blueprint && businessType !== 'real_estate') {
+            for (const pt of blueprint.postTypes) {
+              industryFallbackTemplates[pt] = `${pt.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} — ${neighborhood} area. ${agentName || 'We'} bring the best ${businessLabel} service to your community. Contact us today!`;
             }
-
-            const businessLabel = businessType.replace(/_/g, ' ');
-            const contextKeywords = businessType === 'real_estate'
-              ? [...keywords, `${neighborhood} real estate`, "homes"]
-              : [...keywords, `${neighborhood} ${businessLabel}`, businessLabel];
-
-            const aiContent = await openaiService.generateContent({
-              type: "social",
-              neighborhood,
-              keywords: contextKeywords,
-              ...(agentName ? { companyProfile: { agentName } } : {}),
-            });
-
-            content = aiContent.content;
-            hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
-            seoScore = aiContent.seoScore || 80;
-          } catch (aiError) {
-            console.error(`Failed to generate AI content for post ${postCounter + 1}:`, aiError);
-            isAiGenerated = false;
-
-            const businessLabel = businessType.replace(/_/g, ' ');
-            const genericFallback = `Discover what makes ${neighborhood} special! Contact ${agentName || "us"} for ${businessLabel} insights.`;
-
-            const realEstateFallbackTemplates: Record<string, string> = {
-              market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}.`,
-              buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this neighborhood!`,
-              seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat!`,
-              neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it!`,
-              home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns!`,
-              investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment. Let me show you the numbers!`,
-              community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities.`,
-              success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home.`,
-              open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today.`,
-              just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone!`,
-            };
-
-            const industryFallbackTemplates: Record<string, string> = {};
-            if (blueprint && businessType !== 'real_estate') {
-              for (const pt of blueprint.postTypes) {
-                industryFallbackTemplates[pt] = `${pt.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} — ${neighborhood} area. ${agentName || 'We'} bring the best ${businessLabel} service to your community. Contact us today!`;
-              }
-            }
-
-            const fallbackTemplates = (businessType !== 'real_estate' && Object.keys(industryFallbackTemplates).length > 0)
-              ? industryFallbackTemplates
-              : realEstateFallbackTemplates;
-
-            content = fallbackTemplates[category] || genericFallback;
-            const fallbackHashtags = industryContent.hashtags.slice(0, 3).map((h: string) => h.replace('#', ''));
-            hashtags = [...fallbackHashtags, neighborhood.replace(/\s/g, ""), category.replace(/_/g, "")];
-            seoScore = 70;
           }
 
-          const scheduledPost = await storage.createScheduledPost({
-            userId,
-            platform,
-            postType: category,
-            content,
-            hashtags,
-            scheduledFor: staggeredDate,
-            status: "pending",
-            isEdited: false,
-            isAiGenerated,
-            originalContent: content,
-            neighborhood,
-            seoScore,
-            metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated },
-          });
+          const fallbackTemplates = (businessType !== 'real_estate' && Object.keys(industryFallbackTemplates).length > 0)
+            ? industryFallbackTemplates
+            : realEstateFallbackTemplates;
 
-          generatedPosts.push(scheduledPost);
-          postCounter++;
+          content = fallbackTemplates[category] || genericFallback;
+          const fallbackHashtags = industryContent.hashtags.slice(0, 3).map((h: string) => h.replace('#', ''));
+          hashtags = [...fallbackHashtags, neighborhood.replace(/\s/g, ""), category.replace(/_/g, "")];
+          seoScore = 70;
+        }
+
+        const scheduledPost = await storage.createScheduledPost({
+          userId,
+          platform,
+          postType: category,
+          content,
+          hashtags,
+          scheduledFor: scheduleDate,
+          status: "pending",
+          isEdited: false,
+          isAiGenerated,
+          originalContent: content,
+          neighborhood,
+          seoScore,
+          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated, blueprintDriven: isTwoWeekMode },
+        });
+        generatedPosts.push(scheduledPost);
+        postCounter++;
+      };
+
+      const realEstateBlueprint = {
+        week1: [
+          { day: "Monday", contentType: "market_update", description: "Share local market stats, median prices, and inventory trends for your area", platforms: ["facebook", "linkedin", "x"] },
+          { day: "Wednesday", contentType: "buyer_tips", description: "First-time buyer advice or mortgage tips with a clear call to action", platforms: ["instagram", "facebook"] },
+          { day: "Friday", contentType: "just_listed", description: "Showcase a new listing with professional photos and key features", platforms: ["instagram", "facebook", "x"] },
+        ],
+        week2: [
+          { day: "Tuesday", contentType: "neighborhood_spotlight", description: "Highlight a local neighborhood with schools, dining, and lifestyle perks", platforms: ["instagram", "facebook"] },
+          { day: "Thursday", contentType: "seller_tips", description: "Home staging tips or pricing strategy advice for sellers", platforms: ["facebook", "linkedin"] },
+          { day: "Saturday", contentType: "open_houses", description: "Open house announcement with date, time, address, and walkthrough teaser", platforms: ["instagram", "facebook", "x"] },
+        ],
+      };
+      const effectiveBlueprint = blueprint || (businessType === 'real_estate' ? realEstateBlueprint : null);
+
+      if (isTwoWeekMode && effectiveBlueprint) {
+        const weekEntries = [...(effectiveBlueprint.week1 || []), ...(effectiveBlueprint.week2 || [])];
+        for (let entryIdx = 0; entryIdx < weekEntries.length; entryIdx++) {
+          const entry = weekEntries[entryIdx];
+          const isWeek2 = entryIdx >= (effectiveBlueprint.week1?.length || 0);
+          const weekOffset = isWeek2 ? 7 : 0;
+          const targetDayOffset = dayNameToOffset[entry.day] ?? 1;
+          const firstDayOfWeek = new Date(year, month, 1).getDay();
+          let dayOfMonth = targetDayOffset - firstDayOfWeek + 1 + weekOffset;
+          if (dayOfMonth < 1) dayOfMonth += 7;
+          if (dayOfMonth > 14) dayOfMonth = Math.min(dayOfMonth, 14);
+          const neighborhood = neighborhoods[entryIdx % neighborhoods.length];
+          const hour = postingHours[entryIdx % postingHours.length];
+
+          for (let pi = 0; pi < entry.platforms.length; pi++) {
+            const platform = entry.platforms[pi];
+            const scheduleDate = new Date(year, month, dayOfMonth, hour, pi * 3, 0, 0);
+            await generatePost(scheduleDate, entry.contentType, neighborhood, platform, entry.description);
+          }
+        }
+      } else {
+        const scheduleDates: Date[] = [];
+        for (let week = 0; week < totalWeeks; week++) {
+          const weekStart = week * 7;
+          const availableDays: number[] = [];
+          for (let d = weekStart; d < Math.min(weekStart + 7, daysInMonth); d++) {
+            availableDays.push(d + 1);
+          }
+          const step = Math.max(1, Math.floor(availableDays.length / clampedPostsPerWeek));
+          for (let p = 0; p < clampedPostsPerWeek && p < availableDays.length; p++) {
+            const dayIndex = Math.min(p * step, availableDays.length - 1);
+            const day = availableDays[dayIndex];
+            const hour = postingHours[(week * clampedPostsPerWeek + p) % postingHours.length];
+            const date = new Date(year, month, day, hour, 0, 0, 0);
+            scheduleDates.push(date);
+          }
+        }
+
+        for (let i = 0; i < scheduleDates.length; i++) {
+          const scheduleDate = scheduleDates[i];
+          const category = categories[i % categories.length];
+          const neighborhood = neighborhoods[i % neighborhoods.length];
+          for (let pi = 0; pi < platforms.length; pi++) {
+            const platform = platforms[pi];
+            const staggeredDate = new Date(scheduleDate.getTime());
+            staggeredDate.setMinutes(staggeredDate.getMinutes() + pi * 3);
+            await generatePost(staggeredDate, category, neighborhood, platform);
+          }
         }
       }
 
-      const totalPosts = scheduleDates.length * platforms.length;
       res.json({
         success: true,
         posts: generatedPosts,
-        count: totalPosts,
+        count: generatedPosts.length,
       });
     } catch (error) {
       console.error("Generate monthly content error:", error);

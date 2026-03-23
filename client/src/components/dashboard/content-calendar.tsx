@@ -969,7 +969,7 @@ export function ContentCalendar() {
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem 
                   onClick={() => generateContentPlanMutation.mutate(1)}
                   data-testid="menu-1-week-plan"
@@ -979,8 +979,10 @@ export function ContentCalendar() {
                 <DropdownMenuItem 
                   onClick={() => generateContentPlanMutation.mutate(2)}
                   data-testid="menu-2-week-plan"
+                  className="flex flex-col items-start"
                 >
-                  2 Week Plan
+                  <span>2 Week Blueprint</span>
+                  <span className="text-[10px] text-muted-foreground">SEO/AEO optimized with question hooks</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem 
                   onClick={() => generateContentPlanMutation.mutate(3)}

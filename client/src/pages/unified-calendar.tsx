@@ -27,6 +27,8 @@ import { format } from "date-fns";
 import { AiGeneratedBadge } from "@/components/shared/ai-generated-badge";
 import { useAuth } from "@/hooks/useAuth";
 import { useBusinessType } from "@/lib/businessContext";
+import { INDUSTRY_CALENDAR_BLUEPRINTS } from "@shared/industryCalendarBlueprints";
+import { INDUSTRY_CONTENT } from "@shared/industryContent";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Progress } from "@/components/ui/progress";
 import { CharacterCounter, getPlatformConfig } from "@/components/ui/character-counter";
@@ -229,6 +231,7 @@ export default function UnifiedCalendarPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewFileInputRef = useRef<HTMLInputElement>(null);
   const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);
+  const [autoFillMode, setAutoFillMode] = useState<"month" | "twoweek">("month");
   const [autoFillPlatforms, setAutoFillPlatforms] = useState<string[]>(["facebook", "instagram", "linkedin", "x", "tiktok"]);
   const [autoFillFrequency, setAutoFillFrequency] = useState(3);
   const [autoFillCategories, setAutoFillCategories] = useState<string[]>([
@@ -236,6 +239,33 @@ export default function UnifiedCalendarPage() {
     "home_improvement", "investment_tips", "community_events", "success_stories"
   ]);
   const [autoFillProgress, setAutoFillProgress] = useState(0);
+
+  const industryBlueprint = INDUSTRY_CALENDAR_BLUEPRINTS[businessType];
+  const industryContent = INDUSTRY_CONTENT[businessType] || INDUSTRY_CONTENT.general;
+
+  const dynamicCategories = useMemo(() => {
+    if (businessType !== 'real_estate' && industryBlueprint) {
+      return industryBlueprint.postTypes.map(pt => ({
+        id: pt,
+        label: pt.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+      }));
+    }
+    return [
+      { id: "market_update", label: "Market" },
+      { id: "buyer_tips", label: "Buyers" },
+      { id: "seller_tips", label: "Sellers" },
+      { id: "neighborhood_spotlight", label: "Neighborhoods" },
+      { id: "home_improvement", label: "Home Tips" },
+      { id: "investment_tips", label: "Investing" },
+      { id: "community_events", label: "Community" },
+      { id: "success_stories", label: "Stories" },
+    ];
+  }, [businessType, industryBlueprint]);
+
+  useEffect(() => {
+    const validIds = dynamicCategories.map(c => c.id);
+    setAutoFillCategories(validIds);
+  }, [dynamicCategories]);
 
   const rawName = user?.name || user?.email?.split('@')[0];
   const userName = rawName 
@@ -499,6 +529,40 @@ export default function UnifiedCalendarPage() {
       toast({
         title: "Auto-Fill Failed",
         description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateTwoWeekMutation = useMutation({
+    mutationFn: async () => {
+      setAutoFillProgress(10);
+      const res = await apiRequest('POST', '/api/content/generate-plan', {
+        targetAudience: businessType === 'real_estate' ? 'home buyers and sellers' : 'local customers',
+        specialties: [],
+        weeks: 2,
+        businessType,
+      });
+      setAutoFillProgress(90);
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      setAutoFillProgress(100);
+      setTimeout(() => {
+        setAutoFillProgress(0);
+        setShowAutoFillPanel(false);
+      }, 1000);
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      toast({
+        title: "Two-Week Blueprint Generated!",
+        description: `Created ${data.posts?.length || 0} SEO-optimized posts using your industry blueprint with question hooks and keyword-rich captions.`,
+      });
+    },
+    onError: () => {
+      setAutoFillProgress(0);
+      toast({
+        title: "Blueprint Generation Failed",
+        description: "Could not generate two-week blueprint. Please try again.",
         variant: "destructive",
       });
     },
@@ -1115,146 +1179,214 @@ export default function UnifiedCalendarPage() {
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-amber-500" />
-                    Auto-Fill {format(selectedDate, "MMMM yyyy")}
+                    Auto-Fill Content
                   </h3>
                   <Button variant="ghost" size="sm" onClick={() => setShowAutoFillPanel(false)}>
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-xs font-medium mb-2 block">Platforms</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { id: "facebook", label: "Facebook", icon: FaFacebook, color: "text-blue-600" },
-                        { id: "instagram", label: "Instagram", icon: FaInstagram, color: "text-pink-500" },
-                        { id: "linkedin", label: "LinkedIn", icon: FaLinkedin, color: "text-blue-700" },
-                        { id: "x", label: "X", icon: FaXTwitter, color: "text-black dark:text-white" },
-                        { id: "tiktok", label: "TikTok", icon: FaTiktok, color: "text-black dark:text-white" },
-                        { id: "youtube", label: "YouTube", icon: FaYoutube, color: "text-red-600" },
-                      ].map((p) => {
-                        const isSelected = autoFillPlatforms.includes(p.id);
-                        return (
-                          <button
-                            key={p.id}
-                            onClick={() => {
-                              setAutoFillPlatforms(prev => 
-                                isSelected 
-                                  ? prev.filter(x => x !== p.id)
-                                  : [...prev, p.id]
-                              );
-                            }}
-                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all ${
-                              isSelected 
-                                ? "border-amber-400 bg-white dark:bg-gray-800 shadow-sm" 
-                                : "border-gray-200 dark:border-gray-700 opacity-50"
-                            }`}
-                            data-testid={`toggle-platform-${p.id}`}
-                          >
-                            <p.icon className={`w-3 h-3 ${p.color}`} />
-                            {p.label}
-                            {p.id === "x" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full">Down</span>}
-                            {isSelected && <Check className="w-3 h-3 text-green-500" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs font-medium mb-2 block">Posts per Week</Label>
-                    <div className="flex gap-1">
-                      {[2, 3, 4, 5, 7].map((n) => (
-                        <button
-                          key={n}
-                          onClick={() => setAutoFillFrequency(n)}
-                          className={`px-3 py-1.5 rounded text-xs font-medium border transition-all ${
-                            autoFillFrequency === n
-                              ? "border-amber-400 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-                              : "border-gray-200 dark:border-gray-700 hover:border-amber-300"
-                          }`}
-                          data-testid={`freq-${n}`}
-                        >
-                          {n === 7 ? "Daily" : `${n}x`}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      ~{Math.round(autoFillFrequency * 4.3)} posts this month
-                    </p>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs font-medium mb-2 block">Content Mix</Label>
-                    <div className="flex flex-wrap gap-1">
-                      {[
-                        { id: "market_update", label: "Market" },
-                        { id: "buyer_tips", label: "Buyers" },
-                        { id: "seller_tips", label: "Sellers" },
-                        { id: "neighborhood_spotlight", label: "Neighborhoods" },
-                        { id: "home_improvement", label: "Home Tips" },
-                        { id: "investment_tips", label: "Investing" },
-                        { id: "community_events", label: "Community" },
-                        { id: "success_stories", label: "Stories" },
-                      ].map((cat) => {
-                        const isSelected = autoFillCategories.includes(cat.id);
-                        return (
-                          <button
-                            key={cat.id}
-                            onClick={() => {
-                              setAutoFillCategories(prev =>
-                                isSelected
-                                  ? prev.filter(x => x !== cat.id)
-                                  : [...prev, cat.id]
-                              );
-                            }}
-                            className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${
-                              isSelected
-                                ? "border-amber-400 bg-white dark:bg-gray-800"
-                                : "border-gray-200 dark:border-gray-700 opacity-50"
-                            }`}
-                            data-testid={`toggle-cat-${cat.id}`}
-                          >
-                            {cat.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center gap-3">
-                  <Button
-                    onClick={() => generateMonthlyMutation.mutate()}
-                    disabled={generateMonthlyMutation.isPending || autoFillPlatforms.length === 0 || autoFillCategories.length === 0}
-                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
-                    data-testid="btn-generate-month"
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setAutoFillMode("month")}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border-2 transition-all ${
+                      autoFillMode === "month"
+                        ? "border-amber-400 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200"
+                        : "border-gray-200 dark:border-gray-700 hover:border-amber-300"
+                    }`}
+                    data-testid="mode-month"
                   >
-                    {generateMonthlyMutation.isPending ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Generating {format(selectedDate, "MMMM")} Posts...
-                      </>
-                    ) : (
-                      <>
-                        <Wand2 className="w-4 h-4 mr-2" />
-                        Generate {format(selectedDate, "MMMM")} Posts
-                      </>
-                    )}
-                  </Button>
-                  {generateMonthlyMutation.isPending && (
-                    <div className="flex-1">
-                      <Progress value={autoFillProgress} className="h-2" />
-                      <p className="text-[10px] text-muted-foreground mt-1">
-                        AI is creating unique content for each post... This may take a minute.
-                      </p>
-                    </div>
-                  )}
-                  <span className="text-xs text-muted-foreground">
-                    {autoFillPlatforms.length} platforms, {autoFillFrequency}x/week, {autoFillCategories.length} categories
-                  </span>
+                    <CalendarDays className="w-4 h-4 mx-auto mb-1" />
+                    Full Month
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Fill {format(selectedDate, "MMMM")} with posts</p>
+                  </button>
+                  <button
+                    onClick={() => setAutoFillMode("twoweek")}
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border-2 transition-all ${
+                      autoFillMode === "twoweek"
+                        ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200"
+                        : "border-gray-200 dark:border-gray-700 hover:border-emerald-300"
+                    }`}
+                    data-testid="mode-twoweek"
+                  >
+                    <Sparkles className="w-4 h-4 mx-auto mb-1" />
+                    Two-Week Blueprint
+                    <p className="text-[10px] text-muted-foreground mt-0.5">SEO-optimized 14-day plan</p>
+                  </button>
                 </div>
+
+                {autoFillMode === "twoweek" ? (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800">
+                      <p className="text-xs font-medium text-emerald-800 dark:text-emerald-200 mb-2">
+                        Your {businessType.replace(/_/g, ' ')} blueprint includes:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-emerald-700 dark:text-emerald-300">
+                        <div className="flex items-center gap-1"><Check className="w-3 h-3" /> Question-format hooks for voice search</div>
+                        <div className="flex items-center gap-1"><Check className="w-3 h-3" /> Keyword-rich captions for SEO</div>
+                        <div className="flex items-center gap-1"><Check className="w-3 h-3" /> Local area references</div>
+                        <div className="flex items-center gap-1"><Check className="w-3 h-3" /> Platform-optimized character counts</div>
+                        <div className="flex items-center gap-1"><Check className="w-3 h-3" /> Industry-specific content types</div>
+                        <div className="flex items-center gap-1"><Check className="w-3 h-3" /> CTA on every post</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-3">
+                      <Button
+                        onClick={() => generateTwoWeekMutation.mutate()}
+                        disabled={generateTwoWeekMutation.isPending}
+                        className="bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white"
+                        data-testid="btn-generate-twoweek"
+                      >
+                        {generateTwoWeekMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Building Blueprint...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" />
+                            Generate Two-Week Blueprint
+                          </>
+                        )}
+                      </Button>
+                      {generateTwoWeekMutation.isPending && (
+                        <div className="flex-1">
+                          <Progress value={autoFillProgress} className="h-2" />
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            AI is creating SEO-optimized content with question hooks and keywords...
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <Label className="text-xs font-medium mb-2 block">Platforms</Label>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { id: "facebook", label: "Facebook", icon: FaFacebook, color: "text-blue-600" },
+                            { id: "instagram", label: "Instagram", icon: FaInstagram, color: "text-pink-500" },
+                            { id: "linkedin", label: "LinkedIn", icon: FaLinkedin, color: "text-blue-700" },
+                            { id: "x", label: "X", icon: FaXTwitter, color: "text-black dark:text-white" },
+                            { id: "tiktok", label: "TikTok", icon: FaTiktok, color: "text-black dark:text-white" },
+                            { id: "youtube", label: "YouTube", icon: FaYoutube, color: "text-red-600" },
+                          ].map((p) => {
+                            const isSelected = autoFillPlatforms.includes(p.id);
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  setAutoFillPlatforms(prev => 
+                                    isSelected 
+                                      ? prev.filter(x => x !== p.id)
+                                      : [...prev, p.id]
+                                  );
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border transition-all ${
+                                  isSelected 
+                                    ? "border-amber-400 bg-white dark:bg-gray-800 shadow-sm" 
+                                    : "border-gray-200 dark:border-gray-700 opacity-50"
+                                }`}
+                                data-testid={`toggle-platform-${p.id}`}
+                              >
+                                <p.icon className={`w-3 h-3 ${p.color}`} />
+                                {p.label}
+                                {p.id === "x" && <span className="text-[10px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded-full">Down</span>}
+                                {isSelected && <Check className="w-3 h-3 text-green-500" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs font-medium mb-2 block">Posts per Week</Label>
+                        <div className="flex gap-1">
+                          {[2, 3, 4, 5, 7].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => setAutoFillFrequency(n)}
+                              className={`px-3 py-1.5 rounded text-xs font-medium border transition-all ${
+                                autoFillFrequency === n
+                                  ? "border-amber-400 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                                  : "border-gray-200 dark:border-gray-700 hover:border-amber-300"
+                              }`}
+                              data-testid={`freq-${n}`}
+                            >
+                              {n === 7 ? "Daily" : `${n}x`}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          ~{Math.round(autoFillFrequency * 4.3)} posts this month
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label className="text-xs font-medium mb-2 block">Content Mix</Label>
+                        <div className="flex flex-wrap gap-1">
+                          {dynamicCategories.map((cat) => {
+                            const isSelected = autoFillCategories.includes(cat.id);
+                            return (
+                              <button
+                                key={cat.id}
+                                onClick={() => {
+                                  setAutoFillCategories(prev =>
+                                    isSelected
+                                      ? prev.filter(x => x !== cat.id)
+                                      : [...prev, cat.id]
+                                  );
+                                }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${
+                                  isSelected
+                                    ? "border-amber-400 bg-white dark:bg-gray-800"
+                                    : "border-gray-200 dark:border-gray-700 opacity-50"
+                                }`}
+                                data-testid={`toggle-cat-${cat.id}`}
+                              >
+                                {cat.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center gap-3">
+                      <Button
+                        onClick={() => generateMonthlyMutation.mutate()}
+                        disabled={generateMonthlyMutation.isPending || autoFillPlatforms.length === 0 || autoFillCategories.length === 0}
+                        className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
+                        data-testid="btn-generate-month"
+                      >
+                        {generateMonthlyMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Generating {format(selectedDate, "MMMM")} Posts...
+                          </>
+                        ) : (
+                          <>
+                            <Wand2 className="w-4 h-4 mr-2" />
+                            Generate {format(selectedDate, "MMMM")} Posts
+                          </>
+                        )}
+                      </Button>
+                      {generateMonthlyMutation.isPending && (
+                        <div className="flex-1">
+                          <Progress value={autoFillProgress} className="h-2" />
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            AI is creating unique content for each post... This may take a minute.
+                          </p>
+                        </div>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {autoFillPlatforms.length} platforms, {autoFillFrequency}x/week, {autoFillCategories.length} categories
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
             <CardContent>

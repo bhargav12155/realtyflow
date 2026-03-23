@@ -8260,36 +8260,42 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
       const clampedPostsPerWeek = Math.min(Math.max(1, postsPerWeek), 7);
 
-      const allCategories = [
-        "market_update",
-        "buyer_tips",
-        "seller_tips",
-        "neighborhood_spotlight",
-        "home_improvement",
-        "investment_tips",
-        "community_events",
-        "success_stories",
-        "open_houses",
-        "just_listed",
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = (companyProfile as any)?.businessType || 'real_estate';
+
+      const { INDUSTRY_CALENDAR_BLUEPRINTS: blueprints } = await import("@shared/industryCalendarBlueprints");
+      const { INDUSTRY_CONTENT: industryContentMap } = await import("@shared/industryContent");
+      const blueprint = blueprints[businessType];
+      const industryContent = industryContentMap[businessType] || industryContentMap.general;
+
+      const realEstateCategories = [
+        "market_update", "buyer_tips", "seller_tips", "neighborhood_spotlight",
+        "home_improvement", "investment_tips", "community_events", "success_stories",
+        "open_houses", "just_listed",
       ];
+      const defaultCategories = (blueprint && businessType !== 'real_estate')
+        ? blueprint.postTypes
+        : realEstateCategories;
 
       const categories =
         userCategories && userCategories.length > 0
           ? userCategories
-          : allCategories;
+          : defaultCategories;
 
-      const neighborhoods = [
-        "Dundee",
-        "Aksarben",
-        "Old Market",
-        "Blackstone",
-        "Benson",
-        "Midtown",
-        "West Omaha",
-        "Elkhorn",
-        "Papillion",
-        "Bellevue",
+      const marketData = await storage.getMarketData(userId);
+      const serviceAreaNames = marketData.map(m => m.neighborhood).filter(Boolean) as string[];
+      const compCity = (companyProfile as any)?.city || '';
+
+      const defaultOmahaNeighborhoods = [
+        "Dundee", "Aksarben", "Old Market", "Blackstone", "Benson",
+        "Midtown", "West Omaha", "Elkhorn", "Papillion", "Bellevue",
       ];
+
+      const neighborhoods = serviceAreaNames.length > 0
+        ? serviceAreaNames
+        : compCity
+          ? [compCity, `North ${compCity}`, `South ${compCity}`, `East ${compCity}`, `West ${compCity}`, `Downtown ${compCity}`]
+          : defaultOmahaNeighborhoods;
 
       const postingHours = [9, 11, 13, 15, 17];
 
@@ -8298,7 +8304,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       const daysInMonth = lastDay.getDate();
       const totalWeeks = Math.ceil(daysInMonth / 7);
 
-      const categoryKeywordsMap: Record<string, string[]> = {
+      const realEstateCategoryKeywords: Record<string, string[]> = {
         market_update: ["market trends", "home prices", "real estate market"],
         buyer_tips: ["home buying tips", "first time buyer", "mortgage advice"],
         seller_tips: ["home selling", "listing tips", "staging advice"],
@@ -8310,6 +8316,20 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         open_houses: ["open house", "home tour", "property viewing"],
         just_listed: ["new listing", "homes for sale", "just listed"],
       };
+
+      const industryKeywords: Record<string, string[]> = {};
+      if (blueprint && businessType !== 'real_estate') {
+        for (const postType of blueprint.postTypes) {
+          industryKeywords[postType] = [
+            postType.replace(/_/g, ' '),
+            ...industryContent.hashtags.slice(0, 3).map((h: string) => h.replace('#', '')),
+          ];
+        }
+      }
+
+      const categoryKeywordsMap = (blueprint && businessType !== 'real_estate')
+        ? industryKeywords
+        : realEstateCategoryKeywords;
 
       const scheduleDates: Date[] = [];
       for (let week = 0; week < totalWeeks; week++) {
@@ -8353,10 +8373,15 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
               await delay(500);
             }
 
+            const businessLabel = businessType.replace(/_/g, ' ');
+            const contextKeywords = businessType === 'real_estate'
+              ? [...keywords, `${neighborhood} real estate`, "homes"]
+              : [...keywords, `${neighborhood} ${businessLabel}`, businessLabel];
+
             const aiContent = await openaiService.generateContent({
               type: "social",
               neighborhood,
-              keywords: [...keywords, `${neighborhood} real estate`, "Omaha homes"],
+              keywords: contextKeywords,
               ...(agentName ? { companyProfile: { agentName } } : {}),
             });
 
@@ -8366,20 +8391,37 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           } catch (aiError) {
             console.error(`Failed to generate AI content for post ${postCounter + 1}:`, aiError);
             isAiGenerated = false;
-            const fallbackTemplates: Record<string, string> = {
-              market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}. #OmahaRealEstate`,
-              buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this amazing Omaha neighborhood! #HomeBuyingTips`,
-              seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat! #HomeSelling`,
-              neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it! #${neighborhood.replace(/\s/g, "")}`,
-              home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns! #HomeImprovement`,
-              investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment in the Omaha market. Let me show you the numbers! #RealEstateInvesting`,
-              community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities. #CommunityLife`,
-              success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home. #ClientSuccess`,
-              open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today. #OpenHouse #${neighborhood.replace(/\s/g, "")}`,
-              just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone! #JustListed`,
+
+            const businessLabel = businessType.replace(/_/g, ' ');
+            const genericFallback = `Discover what makes ${neighborhood} special! Contact ${agentName || "us"} for ${businessLabel} insights.`;
+
+            const realEstateFallbackTemplates: Record<string, string> = {
+              market_update: `📊 ${neighborhood} Market Update: The real estate market is showing exciting trends! Contact ${agentName || "your agent"} for the latest insights on homes in ${neighborhood}.`,
+              buyer_tips: `🏡 Buyer Tip: Looking to buy in ${neighborhood}? Here are key things to consider when house hunting in this neighborhood!`,
+              seller_tips: `💡 Seller Tip: Thinking of selling your ${neighborhood} home? Proper staging and pricing can make all the difference. Let's chat!`,
+              neighborhood_spotlight: `✨ Neighborhood Spotlight: ${neighborhood} offers incredible community charm, great schools, and beautiful homes. Discover why residents love it!`,
+              home_improvement: `🔨 Home Improvement: Simple upgrades that boost your ${neighborhood} home's value. Small changes, big returns!`,
+              investment_tips: `📈 Investment Insight: ${neighborhood} continues to be a smart real estate investment. Let me show you the numbers!`,
+              community_events: `🎉 Community Events: Exciting things happening in ${neighborhood}! Stay connected with your neighbors and local activities.`,
+              success_stories: `🎊 Another happy homeowner in ${neighborhood}! It's always rewarding to help families find their perfect home.`,
+              open_houses: `🏠 Open House Alert: Don't miss this beautiful home in ${neighborhood}! Schedule your visit today.`,
+              just_listed: `🆕 Just Listed in ${neighborhood}! A stunning property has hit the market. Contact ${agentName || "us"} for details before it's gone!`,
             };
-            content = fallbackTemplates[category] || `Discover what makes ${neighborhood} special! Contact ${agentName || "your local agent"} for insights.`;
-            hashtags = ["OmahaRealEstate", neighborhood.replace(/\s/g, ""), "NebraskaHomes", category.replace(/_/g, "")];
+
+            const industryFallbackTemplates: Record<string, string> = {};
+            if (blueprint && businessType !== 'real_estate') {
+              for (const pt of blueprint.postTypes) {
+                industryFallbackTemplates[pt] = `${pt.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} — ${neighborhood} area. ${agentName || 'We'} bring the best ${businessLabel} service to your community. Contact us today!`;
+              }
+            }
+
+            const fallbackTemplates = (businessType !== 'real_estate' && Object.keys(industryFallbackTemplates).length > 0)
+              ? industryFallbackTemplates
+              : realEstateFallbackTemplates;
+
+            content = fallbackTemplates[category] || genericFallback;
+            const fallbackHashtags = industryContent.hashtags.slice(0, 3).map((h: string) => h.replace('#', ''));
+            hashtags = [...fallbackHashtags, neighborhood.replace(/\s/g, ""), category.replace(/_/g, "")];
             seoScore = 70;
           }
 

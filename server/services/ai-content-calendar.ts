@@ -1,6 +1,7 @@
 import type { InsertScheduledPost, MarketData } from "@shared/schema";
 import { PLATFORM_CONFIGS } from "@shared/platform-prompts";
 import { INDUSTRY_CALENDAR_BLUEPRINTS, PLATFORM_OPTIMIZATION_CHEATSHEET, type IndustryCalendarBlueprint } from "@shared/industryCalendarBlueprints";
+import { INDUSTRY_CONTENT } from "@shared/industryContent";
 
 export interface GeneratedContentPlan {
   posts: InsertScheduledPost[];
@@ -120,6 +121,10 @@ function buildIndustryPrompt(
 
   const businessLabel = businessType.replace(/_/g, ' ');
 
+  const industryContent = INDUSTRY_CONTENT[businessType] || INDUSTRY_CONTENT.general;
+  const topHashtags = industryContent.hashtags.slice(0, 8).join(', ');
+  const topTopics = industryContent.suggestedTopics.join('; ');
+
   return `You are a social media content strategist for a ${businessLabel} business. Create a ${weeks}-week (${days}-day) content calendar.
 
 **Business Profile:**
@@ -144,6 +149,15 @@ ${week2Schedule}
 **Platform Optimization:**
 ${platformOptLines}
 
+**SEO & AEO (Answer Engine Optimization) Requirements:**
+Every post MUST follow these SEO/AEO rules:
+1. **Question-Format Hooks:** Start at least 40% of posts with a question (e.g., "Looking for the best [service] in [area]?", "Did you know...?", "What makes [area] the best place for...?"). Questions rank higher in AI answer engines and voice search.
+2. **Keyword-Rich Captions:** Naturally weave in industry keywords: ${topHashtags}. Each post should contain at least one searchable phrase a potential customer would type into Google.
+3. **Local SEO Signals:** Mention specific service areas (${areasText}) by name. Include "near me" style phrasing where natural (e.g., "best [service] in [area]").
+4. **Trending Topics:** Draw from these suggested topics for content variety: ${topTopics}
+5. **Call-to-Action (CTA):** Every post must end with a clear CTA (e.g., "Book today", "DM us", "Visit us at...", "Call now", "Link in bio").
+6. **Snippet-Friendly Format:** Write posts so the first sentence could serve as a featured snippet answer — concise, factual, and directly answering a common customer question.
+
 **Per-Day Platform Schedule (research-backed frequency):**
 ${dayScheduleLines.slice(0, 14).join('\n')}
 (This pattern repeats for the full ${weeks} weeks)
@@ -161,7 +175,7 @@ Return ONLY a valid JSON array with exactly ${expectedPosts} posts:
   {
     "platform": "${blueprint.focusPlatforms.join('|')}",
     "postType": "${blueprint.postTypes.join('|')}",
-    "content": "engaging post text optimized for platform character limits and tone",
+    "content": "engaging post text optimized for platform character limits, SEO keywords, and tone — start with a question or keyword-rich hook",
     "hashtags": ["tag1"] (only for instagram, 1-2 max, empty array for others),
     "neighborhood": "area name or null",
     "dayOffset": day_number (0-${days-1}, where 0 = tomorrow)
@@ -278,6 +292,14 @@ Total posts to generate: ${expectedPosts} (NOT ${days * 5} — do not post to al
 2. Vary posting times: mornings (9-10am), afternoons (2-3pm), evenings (6-7pm)
 3. Include relevant hashtags for Instagram posts only (1-2 hashtags max)
 4. Reference actual market data and neighborhoods from service areas
+
+**SEO & AEO (Answer Engine Optimization) Requirements:**
+Every post MUST follow these SEO/AEO rules:
+1. **Question-Format Hooks:** Start at least 40% of posts with a question (e.g., "What's happening in the [neighborhood] market?", "Looking for a home in [area]?", "Is now a good time to sell in [neighborhood]?"). Questions rank higher in AI answer engines and voice search.
+2. **Keyword-Rich Captions:** Naturally include searchable real estate phrases: #JustListed, #OpenHouse, #DreamHome, #RealEstate, #HomesForSale, #FirstTimeHomeBuyer, #LuxuryHomes, #PropertyTour. Each post should contain at least one phrase a buyer or seller would search.
+3. **Local SEO Signals:** Mention specific neighborhoods (${areasText}) by name. Include "near me" style phrasing (e.g., "homes for sale in [neighborhood]", "best realtor near [area]").
+4. **Call-to-Action (CTA):** Every post must end with a clear CTA (e.g., "Schedule a showing", "DM me for details", "Call today", "Link in bio").
+5. **Snippet-Friendly Format:** Write so the first sentence could be a featured snippet answer — concise and directly answering a common real estate question.
 
 **📊 Platform Character Optimization:**
 

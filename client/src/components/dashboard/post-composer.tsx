@@ -739,8 +739,11 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  navigator.clipboard.writeText(postText);
-                                  toast({ title: "Copied!", description: "Email content copied to clipboard" });
+                                  navigator.clipboard.writeText(postText).then(() => {
+                                    toast({ title: "Copied!", description: "Email content copied to clipboard" });
+                                  }).catch(() => {
+                                    toast({ title: "Copy Failed", description: "Please select and copy the text manually", variant: "destructive" });
+                                  });
                                 }}
                                 data-testid="button-copy-email"
                               >

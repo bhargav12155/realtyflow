@@ -192,7 +192,7 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
         aiPrompt: emailPrompt || undefined,
         businessType: undefined,
       });
-      return response;
+      return await response.json();
     },
     onSuccess: (data: any) => {
       if (data.content) {

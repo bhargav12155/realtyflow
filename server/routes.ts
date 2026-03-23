@@ -8374,7 +8374,11 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             topic: topicLabel,
             neighborhood,
             keywords: contextKeywords,
-            ...(agentName ? { companyProfile: { agentName } } : {}),
+            userId,
+            companyProfile: {
+              ...(agentName ? { agentName } : {}),
+              businessType,
+            },
             ...(seoAeoPrompt ? { aiPrompt: seoAeoPrompt } : {}),
           });
           content = aiContent.content;

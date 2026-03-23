@@ -81,11 +81,18 @@ export class BulkQueueScheduler {
     const whatsappService = new WhatsAppService();
     
     const settings = await this.storage.getWhatsappSettingsByUserId(queue.userId);
-    const accessToken = settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = settings?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID || "1009337698927791";
+    if (!settings) {
+      console.error(`📱 Bulk queue ${queue.id}: No WhatsApp settings for user ${queue.userId}`);
+      return;
+    }
+
+    const accounts = (settings.accounts as Array<{ label: string; phoneNumberId: string; wabaId: string; accessToken?: string }>) || [];
+    const activeAccount = accounts.find(a => a.phoneNumberId === settings.phoneNumberId);
+    const accessToken = activeAccount?.accessToken?.trim() || settings.accessToken?.trim();
+    const phoneNumberId = settings.phoneNumberId;
 
     if (!accessToken) {
-      console.error(`📱 Bulk queue ${queue.id}: No WHATSAPP_ACCESS_TOKEN`);
+      console.error(`📱 Bulk queue ${queue.id}: No access token in user's WhatsApp settings`);
       return;
     }
 

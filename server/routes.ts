@@ -56,14 +56,8 @@ import { realtimeService } from "./websocket";
 import { sora2Service } from "./services/sora2";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
-  let settings = await storage.getWhatsappSettingsByUserId(userId);
-  if (!settings?.phoneNumberId) {
-    const allSettings = await db.select().from(whatsappSettingsTable).limit(1);
-    if (allSettings.length > 0) {
-      settings = allSettings[0] as any;
-    }
-  }
-  return settings;
+  const settings = await storage.getWhatsappSettingsByUserId(userId);
+  return settings || null;
 }
 
 function getActiveAccountToken(settings: any): { accessToken: string; wabaId: string; phoneNumberId: string } {
@@ -72,32 +66,33 @@ function getActiveAccountToken(settings: any): { accessToken: string; wabaId: st
   const activeAccount = accounts.find(a => a.phoneNumberId === activePhoneId);
   
   let accessToken: string;
+  let tokenSource: string;
   if (activeAccount?.accessToken) {
     accessToken = activeAccount.accessToken.trim();
+    tokenSource = 'per-account';
   } else {
-    accessToken = (settings?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
+    accessToken = (settings?.accessToken || "").trim();
+    tokenSource = 'main-settings';
   }
   
   const wabaId = (activeAccount?.wabaId || settings?.wabaId || "").trim();
   const phoneNumberId = (activeAccount?.phoneNumberId || settings?.phoneNumberId || "").trim();
   
-  console.log(`📱 WhatsApp token resolution: phone=${phoneNumberId}, waba=${wabaId}, tokenSource=${activeAccount?.accessToken ? 'per-account' : 'main-settings'}, tokenLen=${accessToken.length}`);
+  console.log(`📱 WhatsApp token resolution: phone=${phoneNumberId}, waba=${wabaId}, tokenSource=${tokenSource}, tokenLen=${accessToken.length}`);
   
   return { accessToken, wabaId, phoneNumberId };
 }
 
 // Startup: ensure all WhatsApp accounts have per-account tokens
-// WABA-aware: only shares tokens between accounts on the SAME WABA
+// Only shares tokens between accounts on the SAME WABA within the SAME user
 setTimeout(async () => {
   try {
-    const envToken = (process.env.WHATSAPP_ACCESS_TOKEN || "").trim();
-    
     const rows = await db.execute(sql`SELECT user_id, accounts, access_token FROM whatsapp_settings WHERE accounts IS NOT NULL`);
     for (const row of rows.rows) {
       const accounts = row.accounts as any[];
       if (!accounts || !Array.isArray(accounts)) continue;
       
-      // Build a map of WABA -> best available token from sibling accounts
+      // Build a map of WABA -> best available token from sibling accounts (same user only)
       const wabaTokenMap: Record<string, string> = {};
       for (const acc of accounts) {
         if (acc.accessToken && acc.accessToken.length >= 100 && acc.wabaId) {
@@ -110,17 +105,11 @@ setTimeout(async () => {
       let changed = false;
       for (const acc of accounts) {
         if (!acc.accessToken || acc.accessToken.length < 100) {
-          // First try: use a token from a sibling account on the same WABA
+          // Only use a token from a sibling account on the same WABA (same user)
           if (acc.wabaId && wabaTokenMap[acc.wabaId]) {
             acc.accessToken = wabaTokenMap[acc.wabaId];
             changed = true;
             console.log(`📱 WhatsApp: Backfilled token for "${acc.label}" from same-WABA sibling (user ${row.user_id}), len=${acc.accessToken.length}`);
-          }
-          // Fallback: use env token only if no WABA-matched sibling exists
-          else if (envToken.length >= 100) {
-            acc.accessToken = envToken;
-            changed = true;
-            console.log(`📱 WhatsApp: Backfilled token for "${acc.label}" from env var (user ${row.user_id}), len=${acc.accessToken.length}`);
           }
         }
       }
@@ -4307,10 +4296,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
       try {
         let whatsappSettings = await getWhatsappSettingsWithFallback(userId);
-        const hasWhatsappCreds = !!(
-          (whatsappSettings?.phoneNumberId && whatsappSettings?.accessToken) ||
-          (process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN)
-        );
+        const hasWhatsappCreds = !!(whatsappSettings?.phoneNumberId && whatsappSettings?.accessToken);
         platforms.push({
           id: accountMap.get("whatsapp")?.id || nanoid(),
           platform: "whatsapp",
@@ -4321,7 +4307,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         platforms.push({
           id: nanoid(),
           platform: "whatsapp",
-          isConnected: !!(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN),
+          isConnected: false,
           lastSync: null,
         });
       }

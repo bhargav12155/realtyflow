@@ -2008,11 +2008,11 @@ export async function postToWhatsApp(
   accessToken?: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
-    const resolvedPhoneNumberId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-    const resolvedAccessToken = accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    const resolvedPhoneNumberId = phoneNumberId;
+    const resolvedAccessToken = accessToken;
 
     if (!resolvedPhoneNumberId || !resolvedAccessToken) {
-      return { success: false, error: "WhatsApp credentials not configured. Set phoneNumberId and accessToken in settings or environment variables." };
+      return { success: false, error: "WhatsApp credentials not configured. Set phoneNumberId and accessToken in your WhatsApp settings." };
     }
 
     const cleanedPhone = recipientPhone.replace(/\D/g, "");

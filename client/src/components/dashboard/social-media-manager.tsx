@@ -1524,18 +1524,14 @@ export function SocialMediaManager() {
         return await saveEmailPost();
       }
 
-      const emailPromise = saveEmailPost();
+      let platformResult: any;
 
       if (nonEmailPlatforms.includes("youtube")) {
-        const result = await handleYouTubePost(
+        platformResult = await handleYouTubePost(
           data.content,
           uploadedVideo || undefined,
         );
-        await emailPromise;
-        return result;
-      }
-
-      if (nonEmailPlatforms.includes("facebook")) {
+      } else if (nonEmailPlatforms.includes("facebook")) {
         if (!selectedFacebookPage) {
           throw new Error("Please select a Facebook Page before posting");
         }
@@ -1550,8 +1546,7 @@ export function SocialMediaManager() {
             ...(usePropertyPhoto ? { mediaUrl: data.propertyPhotoUrl } : {}),
           },
         );
-        await emailPromise;
-        return facebookResponse.json();
+        platformResult = await facebookResponse.json();
       } else if (nonEmailPlatforms.includes("instagram")) {
         const hasMedia = (data.mediaIds && data.mediaIds.length > 0) || usePropertyPhoto;
         if (!hasMedia) {
@@ -1566,8 +1561,7 @@ export function SocialMediaManager() {
             ...(usePropertyPhoto ? { mediaUrl: data.propertyPhotoUrl } : {}),
           },
         );
-        await emailPromise;
-        return instagramResponse.json();
+        platformResult = await instagramResponse.json();
       } else if (
         nonEmailPlatforms.includes("x") ||
         nonEmailPlatforms.includes("twitter")
@@ -1593,8 +1587,7 @@ export function SocialMediaManager() {
           throw new Error(errorData.error || "Failed to post to Twitter");
         }
 
-        await emailPromise;
-        return response.json();
+        platformResult = await response.json();
       } else if (nonEmailPlatforms.includes("whatsapp")) {
         const whatsappPayload: any = {
             to: data.whatsappTo || "",
@@ -1618,16 +1611,19 @@ export function SocialMediaManager() {
           "/api/whatsapp/send",
           whatsappPayload,
         );
-        await emailPromise;
-        return whatsappResponse.json();
+        platformResult = await whatsappResponse.json();
       } else {
         const response = await apiRequest("POST", "/api/social/post", {
           ...data,
+          platforms: nonEmailPlatforms,
           mediaIds: data.mediaIds || [],
           ...(usePropertyPhoto ? { propertyPhotoUrl: data.propertyPhotoUrl } : {}),
         });
-        return response.json();
+        platformResult = await response.json();
       }
+
+      await saveEmailPost();
+      return platformResult;
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/social/accounts"] });

@@ -125,6 +125,13 @@ const platformIcons = {
   tiktok: { icon: Music, color: "text-red-500" },
   youtube: { icon: Video, color: "text-red-600" },
   whatsapp: { icon: MessageCircle, color: "text-green-500" },
+  email: { icon: Mail, color: "text-emerald-600" },
+};
+
+const SYNTHETIC_EMAIL_ACCOUNT: SocialMediaAccount = {
+  id: "email-always-available",
+  platform: "email",
+  isConnected: true,
 };
 
 const POST_TYPES_BY_BUSINESS: Record<string, { id: string; label: string; icon: any; color: string; bgColor: string }[]> = {
@@ -1595,8 +1602,15 @@ export function SocialMediaManager() {
           whatsappPayload,
         );
         return whatsappResponse.json();
+      } else if (data.platforms.includes("email")) {
+        const response = await apiRequest("POST", "/api/social/post", {
+          ...data,
+          platforms: ["email"],
+          mediaIds: data.mediaIds || [],
+          ...(usePropertyPhoto ? { propertyPhotoUrl: data.propertyPhotoUrl } : {}),
+        });
+        return response.json();
       } else {
-        // For other platforms, use the general endpoint
         const response = await apiRequest("POST", "/api/social/post", {
           ...data,
           mediaIds: data.mediaIds || [],
@@ -2268,7 +2282,8 @@ ${agentName} | ${brokerageName}
               Select Platforms
             </h3>
           </div>
-          {accounts?.map((account) => {
+          {[...(accounts || []), SYNTHETIC_EMAIL_ACCOUNT].map((account) => {
+            const isEmailPlatform = account.platform === "email";
             // Normalize platform name (handle aliases like twitter->x, facebook_page->facebook)
             const normalizedPlatform = account.platform
               .toLowerCase()
@@ -2312,9 +2327,14 @@ ${agentName} | ${brokerageName}
                   <div
                     className="flex items-center gap-2"
                     data-testid={`status-${account.platform}`}
-                    title={account.isConnected ? "Connected" : "Disconnected"}
+                    title={isEmailPlatform ? "Always Available" : account.isConnected ? "Connected" : "Disconnected"}
                   >
-                    {account.isConnected ? (
+                    {isEmailPlatform ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                        <Check className="h-3 w-3" />
+                        Always Available
+                      </span>
+                    ) : account.isConnected ? (
                       <>
                         {account.platform.toLowerCase() === "whatsapp" ? (
                           <a

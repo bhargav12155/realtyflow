@@ -1506,23 +1506,40 @@ export function SocialMediaManager() {
       whatsappTo?: string;
     }) => {
       const usePropertyPhoto = data.propertyPhotoUrl && (!data.mediaIds || data.mediaIds.length === 0);
+      const hasEmail = data.platforms.includes("email");
+      const nonEmailPlatforms = data.platforms.filter(p => p !== "email");
 
-      // Check if YouTube is selected and handle on-demand authentication
-      if (data.platforms.includes("youtube")) {
-        return await handleYouTubePost(
+      const saveEmailPost = async () => {
+        if (!hasEmail) return null;
+        const res = await apiRequest("POST", "/api/social/post", {
+          content: data.content,
+          platforms: ["email"],
+          mediaIds: data.mediaIds || [],
+          ...(usePropertyPhoto ? { propertyPhotoUrl: data.propertyPhotoUrl } : {}),
+        });
+        return res.json();
+      };
+
+      if (nonEmailPlatforms.length === 0 && hasEmail) {
+        return await saveEmailPost();
+      }
+
+      const emailPromise = saveEmailPost();
+
+      if (nonEmailPlatforms.includes("youtube")) {
+        const result = await handleYouTubePost(
           data.content,
           uploadedVideo || undefined,
         );
+        await emailPromise;
+        return result;
       }
 
-      // Handle other platform-specific posting
-      if (data.platforms.includes("facebook")) {
-        // Check if a Facebook Page is selected
+      if (nonEmailPlatforms.includes("facebook")) {
         if (!selectedFacebookPage) {
           throw new Error("Please select a Facebook Page before posting");
         }
 
-        // Use Facebook Pages API for Facebook posting
         const facebookResponse = await apiRequest(
           "POST",
           "/api/facebook/post",
@@ -1533,13 +1550,13 @@ export function SocialMediaManager() {
             ...(usePropertyPhoto ? { mediaUrl: data.propertyPhotoUrl } : {}),
           },
         );
+        await emailPromise;
         return facebookResponse.json();
-      } else if (data.platforms.includes("instagram")) {
+      } else if (nonEmailPlatforms.includes("instagram")) {
         const hasMedia = (data.mediaIds && data.mediaIds.length > 0) || usePropertyPhoto;
         if (!hasMedia) {
           throw new Error("Instagram requires an image or video. Please attach media before posting.");
         }
-        // Use Instagram Graph API for Instagram posting
         const instagramResponse = await apiRequest(
           "POST",
           "/api/instagram/post",
@@ -1549,16 +1566,15 @@ export function SocialMediaManager() {
             ...(usePropertyPhoto ? { mediaUrl: data.propertyPhotoUrl } : {}),
           },
         );
+        await emailPromise;
         return instagramResponse.json();
       } else if (
-        data.platforms.includes("x") ||
-        data.platforms.includes("twitter")
+        nonEmailPlatforms.includes("x") ||
+        nonEmailPlatforms.includes("twitter")
       ) {
-        // Use Twitter API for Twitter posting - must use FormData for multer
         const formData = new FormData();
         formData.append("content", data.content);
 
-        // Add mediaIds if present
         if (data.mediaIds && data.mediaIds.length > 0) {
           formData.append("mediaIds", JSON.stringify(data.mediaIds));
         }
@@ -1577,8 +1593,9 @@ export function SocialMediaManager() {
           throw new Error(errorData.error || "Failed to post to Twitter");
         }
 
+        await emailPromise;
         return response.json();
-      } else if (data.platforms.includes("whatsapp")) {
+      } else if (nonEmailPlatforms.includes("whatsapp")) {
         const whatsappPayload: any = {
             to: data.whatsappTo || "",
             message: data.content,
@@ -1601,6 +1618,7 @@ export function SocialMediaManager() {
           "/api/whatsapp/send",
           whatsappPayload,
         );
+        await emailPromise;
         return whatsappResponse.json();
       } else {
         const response = await apiRequest("POST", "/api/social/post", {

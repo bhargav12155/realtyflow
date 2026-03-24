@@ -1602,14 +1602,6 @@ export function SocialMediaManager() {
           whatsappPayload,
         );
         return whatsappResponse.json();
-      } else if (data.platforms.includes("email")) {
-        const response = await apiRequest("POST", "/api/social/post", {
-          ...data,
-          platforms: ["email"],
-          mediaIds: data.mediaIds || [],
-          ...(usePropertyPhoto ? { propertyPhotoUrl: data.propertyPhotoUrl } : {}),
-        });
-        return response.json();
       } else {
         const response = await apiRequest("POST", "/api/social/post", {
           ...data,

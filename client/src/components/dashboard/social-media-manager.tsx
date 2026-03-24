@@ -2288,7 +2288,7 @@ ${agentName} | ${brokerageName}
               Select Platforms
             </h3>
           </div>
-          {[...(accounts || []), SYNTHETIC_EMAIL_ACCOUNT].map((account) => {
+          {[...(accounts || []).filter(a => a.platform !== "email"), SYNTHETIC_EMAIL_ACCOUNT].map((account) => {
             const isEmailPlatform = account.platform === "email";
             // Normalize platform name (handle aliases like twitter->x, facebook_page->facebook)
             const normalizedPlatform = account.platform

@@ -39,6 +39,8 @@ import {
   ChevronLeft,
   Download,
   AlertTriangle,
+  Scissors,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
@@ -101,6 +103,12 @@ const quickActions: QuickAction[] = [
     label: "Generate Video",
     icon: <Video className="h-4 w-4" />,
     starterPrompt: "Create a video script for ",
+  },
+  {
+    id: "video-edit",
+    label: "Video Edit",
+    icon: <Scissors className="h-4 w-4" />,
+    starterPrompt: "",
   },
 ];
 
@@ -293,7 +301,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
-  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2">("veo");
+  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2" | "luma">("veo");
   const [sora2Prompt, setSora2Prompt] = useState("");
   const [sora2TaskId, setSora2TaskId] = useState<string | null>(null);
   const [sora2Status, setSora2Status] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
@@ -317,6 +325,26 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [completedVideos, setCompletedVideos] = useState<Array<{ url: string; roomType: string; label: string }>>([]);
   const [combiningVideos, setCombiningVideos] = useState(false);
   const pendingVideoDataRef = useRef<Map<string, { label: string; spaceType: string }>>(new Map());
+  const [lumaPrompt, setLumaPrompt] = useState("");
+  const [lumaTaskId, setLumaTaskId] = useState<string | null>(null);
+  const [lumaStatus, setLumaStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [lumaVideoUrl, setLumaVideoUrl] = useState<string | null>(null);
+  const lumaPollRef = useRef<NodeJS.Timeout | null>(null);
+  const lumaStartTimeRef = useRef<number | null>(null);
+  const [lumaElapsed, setLumaElapsed] = useState(0);
+  const lumaElapsedRef = useRef<NodeJS.Timeout | null>(null);
+  const [lumaImages, setLumaImages] = useState<Array<{ url: string; preview: string }>>([]);
+  const [lumaImageUploading, setLumaImageUploading] = useState(false);
+  const [lumaModel, setLumaModel] = useState<"ray-2" | "ray-flash-2">("ray-2");
+  const [lumaAspectRatio, setLumaAspectRatio] = useState<"16:9" | "9:16" | "1:1">("16:9");
+  const [lumaDuration, setLumaDuration] = useState<string>("5s");
+  const [lumaLoop, setLumaLoop] = useState(false);
+  const lumaImageInputRef = useRef<HTMLInputElement>(null);
+  const [videoEditMode, setVideoEditMode] = useState(false);
+  const [userVideos, setUserVideos] = useState<Array<{ id: number; title: string; videoUrl: string; thumbnailUrl?: string | null; createdAt: string }>>([]);
+  const [userVideosLoading, setUserVideosLoading] = useState(false);
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<number>>(new Set());
+  const [stitchingVideos, setStitchingVideos] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -592,6 +620,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const handleQuickAction = (action: QuickAction) => {
     if (action.id === "generate-video") {
       setVideoMode(true);
+      return;
+    }
+    if (action.id === "video-edit") {
+      setVideoEditMode(true);
+      fetchUserVideos();
       return;
     }
     setInput(action.starterPrompt);
@@ -874,6 +907,235 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     } catch (error: any) {
       setSora2Status("failed");
       toast({ title: "Sora 2 Failed", description: error?.message || "Could not start Sora 2 video", variant: "destructive" });
+    }
+  };
+
+  const stopLumaPolling = () => {
+    if (lumaPollRef.current) {
+      clearInterval(lumaPollRef.current);
+      lumaPollRef.current = null;
+    }
+    if (lumaElapsedRef.current) {
+      clearInterval(lumaElapsedRef.current);
+      lumaElapsedRef.current = null;
+    }
+    lumaStartTimeRef.current = null;
+    setLumaElapsed(0);
+  };
+
+  const cancelLumaGeneration = () => {
+    stopLumaPolling();
+    setLumaStatus("idle");
+    setLumaTaskId(null);
+    setLumaVideoUrl(null);
+    toast({ title: "Video Generation Cancelled", description: "Luma Ray 2 video generation has been cancelled." });
+  };
+
+  const startLumaPolling = (taskId: string) => {
+    stopLumaPolling();
+    lumaStartTimeRef.current = Date.now();
+    setLumaElapsed(0);
+    lumaElapsedRef.current = setInterval(() => {
+      if (lumaStartTimeRef.current) {
+        setLumaElapsed(Math.floor((Date.now() - lumaStartTimeRef.current) / 1000));
+      }
+    }, 1000);
+    lumaPollRef.current = setInterval(async () => {
+      try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`/api/luma/status/${taskId}`, { headers, credentials: "include" });
+        const data = await res.json();
+        if (data.status === "completed" && data.videoUrl) {
+          setLumaStatus("completed");
+          setLumaVideoUrl(data.videoUrl);
+          stopLumaPolling();
+          const assistantMsg: Message = {
+            role: "assistant",
+            content: "Your Luma Ray 2 AI video is ready!",
+            videoUrl: data.videoUrl,
+          };
+          setMessages(prev => [...prev, assistantMsg]);
+          setVideoMode(false);
+          toast({ title: "Luma Ray 2 Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
+          const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+          if (token) notifyHeaders["Authorization"] = `Bearer ${token}`;
+          fetch("/api/luma/notify-completion", {
+            method: "POST",
+            headers: notifyHeaders,
+            credentials: "include",
+            body: JSON.stringify({ videoUrl: data.videoUrl, taskId }),
+          }).catch((err) => console.warn("Luma completion notification failed:", err));
+        } else if (data.status === "failed") {
+          setLumaStatus("failed");
+          stopLumaPolling();
+          toast({ title: "Luma Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+        } else {
+          setLumaStatus(data.status === "processing" ? "processing" : "pending");
+        }
+      } catch (err) {
+        console.error("Luma poll error:", err);
+      }
+    }, 10000);
+  };
+
+  const startLumaGeneration = async () => {
+    if (!lumaPrompt.trim()) {
+      toast({ title: "Prompt Required", description: "Please enter a video prompt.", variant: "destructive" });
+      return;
+    }
+    setLumaStatus("pending");
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const bodyData: Record<string, any> = {
+        prompt: lumaPrompt,
+        model: lumaModel,
+        aspectRatio: lumaAspectRatio,
+        duration: lumaDuration,
+        loop: lumaLoop,
+      };
+      if (lumaImages.length > 0) {
+        bodyData.keyframeImageUrl = lumaImages[0].url;
+      }
+      const res = await fetch("/api/luma/create-video", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify(bodyData),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.taskId) {
+        throw new Error(data.error || "Failed to start Luma Ray 2");
+      }
+      setLumaTaskId(data.taskId);
+      setLumaStatus("processing");
+      startLumaPolling(data.taskId);
+      const imageNote = lumaImages.length > 0 ? " (with reference image)" : "";
+      const userMsg: Message = { role: "user", content: `Generate a Luma Ray 2 video${imageNote}: ${lumaPrompt}` };
+      const assistantMsg: Message = { role: "assistant", content: `Luma Ray 2 (${lumaModel}) is creating your video. This usually takes 1–5 minutes. I'll show it here when it's ready...` };
+      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      setLumaImages([]);
+      setLumaPrompt("");
+      setVideoMode(false);
+      toast({ title: "Luma Video Started!", description: "Luma Ray 2 AI is generating your video. Please wait a few minutes." });
+    } catch (error: any) {
+      setLumaStatus("failed");
+      toast({ title: "Luma Failed", description: error?.message || "Could not start Luma Ray 2 video", variant: "destructive" });
+    }
+  };
+
+  const handleLumaImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (lumaImages.length >= 1) {
+      toast({ title: "Maximum images reached", description: "Luma supports 1 keyframe image.", variant: "destructive" });
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file type", description: "Please upload an image file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Image must be under 10MB.", variant: "destructive" });
+      return;
+    }
+    setLumaImageUploading(true);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/upload/video-source", {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("Failed to upload image");
+      const data = await response.json();
+      setLumaImages([{ url: data.url, preview: previewUrl }]);
+      toast({ title: "Image added", description: "Keyframe image added for image-to-video generation." });
+    } catch (error) {
+      toast({ title: "Upload failed", description: "Failed to upload image. Please try again.", variant: "destructive" });
+      URL.revokeObjectURL(previewUrl);
+    } finally {
+      setLumaImageUploading(false);
+      if (lumaImageInputRef.current) lumaImageInputRef.current.value = "";
+    }
+  };
+
+  const removeLumaImage = () => {
+    if (lumaImages[0]?.preview) URL.revokeObjectURL(lumaImages[0].preview);
+    setLumaImages([]);
+  };
+
+  const fetchUserVideos = async () => {
+    setUserVideosLoading(true);
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/videos?status=ready", { headers, credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setUserVideos(data.filter((v: any) => v.videoUrl));
+      }
+    } catch (error) {
+      console.error("Failed to fetch user videos:", error);
+    } finally {
+      setUserVideosLoading(false);
+    }
+  };
+
+  const toggleVideoSelection = (id: number) => {
+    setSelectedVideoIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleStitchVideos = async () => {
+    const selectedUrls = userVideos
+      .filter(v => selectedVideoIds.has(v.id))
+      .map(v => v.videoUrl);
+    if (selectedUrls.length < 2) {
+      toast({ title: "Select More Videos", description: "Please select at least 2 videos to stitch together.", variant: "destructive" });
+      return;
+    }
+    setStitchingVideos(true);
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/ai/veo/combine", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ videoUrls: selectedUrls, title: "Stitched Video" }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to stitch videos");
+      }
+      const data = await res.json();
+      const assistantMsg: Message = {
+        role: "assistant",
+        content: `Video stitch complete! Combined ${selectedUrls.length} clips into one video:`,
+        videoUrl: data.videoUrl,
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      setVideoEditMode(false);
+      setSelectedVideoIds(new Set());
+      toast({ title: "Videos Stitched!", description: `Combined ${selectedUrls.length} videos into one.` });
+    } catch (error: any) {
+      toast({ title: "Stitch Failed", description: error?.message || "Failed to stitch videos", variant: "destructive" });
+    } finally {
+      setStitchingVideos(false);
     }
   };
 
@@ -1222,7 +1484,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
           <div className="flex-1 flex flex-col overflow-hidden">
 
-        {!videoMode && (
+        {!videoMode && !videoEditMode && (
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <div className="flex items-center gap-3 mb-3">
               <label className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">AI Provider:</label>
@@ -1294,6 +1556,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       <div className="flex flex-col">
                         <span>Sora 2 (OpenAI)</span>
                         <span className="text-xs text-gray-500">HD cinematic AI video generation — 3-10 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="luma">
+                      <div className="flex flex-col">
+                        <span>Luma Ray 2</span>
+                        <span className="text-xs text-gray-500">Fast coherent motion, ultra-realistic — 1-5 min</span>
                       </div>
                     </SelectItem>
                   </SelectContent>
@@ -1407,6 +1675,164 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         variant="outline"
                         className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
                         data-testid="button-cancel-sora2-assistant"
+                      >
+                        <X className="h-4 w-4 mr-1" />Cancel
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Luma Ray 2 flow */}
+              {assistantVideoPlatform === "luma" && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Video Prompt</label>
+                    <textarea
+                      value={lumaPrompt}
+                      onChange={(e) => setLumaPrompt(e.target.value)}
+                      placeholder="e.g. A cinematic aerial shot of a luxury beachfront property at sunset, smooth camera movement revealing the pool and garden..."
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                      rows={3}
+                      data-testid="input-luma-prompt"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Model</label>
+                      <Select value={lumaModel} onValueChange={(v) => setLumaModel(v as typeof lumaModel)}>
+                        <SelectTrigger className="w-full h-8 text-xs" data-testid="select-luma-model">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ray-2">Ray 2 (Best)</SelectItem>
+                          <SelectItem value="ray-flash-2">Ray Flash 2 (Fast)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Aspect Ratio</label>
+                      <Select value={lumaAspectRatio} onValueChange={(v) => setLumaAspectRatio(v as typeof lumaAspectRatio)}>
+                        <SelectTrigger className="w-full h-8 text-xs" data-testid="select-luma-aspect">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="16:9">16:9 Landscape</SelectItem>
+                          <SelectItem value="9:16">9:16 Portrait</SelectItem>
+                          <SelectItem value="1:1">1:1 Square</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Duration</label>
+                      <Select value={lumaDuration} onValueChange={setLumaDuration}>
+                        <SelectTrigger className="w-full h-8 text-xs" data-testid="select-luma-duration">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5s">5 seconds</SelectItem>
+                          <SelectItem value="9s">9 seconds</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="luma-loop"
+                      checked={lumaLoop}
+                      onCheckedChange={(checked) => setLumaLoop(checked === true)}
+                      data-testid="checkbox-luma-loop"
+                    />
+                    <label htmlFor="luma-loop" className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                      Seamless loop
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                      Keyframe Image (optional — image-to-video)
+                    </label>
+                    <input
+                      ref={lumaImageInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLumaImageUpload}
+                      className="hidden"
+                      data-testid="input-luma-image-file"
+                    />
+                    <div className="space-y-2">
+                      {lumaImages.map((img, index) => (
+                        <div key={index} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
+                          <div className="relative w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                            <img src={img.preview || img.url} alt="Keyframe" className="w-full h-full object-cover" />
+                          </div>
+                          <span className="flex-1 text-xs text-gray-500 dark:text-gray-400 truncate">Keyframe image</span>
+                          <button
+                            onClick={removeLumaImage}
+                            className="p-1 bg-red-500 text-white rounded-full hover:bg-red-600 flex-shrink-0"
+                            data-testid="button-remove-luma-image"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {lumaImages.length === 0 && (
+                        <div
+                          onClick={() => !lumaImageUploading && lumaImageInputRef.current?.click()}
+                          className={cn(
+                            "border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg py-2.5 flex items-center justify-center gap-2 cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors",
+                            lumaImageUploading && "opacity-50 cursor-wait"
+                          )}
+                          data-testid="button-upload-luma-image"
+                        >
+                          {lumaImageUploading ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                          ) : (
+                            <>
+                              <Upload className="h-4 w-4 text-gray-400" />
+                              <span className="text-xs text-gray-500">Add Keyframe Image (optional)</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {(lumaStatus === "pending" || lumaStatus === "processing") && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Luma Ray 2 is generating your video ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                      </div>
+                      {lumaElapsed >= 300 && (
+                        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="luma-timeout-warning">
+                          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                          <span>This is taking longer than expected. You can keep waiting or cancel.</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={startLumaGeneration}
+                      disabled={lumaStatus === "pending" || lumaStatus === "processing" || !lumaPrompt.trim()}
+                      className="flex-1 bg-primary hover:bg-primary/90"
+                      data-testid="button-generate-luma-assistant"
+                    >
+                      {(lumaStatus === "pending" || lumaStatus === "processing") ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />Generating...</>
+                      ) : (
+                        <><Video className="h-4 w-4 mr-2" />Generate with Luma Ray 2</>
+                      )}
+                    </Button>
+                    {(lumaStatus === "pending" || lumaStatus === "processing") && (
+                      <Button
+                        onClick={cancelLumaGeneration}
+                        variant="outline"
+                        className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                        data-testid="button-cancel-luma-assistant"
                       >
                         <X className="h-4 w-4 mr-1" />Cancel
                       </Button>
@@ -1719,7 +2145,99 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           </div>
         )}
 
-        {!videoMode && (
+        {videoEditMode && (
+          <div className="flex-1 px-4 py-3 bg-orange-50 dark:bg-orange-900/20 overflow-y-auto">
+            <div className="flex items-center gap-2 mb-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setVideoEditMode(false); setSelectedVideoIds(new Set()); }}
+                className="h-7 px-2"
+                data-testid="button-exit-video-edit-mode"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back
+              </Button>
+              <h4 className="font-medium text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                <Scissors className="h-4 w-4 text-orange-600" />
+                Video Edit / Stitch
+              </h4>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+              Select 2 or more videos to combine into one with crossfade transitions.
+            </p>
+
+            {userVideosLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                <span className="ml-2 text-sm text-gray-500">Loading your videos...</span>
+              </div>
+            ) : userVideos.length === 0 ? (
+              <div className="text-center py-8">
+                <Video className="h-10 w-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">No videos found</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Generate some videos first using the Video generator.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[350px] overflow-y-auto">
+                {userVideos.map((video) => {
+                  const isSelected = selectedVideoIds.has(video.id);
+                  const selectionOrder = isSelected ? Array.from(selectedVideoIds).indexOf(video.id) + 1 : 0;
+                  return (
+                    <div
+                      key={video.id}
+                      onClick={() => toggleVideoSelection(video.id)}
+                      className={cn(
+                        "flex items-center gap-3 p-2 rounded-lg cursor-pointer border transition-colors",
+                        isSelected
+                          ? "border-orange-500 bg-orange-100 dark:bg-orange-900/30"
+                          : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-orange-300"
+                      )}
+                      data-testid={`video-edit-item-${video.id}`}
+                    >
+                      <div className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold",
+                        isSelected ? "bg-orange-500 text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-500"
+                      )}>
+                        {isSelected ? selectionOrder : <Check className="h-3 w-3" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                          {video.title || "Untitled Video"}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(video.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {selectedVideoIds.size > 0 && (
+              <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                {selectedVideoIds.size} video{selectedVideoIds.size !== 1 ? "s" : ""} selected
+              </p>
+            )}
+
+            <Button
+              onClick={handleStitchVideos}
+              disabled={stitchingVideos || selectedVideoIds.size < 2}
+              className="w-full mt-3 bg-orange-600 hover:bg-orange-700"
+              data-testid="button-stitch-videos"
+            >
+              {stitchingVideos ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-2" />Stitching Videos...</>
+              ) : (
+                <><Scissors className="h-4 w-4 mr-2" />Stitch {selectedVideoIds.size} Videos</>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {!videoMode && !videoEditMode && (
         <div
           ref={scrollAreaRef}
           className="flex-1 min-h-0 overflow-y-auto px-4 py-4"
@@ -1871,7 +2389,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         </div>
         )}
 
-        {!videoMode && (
+        {!videoMode && !videoEditMode && (
         <div className="px-4 py-4 border-t border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-gray-800/50">
           {selectedFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">

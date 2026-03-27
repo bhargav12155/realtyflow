@@ -55,6 +55,7 @@ import { storage } from "./storage";
 import twilio from "twilio";
 import { realtimeService } from "./websocket";
 import { sora2Service } from "./services/sora2";
+import { lumaService } from "./services/luma";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -23095,6 +23096,82 @@ Be helpful, professional, and concise. Always let users know what the platform c
     } catch (error: any) {
       console.error("Video proxy error:", error);
       res.status(500).json({ error: "Failed to proxy video" });
+    }
+  });
+
+  // =====================================================
+  // Luma Ray 2 AI Video Generation Routes
+  // =====================================================
+  const lumaTaskOwners = new Map<string, string>();
+
+  app.post("/api/luma/create-video", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { prompt, model, aspectRatio, duration, loop, keyframeImageUrl } = req.body;
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+      const result = await lumaService.createVideoTask(prompt, {
+        model: model || "ray-2",
+        aspectRatio: aspectRatio || undefined,
+        duration: duration || undefined,
+        loop: loop || false,
+        keyframeImageUrl: keyframeImageUrl || undefined,
+      });
+      lumaTaskOwners.set(result.taskId, userId);
+      res.json({ taskId: result.taskId });
+    } catch (error: any) {
+      console.error("Luma create-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to start Luma video task" });
+    }
+  });
+
+  app.get("/api/luma/status/:taskId", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { taskId } = req.params;
+      if (!taskId) {
+        return res.status(400).json({ error: "taskId is required" });
+      }
+      const owner = lumaTaskOwners.get(taskId);
+      if (owner && owner !== userId) {
+        return res.status(403).json({ error: "Not authorized to view this task" });
+      }
+      const status = await lumaService.getTaskStatus(taskId);
+      if (status.status === "completed" || status.status === "failed") {
+        lumaTaskOwners.delete(taskId);
+      }
+      res.json(status);
+    } catch (error: any) {
+      console.error("Luma status error:", error);
+      res.status(500).json({ error: error.message || "Failed to get Luma task status" });
+    }
+  });
+
+  app.post("/api/luma/notify-completion", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const { videoUrl, taskId } = req.body;
+      if (!videoUrl || !taskId) {
+        return res.status(400).json({ error: "videoUrl and taskId are required" });
+      }
+      await db
+        .insert(videoContent)
+        .values({
+          userId: String(userId),
+          title: `Luma Ray 2 Video`,
+          script: `Generated via Luma Ray 2 (Task: ${taskId})`,
+          videoUrl: videoUrl,
+          status: "ready",
+        })
+        .catch((err: any) => {
+          console.warn("Failed to save Luma video to DB:", err?.message);
+        });
+      console.log(`✅ [Luma] Video saved for user ${userId}: ${videoUrl}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Luma notify-completion error:", error);
+      res.status(500).json({ error: error.message || "Failed to send notification" });
     }
   });
 

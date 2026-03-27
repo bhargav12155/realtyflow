@@ -2082,22 +2082,46 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
           downloadedFiles.push(tempFile);
         }
 
-        // Create concat file for ffmpeg
-        const concatListPath = path.join(tempDir, "concat_list.txt");
-        const concatContent = downloadedFiles.map(f => `file '${f}'`).join("\n");
-        await fs.writeFile(concatListPath, concatContent);
-
         // Output file
         const outputFile = path.join(tempDir, "combined_tour.mp4");
 
-        // Run ffmpeg to combine videos with re-encoding for compatibility
-        console.log(`🔧 [VEO Combine] Running ffmpeg to combine videos...`);
+        console.log(`🔧 [VEO Combine] Running ffmpeg to combine ${downloadedFiles.length} videos with crossfade...`);
         
-        // Re-encode to ensure compatible codec/resolution across all videos
-        // Using H.264 with AAC audio for maximum compatibility
-        const ffmpegCmd = `ffmpeg -f concat -safe 0 -i "${concatListPath}" -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -movflags +faststart -y "${outputFile}"`;
+        const fadeDuration = 0.5;
         
-        await execAsync(ffmpegCmd, { timeout: 300000 }); // 5 minute timeout for re-encoding
+        if (downloadedFiles.length === 2) {
+          const probeDuration = async (file: string): Promise<number> => {
+            try {
+              const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+              return parseFloat(stdout.trim()) || 5;
+            } catch { return 5; }
+          };
+          const dur0 = await probeDuration(downloadedFiles[0]);
+          const offset = Math.max(dur0 - fadeDuration, 0.5);
+          const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+          await execAsync(ffmpegCmd, { timeout: 300000 });
+        } else {
+          const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+          let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
+          let prevOutput = "n0";
+          const probeDuration = async (file: string): Promise<number> => {
+            try {
+              const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+              return parseFloat(stdout.trim()) || 5;
+            } catch { return 5; }
+          };
+          let accDuration = await probeDuration(downloadedFiles[0]);
+          for (let i = 1; i < downloadedFiles.length; i++) {
+            const offset = Math.max(accDuration - fadeDuration, 0.5);
+            const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
+            filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
+            const nextDur = await probeDuration(downloadedFiles[i]);
+            accDuration = offset + nextDur;
+            prevOutput = outLabel;
+          }
+          const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+          await execAsync(ffmpegCmd, { timeout: 300000 });
+        }
 
         // Read the combined video
         const combinedVideoBuffer = await fs.readFile(outputFile);

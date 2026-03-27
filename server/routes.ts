@@ -9205,6 +9205,48 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  app.post("/api/videos/upload", requireAuth, videoUpload.single("video"), async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      if (!userId) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No video file provided" });
+      }
+
+      const fs = await import("fs/promises");
+      const fileBuffer = await fs.readFile(req.file.path);
+
+      const s3Service = new UnifiedUploadService();
+      const s3Key = `videos/uploads/${userId}/${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const publicUrl = await s3Service.uploadBuffer(fileBuffer, s3Key, req.file.mimetype || "video/mp4", true);
+
+      await fs.unlink(req.file.path).catch(() => {});
+
+      const [video] = await db
+        .insert(videoContent)
+        .values({
+          userId,
+          title: req.file.originalname.replace(/\.[^.]+$/, "") || "Uploaded Video",
+          script: "User uploaded video",
+          videoUrl: publicUrl,
+          status: "ready",
+        })
+        .returning();
+
+      console.log(`✅ [VideoUpload] Video uploaded for user ${userId}: ${publicUrl}`);
+      res.json({ success: true, video });
+    } catch (error: any) {
+      if (req.file?.path) {
+        const fs = await import("fs/promises");
+        await fs.unlink(req.file.path).catch(() => {});
+      }
+      console.error("Video upload error:", error);
+      res.status(500).json({ error: error.message || "Failed to upload video" });
+    }
+  });
+
   app.put("/api/videos/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;

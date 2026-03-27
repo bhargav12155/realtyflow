@@ -345,6 +345,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [userVideosLoading, setUserVideosLoading] = useState(false);
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<number>>(new Set());
   const [stitchingVideos, setStitchingVideos] = useState(false);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const videoUploadInputRef = useRef<HTMLInputElement>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -1136,6 +1138,51 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       toast({ title: "Stitch Failed", description: error?.message || "Failed to stitch videos", variant: "destructive" });
     } finally {
       setStitchingVideos(false);
+    }
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (e.target) e.target.value = "";
+    if (!file.type.startsWith("video/")) {
+      toast({ title: "Invalid File", description: "Please select a video file (MP4, WebM, MOV).", variant: "destructive" });
+      return;
+    }
+    if (file.size > 500 * 1024 * 1024) {
+      toast({ title: "File Too Large", description: "Maximum file size is 500MB.", variant: "destructive" });
+      return;
+    }
+    setUploadingVideo(true);
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append("video", file);
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/videos/upload", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Upload failed");
+      }
+      toast({ title: "Video Uploaded", description: `"${file.name}" has been added to your videos.` });
+      const vidToken = getAuthToken();
+      const vidHeaders: Record<string, string> = {};
+      if (vidToken) vidHeaders["Authorization"] = `Bearer ${vidToken}`;
+      const videosRes = await fetch("/api/videos?status=ready", { headers: vidHeaders, credentials: "include" });
+      if (videosRes.ok) {
+        const videosData = await videosRes.json();
+        setUserVideos(videosData);
+      }
+    } catch (error: any) {
+      toast({ title: "Upload Failed", description: error?.message || "Failed to upload video", variant: "destructive" });
+    } finally {
+      setUploadingVideo(false);
     }
   };
 
@@ -2162,6 +2209,30 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                 <Scissors className="h-4 w-4 text-orange-600" />
                 Video Edit / Stitch
               </h4>
+              <div className="ml-auto">
+                <input
+                  ref={videoUploadInputRef}
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime,video/*"
+                  className="hidden"
+                  onChange={handleVideoUpload}
+                  data-testid="input-video-upload"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => videoUploadInputRef.current?.click()}
+                  disabled={uploadingVideo}
+                  className="h-7 px-2 text-xs"
+                  data-testid="button-upload-video"
+                >
+                  {uploadingVideo ? (
+                    <><Loader2 className="h-3 w-3 animate-spin mr-1" />Uploading...</>
+                  ) : (
+                    <><Upload className="h-3 w-3 mr-1" />Upload</>
+                  )}
+                </Button>
+              </div>
             </div>
 
             <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
@@ -2177,7 +2248,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               <div className="text-center py-8">
                 <Video className="h-10 w-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
                 <p className="text-sm text-gray-500 dark:text-gray-400">No videos found</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Generate some videos first using the Video generator.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Upload a video or generate some using the Video generator.</p>
               </div>
             ) : (
               <div className="space-y-2 max-h-[350px] overflow-y-auto">

@@ -2202,6 +2202,16 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       )}>
                         {isSelected ? selectionOrder : <Check className="h-3 w-3" />}
                       </div>
+                      {video.videoUrl && (
+                        <div className="w-16 h-10 rounded overflow-hidden flex-shrink-0 bg-black">
+                          <video
+                            src={video.videoUrl}
+                            className="w-full h-full object-cover"
+                            muted
+                            preload="metadata"
+                          />
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                           {video.title || "Untitled Video"}

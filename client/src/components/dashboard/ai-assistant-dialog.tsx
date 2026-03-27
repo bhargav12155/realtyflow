@@ -2229,7 +2229,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   {uploadingVideo ? (
                     <><Loader2 className="h-3 w-3 animate-spin mr-1" />Uploading...</>
                   ) : (
-                    <><Upload className="h-3 w-3 mr-1" />Upload</>
+                    <><Upload className="h-3 w-3 mr-1" />Upload Video</>
                   )}
                 </Button>
               </div>

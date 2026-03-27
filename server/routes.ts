@@ -23134,7 +23134,10 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "taskId is required" });
       }
       const owner = lumaTaskOwners.get(taskId);
-      if (owner && owner !== userId) {
+      if (!owner) {
+        return res.status(403).json({ error: "Task ownership expired. Please create a new video." });
+      }
+      if (owner !== userId) {
         return res.status(403).json({ error: "Not authorized to view this task" });
       }
       const status = await lumaService.getTaskStatus(taskId);

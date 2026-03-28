@@ -23405,7 +23405,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "Invalid video URL format" });
       }
 
-      const dur = Math.min(Math.max(Number(duration), 1), 10);
+      const dur = [5, 10].includes(Number(duration)) ? Number(duration) : 10;
       console.log(`✂️ [Runway] Trimming video to ${dur}s for user ${userId}`);
 
       const { exec } = await import("child_process");
@@ -23483,8 +23483,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "Invalid video URL format" });
       }
 
-      const clipDur = clipDuration || 10;
-      const totalDur = totalDuration || 30;
+      const clipDur = [5, 10].includes(Number(clipDuration)) ? Number(clipDuration) : 10;
+      const totalDur = [20, 30].includes(Number(totalDuration)) ? Number(totalDuration) : 20;
       const numSegments = Math.ceil(totalDur / clipDur);
 
       if (numSegments < 2 || numSegments > 6) {

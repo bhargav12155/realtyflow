@@ -23370,6 +23370,316 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.post("/api/runway/split-video", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { videoUrl, clipDuration, totalDuration } = req.body;
+
+      if (!videoUrl) {
+        return res.status(400).json({ error: "videoUrl is required" });
+      }
+
+      const clipDur = clipDuration || 10;
+      const totalDur = totalDuration || 30;
+      const numSegments = Math.ceil(totalDur / clipDur);
+
+      if (numSegments < 2 || numSegments > 6) {
+        return res.status(400).json({ error: "Total duration must produce 2-6 segments" });
+      }
+
+      console.log(`✂️ [Runway] Splitting video into ${numSegments} segments of ${clipDur}s for user ${userId}`);
+
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const os = await import("os");
+
+      const tempDir = path.join(os.tmpdir(), `runway-split-${Date.now()}`);
+      await fs.mkdir(tempDir, { recursive: true });
+
+      try {
+        const sourceFile = path.join(tempDir, "source.mp4");
+        const response = await fetch(videoUrl);
+        if (!response.ok) throw new Error("Failed to download source video");
+        const buffer = Buffer.from(await response.arrayBuffer());
+        await fs.writeFile(sourceFile, buffer);
+
+        const { stdout: durOut } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${sourceFile}"`).catch(() => ({ stdout: "0" }));
+        const sourceDuration = parseFloat(durOut.trim()) || 0;
+        console.log(`📏 [Runway] Source video duration: ${sourceDuration}s`);
+
+        if (sourceDuration < totalDur) {
+          console.log(`⚠️ [Runway] Source video (${sourceDuration}s) shorter than requested total (${totalDur}s). Will loop/extend segments.`);
+        }
+
+        const { UnifiedUploadService } = await import("./services/unifiedUpload");
+        const s3Service = new UnifiedUploadService();
+        const segmentUrls: string[] = [];
+
+        for (let i = 0; i < numSegments; i++) {
+          const startTime = (i * clipDur) % Math.max(sourceDuration, clipDur);
+          const segmentFile = path.join(tempDir, `segment_${i}.mp4`);
+
+          const ffmpegCmd = `ffmpeg -y -ss ${startTime} -i "${sourceFile}" -t ${clipDur} -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${segmentFile}"`;
+          await execAsync(ffmpegCmd, { timeout: 60000 });
+
+          const segBuffer = await fs.readFile(segmentFile);
+          const s3Key = `runway-segments/${userId}/${Date.now()}-seg${i}.mp4`;
+          const segUrl = await s3Service.uploadBuffer(segBuffer, s3Key, "video/mp4", true, 3600);
+          segmentUrls.push(segUrl);
+
+          console.log(`✅ [Runway] Segment ${i + 1}/${numSegments} uploaded`);
+        }
+
+        await fs.rm(tempDir, { recursive: true, force: true });
+        res.json({ segmentUrls, numSegments });
+      } catch (err: any) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        throw err;
+      }
+    } catch (error: any) {
+      console.error("Runway split-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to split video" });
+    }
+  });
+
+  app.post("/api/runway/create-extended-video", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { segmentUrls, promptText, referenceImageUrl } = req.body;
+
+      if (!Array.isArray(segmentUrls) || segmentUrls.length < 2) {
+        return res.status(400).json({ error: "At least 2 segment URLs are required" });
+      }
+
+      if (!promptText || typeof promptText !== "string") {
+        return res.status(400).json({ error: "promptText is required" });
+      }
+
+      const batchId = runwayService.createBatch(userId, segmentUrls.length, promptText);
+
+      console.log(`🎬 [Runway] Creating extended video batch ${batchId}: ${segmentUrls.length} segments for user ${userId}`);
+
+      for (let i = 0; i < segmentUrls.length; i++) {
+        try {
+          const result = await runwayService.createVideoToVideoTask(segmentUrls[i], promptText, {
+            referenceImageUrl: referenceImageUrl || undefined,
+          });
+          runwayService.addTaskToBatch(batchId, result.taskId);
+          runwayTaskOwners.set(result.taskId, userId);
+          console.log(`✅ [Runway] Segment ${i + 1} task created: ${result.taskId}`);
+        } catch (err: any) {
+          console.error(`❌ [Runway] Failed to create task for segment ${i + 1}:`, err.message);
+          runwayService.markBatchSegmentFailed(batchId, i);
+          runwayService.addTaskToBatch(batchId, `FAILED_${i}`);
+        }
+      }
+
+      const batch = runwayService.getBatch(batchId);
+      if (batch && batch.failedSegments.size === batch.totalSegments) {
+        runwayService.updateBatchStatus(batchId, "failed");
+        return res.status(500).json({ error: "All segment tasks failed to start" });
+      }
+
+      runwayService.updateBatchStatus(batchId, "processing");
+      res.json({ batchId, totalSegments: segmentUrls.length });
+    } catch (error: any) {
+      console.error("Runway create-extended-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to create extended video" });
+    }
+  });
+
+  app.get("/api/runway/batch-status/:batchId", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { batchId } = req.params;
+
+      const batch = runwayService.getBatch(batchId);
+      if (!batch) {
+        return res.status(404).json({ error: "Batch not found or expired" });
+      }
+      if (batch.userId !== userId) {
+        return res.status(403).json({ error: "Not authorized to view this batch" });
+      }
+
+      if (batch.status === "completed") {
+        return res.json({
+          status: "completed",
+          videoUrl: batch.stitchedVideoUrl,
+          completedSegments: batch.completedVideoUrls.size,
+          totalSegments: batch.totalSegments,
+        });
+      }
+
+      if (batch.status === "failed") {
+        return res.json({
+          status: "failed",
+          completedSegments: batch.completedVideoUrls.size,
+          failedSegments: batch.failedSegments.size,
+          totalSegments: batch.totalSegments,
+          error: "Some segments failed to generate",
+        });
+      }
+
+      if (batch.status === "stitching") {
+        return res.json({
+          status: "stitching",
+          completedSegments: batch.completedVideoUrls.size,
+          totalSegments: batch.totalSegments,
+        });
+      }
+
+      for (let i = 0; i < batch.taskIds.length; i++) {
+        const taskId = batch.taskIds[i];
+        if (taskId.startsWith("FAILED_") || batch.completedVideoUrls.has(i) || batch.failedSegments.has(i)) {
+          continue;
+        }
+
+        try {
+          const status = await runwayService.getTaskStatus(taskId);
+          if (status.status === "completed" && status.videoUrl) {
+            runwayService.updateBatchSegment(batchId, i, status.videoUrl);
+            runwayTaskOwners.delete(taskId);
+          } else if (status.status === "failed") {
+            runwayService.markBatchSegmentFailed(batchId, i);
+            runwayTaskOwners.delete(taskId);
+          }
+        } catch {
+          // keep polling
+        }
+      }
+
+      const updatedBatch = runwayService.getBatch(batchId)!;
+      const done = updatedBatch.completedVideoUrls.size + updatedBatch.failedSegments.size;
+
+      if (done === updatedBatch.totalSegments) {
+        if (updatedBatch.completedVideoUrls.size === 0) {
+          runwayService.updateBatchStatus(batchId, "failed");
+          return res.json({
+            status: "failed",
+            completedSegments: 0,
+            failedSegments: updatedBatch.failedSegments.size,
+            totalSegments: updatedBatch.totalSegments,
+            error: "All segments failed to generate",
+          });
+        }
+
+        if (updatedBatch.failedSegments.size > 0) {
+          console.log(`⚠️ [Runway] Batch ${batchId}: ${updatedBatch.failedSegments.size}/${updatedBatch.totalSegments} segments failed, stitching ${updatedBatch.completedVideoUrls.size} successful clips`);
+        }
+
+        runwayService.updateBatchStatus(batchId, "stitching");
+
+        (async () => {
+          try {
+            const videoUrls: string[] = [];
+            for (let i = 0; i < updatedBatch.totalSegments; i++) {
+              const url = updatedBatch.completedVideoUrls.get(i);
+              if (url) videoUrls.push(url);
+            }
+
+            if (videoUrls.length < 2) {
+              const singleUrl = videoUrls[0] || "";
+              runwayService.updateBatchStatus(batchId, "completed", singleUrl);
+              return;
+            }
+
+            console.log(`🔗 [Runway] Stitching ${videoUrls.length} segments for batch ${batchId}`);
+
+            const { exec } = await import("child_process");
+            const { promisify } = await import("util");
+            const execAsync = promisify(exec);
+            const fsP = await import("fs/promises");
+            const pathM = await import("path");
+            const osM = await import("os");
+
+            const tempDir = pathM.join(osM.tmpdir(), `runway-stitch-${Date.now()}`);
+            await fsP.mkdir(tempDir, { recursive: true });
+
+            try {
+              const downloadedFiles: string[] = [];
+              for (let i = 0; i < videoUrls.length; i++) {
+                const tempFile = pathM.join(tempDir, `video_${i}.mp4`);
+                const resp = await fetch(videoUrls[i]);
+                if (!resp.ok) throw new Error(`Failed to download segment ${i + 1}`);
+                const buf = Buffer.from(await resp.arrayBuffer());
+                await fsP.writeFile(tempFile, buf);
+                downloadedFiles.push(tempFile);
+              }
+
+              const outputFile = pathM.join(tempDir, "stitched.mp4");
+              const fadeDuration = 0.5;
+
+              const probeDuration = async (file: string): Promise<number> => {
+                try {
+                  const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+                  return parseFloat(stdout.trim()) || 5;
+                } catch { return 5; }
+              };
+
+              if (downloadedFiles.length === 2) {
+                const dur0 = await probeDuration(downloadedFiles[0]);
+                const offset = Math.max(dur0 - fadeDuration, 0.5);
+                const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                await execAsync(ffmpegCmd, { timeout: 300000 });
+              } else {
+                const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+                let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
+                let prevOutput = "n0";
+                let accDuration = await probeDuration(downloadedFiles[0]);
+                for (let i = 1; i < downloadedFiles.length; i++) {
+                  const offset = Math.max(accDuration - fadeDuration, 0.5);
+                  const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
+                  filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
+                  const nextDur = await probeDuration(downloadedFiles[i]);
+                  accDuration = offset + nextDur;
+                  prevOutput = outLabel;
+                }
+                const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                await execAsync(ffmpegCmd, { timeout: 300000 });
+              }
+
+              const combinedBuffer = await fsP.readFile(outputFile);
+              const { UnifiedUploadService } = await import("./services/unifiedUpload");
+              const uploadSvc = new UnifiedUploadService();
+              const s3Key = `videos/runway-extended/stitched-${Date.now()}-${userId}.mp4`;
+              const s3Url = await uploadSvc.uploadBuffer(combinedBuffer, s3Key, "video/mp4");
+
+              await fsP.rm(tempDir, { recursive: true, force: true });
+              runwayService.updateBatchStatus(batchId, "completed", s3Url);
+              console.log(`✅ [Runway] Extended video stitched: ${s3Url}`);
+            } catch (err: any) {
+              await fsP.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+              console.error("Runway stitch error:", err);
+              runwayService.updateBatchStatus(batchId, "failed");
+            }
+          } catch (err: any) {
+            console.error("Runway stitch outer error:", err);
+            runwayService.updateBatchStatus(batchId, "failed");
+          }
+        })();
+
+        return res.json({
+          status: "stitching",
+          completedSegments: updatedBatch.completedVideoUrls.size,
+          totalSegments: updatedBatch.totalSegments,
+        });
+      }
+
+      res.json({
+        status: "processing",
+        completedSegments: updatedBatch.completedVideoUrls.size,
+        failedSegments: updatedBatch.failedSegments.size,
+        totalSegments: updatedBatch.totalSegments,
+      });
+    } catch (error: any) {
+      console.error("Runway batch-status error:", error);
+      res.status(500).json({ error: error.message || "Failed to get batch status" });
+    }
+  });
+
   app.get("/api/business-locations", requireAuth, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.user?.claims?.sub;

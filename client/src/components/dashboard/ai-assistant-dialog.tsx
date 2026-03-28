@@ -353,6 +353,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [runwayRefUploading, setRunwayRefUploading] = useState(false);
   const runwayVideoInputRef = useRef<HTMLInputElement>(null);
   const runwayRefInputRef = useRef<HTMLInputElement>(null);
+  const [runwayTotalDuration, setRunwayTotalDuration] = useState<number>(10);
+  const [runwayBatchId, setRunwayBatchId] = useState<string | null>(null);
+  const [runwayBatchProgress, setRunwayBatchProgress] = useState<{ completed: number; total: number } | null>(null);
   const [videoEditMode, setVideoEditMode] = useState(false);
   const [userVideos, setUserVideos] = useState<Array<{ id: number; title: string; videoUrl: string; thumbnailUrl?: string | null; createdAt: string }>>([]);
   const [userVideosLoading, setUserVideosLoading] = useState(false);
@@ -1104,6 +1107,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     setRunwayStatus("idle");
     setRunwayTaskId(null);
     setRunwayVideoUrl(null);
+    setRunwayBatchId(null);
+    setRunwayBatchProgress(null);
     toast({ title: "Video Generation Cancelled", description: "Runway Gen-4 video generation has been cancelled." });
   };
 
@@ -1158,6 +1163,82 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     }, 5000);
   };
 
+  const startRunwayBatchPolling = (batchId: string) => {
+    stopRunwayPolling();
+    const startTime = Date.now();
+    setRunwayElapsed(0);
+    runwayTimerRef.current = setInterval(() => {
+      setRunwayElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
+    let batchPollFailCount = 0;
+    runwayPollRef.current = setInterval(async () => {
+      try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`/api/runway/batch-status/${batchId}`, { headers, credentials: "include" });
+        if (!res.ok) {
+          batchPollFailCount++;
+          if (batchPollFailCount >= 5) {
+            stopRunwayPolling();
+            setRunwayStatus("failed");
+            setRunwayBatchId(null);
+            setRunwayBatchProgress(null);
+            toast({ title: "Connection Lost", description: "Lost connection to batch status. Please try again.", variant: "destructive" });
+          }
+          return;
+        }
+        batchPollFailCount = 0;
+        const data = await res.json();
+
+        setRunwayBatchProgress({ completed: data.completedSegments || 0, total: data.totalSegments || 0 });
+
+        if (data.status === "completed" && data.videoUrl) {
+          stopRunwayPolling();
+          setRunwayStatus("completed");
+          setRunwayVideoUrl(data.videoUrl);
+          setRunwayBatchId(null);
+          setRunwayBatchProgress(null);
+          const videoMsg: Message = {
+            role: "assistant",
+            content: `Your extended Runway Gen-4 Aleph video (${data.totalSegments} clips stitched) is ready!`,
+            videoUrl: data.videoUrl,
+          };
+          setMessages(prev => [...prev, videoMsg]);
+          toast({ title: "Extended Video Ready!", description: `${data.totalSegments} clips generated and stitched together!` });
+
+          const notifyToken = getAuthToken();
+          const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+          if (notifyToken) notifyHeaders["Authorization"] = `Bearer ${notifyToken}`;
+          fetch("/api/runway/notify-completion", {
+            method: "POST",
+            headers: notifyHeaders,
+            credentials: "include",
+            body: JSON.stringify({ videoUrl: data.videoUrl, taskId: batchId }),
+          }).catch(() => {});
+        } else if (data.status === "failed") {
+          stopRunwayPolling();
+          setRunwayStatus("failed");
+          setRunwayBatchId(null);
+          setRunwayBatchProgress(null);
+          toast({ title: "Extended Video Failed", description: data.error || "Some segments failed to generate", variant: "destructive" });
+        } else {
+          setRunwayStatus("processing");
+        }
+      } catch {
+        batchPollFailCount++;
+        if (batchPollFailCount >= 5) {
+          stopRunwayPolling();
+          setRunwayStatus("failed");
+          setRunwayBatchId(null);
+          setRunwayBatchProgress(null);
+          toast({ title: "Connection Lost", description: "Lost connection to batch status. Please try again.", variant: "destructive" });
+        }
+      }
+    }, 8000);
+  };
+
   const handleRunwayGenerate = async () => {
     if (!runwayPrompt.trim()) {
       toast({ title: "Prompt required", description: "Please enter a video prompt.", variant: "destructive" });
@@ -1170,35 +1251,78 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
     setRunwayStatus("pending");
     setRunwayVideoUrl(null);
+    setRunwayBatchProgress(null);
+
+    const isExtended = runwayTotalDuration > 10;
 
     try {
       const token = getAuthToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch("/api/runway/create-video", {
-        method: "POST",
-        headers,
-        credentials: "include",
-        body: JSON.stringify({
-          videoUri: runwaySourceVideo.url,
-          promptText: runwayPrompt,
-          referenceImageUrl: runwayRefImage?.url || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to start Runway Gen-4");
+      if (isExtended) {
+        const splitRes = await fetch("/api/runway/split-video", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({
+            videoUrl: runwaySourceVideo.url,
+            clipDuration: 10,
+            totalDuration: runwayTotalDuration,
+          }),
+        });
+        const splitData = await splitRes.json();
+        if (!splitRes.ok) throw new Error(splitData.error || "Failed to split video");
 
-      setRunwayTaskId(data.taskId);
-      startRunwayPolling(data.taskId);
+        const batchRes = await fetch("/api/runway/create-extended-video", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({
+            segmentUrls: splitData.segmentUrls,
+            promptText: runwayPrompt,
+            referenceImageUrl: runwayRefImage?.url || undefined,
+          }),
+        });
+        const batchData = await batchRes.json();
+        if (!batchRes.ok) throw new Error(batchData.error || "Failed to start extended video");
 
-      const refNote = runwayRefImage ? " (with style reference image)" : "";
-      const userMsg: Message = { role: "user", content: `Transform video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
-      const assistantMsg: Message = { role: "assistant", content: "Runway Gen-4 Aleph is transforming your video. This typically takes 2–5 minutes. I'll show it here when it's ready..." };
-      setMessages(prev => [...prev, userMsg, assistantMsg]);
-      toast({ title: "Runway Video Started!", description: "Runway Gen-4 Aleph is transforming your video. Please wait a few minutes." });
+        setRunwayBatchId(batchData.batchId);
+        setRunwayBatchProgress({ completed: 0, total: batchData.totalSegments });
+        startRunwayBatchPolling(batchData.batchId);
+
+        const refNote = runwayRefImage ? " (with style reference)" : "";
+        const userMsg: Message = { role: "user", content: `Transform ${runwayTotalDuration}s video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
+        const assistantMsg: Message = { role: "assistant", content: `Runway Gen-4 Aleph is generating ${batchData.totalSegments} clips (${runwayTotalDuration}s total). Each clip takes 2-5 minutes, then they'll be auto-stitched together...` };
+        setMessages(prev => [...prev, userMsg, assistantMsg]);
+        toast({ title: "Extended Video Started!", description: `Generating ${batchData.totalSegments} clips for a ${runwayTotalDuration}s video.` });
+      } else {
+        const res = await fetch("/api/runway/create-video", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({
+            videoUri: runwaySourceVideo.url,
+            promptText: runwayPrompt,
+            referenceImageUrl: runwayRefImage?.url || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to start Runway Gen-4");
+
+        setRunwayTaskId(data.taskId);
+        startRunwayPolling(data.taskId);
+
+        const refNote = runwayRefImage ? " (with style reference image)" : "";
+        const userMsg: Message = { role: "user", content: `Transform video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
+        const assistantMsg: Message = { role: "assistant", content: "Runway Gen-4 Aleph is transforming your video. This typically takes 2-5 minutes. I'll show it here when it's ready..." };
+        setMessages(prev => [...prev, userMsg, assistantMsg]);
+        toast({ title: "Runway Video Started!", description: "Runway Gen-4 Aleph is transforming your video. Please wait a few minutes." });
+      }
     } catch (error: any) {
       setRunwayStatus("failed");
+      setRunwayBatchId(null);
+      setRunwayBatchProgress(null);
       toast({ title: "Runway Failed", description: error?.message || "Could not start Runway Gen-4 video", variant: "destructive" });
     }
   };
@@ -2107,6 +2231,26 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </div>
 
                   <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Total Duration</label>
+                    <Select value={String(runwayTotalDuration)} onValueChange={(v) => setRunwayTotalDuration(Number(v))}>
+                      <SelectTrigger className="w-full" data-testid="select-runway-duration">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 seconds (1 clip)</SelectItem>
+                        <SelectItem value="10">10 seconds (1 clip)</SelectItem>
+                        <SelectItem value="20">20 seconds (2 clips, auto-stitched)</SelectItem>
+                        <SelectItem value="30">30 seconds (3 clips, auto-stitched)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {runwayTotalDuration > 10 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        Your video will be split into {Math.ceil(runwayTotalDuration / 10)} segments, each transformed separately, then auto-stitched with crossfade transitions.
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
                     <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Source Video (required)</label>
                     <input
                       ref={runwayVideoInputRef}
@@ -2173,9 +2317,23 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </div>
 
                   {(runwayStatus === "pending" || runwayStatus === "processing") && (
-                    <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>Runway Gen-4 is transforming your video ({Math.floor(runwayElapsed / 60)}:{String(runwayElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>
+                          {runwayBatchProgress
+                            ? `Generating clip ${runwayBatchProgress.completed + 1} of ${runwayBatchProgress.total} (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
+                            : `Runway Gen-4 is transforming your video (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`}
+                        </span>
+                      </div>
+                      {runwayBatchProgress && (
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                          <div
+                            className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.max(5, (runwayBatchProgress.completed / runwayBatchProgress.total) * 100)}%` }}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2189,7 +2347,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       {(runwayStatus === "pending" || runwayStatus === "processing") ? (
                         <><Loader2 className="h-4 w-4 animate-spin mr-2" />Transforming...</>
                       ) : (
-                        <><Video className="h-4 w-4 mr-2" />Transform with Runway Gen-4</>
+                        <><Video className="h-4 w-4 mr-2" />Transform with Runway Gen-4 ({runwayTotalDuration}s)</>
                       )}
                     </Button>
                     {(runwayStatus === "pending" || runwayStatus === "processing") && (

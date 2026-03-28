@@ -14,6 +14,87 @@ export interface RunwayStatusResult {
   progress?: number;
 }
 
+export interface RunwayBatchInfo {
+  batchId: string;
+  userId: string;
+  taskIds: string[];
+  completedVideoUrls: Map<number, string>;
+  failedSegments: Set<number>;
+  totalSegments: number;
+  promptText: string;
+  stitchedVideoUrl?: string;
+  status: "pending" | "processing" | "stitching" | "completed" | "failed";
+  createdAt: number;
+}
+
+const runwayBatches = new Map<string, RunwayBatchInfo>();
+const BATCH_TTL_MS = 60 * 60 * 1000;
+
+function cleanupStaleBatches() {
+  const now = Date.now();
+  for (const [id, batch] of runwayBatches) {
+    if (now - batch.createdAt > BATCH_TTL_MS) {
+      runwayBatches.delete(id);
+    }
+  }
+}
+
+setInterval(cleanupStaleBatches, 5 * 60 * 1000);
+
+export function createBatch(userId: string, totalSegments: number, promptText: string): string {
+  cleanupStaleBatches();
+  const batchId = crypto.randomUUID();
+  runwayBatches.set(batchId, {
+    batchId,
+    userId,
+    taskIds: [],
+    completedVideoUrls: new Map(),
+    failedSegments: new Set(),
+    totalSegments,
+    promptText,
+    status: "pending",
+    createdAt: Date.now(),
+  });
+  return batchId;
+}
+
+export function getBatch(batchId: string): RunwayBatchInfo | undefined {
+  return runwayBatches.get(batchId);
+}
+
+export function addTaskToBatch(batchId: string, taskId: string) {
+  const batch = runwayBatches.get(batchId);
+  if (batch) {
+    batch.taskIds.push(taskId);
+  }
+}
+
+export function updateBatchSegment(batchId: string, segmentIndex: number, videoUrl: string) {
+  const batch = runwayBatches.get(batchId);
+  if (batch) {
+    batch.completedVideoUrls.set(segmentIndex, videoUrl);
+  }
+}
+
+export function markBatchSegmentFailed(batchId: string, segmentIndex: number) {
+  const batch = runwayBatches.get(batchId);
+  if (batch) {
+    batch.failedSegments.add(segmentIndex);
+  }
+}
+
+export function updateBatchStatus(batchId: string, status: RunwayBatchInfo["status"], stitchedUrl?: string) {
+  const batch = runwayBatches.get(batchId);
+  if (batch) {
+    batch.status = status;
+    if (stitchedUrl) batch.stitchedVideoUrl = stitchedUrl;
+  }
+}
+
+export function deleteBatch(batchId: string) {
+  runwayBatches.delete(batchId);
+}
+
 function getApiKey(): string {
   const key = process.env.RUNWAY_API_KEY;
   if (!key) {
@@ -169,4 +250,11 @@ export const runwayService = {
   createVideoToVideoTask,
   createImageToVideoTask,
   getTaskStatus,
+  createBatch,
+  getBatch,
+  addTaskToBatch,
+  updateBatchSegment,
+  markBatchSegmentFailed,
+  updateBatchStatus,
+  deleteBatch,
 };

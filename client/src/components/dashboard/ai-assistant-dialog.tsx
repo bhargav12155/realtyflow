@@ -2355,7 +2355,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>
                           {runwayBatchProgress
-                            ? `Generating clip ${runwayBatchProgress.completed + 1} of ${runwayBatchProgress.total} (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
+                            ? runwayBatchProgress.completed >= runwayBatchProgress.total
+                              ? `Stitching ${runwayBatchProgress.total} clips together (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
+                              : `Generating clip ${runwayBatchProgress.completed + 1} of ${runwayBatchProgress.total} (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
                             : `Runway Gen-4 is transforming your video (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`}
                         </span>
                       </div>

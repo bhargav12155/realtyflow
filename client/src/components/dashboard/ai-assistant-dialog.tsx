@@ -354,6 +354,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const runwayVideoInputRef = useRef<HTMLInputElement>(null);
   const runwayRefInputRef = useRef<HTMLInputElement>(null);
   const [runwayTotalDuration, setRunwayTotalDuration] = useState<number>(10);
+  const [runwayClipDuration, setRunwayClipDuration] = useState<number>(10);
   const [runwayBatchId, setRunwayBatchId] = useState<string | null>(null);
   const [runwayBatchProgress, setRunwayBatchProgress] = useState<{ completed: number; total: number } | null>(null);
   const [videoEditMode, setVideoEditMode] = useState(false);
@@ -1267,7 +1268,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           credentials: "include",
           body: JSON.stringify({
             videoUrl: runwaySourceVideo.url,
-            clipDuration: 10,
+            clipDuration: runwayClipDuration,
             totalDuration: runwayTotalDuration,
           }),
         });
@@ -1292,17 +1293,33 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         startRunwayBatchPolling(batchData.batchId);
 
         const refNote = runwayRefImage ? " (with style reference)" : "";
-        const userMsg: Message = { role: "user", content: `Transform ${runwayTotalDuration}s video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
-        const assistantMsg: Message = { role: "assistant", content: `Runway Gen-4 Aleph is generating ${batchData.totalSegments} clips (${runwayTotalDuration}s total). Each clip takes 2-5 minutes, then they'll be auto-stitched together...` };
+        const userMsg: Message = { role: "user", content: `Transform ${runwayTotalDuration}s video with Runway Gen-4 Aleph (${runwayClipDuration}s clips)${refNote}: ${runwayPrompt}` };
+        const assistantMsg: Message = { role: "assistant", content: `Runway Gen-4 Aleph is generating ${batchData.totalSegments} clips of ${runwayClipDuration}s each (${runwayTotalDuration}s total). Each clip takes 2-5 minutes, then they'll be auto-stitched together...` };
         setMessages(prev => [...prev, userMsg, assistantMsg]);
         toast({ title: "Extended Video Started!", description: `Generating ${batchData.totalSegments} clips for a ${runwayTotalDuration}s video.` });
       } else {
+        let videoUri = runwaySourceVideo.url;
+
+        const trimRes = await fetch("/api/runway/trim-video", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({
+            videoUrl: runwaySourceVideo.url,
+            duration: runwayTotalDuration,
+          }),
+        });
+        const trimData = await trimRes.json();
+        if (trimRes.ok && trimData.trimmedUrl) {
+          videoUri = trimData.trimmedUrl;
+        }
+
         const res = await fetch("/api/runway/create-video", {
           method: "POST",
           headers,
           credentials: "include",
           body: JSON.stringify({
-            videoUri: runwaySourceVideo.url,
+            videoUri,
             promptText: runwayPrompt,
             referenceImageUrl: runwayRefImage?.url || undefined,
           }),
@@ -1314,10 +1331,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         startRunwayPolling(data.taskId);
 
         const refNote = runwayRefImage ? " (with style reference image)" : "";
-        const userMsg: Message = { role: "user", content: `Transform video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
-        const assistantMsg: Message = { role: "assistant", content: "Runway Gen-4 Aleph is transforming your video. This typically takes 2-5 minutes. I'll show it here when it's ready..." };
+        const userMsg: Message = { role: "user", content: `Transform ${runwayTotalDuration}s video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
+        const assistantMsg: Message = { role: "assistant", content: `Runway Gen-4 Aleph is transforming your ${runwayTotalDuration}s video. This typically takes 2-5 minutes. I'll show it here when it's ready...` };
         setMessages(prev => [...prev, userMsg, assistantMsg]);
-        toast({ title: "Runway Video Started!", description: "Runway Gen-4 Aleph is transforming your video. Please wait a few minutes." });
+        toast({ title: "Runway Video Started!", description: `Runway Gen-4 Aleph is transforming your ${runwayTotalDuration}s video.` });
       }
     } catch (error: any) {
       setRunwayStatus("failed");
@@ -2230,25 +2247,41 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                     />
                   </div>
 
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Total Duration</label>
-                    <Select value={String(runwayTotalDuration)} onValueChange={(v) => setRunwayTotalDuration(Number(v))}>
-                      <SelectTrigger className="w-full" data-testid="select-runway-duration">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="5">5 seconds (1 clip)</SelectItem>
-                        <SelectItem value="10">10 seconds (1 clip)</SelectItem>
-                        <SelectItem value="20">20 seconds (2 clips, auto-stitched)</SelectItem>
-                        <SelectItem value="30">30 seconds (3 clips, auto-stitched)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Total Duration</label>
+                      <Select value={String(runwayTotalDuration)} onValueChange={(v) => setRunwayTotalDuration(Number(v))}>
+                        <SelectTrigger className="w-full" data-testid="select-runway-duration">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5">5 seconds</SelectItem>
+                          <SelectItem value="10">10 seconds</SelectItem>
+                          <SelectItem value="20">20 seconds</SelectItem>
+                          <SelectItem value="30">30 seconds</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     {runwayTotalDuration > 10 && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                        Your video will be split into {Math.ceil(runwayTotalDuration / 10)} segments, each transformed separately, then auto-stitched with crossfade transitions.
-                      </p>
+                      <div>
+                        <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Clip Duration</label>
+                        <Select value={String(runwayClipDuration)} onValueChange={(v) => setRunwayClipDuration(Number(v))}>
+                          <SelectTrigger className="w-full" data-testid="select-runway-clip-duration">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="5">5s per clip</SelectItem>
+                            <SelectItem value="10">10s per clip</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     )}
                   </div>
+                  {runwayTotalDuration > 10 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Your video will be split into {Math.ceil(runwayTotalDuration / runwayClipDuration)} segments of {runwayClipDuration}s each, transformed separately, then auto-stitched with crossfade transitions.
+                    </p>
+                  )}
 
                   <div>
                     <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Source Video (required)</label>

@@ -23370,6 +23370,83 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.post("/api/runway/trim-video", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { videoUrl, duration } = req.body;
+
+      if (!videoUrl || !duration) {
+        return res.status(400).json({ error: "videoUrl and duration are required" });
+      }
+
+      try {
+        const parsedUrl = new URL(videoUrl);
+        if (parsedUrl.protocol !== "https:") {
+          return res.status(400).json({ error: "Only HTTPS URLs are allowed" });
+        }
+        const S3_BUCKET_NAME = process.env.AWS_S3_BUCKET || "nebraskahomehub";
+        const isOurS3 =
+          parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.amazonaws.com` ||
+          parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.us-east-1.amazonaws.com` ||
+          parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.us-east-2.amazonaws.com` ||
+          parsedUrl.hostname === "home-template-images.s3.us-east-2.amazonaws.com" ||
+          parsedUrl.hostname === "home-template-images.s3.amazonaws.com" ||
+          (parsedUrl.hostname === "s3.amazonaws.com" && parsedUrl.pathname.startsWith(`/${S3_BUCKET_NAME}/`));
+        const isGoogleStorage = parsedUrl.hostname === "storage.googleapis.com" || parsedUrl.hostname === "generativelanguage.googleapis.com";
+        const isReplitStorage = parsedUrl.hostname.includes("replit.dev") || parsedUrl.hostname.includes("repl.co");
+        if (!isOurS3 && !isGoogleStorage && !isReplitStorage) {
+          return res.status(400).json({ error: "Video URL must be from an allowed storage source" });
+        }
+        const suspiciousPatterns = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+        if (suspiciousPatterns.test(videoUrl)) {
+          return res.status(400).json({ error: "Invalid URL detected" });
+        }
+      } catch {
+        return res.status(400).json({ error: "Invalid video URL format" });
+      }
+
+      const dur = Math.min(Math.max(Number(duration), 1), 10);
+      console.log(`✂️ [Runway] Trimming video to ${dur}s for user ${userId}`);
+
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const os = await import("os");
+
+      const tempDir = path.join(os.tmpdir(), `runway-trim-${Date.now()}`);
+      await fs.mkdir(tempDir, { recursive: true });
+
+      try {
+        const sourceFile = path.join(tempDir, "source.mp4");
+        const response = await fetch(videoUrl);
+        if (!response.ok) throw new Error("Failed to download source video");
+        const buffer = Buffer.from(await response.arrayBuffer());
+        await fs.writeFile(sourceFile, buffer);
+
+        const trimmedFile = path.join(tempDir, "trimmed.mp4");
+        const ffmpegCmd = `ffmpeg -y -i "${sourceFile}" -t ${dur} -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${trimmedFile}"`;
+        await execAsync(ffmpegCmd, { timeout: 60000 });
+
+        const trimBuffer = await fs.readFile(trimmedFile);
+        const { UnifiedUploadService } = await import("./services/unifiedUpload");
+        const s3Service = new UnifiedUploadService();
+        const s3Key = `runway-trimmed/${userId}/${Date.now()}-trim${dur}s.mp4`;
+        const trimUrl = await s3Service.uploadBuffer(trimBuffer, s3Key, "video/mp4", true, 3600);
+
+        await fs.rm(tempDir, { recursive: true, force: true });
+        res.json({ trimmedUrl: trimUrl, duration: dur });
+      } catch (err: any) {
+        await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        throw err;
+      }
+    } catch (error: any) {
+      console.error("Runway trim-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to trim video" });
+    }
+  });
+
   app.post("/api/runway/split-video", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id || req.user?.claims?.sub);
@@ -23377,6 +23454,33 @@ Be helpful, professional, and concise. Always let users know what the platform c
 
       if (!videoUrl) {
         return res.status(400).json({ error: "videoUrl is required" });
+      }
+
+      try {
+        const parsedUrl = new URL(videoUrl);
+        if (parsedUrl.protocol !== "https:") {
+          return res.status(400).json({ error: "Only HTTPS URLs are allowed" });
+        }
+        const S3_BUCKET_NAME = process.env.AWS_S3_BUCKET || "nebraskahomehub";
+        const isOurS3 =
+          parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.amazonaws.com` ||
+          parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.us-east-1.amazonaws.com` ||
+          parsedUrl.hostname === `${S3_BUCKET_NAME}.s3.us-east-2.amazonaws.com` ||
+          parsedUrl.hostname === "home-template-images.s3.us-east-2.amazonaws.com" ||
+          parsedUrl.hostname === "home-template-images.s3.amazonaws.com" ||
+          (parsedUrl.hostname === "s3.amazonaws.com" && parsedUrl.pathname.startsWith(`/${S3_BUCKET_NAME}/`));
+        const isGoogleStorage = parsedUrl.hostname === "storage.googleapis.com" || parsedUrl.hostname === "generativelanguage.googleapis.com";
+        const isReplitStorage = parsedUrl.hostname.includes("replit.dev") || parsedUrl.hostname.includes("repl.co");
+        if (!isOurS3 && !isGoogleStorage && !isReplitStorage) {
+          console.warn(`🔒 [Runway Split] Blocked URL from non-allowed source: ${parsedUrl.hostname}`);
+          return res.status(400).json({ error: "Video URL must be from an allowed storage source" });
+        }
+        const suspiciousPatterns = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+        if (suspiciousPatterns.test(videoUrl)) {
+          return res.status(400).json({ error: "Invalid URL detected" });
+        }
+      } catch {
+        return res.status(400).json({ error: "Invalid video URL format" });
       }
 
       const clipDur = clipDuration || 10;

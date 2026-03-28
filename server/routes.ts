@@ -56,6 +56,7 @@ import twilio from "twilio";
 import { realtimeService } from "./websocket";
 import { sora2Service } from "./services/sora2";
 import { lumaService } from "./services/luma";
+import { runwayService } from "./services/runway";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -23241,6 +23242,131 @@ Be helpful, professional, and concise. Always let users know what the platform c
     } catch (error: any) {
       console.error("Luma notify-completion error:", error);
       res.status(500).json({ error: error.message || "Failed to send notification" });
+    }
+  });
+
+  // =====================================================
+  // Runway Gen-4 Aleph Video Generation Routes
+  // =====================================================
+  const runwayTaskOwners = new Map<string, string>();
+
+  app.post("/api/runway/upload-video", requireAuth, memoryVideoUpload.single("video"), async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      if (!req.file) {
+        return res.status(400).json({ error: "No video file provided" });
+      }
+
+      console.log(`📤 [Runway] Video upload for user ${userId}: ${req.file.originalname}, size: ${req.file.size}`);
+
+      const { UnifiedUploadService } = await import("./services/unifiedUpload");
+      const s3Service = new UnifiedUploadService();
+      const timestamp = Date.now();
+      const ext = req.file.originalname?.split('.').pop() || 'mp4';
+      const filename = `runway-source-${userId}-${timestamp}.${ext}`;
+      const s3Key = `runway-videos/${userId}/${filename}`;
+      const videoUrl = await s3Service.uploadBuffer(req.file.buffer, s3Key, req.file.mimetype || "video/mp4", true, 3600);
+
+      console.log(`✅ [Runway] Video uploaded: ${videoUrl.substring(0, 80)}...`);
+      res.json({ url: videoUrl });
+    } catch (error: any) {
+      console.error("Runway video upload error:", error);
+      res.status(500).json({ error: error.message || "Failed to upload video" });
+    }
+  });
+
+  app.post("/api/runway/create-video", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { videoUri, promptText, referenceImageUrl, mode, promptImage, model, ratio, duration } = req.body;
+
+      if (!promptText || typeof promptText !== "string") {
+        return res.status(400).json({ error: "promptText is required" });
+      }
+
+      let result;
+      if (mode === "image-to-video") {
+        if (!promptImage) {
+          return res.status(400).json({ error: "promptImage URL is required for image-to-video mode" });
+        }
+        result = await runwayService.createImageToVideoTask(promptImage, promptText, {
+          model: model || "gen4_turbo",
+          ratio: ratio || "1280:720",
+          duration: duration || 5,
+        });
+      } else {
+        if (!videoUri) {
+          return res.status(400).json({ error: "videoUri is required for video-to-video mode" });
+        }
+        result = await runwayService.createVideoToVideoTask(videoUri, promptText, {
+          referenceImageUrl: referenceImageUrl || undefined,
+        });
+      }
+
+      runwayTaskOwners.set(result.taskId, userId);
+      res.json({ taskId: result.taskId });
+    } catch (error: any) {
+      console.error("Runway create-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to start Runway video task" });
+    }
+  });
+
+  app.get("/api/runway/status/:taskId", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { taskId } = req.params;
+      if (!taskId) {
+        return res.status(400).json({ error: "taskId is required" });
+      }
+      const owner = runwayTaskOwners.get(taskId);
+      if (!owner) {
+        return res.status(403).json({ error: "Task ownership expired. Please create a new video." });
+      }
+      if (owner !== userId) {
+        return res.status(403).json({ error: "Not authorized to view this task" });
+      }
+      const status = await runwayService.getTaskStatus(taskId);
+      if (status.status === "completed" || status.status === "failed") {
+        runwayTaskOwners.delete(taskId);
+      }
+      res.json(status);
+    } catch (error: any) {
+      console.error("Runway status error:", error);
+      res.status(500).json({ error: error.message || "Failed to get Runway task status" });
+    }
+  });
+
+  app.post("/api/runway/notify-completion", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const { videoUrl, taskId } = req.body;
+      if (!videoUrl || !taskId) {
+        return res.status(400).json({ error: "videoUrl and taskId are required" });
+      }
+      const existing = await db.select({ id: videoContent.id })
+        .from(videoContent)
+        .where(sql`${videoContent.userId} = ${String(userId)} AND ${videoContent.script} LIKE ${'%Task: ' + taskId + '%'}`)
+        .limit(1);
+
+      if (existing.length === 0) {
+        await db
+          .insert(videoContent)
+          .values({
+            userId: String(userId),
+            title: `Runway Gen-4 Aleph Video`,
+            script: `Generated via Runway Gen-4 Aleph (Task: ${taskId})`,
+            videoUrl: videoUrl,
+            status: "ready",
+          })
+          .catch((err: any) => {
+            console.warn("Failed to save Runway video to DB:", err?.message);
+          });
+      }
+      console.log(`✅ [Runway] Video saved for user ${userId}: ${videoUrl}`);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Runway notify-completion error:", error);
+      res.status(500).json({ error: error.message || "Failed to save Runway video" });
     }
   });
 

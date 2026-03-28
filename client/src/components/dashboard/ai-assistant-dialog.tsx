@@ -301,7 +301,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
   const [videoMode, setVideoMode] = useState(false);
-  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2" | "luma">("veo");
+  const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2" | "luma" | "runway">("veo");
   const [sora2Prompt, setSora2Prompt] = useState("");
   const [sora2TaskId, setSora2TaskId] = useState<string | null>(null);
   const [sora2Status, setSora2Status] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
@@ -340,6 +340,19 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [lumaDuration, setLumaDuration] = useState<string>("5s");
   const [lumaLoop, setLumaLoop] = useState(false);
   const lumaImageInputRef = useRef<HTMLInputElement>(null);
+  const [runwayPrompt, setRunwayPrompt] = useState("");
+  const [runwayTaskId, setRunwayTaskId] = useState<string | null>(null);
+  const [runwayStatus, setRunwayStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
+  const [runwayVideoUrl, setRunwayVideoUrl] = useState<string | null>(null);
+  const runwayPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [runwayElapsed, setRunwayElapsed] = useState(0);
+  const runwayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [runwaySourceVideo, setRunwaySourceVideo] = useState<{ url: string; preview: string } | null>(null);
+  const [runwaySourceUploading, setRunwaySourceUploading] = useState(false);
+  const [runwayRefImage, setRunwayRefImage] = useState<{ url: string; preview: string } | null>(null);
+  const [runwayRefUploading, setRunwayRefUploading] = useState(false);
+  const runwayVideoInputRef = useRef<HTMLInputElement>(null);
+  const runwayRefInputRef = useRef<HTMLInputElement>(null);
   const [videoEditMode, setVideoEditMode] = useState(false);
   const [userVideos, setUserVideos] = useState<Array<{ id: number; title: string; videoUrl: string; thumbnailUrl?: string | null; createdAt: string }>>([]);
   const [userVideosLoading, setUserVideosLoading] = useState(false);
@@ -1074,6 +1087,190 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     setLumaImages([]);
   };
 
+  const stopRunwayPolling = () => {
+    if (runwayPollRef.current) {
+      clearInterval(runwayPollRef.current);
+      runwayPollRef.current = null;
+    }
+    if (runwayTimerRef.current) {
+      clearInterval(runwayTimerRef.current);
+      runwayTimerRef.current = null;
+    }
+    setRunwayElapsed(0);
+  };
+
+  const cancelRunwayGeneration = () => {
+    stopRunwayPolling();
+    setRunwayStatus("idle");
+    setRunwayTaskId(null);
+    setRunwayVideoUrl(null);
+    toast({ title: "Video Generation Cancelled", description: "Runway Gen-4 video generation has been cancelled." });
+  };
+
+  const startRunwayPolling = (taskId: string) => {
+    stopRunwayPolling();
+    const startTime = Date.now();
+    setRunwayElapsed(0);
+    runwayTimerRef.current = setInterval(() => {
+      setRunwayElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+
+    runwayPollRef.current = setInterval(async () => {
+      try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`/api/runway/status/${taskId}`, { headers, credentials: "include" });
+        if (!res.ok) throw new Error("Poll failed");
+        const data = await res.json();
+
+        if (data.status === "completed" && data.videoUrl) {
+          stopRunwayPolling();
+          setRunwayStatus("completed");
+          setRunwayVideoUrl(data.videoUrl);
+          const videoMsg: Message = {
+            role: "assistant",
+            content: "Your Runway Gen-4 Aleph video is ready!",
+            videoUrl: data.videoUrl,
+          };
+          setMessages(prev => [...prev, videoMsg]);
+          toast({ title: "Runway Video Ready!", description: "Your AI-generated video is ready to view in the chat." });
+
+          const notifyToken = getAuthToken();
+          const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+          if (notifyToken) notifyHeaders["Authorization"] = `Bearer ${notifyToken}`;
+          fetch("/api/runway/notify-completion", {
+            method: "POST",
+            headers: notifyHeaders,
+            credentials: "include",
+            body: JSON.stringify({ videoUrl: data.videoUrl, taskId }),
+          }).catch(() => {});
+        } else if (data.status === "failed") {
+          stopRunwayPolling();
+          setRunwayStatus("failed");
+          toast({ title: "Runway Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+        } else {
+          setRunwayStatus(data.status === "processing" ? "processing" : "pending");
+        }
+      } catch {
+        // keep polling
+      }
+    }, 5000);
+  };
+
+  const handleRunwayGenerate = async () => {
+    if (!runwayPrompt.trim()) {
+      toast({ title: "Prompt required", description: "Please enter a video prompt.", variant: "destructive" });
+      return;
+    }
+    if (!runwaySourceVideo) {
+      toast({ title: "Source video required", description: "Please upload a source video for video-to-video transformation.", variant: "destructive" });
+      return;
+    }
+
+    setRunwayStatus("pending");
+    setRunwayVideoUrl(null);
+
+    try {
+      const token = getAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch("/api/runway/create-video", {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({
+          videoUri: runwaySourceVideo.url,
+          promptText: runwayPrompt,
+          referenceImageUrl: runwayRefImage?.url || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to start Runway Gen-4");
+
+      setRunwayTaskId(data.taskId);
+      startRunwayPolling(data.taskId);
+
+      const refNote = runwayRefImage ? " (with style reference image)" : "";
+      const userMsg: Message = { role: "user", content: `Transform video with Runway Gen-4 Aleph${refNote}: ${runwayPrompt}` };
+      const assistantMsg: Message = { role: "assistant", content: "Runway Gen-4 Aleph is transforming your video. This typically takes 2–5 minutes. I'll show it here when it's ready..." };
+      setMessages(prev => [...prev, userMsg, assistantMsg]);
+      toast({ title: "Runway Video Started!", description: "Runway Gen-4 Aleph is transforming your video. Please wait a few minutes." });
+    } catch (error: any) {
+      setRunwayStatus("failed");
+      toast({ title: "Runway Failed", description: error?.message || "Could not start Runway Gen-4 video", variant: "destructive" });
+    }
+  };
+
+  const handleRunwayVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("video/")) {
+      toast({ title: "Invalid file type", description: "Please select a video file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Video must be under 100MB.", variant: "destructive" });
+      return;
+    }
+
+    setRunwaySourceUploading(true);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append("video", file);
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/runway/upload-video", { method: "POST", headers, credentials: "include", body: formData });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      setRunwaySourceVideo({ url: data.url, preview: previewUrl });
+      toast({ title: "Video uploaded", description: "Source video ready for transformation." });
+    } catch (error) {
+      toast({ title: "Upload failed", description: "Failed to upload video. Please try again.", variant: "destructive" });
+      URL.revokeObjectURL(previewUrl);
+    } finally {
+      setRunwaySourceUploading(false);
+      if (runwayVideoInputRef.current) runwayVideoInputRef.current.value = "";
+    }
+  };
+
+  const handleRunwayRefUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file type", description: "Please select an image file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Image must be under 20MB.", variant: "destructive" });
+      return;
+    }
+
+    setRunwayRefUploading(true);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append("file", file);
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/upload-reference", { method: "POST", headers, credentials: "include", body: formData });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      setRunwayRefImage({ url: data.url, preview: previewUrl });
+      toast({ title: "Style reference added", description: "Style reference image ready." });
+    } catch (error) {
+      toast({ title: "Upload failed", description: "Failed to upload image. Please try again.", variant: "destructive" });
+      URL.revokeObjectURL(previewUrl);
+    } finally {
+      setRunwayRefUploading(false);
+      if (runwayRefInputRef.current) runwayRefInputRef.current.value = "";
+    }
+  };
+
   const fetchUserVideos = async () => {
     setUserVideosLoading(true);
     try {
@@ -1611,6 +1808,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         <span className="text-xs text-gray-500">Fast coherent motion, ultra-realistic — 1-5 min</span>
                       </div>
                     </SelectItem>
+                    <SelectItem value="runway">
+                      <div className="flex flex-col">
+                        <span>Runway Gen-4 Aleph</span>
+                        <span className="text-xs text-gray-500">Video-to-video transformation — 2-5 min</span>
+                      </div>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1880,6 +2083,121 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         variant="outline"
                         className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
                         data-testid="button-cancel-luma-assistant"
+                      >
+                        <X className="h-4 w-4 mr-1" />Cancel
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Runway Gen-4 Aleph flow */}
+              {assistantVideoPlatform === "runway" && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Transformation Prompt</label>
+                    <textarea
+                      value={runwayPrompt}
+                      onChange={(e) => setRunwayPrompt(e.target.value)}
+                      placeholder="e.g. Transform into an animated watercolor painting style with soft brush strokes and flowing colors..."
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                      rows={3}
+                      data-testid="input-runway-prompt"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Source Video (required)</label>
+                    <input
+                      ref={runwayVideoInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={handleRunwayVideoUpload}
+                      data-testid="input-runway-video-upload"
+                    />
+                    {runwaySourceVideo ? (
+                      <div className="relative inline-block">
+                        <video src={runwaySourceVideo.preview} className="h-20 rounded-lg border border-gray-300 dark:border-gray-600" muted />
+                        <button
+                          onClick={() => { if (runwaySourceVideo.preview) URL.revokeObjectURL(runwaySourceVideo.preview); setRunwaySourceVideo(null); }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                          data-testid="button-remove-runway-source"
+                        >×</button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => runwayVideoInputRef.current?.click()}
+                        disabled={runwaySourceUploading}
+                        data-testid="button-upload-runway-source"
+                      >
+                        {runwaySourceUploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
+                        Upload Source Video
+                      </Button>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Style Reference Image (optional)</label>
+                    <input
+                      ref={runwayRefInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleRunwayRefUpload}
+                      data-testid="input-runway-ref-upload"
+                    />
+                    {runwayRefImage ? (
+                      <div className="relative inline-block">
+                        <img src={runwayRefImage.preview} className="h-16 rounded-lg border border-gray-300 dark:border-gray-600 object-cover" alt="Style reference" />
+                        <button
+                          onClick={() => { if (runwayRefImage.preview) URL.revokeObjectURL(runwayRefImage.preview); setRunwayRefImage(null); }}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs hover:bg-red-600"
+                          data-testid="button-remove-runway-ref"
+                        >×</button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => runwayRefInputRef.current?.click()}
+                        disabled={runwayRefUploading}
+                        data-testid="button-upload-runway-ref"
+                      >
+                        {runwayRefUploading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Image className="h-4 w-4 mr-1" />}
+                        Add Style Reference
+                      </Button>
+                    )}
+                  </div>
+
+                  {(runwayStatus === "pending" || runwayStatus === "processing") && (
+                    <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Runway Gen-4 is transforming your video ({Math.floor(runwayElapsed / 60)}:{String(runwayElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleRunwayGenerate}
+                      disabled={!runwayPrompt.trim() || !runwaySourceVideo || runwayStatus === "pending" || runwayStatus === "processing"}
+                      className="flex-1"
+                      data-testid="button-generate-runway-assistant"
+                    >
+                      {(runwayStatus === "pending" || runwayStatus === "processing") ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />Transforming...</>
+                      ) : (
+                        <><Video className="h-4 w-4 mr-2" />Transform with Runway Gen-4</>
+                      )}
+                    </Button>
+                    {(runwayStatus === "pending" || runwayStatus === "processing") && (
+                      <Button
+                        onClick={cancelRunwayGeneration}
+                        variant="outline"
+                        className="border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                        data-testid="button-cancel-runway-assistant"
                       >
                         <X className="h-4 w-4 mr-1" />Cancel
                       </Button>

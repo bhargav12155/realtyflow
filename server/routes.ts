@@ -8,6 +8,7 @@ import {
   insertScheduledPostSchema,
   insertVideoContentSchema,
   pkceStore,
+  savedPrompts,
   tutorialVideos,
   updateScheduledPostSchema,
   userPreferences,
@@ -1080,6 +1081,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Chat Sessions - List all chat sessions for user
+  app.get("/api/saved-prompts", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const category = req.query.category as string | undefined;
+      let query = db.select().from(savedPrompts).where(eq(savedPrompts.userId, userId));
+      if (category) {
+        query = db.select().from(savedPrompts).where(and(eq(savedPrompts.userId, userId), eq(savedPrompts.category, category)));
+      }
+      const prompts = await query.orderBy(desc(savedPrompts.createdAt));
+      res.json(prompts);
+    } catch (error: any) {
+      console.error("Error fetching saved prompts:", error);
+      res.status(500).json({ error: "Failed to fetch saved prompts" });
+    }
+  });
+
+  app.post("/api/saved-prompts", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const { name, prompt, category } = req.body;
+      if (!name || !prompt || !category) {
+        return res.status(400).json({ error: "name, prompt, and category are required" });
+      }
+      const validCategories = ["image", "veo", "sora2", "luma", "runway"];
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({ error: "Invalid category" });
+      }
+      const [saved] = await db.insert(savedPrompts).values({ userId, name, prompt, category }).returning();
+      res.json(saved);
+    } catch (error: any) {
+      console.error("Error saving prompt:", error);
+      res.status(500).json({ error: "Failed to save prompt" });
+    }
+  });
+
+  app.delete("/api/saved-prompts/:id", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user!.id);
+      const { id } = req.params;
+      const [deleted] = await db.delete(savedPrompts).where(and(eq(savedPrompts.id, id), eq(savedPrompts.userId, userId))).returning();
+      if (!deleted) {
+        return res.status(404).json({ error: "Prompt not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting prompt:", error);
+      res.status(500).json({ error: "Failed to delete prompt" });
+    }
+  });
+
   app.get("/api/ai/chat-sessions", requireAuth, async (req, res) => {
     try {
       const userId = String(req.user!.id);

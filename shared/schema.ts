@@ -451,6 +451,24 @@ export const insertAiChatSessionSchema = createInsertSchema(aiChatSessions).omit
 export type InsertAiChatSession = z.infer<typeof insertAiChatSessionSchema>;
 export type AiChatSession = typeof aiChatSessions.$inferSelect;
 
+export const savedPrompts = pgTable("saved_prompts", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull(),
+  prompt: text("prompt").notNull(),
+  category: varchar("category", { length: 50 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSavedPromptSchema = createInsertSchema(savedPrompts).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertSavedPrompt = z.infer<typeof insertSavedPromptSchema>;
+export type SavedPrompt = typeof savedPrompts.$inferSelect;
+
 // Legacy AI Content and Social Posts (keeping for compatibility)
 export const aiContent = pgTable("ai_content", {
   id: varchar("id")

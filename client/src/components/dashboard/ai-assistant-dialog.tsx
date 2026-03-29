@@ -41,7 +41,14 @@ import {
   AlertTriangle,
   Scissors,
   Check,
+  Bookmark,
+  BookmarkPlus,
 } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getAuthToken } from "@/lib/authToken";
 
@@ -71,6 +78,182 @@ interface QuickAction {
   label: string;
   icon: React.ReactNode;
   starterPrompt: string;
+}
+
+interface SavedPromptItem {
+  id: string;
+  name: string;
+  prompt: string;
+  category: string;
+  createdAt: string;
+}
+
+function SavedPromptButton({ category, currentPrompt, onLoad }: {
+  category: string;
+  currentPrompt: string;
+  onLoad: (prompt: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [savedPrompts, setSavedPrompts] = useState<SavedPromptItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const fetchPrompts = async () => {
+    setLoading(true);
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/saved-prompts?category=${category}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedPrompts(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch prompts:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!saveName.trim() || !currentPrompt.trim()) return;
+    setSaving(true);
+    try {
+      const token = getAuthToken();
+      const res = await fetch("/api/saved-prompts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ name: saveName.trim(), prompt: currentPrompt, category }),
+      });
+      if (res.ok) {
+        toast({ title: "Prompt saved!" });
+        setSaveName("");
+        setShowSaveInput(false);
+        fetchPrompts();
+      } else {
+        toast({ title: "Failed to save prompt", variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Failed to save prompt", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/saved-prompts/${id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        toast({ title: "Failed to delete", variant: "destructive" });
+        return;
+      }
+      setSavedPrompts((prev) => prev.filter((p) => p.id !== id));
+      toast({ title: "Prompt deleted" });
+    } catch (e) {
+      toast({ title: "Failed to delete", variant: "destructive" });
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={(v) => { setOpen(v); if (v) fetchPrompts(); setShowSaveInput(false); setSaveName(""); }}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
+          data-testid={`button-saved-prompts-${category}`}
+          title="Save & Load Prompts"
+        >
+          <Bookmark className="h-3.5 w-3.5" />
+          <span>Prompts</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3" align="end" side="top">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium">Saved Prompts</h4>
+            {currentPrompt.trim() && (
+              <button
+                type="button"
+                onClick={() => setShowSaveInput(!showSaveInput)}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+                data-testid={`button-save-new-prompt-${category}`}
+              >
+                <BookmarkPlus className="h-3.5 w-3.5" />
+                Save Current
+              </button>
+            )}
+          </div>
+
+          {showSaveInput && (
+            <div className="flex gap-1.5">
+              <input
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                placeholder="Name this prompt..."
+                className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary"
+                onKeyDown={(e) => e.key === "Enter" && handleSave()}
+                data-testid={`input-prompt-name-${category}`}
+              />
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={saving || !saveName.trim()}
+                className="h-6 px-2 text-xs"
+                data-testid={`button-confirm-save-${category}`}
+              >
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              </Button>
+            </div>
+          )}
+
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {loading ? (
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+              </div>
+            ) : savedPrompts.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-3">No saved prompts yet</p>
+            ) : (
+              savedPrompts.map((sp) => (
+                <div
+                  key={sp.id}
+                  className="group flex items-start gap-2 p-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
+                  data-testid={`saved-prompt-item-${sp.id}`}
+                >
+                  <div
+                    className="flex-1 min-w-0"
+                    onClick={() => { onLoad(sp.prompt); setOpen(false); toast({ title: `Loaded: ${sp.name}` }); }}
+                  >
+                    <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{sp.name}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 line-clamp-2">{sp.prompt}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleDelete(sp.id); }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-red-500 transition-all"
+                    data-testid={`button-delete-prompt-${sp.id}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 const quickActions: QuickAction[] = [
@@ -1963,7 +2146,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               {assistantVideoPlatform === "sora2" && (
                 <div className="space-y-2">
                   <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Video Prompt</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-gray-600 dark:text-gray-400">Video Prompt</label>
+                      <SavedPromptButton category="sora2" currentPrompt={sora2Prompt} onLoad={setSora2Prompt} />
+                    </div>
                     <textarea
                       value={sora2Prompt}
                       onChange={(e) => setSora2Prompt(e.target.value)}
@@ -2078,7 +2264,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               {assistantVideoPlatform === "luma" && (
                 <div className="space-y-2">
                   <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Video Prompt</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-gray-600 dark:text-gray-400">Video Prompt</label>
+                      <SavedPromptButton category="luma" currentPrompt={lumaPrompt} onLoad={setLumaPrompt} />
+                    </div>
                     <textarea
                       value={lumaPrompt}
                       onChange={(e) => setLumaPrompt(e.target.value)}
@@ -2236,7 +2425,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               {assistantVideoPlatform === "runway" && (
                 <div className="space-y-2">
                   <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Transformation Prompt</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs text-gray-600 dark:text-gray-400">Transformation Prompt</label>
+                      <SavedPromptButton category="runway" currentPrompt={runwayPrompt} onLoad={setRunwayPrompt} />
+                    </div>
                     <textarea
                       value={runwayPrompt}
                       onChange={(e) => setRunwayPrompt(e.target.value)}
@@ -2534,9 +2726,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
 
               {assistantVideoPlatform === "veo" && <>
               <div>
-                <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                  Custom Description (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-gray-600 dark:text-gray-400">
+                    Custom Description (Optional)
+                  </label>
+                  <SavedPromptButton category="veo" currentPrompt={customDescription} onLoad={setCustomDescription} />
+                </div>
                 <textarea
                   value={customDescription}
                   onChange={(e) => setCustomDescription(e.target.value)}
@@ -3039,6 +3234,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             >
               <Paperclip className="h-4 w-4 text-gray-500" />
             </Button>
+            {!videoMode && (
+              <div className="flex-shrink-0">
+                <SavedPromptButton category="image" currentPrompt={input} onLoad={setInput} />
+              </div>
+            )}
             <Input
               ref={inputRef}
               value={input}

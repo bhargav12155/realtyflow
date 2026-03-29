@@ -4,6 +4,29 @@ import OAuth from "oauth-1.0a";
 import path from "path";
 import { whatsappService } from "./whatsapp";
 
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v', '.wmv', '.flv', '.3gp']);
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.tiff', '.heif', '.heic', '.webp', '.bmp', '.svg']);
+
+function getMediaExtension(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const ext = path.extname(pathname).toLowerCase();
+    return ext;
+  } catch {
+    const ext = path.extname(url.split('?')[0]).toLowerCase();
+    return ext;
+  }
+}
+
+export function isVideoUrl(url: string): boolean {
+  return VIDEO_EXTENSIONS.has(getMediaExtension(url));
+}
+
+export function isImageUrl(url: string): boolean {
+  const ext = getMediaExtension(url);
+  return IMAGE_EXTENSIONS.has(ext) || (!VIDEO_EXTENSIONS.has(ext) && ext !== '');
+}
+
 export class SocialMediaError extends Error {
   statusCode: number;
   details?: any;
@@ -1327,6 +1350,189 @@ export class SocialMediaService {
     }
   }
 
+  private resolveFullMediaUrl(url: string, baseUrl?: string): string {
+    if (url.startsWith("http")) return url;
+    const deploymentUrl =
+      process.env.REPLIT_DEPLOYMENT_URL ||
+      process.env.CLIENT_URL ||
+      "http://localhost:5000";
+    return `${baseUrl || deploymentUrl}${url}`;
+  }
+
+  private async resolveFacebookPageAccessToken(
+    pageId: string,
+    userToken: string,
+  ): Promise<string> {
+    console.log("🔍 Facebook Post Debug - Fetching page access token");
+    const pagesResponse = await fetch(
+      `https://graph.facebook.com/v22.0/me/accounts?access_token=${userToken}`,
+    );
+
+    console.log(
+      "🔍 Facebook Post Debug - Pages response status:",
+      pagesResponse.status,
+    );
+
+    if (!pagesResponse.ok) {
+      const errorData = await pagesResponse.json();
+      console.log("🔍 Facebook Post Debug - Pages error:", errorData);
+      if (errorData.error?.code === 190) {
+        throw new SocialMediaError(
+          "Invalid Facebook access token. Please reconnect your Facebook account.",
+          401,
+          errorData,
+        );
+      }
+      if (errorData.error?.code === 200) {
+        throw new SocialMediaError(
+          "Insufficient permissions. Please grant pages access to your Facebook account.",
+          403,
+          errorData,
+        );
+      }
+      throw new SocialMediaError(
+        `Failed to fetch page access token: ${
+          errorData.error?.message || "Unknown error"
+        }`,
+        400,
+        errorData,
+      );
+    }
+
+    const pagesData = await pagesResponse.json();
+    console.log(
+      "🔍 Facebook Post Debug - Available pages:",
+      pagesData.data?.map((p: any) => ({ id: p.id, name: p.name })),
+    );
+
+    let pageAccessToken: string | undefined;
+    const page = pagesData.data?.find((p: any) => p.id === pageId);
+    console.log("🔍 Facebook Post Debug - Target page found:", !!page);
+
+    if (page) {
+      pageAccessToken = page.access_token;
+    } else {
+      console.log(
+        "🔍 Facebook Post Debug - Page not in me/accounts. Trying /{pageId}?fields=name,access_token",
+      );
+      const pageInfoResp = await fetch(
+        `https://graph.facebook.com/v22.0/${pageId}?fields=name,access_token&access_token=${userToken}`,
+      );
+      console.log(
+        "🔍 Facebook Post Debug - Direct page info status:",
+        pageInfoResp.status,
+      );
+      if (pageInfoResp.ok) {
+        const pageInfo = await pageInfoResp.json();
+        console.log("🔍 Facebook Post Debug - Direct page info:", {
+          id: pageInfo.id,
+          name: pageInfo.name,
+          hasToken: !!pageInfo.access_token,
+        });
+        pageAccessToken = pageInfo.access_token;
+      } else {
+        const err = await pageInfoResp.json().catch(() => ({}));
+        console.log("🔍 Facebook Post Debug - Direct page info error:", err);
+      }
+    }
+
+    if (!pageAccessToken) {
+      console.log(
+        "🔍 Facebook Post Debug - Available page IDs:",
+        pagesData.data?.map((p: any) => p.id),
+      );
+      throw new SocialMediaError(
+        "Page not found or no access. Ensure your user is an admin of the Page and the token has pages_show_list, pages_manage_posts, pages_read_engagement, and pages_manage_metadata.",
+        403,
+        {
+          availablePages: pagesData.data?.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+          })),
+        },
+      );
+    }
+
+    return pageAccessToken;
+  }
+
+  private handleFacebookApiError(errorData: any, context: string): never {
+    console.error(`Facebook ${context} API Error:`, errorData);
+
+    if (errorData.error?.code === 190) {
+      throw new SocialMediaError(
+        "Facebook session expired. Please reconnect your account.",
+        401,
+        errorData,
+      );
+    }
+    if (errorData.error?.code === 200) {
+      throw new SocialMediaError(
+        "Insufficient permissions for this page. Please check page roles.",
+        403,
+        errorData,
+      );
+    }
+    if (errorData.error?.code === 100) {
+      const userMsg = errorData.error?.error_user_msg;
+      throw new SocialMediaError(
+        userMsg || `Facebook ${context} failed: Invalid parameters. Please check your content and try again.`,
+        400,
+        errorData,
+      );
+    }
+
+    throw new SocialMediaError(
+      `Facebook ${context} failed: ${
+        errorData.error?.error_user_msg || errorData.error?.message || "Unknown error"
+      }`,
+      400,
+      errorData,
+    );
+  }
+
+  async postVideoToFacebookPage(
+    pageId: string,
+    content: string,
+    videoUrl: string,
+    accessToken: string,
+    baseUrl?: string,
+  ): Promise<{ postId: string }> {
+    try {
+      const fullVideoUrl = this.resolveFullMediaUrl(videoUrl, baseUrl);
+      console.log(`🎬 Facebook Video Post - Posting video to page ${pageId}`);
+      console.log(`🎬 Facebook Video Post - Video URL: ${fullVideoUrl.substring(0, 80)}...`);
+
+      const presetPageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+      const pageToken = presetPageAccessToken || await this.resolveFacebookPageAccessToken(pageId, accessToken);
+
+      const formData = new URLSearchParams();
+      formData.append("file_url", fullVideoUrl);
+      formData.append("description", content);
+      formData.append("access_token", pageToken);
+
+      const response = await fetch(
+        `https://graph.facebook.com/v22.0/${pageId}/videos`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formData.toString(),
+        },
+      );
+
+      const result = await response.json();
+      if (!response.ok) {
+        this.handleFacebookApiError(result, "video posting");
+      }
+
+      console.log("🎬 Facebook video post successful:", result.id);
+      return { postId: result.id || `fbvid_${Date.now()}` };
+    } catch (error) {
+      console.error("Facebook video posting error:", error);
+      throw error;
+    }
+  }
+
   async postToFacebookPage(
     pageId: string,
     content: string,
@@ -1337,18 +1543,41 @@ export class SocialMediaService {
   ): Promise<{ postId: string }> {
     try {
       const token = accessToken || process.env.FACEBOOK_USER_TOKEN;
-      const presetPageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
-      
-      // Support multiple images from options.photoUrls
-      const effectiveImageUrl = imageUrl || (options?.photoUrls && options.photoUrls.length > 0 ? options.photoUrls[0] : undefined);
 
       console.log("🔍 Facebook Post Debug - Token available:", !!token);
       console.log("🔍 Facebook Post Debug - Page ID:", pageId);
-      console.log("🔍 Facebook Post Debug - Effective Image URL:", effectiveImageUrl);
 
       if (!token) {
         throw new Error("Facebook access token not available");
       }
+
+      // Check if any media is a video and route accordingly
+      const allMedia = [
+        ...(options?.photoUrls || []),
+        ...(imageUrl ? [imageUrl] : []),
+      ];
+      const videoMedia = allMedia.filter(url => isVideoUrl(url));
+      const imageMedia = allMedia.filter(url => !isVideoUrl(url));
+
+      // Also check explicit videoUrls
+      if (options?.videoUrls && options.videoUrls.length > 0) {
+        videoMedia.push(...options.videoUrls);
+      }
+
+      // If there's a video, post it via the video endpoint (single video only)
+      if (videoMedia.length > 0) {
+        console.log(`🎬 Facebook: Detected ${videoMedia.length} video(s), using video endpoint`);
+        if (imageMedia.length > 0) {
+          console.log(`⚠️ Facebook: Mixed media detected (${imageMedia.length} images + ${videoMedia.length} videos). Posting video only — Facebook doesn't support mixed media in one post.`);
+        }
+        return this.postVideoToFacebookPage(pageId, content, videoMedia[0], token, baseUrl);
+      }
+
+      // Image/text-only posting below
+      const effectiveImageUrl = imageUrl || (options?.photoUrls && options.photoUrls.length > 0 ? options.photoUrls[0] : undefined);
+      console.log("🔍 Facebook Post Debug - Effective Image URL:", effectiveImageUrl);
+
+      const presetPageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
 
       // If a page access token is provided via env, use it directly
       if (presetPageAccessToken) {
@@ -1359,16 +1588,8 @@ export class SocialMediaService {
         formData.append("message", content);
         formData.append("access_token", presetPageAccessToken);
 
-        // Use the effective image URL
         if (effectiveImageUrl) {
-          const deploymentUrl =
-            process.env.REPLIT_DEPLOYMENT_URL ||
-            process.env.CLIENT_URL ||
-            "http://localhost:5000";
-          const fullImageUrl = effectiveImageUrl.startsWith("http")
-            ? effectiveImageUrl
-            : `${baseUrl || deploymentUrl}${effectiveImageUrl}`;
-          formData.append("url", fullImageUrl);
+          formData.append("url", this.resolveFullMediaUrl(effectiveImageUrl, baseUrl));
         }
 
         const endpoint = effectiveImageUrl
@@ -1387,107 +1608,13 @@ export class SocialMediaService {
           result,
         );
         if (!response.ok) {
-          throw new SocialMediaError(
-            result.error?.message || "Failed to post to Facebook page",
-            response.status,
-            result,
-          );
+          this.handleFacebookApiError(result, "page posting");
         }
 
         return { postId: result.id || "unknown" };
       }
 
-      // First get the page access token
-      console.log("🔍 Facebook Post Debug - Fetching page access token");
-      const pagesResponse = await fetch(
-        `https://graph.facebook.com/v22.0/me/accounts?access_token=${token}`,
-      );
-
-      console.log(
-        "🔍 Facebook Post Debug - Pages response status:",
-        pagesResponse.status,
-      );
-
-      if (!pagesResponse.ok) {
-        const errorData = await pagesResponse.json();
-        console.log("🔍 Facebook Post Debug - Pages error:", errorData);
-        if (errorData.error?.code === 190) {
-          throw new SocialMediaError(
-            "Invalid Facebook access token. Please reconnect your Facebook account.",
-            401,
-            errorData,
-          );
-        }
-        if (errorData.error?.code === 200) {
-          throw new SocialMediaError(
-            "Insufficient permissions. Please grant pages access to your Facebook account.",
-            403,
-            errorData,
-          );
-        }
-        throw new SocialMediaError(
-          `Failed to fetch page access token: ${
-            errorData.error?.message || "Unknown error"
-          }`,
-          400,
-          errorData,
-        );
-      }
-
-      const pagesData = await pagesResponse.json();
-      console.log(
-        "🔍 Facebook Post Debug - Available pages:",
-        pagesData.data?.map((p: any) => ({ id: p.id, name: p.name })),
-      );
-
-      let pageAccessToken: string | undefined;
-      const page = pagesData.data?.find((p: any) => p.id === pageId);
-      console.log("🔍 Facebook Post Debug - Target page found:", !!page);
-
-      if (page) {
-        pageAccessToken = page.access_token;
-      } else {
-        // Fallback: try fetching page access token directly via page endpoint
-        console.log(
-          "🔍 Facebook Post Debug - Page not in me/accounts. Trying /{pageId}?fields=name,access_token",
-        );
-        const pageInfoResp = await fetch(
-          `https://graph.facebook.com/v22.0/${pageId}?fields=name,access_token&access_token=${token}`,
-        );
-        console.log(
-          "🔍 Facebook Post Debug - Direct page info status:",
-          pageInfoResp.status,
-        );
-        if (pageInfoResp.ok) {
-          const pageInfo = await pageInfoResp.json();
-          console.log("🔍 Facebook Post Debug - Direct page info:", {
-            id: pageInfo.id,
-            name: pageInfo.name,
-            hasToken: !!pageInfo.access_token,
-          });
-          pageAccessToken = pageInfo.access_token;
-        } else {
-          const err = await pageInfoResp.json().catch(() => ({}));
-          console.log("🔍 Facebook Post Debug - Direct page info error:", err);
-        }
-      }
-
-      if (!pageAccessToken) {
-        console.log(
-          "🔍 Facebook Post Debug - Available page IDs:",
-          pagesData.data?.map((p: any) => p.id),
-        );
-        throw new SocialMediaError(
-          "Page not found or no access. Ensure your user is an admin of the Page and the token has pages_show_list, pages_manage_posts, pages_read_engagement, and pages_manage_metadata.",
-          403,
-          {
-            availablePages: pagesData.data?.map((p: any) => ({
-              id: p.id,
-              name: p.name,
-            })),
-          },
-        );
-      }
+      const pageAccessToken = await this.resolveFacebookPageAccessToken(pageId, token);
 
       // Handle multiple images: if more than one photoUrl, use multi-photo post
       const photoUrls = options?.photoUrls || (imageUrl ? [imageUrl] : []);
@@ -1495,23 +1622,14 @@ export class SocialMediaService {
         return this.postMultiPhotoToFacebookPage(pageId, content, photoUrls, pageAccessToken);
       }
 
-            // Prepare the request using form data for better compatibility
       const formData = new URLSearchParams();
       formData.append("message", content);
       formData.append("access_token", pageAccessToken);
 
       if (effectiveImageUrl) {
-        const deploymentUrl =
-          process.env.REPLIT_DEPLOYMENT_URL ||
-          process.env.CLIENT_URL ||
-          "http://localhost:5000";
-        const fullImageUrl = effectiveImageUrl.startsWith("http")
-          ? effectiveImageUrl
-          : `${baseUrl || deploymentUrl}${effectiveImageUrl}`;
-        formData.append("url", fullImageUrl);
+        formData.append("url", this.resolveFullMediaUrl(effectiveImageUrl, baseUrl));
       }
 
-      // Make the API call to post to the page
       const endpoint = effectiveImageUrl
         ? `https://graph.facebook.com/v22.0/${pageId}/photos`
         : `https://graph.facebook.com/v22.0/${pageId}/feed`;
@@ -1524,38 +1642,7 @@ export class SocialMediaService {
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error("Facebook Page API Error:", errorData);
-
-        // Provide more specific error messages
-        if (errorData.error?.code === 190) {
-          throw new SocialMediaError(
-            "Facebook session expired. Please reconnect your account.",
-            401,
-            errorData,
-          );
-        }
-        if (errorData.error?.code === 200) {
-          throw new SocialMediaError(
-            "Insufficient permissions for this page. Please check page roles.",
-            403,
-            errorData,
-          );
-        }
-        if (errorData.error?.code === 100) {
-          throw new SocialMediaError(
-            "Invalid parameters. Please check your content and try again.",
-            400,
-            errorData,
-          );
-        }
-
-        throw new SocialMediaError(
-          `Facebook posting failed: ${
-            errorData.error?.message || "Unknown error"
-          }`,
-          response.status,
-          errorData,
-        );
+        this.handleFacebookApiError(errorData, "page posting");
       }
 
       const result = await response.json();
@@ -1564,7 +1651,7 @@ export class SocialMediaService {
       return { postId: result.id || `fbpage_${Date.now()}` };
     } catch (error) {
       console.error("Facebook page posting error:", error);
-      throw error; // Re-throw to preserve the specific error message
+      throw error;
     }
   }
 

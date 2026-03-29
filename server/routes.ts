@@ -48,7 +48,7 @@ import { UnifiedUploadService } from "./services/unifiedUpload";
 import { seoService } from "./services/seo";
 
 const s3UploadService = new UnifiedUploadService();
-import { SocialMediaError, socialMediaService } from "./services/socialMedia";
+import { SocialMediaError, socialMediaService, isVideoUrl } from "./services/socialMedia";
 import { whatsappService } from "./services/whatsapp";
 import { seedVideoTemplates } from "./services/template-seeder";
 import { twilioService } from "./services/twilio";
@@ -5743,56 +5743,67 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
         const useSampleImage = toBoolean(req.body.useSampleImage);
         const photo = req.file;
-        const mediaUrl = req.body.mediaUrl; // Image URL from S3 or external source
+        const mediaUrl = req.body.mediaUrl;
         let photoUrl: string | null = null;
         let usedSampleImage = false;
-        const resolvedPhotoUrls: string[] = [];
+        const resolvedMediaUrls: string[] = [];
+        let uploadedFileIsVideo = false;
 
         if (photo) {
-          photoUrl = `/uploads/${path.basename(photo.path)}`;
-          resolvedPhotoUrls.push(photoUrl);
+          const uploadPath = `/uploads/${path.basename(photo.path)}`;
+          uploadedFileIsVideo = !!(photo.mimetype && photo.mimetype.startsWith('video/'));
+          resolvedMediaUrls.push(uploadPath);
+          console.log(`📸 Facebook Post Debug - Uploaded file: ${photo.originalname}, mime: ${photo.mimetype}, isVideo: ${uploadedFileIsVideo}`);
         } else if (mediaUrl && (mediaUrl.startsWith('https://') || mediaUrl.startsWith('http://'))) {
-          photoUrl = mediaUrl;
-          resolvedPhotoUrls.push(photoUrl);
+          resolvedMediaUrls.push(mediaUrl);
           console.log(`📸 Facebook Post Debug - Using mediaUrl: ${mediaUrl.substring(0, 50)}...`);
         } else if (useSampleImage) {
-          photoUrl = DEFAULT_SOCIAL_SAMPLE_IMAGE;
-          resolvedPhotoUrls.push(photoUrl);
+          resolvedMediaUrls.push(DEFAULT_SOCIAL_SAMPLE_IMAGE);
           usedSampleImage = true;
         }
 
-        // Resolve mediaIds to photo/video URLs
         if (incomingMediaIds.length > 0) {
           for (const id of incomingMediaIds) {
             if (typeof id === 'string' && (id.startsWith('http://') || id.startsWith('https://') || id.startsWith('/uploads/'))) {
-              resolvedPhotoUrls.push(id);
+              resolvedMediaUrls.push(id);
               continue;
             }
             try {
               const asset = await storage.getMediaAssetById(id);
-              if (asset?.url) { resolvedPhotoUrls.push(asset.url); continue; }
+              if (asset?.url) { resolvedMediaUrls.push(asset.url); continue; }
               const avatar = await storage.getAvatarById(id);
-              if (avatar?.photoUrl) { resolvedPhotoUrls.push(avatar.photoUrl); continue; }
+              if (avatar?.photoUrl) { resolvedMediaUrls.push(avatar.photoUrl); continue; }
             } catch (e) { console.warn('FB: Could not resolve mediaId', id, e); }
           }
         }
 
-        // Apply encoding to all resolved URLs
-        const finalPhotoUrls = resolvedPhotoUrls.map(url => {
+        const encodeMediaUrl = (url: string): string => {
           if (!url.startsWith('http')) return url;
           try {
             const urlObj = new URL(url);
             urlObj.pathname = urlObj.pathname.split('/').map(s => encodeURIComponent(decodeURIComponent(s))).join('/');
             return urlObj.toString();
           } catch (e) { return encodeURI(url); }
-        });
+        };
 
-        // Use the first resolved URL as the primary single image (for backwards compat)
+        const finalMediaUrls = resolvedMediaUrls.map(encodeMediaUrl);
+
+        const finalVideoUrls: string[] = [];
+        const finalPhotoUrls: string[] = [];
+        for (const url of finalMediaUrls) {
+          if (isVideoUrl(url) || (uploadedFileIsVideo && resolvedMediaUrls[0] && url === encodeMediaUrl(resolvedMediaUrls[0]))) {
+            finalVideoUrls.push(url);
+          } else {
+            finalPhotoUrls.push(url);
+          }
+        }
+
         if (!photoUrl && finalPhotoUrls.length > 0) {
           photoUrl = finalPhotoUrls[0];
         }
 
-        console.log(`📸 Facebook post: ${finalPhotoUrls.length} images to post`);
+        const mediaType = finalVideoUrls.length > 0 ? 'video' : (finalPhotoUrls.length > 0 ? 'image' : 'text');
+        console.log(`📸 Facebook post: ${finalPhotoUrls.length} image(s), ${finalVideoUrls.length} video(s) — type: ${mediaType}`);
 
         const baseUrl = `${req.protocol}://${req.get("host")}`;
         const postResult = await socialMediaService.postToFacebookPage(
@@ -5801,7 +5812,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
           photoUrl || undefined,
           resolvedToken,
           baseUrl,
-          { photoUrls: finalPhotoUrls }
+          { photoUrls: finalPhotoUrls, videoUrls: finalVideoUrls }
         );
 
         const scheduledPost = await storage.createScheduledPost({

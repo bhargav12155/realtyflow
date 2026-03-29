@@ -5803,6 +5803,9 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         }
 
         const mediaType = finalVideoUrls.length > 0 ? 'video' : (finalPhotoUrls.length > 0 ? 'image' : 'text');
+        const mixedMediaWarning = (finalVideoUrls.length > 0 && finalPhotoUrls.length > 0)
+          ? "Mixed media detected: only the video was posted. Facebook doesn't support posting images and videos together in one post."
+          : undefined;
         console.log(`📸 Facebook post: ${finalPhotoUrls.length} image(s), ${finalVideoUrls.length} video(s) — type: ${mediaType}`);
 
         const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -5844,6 +5847,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
           scheduledPostId: scheduledPost.id,
           permalinkHint: `https://www.facebook.com/${resolvedPageId}`,
           timestamp: new Date().toISOString(),
+          ...(mixedMediaWarning ? { warning: mixedMediaWarning } : {}),
         });
       } catch (error) {
         console.error("Facebook post error:", error);

@@ -1321,7 +1321,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         if (geminiImagePatterns.test(message)) {
           console.log("🎨 [AI Chat/Gemini] Image generation request detected");
           try {
-            const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing.`;
+            const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
             geminiImageUrl = await openaiService.generateImage({ prompt: imagePrompt });
           } catch (imgError: any) {
             console.error("❌ [AI Chat/Gemini] Image generation failed:", imgError?.message);
@@ -1413,7 +1413,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
       if (imagePatterns.test(message)) {
         console.log("🎨 [AI Chat] Image generation request detected, generating with Imagen 3...");
         try {
-          const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing.`;
+          const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
           imageUrl = await openaiService.generateImage({ prompt: imagePrompt });
           if (imageUrl) {
             console.log(`✅ [AI Chat] Image generated successfully: ${imageUrl.substring(0, 80)}...`);
@@ -2680,7 +2680,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       const size = sizeMap[aspectRatio] || "1024x1024";
 
       // Build enhanced real estate prompt
-      let enhancedPrompt = `Professional real estate photography style: ${prompt}. High quality, well-lit, ${style} style, suitable for social media marketing.`;
+      let enhancedPrompt = `Professional real estate photography style: ${prompt}. High quality, well-lit, ${style} style, suitable for social media marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
       
       // If a reference image is provided, analyze it with GPT-4 Vision and incorporate the description
       if (referenceImageUrl) {
@@ -2690,7 +2690,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
             "Describe this image's visual style, composition, colors, and key elements. Be concise but detailed about the aesthetic qualities."
           );
           if (referenceDescription) {
-            enhancedPrompt = `Create an image inspired by this reference style: ${referenceDescription}. Applied to: ${prompt}. High quality, ${style} style, suitable for social media marketing.`;
+            enhancedPrompt = `Create an image inspired by this reference style: ${referenceDescription}. Applied to: ${prompt}. High quality, ${style} style, suitable for social media marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
             console.log(`✅ Reference analyzed, enhanced prompt created`);
           }
         } catch (refError) {

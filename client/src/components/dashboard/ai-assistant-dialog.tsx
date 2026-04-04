@@ -2529,7 +2529,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                     />
                   </div>
 
-                  {runwayMode === "text-to-video" && (
+                  {(runwayMode === "text-to-video" || runwayMode === "image-to-video") && (
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Aspect Ratio</label>
@@ -2565,7 +2565,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                     </div>
                   )}
 
-                  {runwayMode !== "text-to-video" && (
+                  {runwayMode === "video-to-video" && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -2721,7 +2721,9 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                               : `Generating clip ${runwayBatchProgress.completed + 1} of ${runwayBatchProgress.total} (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
                             : runwayMode === "text-to-video"
                               ? `Runway Gen-4.5 is generating your video (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
-                              : `Runway Gen-4 is transforming your video (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`}
+                              : runwayMode === "image-to-video"
+                                ? `Runway Gen-4 Turbo is generating your video (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`
+                                : `Runway Gen-4 Aleph is transforming your video (${Math.floor(runwayElapsed / 60)}:${String(runwayElapsed % 60).padStart(2, "0")} elapsed)…`}
                         </span>
                       </div>
                       {runwayBatchProgress && (
@@ -2748,9 +2750,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       data-testid="button-generate-runway-assistant"
                     >
                       {(runwayStatus === "pending" || runwayStatus === "processing") ? (
-                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />{runwayMode === "text-to-video" ? "Generating..." : "Transforming..."}</>
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />{runwayMode === "video-to-video" ? "Transforming..." : "Generating..."}</>
                       ) : runwayMode === "text-to-video" ? (
                         <><Video className="h-4 w-4 mr-2" />Generate with Runway Gen-4.5 ({runwayTextDuration}s)</>
+                      ) : runwayMode === "image-to-video" ? (
+                        <><Video className="h-4 w-4 mr-2" />Generate with Runway Gen-4 Turbo ({runwayTextDuration}s)</>
                       ) : (
                         <><Video className="h-4 w-4 mr-2" />Transform with Runway Gen-4 ({runwayTotalDuration}s)</>
                       )}

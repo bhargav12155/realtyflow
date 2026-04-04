@@ -723,6 +723,7 @@ export default function UnifiedCalendarPage() {
         platform: platformNames[platformKey] || post.platform.charAt(0).toUpperCase() + post.platform.slice(1),
         content: post.content,
         photoUrl: post.metadata?.imageUrl,
+        metadata: post.metadata,
         isAiGenerated: post.isAiGenerated || false,
         status: post.status,
       };
@@ -1787,6 +1788,7 @@ export default function UnifiedCalendarPage() {
                                     platform: platformNames[platformKey] || post.platform.charAt(0).toUpperCase() + post.platform.slice(1),
                                     content: post.content,
                                     photoUrl: post.metadata?.imageUrl,
+                                    metadata: post.metadata,
                                     isAiGenerated: post.isAiGenerated || false,
                                     status: post.status,
                                   });

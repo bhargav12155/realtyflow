@@ -26,6 +26,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { AiGeneratedBadge } from "@/components/shared/ai-generated-badge";
 import { ImagePicker } from "@/components/shared/image-picker";
+import { PropertySelector, Property } from "@/components/dashboard/property-selector";
 import { useAuth } from "@/hooks/useAuth";
 import { useBusinessType } from "@/lib/businessContext";
 import { INDUSTRY_CALENDAR_BLUEPRINTS } from "@shared/industryCalendarBlueprints";
@@ -233,13 +234,12 @@ export default function UnifiedCalendarPage() {
   const [showCreateVideoDialog, setShowCreateVideoDialog] = useState(false);
   const [showMlsDialog, setShowMlsDialog] = useState(false);
   const [mlsPhotos, setMlsPhotos] = useState<string[]>([]);
-  const [mlsPropertyAddress, setMlsPropertyAddress] = useState("");
-  const [mlsSearchAddress, setMlsSearchAddress] = useState("");
-  const [mlsSearchLoading, setMlsSearchLoading] = useState(false);
   const [videoPromptText, setVideoPromptText] = useState("");
   const [videoAspect, setVideoAspect] = useState("16:9");
+  const [videoPlatform, setVideoPlatform] = useState<"veo" | "sora2" | "luma" | "runway">("veo");
   const [videoGenStep, setVideoGenStep] = useState<"idle" | "generating-image" | "generating-video" | "polling" | "done">("idle");
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+  const [mlsSelectedProperty, setMlsSelectedProperty] = useState<any>(null);
   const videoMountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewFileInputRef = useRef<HTMLInputElement>(null);
@@ -414,59 +414,6 @@ export default function UnifiedCalendarPage() {
     },
   });
 
-  const handleMlsPhotoSearch = async () => {
-    if (!mlsSearchAddress.trim() || mlsSearchAddress.trim().length < 3) return;
-    setMlsSearchLoading(true);
-    setMlsPhotos([]);
-    setMlsPropertyAddress("");
-    try {
-      const detailsRes = await fetch("/api/property/details-by-address", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ address: mlsSearchAddress.trim() }),
-      });
-      if (detailsRes.ok) {
-        const data = await detailsRes.json();
-        if (data && (data.ListingKey || data.UnparsedAddress)) {
-          const address = data.UnparsedAddress || mlsSearchAddress;
-          const photos = data.Media?.map((m: any) => m.MediaURL).filter(Boolean) || [];
-          setMlsPropertyAddress(address);
-          setMlsPhotos(photos);
-          if (photos.length === 0) {
-            toast({ title: "No Photos", description: "Property found but has no photos.", variant: "destructive" });
-          }
-        } else {
-          const searchRes = await fetch(`/api/property/search?address=${encodeURIComponent(mlsSearchAddress.trim())}`, {
-            credentials: "include",
-          });
-          if (searchRes.ok) {
-            const searchData = await searchRes.json();
-            const properties = searchData.properties || [];
-            if (properties.length > 0) {
-              const prop = properties[0];
-              const photos = prop.imageUrl ? [prop.imageUrl] : [];
-              setMlsPropertyAddress(prop.address || mlsSearchAddress);
-              setMlsPhotos(photos);
-              if (photos.length === 0) {
-                toast({ title: "No Photos", description: "Property found but has no photos.", variant: "destructive" });
-              }
-            } else {
-              toast({ title: "Not Found", description: "No property found for that address.", variant: "destructive" });
-            }
-          } else {
-            toast({ title: "Search Failed", description: "Could not search properties.", variant: "destructive" });
-          }
-        }
-      } else {
-        toast({ title: "Search Failed", description: "Could not find property details.", variant: "destructive" });
-      }
-    } catch {
-      toast({ title: "Error", description: "Failed to search MLS. Please try again.", variant: "destructive" });
-    } finally {
-      setMlsSearchLoading(false);
-    }
-  };
 
   const generatePostsMutation = useMutation({
     mutationFn: async (eventId: string) => {
@@ -2821,6 +2768,20 @@ export default function UnifiedCalendarPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
+              <Label className="text-sm font-medium">AI Platform</Label>
+              <Select value={videoPlatform} onValueChange={(v: any) => setVideoPlatform(v)} disabled={videoGenStep !== "idle" && videoGenStep !== "done"}>
+                <SelectTrigger data-testid="select-video-platform-preview">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="veo">VEO 3.1</SelectItem>
+                  <SelectItem value="sora2">Sora 2</SelectItem>
+                  <SelectItem value="luma">Luma Ray 2</SelectItem>
+                  <SelectItem value="runway">Runway Gen-4</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label className="text-sm font-medium">Describe your video</Label>
               <Textarea
                 value={videoPromptText}
@@ -2851,7 +2812,9 @@ export default function UnifiedCalendarPage() {
                   <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                   <p className="text-sm text-blue-700 dark:text-blue-300">
                     {videoGenStep === "generating-image" && "Generating base image..."}
-                    {videoGenStep === "generating-video" && "Starting video generation with VEO 3.1..."}
+                    {videoGenStep === "generating-video" && `Starting video generation with ${
+                      videoPlatform === "veo" ? "VEO 3.1" : videoPlatform === "sora2" ? "Sora 2" : videoPlatform === "luma" ? "Luma Ray 2" : "Runway Gen-4"
+                    }...`}
                     {videoGenStep === "polling" && "Video is rendering... This may take a few minutes."}
                   </p>
                 </div>
@@ -2875,44 +2838,137 @@ export default function UnifiedCalendarPage() {
                     }
                     videoMountedRef.current = true;
                     try {
-                      setVideoGenStep("generating-image");
                       setGeneratedVideoUrl(null);
-                      const imageResponse = await apiRequest("POST", "/api/images/generate", {
-                        prompt: videoPromptText,
-                        aspectRatio: videoAspect,
-                        style: "photorealistic",
-                      });
-                      const imageData = await imageResponse.json();
-                      if (!imageData.imageUrl) throw new Error("Failed to generate image");
-                      setVideoGenStep("generating-video");
-                      const presetMap: Record<string, string> = { "9:16": "tiktok", "16:9": "facebook-feed", "1:1": "facebook-feed" };
-                      const veoResponse = await apiRequest("POST", "/api/ai/veo/start", {
-                        imageUrl: imageData.imageUrl,
-                        preset: presetMap[videoAspect] || "facebook-feed",
-                        prompt: videoPromptText,
-                        noSound: true,
-                      });
-                      const veoData = await veoResponse.json();
-                      if (!veoData.operationId) throw new Error("Failed to start video generation");
-                      setVideoGenStep("polling");
-                      const videoUrl = await new Promise<string>((resolve, reject) => {
-                        let pollCount = 0;
-                        const maxPolls = 36;
-                        const interval = setInterval(async () => {
-                          if (!videoMountedRef.current) { clearInterval(interval); reject(new Error("Cancelled")); return; }
-                          pollCount++;
-                          if (pollCount > maxPolls) { clearInterval(interval); reject(new Error("Video generation timed out.")); return; }
-                          try {
-                            const statusRes = await fetch(`/api/ai/veo/status/${veoData.operationId}`, { credentials: "include" });
-                            if (!statusRes.ok) { clearInterval(interval); reject(new Error("Status check failed")); return; }
-                            const statusData = await statusRes.json();
-                            if (statusData.error) { clearInterval(interval); reject(new Error(statusData.error)); return; }
-                            if (statusData.done && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
-                          } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
-                        }, 5000);
-                      });
-                      if (!videoMountedRef.current) return;
-                      setGeneratedVideoUrl(videoUrl);
+
+                      if (videoPlatform === "veo") {
+                        setVideoGenStep("generating-image");
+                        const imageResponse = await apiRequest("POST", "/api/images/generate", {
+                          prompt: videoPromptText,
+                          aspectRatio: videoAspect,
+                          style: "photorealistic",
+                        });
+                        const imageData = await imageResponse.json();
+                        if (!imageData.imageUrl) throw new Error("Failed to generate image");
+                        setVideoGenStep("generating-video");
+                        const presetMap: Record<string, string> = { "9:16": "tiktok", "16:9": "facebook-feed", "1:1": "facebook-feed" };
+                        const veoResponse = await apiRequest("POST", "/api/ai/veo/start", {
+                          imageUrl: imageData.imageUrl,
+                          preset: presetMap[videoAspect] || "facebook-feed",
+                          prompt: videoPromptText,
+                          noSound: true,
+                        });
+                        const veoData = await veoResponse.json();
+                        if (!veoData.operationId) throw new Error("Failed to start video generation");
+                        setVideoGenStep("polling");
+                        const videoUrl = await new Promise<string>((resolve, reject) => {
+                          let pollCount = 0;
+                          const maxPolls = 36;
+                          const interval = setInterval(async () => {
+                            if (!videoMountedRef.current) { clearInterval(interval); reject(new Error("Cancelled")); return; }
+                            pollCount++;
+                            if (pollCount > maxPolls) { clearInterval(interval); reject(new Error("Video generation timed out.")); return; }
+                            try {
+                              const statusRes = await fetch(`/api/ai/veo/status/${veoData.operationId}`, { credentials: "include" });
+                              if (!statusRes.ok) { clearInterval(interval); reject(new Error("Status check failed")); return; }
+                              const statusData = await statusRes.json();
+                              if (statusData.error) { clearInterval(interval); reject(new Error(statusData.error)); return; }
+                              if (statusData.done && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
+                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                          }, 5000);
+                        });
+                        if (!videoMountedRef.current) return;
+                        setGeneratedVideoUrl(videoUrl);
+                      } else if (videoPlatform === "sora2") {
+                        setVideoGenStep("generating-video");
+                        const aspectMap: Record<string, string> = { "16:9": "landscape", "9:16": "portrait", "1:1": "square" };
+                        const createRes = await apiRequest("POST", "/api/sora2/create-video", {
+                          prompt: videoPromptText,
+                          aspectRatio: aspectMap[videoAspect] || "landscape",
+                        });
+                        const createData = await createRes.json();
+                        if (!createData.taskId) throw new Error("Failed to start Sora 2 video");
+                        setVideoGenStep("polling");
+                        const videoUrl = await new Promise<string>((resolve, reject) => {
+                          let pollCount = 0;
+                          const maxPolls = 60;
+                          const interval = setInterval(async () => {
+                            if (!videoMountedRef.current) { clearInterval(interval); reject(new Error("Cancelled")); return; }
+                            pollCount++;
+                            if (pollCount > maxPolls) { clearInterval(interval); reject(new Error("Video generation timed out.")); return; }
+                            try {
+                              const statusRes = await fetch(`/api/sora2/status/${createData.taskId}`, { credentials: "include" });
+                              if (!statusRes.ok) { clearInterval(interval); reject(new Error("Status check failed")); return; }
+                              const statusData = await statusRes.json();
+                              if (statusData.status === "failed") { clearInterval(interval); reject(new Error(statusData.error || "Video generation failed")); return; }
+                              if (statusData.status === "completed" && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
+                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                          }, 5000);
+                        });
+                        if (!videoMountedRef.current) return;
+                        setGeneratedVideoUrl(videoUrl);
+                      } else if (videoPlatform === "luma") {
+                        setVideoGenStep("generating-video");
+                        const lumaAspectMap: Record<string, string> = { "16:9": "16:9", "9:16": "9:16", "1:1": "1:1" };
+                        const createRes = await apiRequest("POST", "/api/luma/create-video", {
+                          prompt: videoPromptText,
+                          model: "ray-2",
+                          aspectRatio: lumaAspectMap[videoAspect] || "16:9",
+                          duration: 5,
+                        });
+                        const createData = await createRes.json();
+                        if (!createData.taskId) throw new Error("Failed to start Luma video");
+                        setVideoGenStep("polling");
+                        const videoUrl = await new Promise<string>((resolve, reject) => {
+                          let pollCount = 0;
+                          const maxPolls = 60;
+                          const interval = setInterval(async () => {
+                            if (!videoMountedRef.current) { clearInterval(interval); reject(new Error("Cancelled")); return; }
+                            pollCount++;
+                            if (pollCount > maxPolls) { clearInterval(interval); reject(new Error("Video generation timed out.")); return; }
+                            try {
+                              const statusRes = await fetch(`/api/luma/status/${createData.taskId}`, { credentials: "include" });
+                              if (!statusRes.ok) { clearInterval(interval); reject(new Error("Status check failed")); return; }
+                              const statusData = await statusRes.json();
+                              if (statusData.status === "failed") { clearInterval(interval); reject(new Error(statusData.error || "Video generation failed")); return; }
+                              if (statusData.status === "completed" && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
+                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                          }, 5000);
+                        });
+                        if (!videoMountedRef.current) return;
+                        setGeneratedVideoUrl(videoUrl);
+                      } else if (videoPlatform === "runway") {
+                        setVideoGenStep("generating-video");
+                        const runwayRatioMap: Record<string, string> = { "16:9": "1280:720", "9:16": "720:1280", "1:1": "720:720" };
+                        const createRes = await apiRequest("POST", "/api/runway/create-video", {
+                          promptText: videoPromptText,
+                          mode: "text-to-video",
+                          model: "gen4.5",
+                          ratio: runwayRatioMap[videoAspect] || "1280:720",
+                          duration: 5,
+                        });
+                        const createData = await createRes.json();
+                        if (!createData.taskId) throw new Error("Failed to start Runway video");
+                        setVideoGenStep("polling");
+                        const videoUrl = await new Promise<string>((resolve, reject) => {
+                          let pollCount = 0;
+                          const maxPolls = 60;
+                          const interval = setInterval(async () => {
+                            if (!videoMountedRef.current) { clearInterval(interval); reject(new Error("Cancelled")); return; }
+                            pollCount++;
+                            if (pollCount > maxPolls) { clearInterval(interval); reject(new Error("Video generation timed out.")); return; }
+                            try {
+                              const statusRes = await fetch(`/api/runway/status/${createData.taskId}`, { credentials: "include" });
+                              if (!statusRes.ok) { clearInterval(interval); reject(new Error("Status check failed")); return; }
+                              const statusData = await statusRes.json();
+                              if (statusData.status === "failed") { clearInterval(interval); reject(new Error(statusData.error || "Video generation failed")); return; }
+                              if (statusData.status === "completed" && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
+                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                          }, 5000);
+                        });
+                        if (!videoMountedRef.current) return;
+                        setGeneratedVideoUrl(videoUrl);
+                      }
+
                       setVideoGenStep("done");
                       toast({ title: "Video Generated!", description: "Your video is ready. Click 'Use This Video' to attach it." });
                     } catch (error: any) {
@@ -2974,45 +3030,35 @@ export default function UnifiedCalendarPage() {
 
       <Dialog open={showMlsDialog} onOpenChange={(open) => {
         setShowMlsDialog(open);
-        if (!open) { setMlsPhotos([]); setMlsPropertyAddress(""); setMlsSearchAddress(""); }
+        if (!open) { setMlsSelectedProperty(null); setMlsPhotos([]); }
       }}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Select Photo from MLS</DialogTitle>
+            <DialogTitle>{mlsSelectedProperty ? "Select a Photo" : "Find Property from MLS"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">Search by address or MLS#</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={mlsSearchAddress}
-                  onChange={(e) => setMlsSearchAddress(e.target.value)}
-                  placeholder="Enter address or MLS number..."
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && mlsSearchAddress.trim().length >= 3) {
-                      handleMlsPhotoSearch();
-                    }
-                  }}
-                  data-testid="input-mls-search-address"
-                />
-                <Button
-                  onClick={handleMlsPhotoSearch}
-                  disabled={mlsSearchLoading || mlsSearchAddress.trim().length < 3}
-                  size="sm"
-                  data-testid="btn-mls-search"
-                >
-                  {mlsSearchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Home className="w-4 h-4" />}
-                </Button>
-              </div>
-            </div>
-            {mlsPropertyAddress && (
-              <p className="text-sm text-muted-foreground">
-                Property: <span className="font-medium text-foreground">{mlsPropertyAddress}</span>
-              </p>
-            )}
-            {mlsPhotos.length > 0 && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Select a photo ({mlsPhotos.length} available)</Label>
+            {!mlsSelectedProperty ? (
+              <PropertySelector
+                onSelectProperty={(property: Property) => {
+                  if (property.photoUrls && property.photoUrls.length > 0) {
+                    setMlsSelectedProperty(property);
+                    setMlsPhotos(property.photoUrls);
+                  } else {
+                    toast({ title: "No Photos", description: "This property has no photos available.", variant: "destructive" });
+                  }
+                }}
+                selectedProperty={null}
+              />
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    {mlsSelectedProperty.address}, {mlsSelectedProperty.city} - {mlsPhotos.length} photo{mlsPhotos.length !== 1 ? "s" : ""}
+                  </p>
+                  <Button variant="ghost" size="sm" onClick={() => { setMlsSelectedProperty(null); setMlsPhotos([]); }} data-testid="btn-mls-back-to-search">
+                    <ArrowLeft className="w-4 h-4 mr-1" /> Back
+                  </Button>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   {mlsPhotos.map((url, idx) => (
                     <button
@@ -3021,9 +3067,8 @@ export default function UnifiedCalendarPage() {
                       onClick={() => {
                         setEditImageUrl(url);
                         setShowMlsDialog(false);
+                        setMlsSelectedProperty(null);
                         setMlsPhotos([]);
-                        setMlsPropertyAddress("");
-                        setMlsSearchAddress("");
                         toast({ title: "MLS Photo Attached", description: "Property photo has been attached to your post." });
                       }}
                       data-testid={`btn-mls-photo-${idx}`}
@@ -3033,9 +3078,6 @@ export default function UnifiedCalendarPage() {
                   ))}
                 </div>
               </div>
-            )}
-            {mlsPhotos.length === 0 && mlsPropertyAddress && (
-              <p className="text-sm text-muted-foreground text-center py-4">No photos available for this property.</p>
             )}
           </div>
         </DialogContent>

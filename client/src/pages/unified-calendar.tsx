@@ -330,6 +330,8 @@ export default function UnifiedCalendarPage() {
     queryKey: ["/api/events/templates"],
   });
 
+  const { data: companyProfile } = useQuery<any>({ queryKey: ["/api/company/profile"] });
+
   const { data: apiScheduledPosts = [], isLoading: postsLoading } = useQuery<ScheduledPost[]>({
     queryKey: ["/api/scheduled-posts", statusFilter],
     queryFn: async () => {
@@ -705,6 +707,58 @@ export default function UnifiedCalendarPage() {
   useEffect(() => {
     setSelectedPostIds(new Set());
   }, [postManagerPlatformFilter, postManagerStatusFilter]);
+
+  const platformLimits: Record<string, { optimal: number; max: number }> = {
+    x: { optimal: 280, max: 280 },
+    twitter: { optimal: 280, max: 280 },
+    facebook: { optimal: 500, max: 63206 },
+    instagram: { optimal: 2000, max: 2200 },
+    linkedin: { optimal: 1500, max: 3000 },
+    youtube: { optimal: 3000, max: 5000 },
+    tiktok: { optimal: 2000, max: 4000 },
+  };
+
+  const checkCompliance = (content: string): { status: 'compliant' | 'warning' | 'error'; issues: string[] } => {
+    const issues: { message: string; severity: 'warning' | 'error' }[] = [];
+    const lowerContent = content.toLowerCase();
+
+    const advertisingIndicators = [
+      'just listed', 'just sold', 'open house', 'for sale', 'price reduced',
+      'new listing', 'coming soon', 'pending', 'under contract', 'sold!',
+      'featured property', 'dream home', 'call me', 'contact me', 'dm me',
+      'reach out', 'schedule a showing', 'home buyer', 'home seller',
+      'real estate', 'property tour', 'market update', 'mortgage',
+      'investment property', 'first time buyer'
+    ];
+    const isAdvertising = advertisingIndicators.some(indicator => lowerContent.includes(indicator));
+
+    if (isAdvertising) {
+      const brandTerms: string[] = [];
+      if (companyProfile?.businessName) brandTerms.push(companyProfile.businessName.toLowerCase());
+      if (companyProfile?.brokerageName) brandTerms.push(companyProfile.brokerageName.toLowerCase());
+
+      if (brandTerms.length > 0) {
+        const hasBranding = brandTerms.some(term => lowerContent.includes(term));
+        if (!hasBranding) {
+          issues.push({ message: 'Missing brokerage branding (required for ads)', severity: 'error' });
+        }
+      }
+    }
+
+    const prohibitedTerms = ['brokerage owner', 'principal broker'];
+    prohibitedTerms.forEach(term => {
+      if (lowerContent.includes(term)) {
+        issues.push({ message: `Term "${term}" requires broker license`, severity: 'error' });
+      }
+    });
+
+    if (issues.length === 0) return { status: 'compliant', issues: [] };
+    const hasError = issues.some(i => i.severity === 'error');
+    return {
+      status: hasError ? 'error' : 'warning',
+      issues: issues.map(i => i.message)
+    };
+  };
 
   const scheduledContent = useMemo(() => {
     return apiScheduledPosts.map((post) => {
@@ -1638,59 +1692,10 @@ export default function UnifiedCalendarPage() {
               ) : (
                 <div className="space-y-3">
                   {filteredPosts.map((post) => {
-                      const platformLimits: Record<string, { optimal: number; max: number }> = {
-                        x: { optimal: 280, max: 280 },
-                        twitter: { optimal: 280, max: 280 },
-                        facebook: { optimal: 500, max: 63206 },
-                        instagram: { optimal: 2000, max: 2200 },
-                        linkedin: { optimal: 1500, max: 3000 },
-                        youtube: { optimal: 3000, max: 5000 },
-                        tiktok: { optimal: 2000, max: 4000 },
-                      };
                       const limit = platformLimits[post.platform.toLowerCase()] || { optimal: 500, max: 2000 };
                       const charCount = post.content.length;
                       const charPercent = Math.min((charCount / limit.max) * 100, 100);
                       const charColor = charCount <= limit.optimal ? "bg-green-500" : charCount <= limit.max ? "bg-yellow-500" : "bg-red-500";
-                      
-                      const checkCompliance = (content: string): { status: 'compliant' | 'warning' | 'error'; issues: string[] } => {
-                        const issues: { message: string; severity: 'warning' | 'error' }[] = [];
-                        const lowerContent = content.toLowerCase();
-                        
-                        const advertisingIndicators = [
-                          'just listed', 'just sold', 'open house', 'for sale', 'price reduced',
-                          'new listing', 'coming soon', 'pending', 'under contract', 'sold!',
-                          'featured property', 'dream home', 'call me', 'contact me', 'dm me',
-                          'reach out', 'schedule a showing', 'home buyer', 'home seller',
-                          'real estate', 'property tour', 'market update', 'mortgage',
-                          'investment property', 'first time buyer'
-                        ];
-                        const isAdvertising = advertisingIndicators.some(indicator => lowerContent.includes(indicator));
-                        
-                        if (isAdvertising) {
-                          const hasBranding = lowerContent.includes('bhhs') || 
-                            lowerContent.includes('berkshire') || 
-                            lowerContent.includes('bhhs ambassador') ||
-                            lowerContent.includes('ambassador real estate');
-                          if (!hasBranding) {
-                            issues.push({ message: 'Missing BHHS branding (required for ads)', severity: 'error' });
-                          }
-                        }
-                        
-                        const prohibitedTerms = ['brokerage owner', 'principal broker'];
-                        prohibitedTerms.forEach(term => {
-                          if (lowerContent.includes(term)) {
-                            issues.push({ message: `Term "${term}" requires broker license`, severity: 'error' });
-                          }
-                        });
-                        
-                        if (issues.length === 0) return { status: 'compliant', issues: [] };
-                        const hasError = issues.some(i => i.severity === 'error');
-                        return { 
-                          status: hasError ? 'error' : 'warning', 
-                          issues: issues.map(i => i.message) 
-                        };
-                      };
-                      
                       const compliance = checkCompliance(post.content);
                       const scheduledDate = new Date(post.scheduledFor);
 
@@ -2586,6 +2591,45 @@ export default function UnifiedCalendarPage() {
                       <p className="text-sm whitespace-pre-wrap">{previewContent.content}</p>
                     </div>
                   )}
+                  {(() => {
+                    const contentToCheck = editingPost?.id === previewContent.originalId ? editContent : previewContent.content;
+                    const platform = previewContent.platform?.toLowerCase() || "";
+                    const limit = platformLimits[platform] || { optimal: 500, max: 2000 };
+                    const charCount = contentToCheck.length;
+                    const charPercent = Math.min((charCount / limit.max) * 100, 100);
+                    const charColor = charCount <= limit.optimal ? "bg-green-500" : charCount <= limit.max ? "bg-yellow-500" : "bg-red-500";
+                    const compliance = checkCompliance(contentToCheck);
+                    return (
+                      <div className="flex items-center gap-4" data-testid="preview-compliance-info">
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-muted-foreground">{charCount}/{limit.max}</span>
+                          <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
+                            <div className={`h-full ${charColor}`} style={{ width: `${charPercent}%` }} />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {compliance.status === 'compliant' && (
+                            <Badge variant="outline" className="text-green-600 border-green-600" data-testid="badge-compliant-preview">
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Compliant
+                            </Badge>
+                          )}
+                          {compliance.status === 'warning' && (
+                            <Badge variant="outline" className="text-yellow-600 border-yellow-600" data-testid="badge-warning-preview">
+                              <AlertTriangle className="w-3 h-3 mr-1" />
+                              {compliance.issues[0]}
+                            </Badge>
+                          )}
+                          {compliance.status === 'error' && (
+                            <Badge variant="outline" className="text-red-600 border-red-600" data-testid="badge-error-preview">
+                              <XCircle className="w-3 h-3 mr-1" />
+                              {compliance.issues[0]}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {previewContent.photoUrl && (
                     /\.(mp4|mov|webm|avi)$/i.test(previewContent.photoUrl) ? (
                       <video src={previewContent.photoUrl} controls className="w-full rounded-lg" data-testid="video-post-media" />

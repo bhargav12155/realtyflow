@@ -2861,18 +2861,44 @@ export default function UnifiedCalendarPage() {
                   </Button>
                 </div>
               ) : (
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => videoRefFileInputRef.current?.click()}
-                    disabled={(videoGenStep !== "idle" && videoGenStep !== "done") || videoRefImageUploading}
-                    data-testid="btn-upload-video-ref-image"
-                  >
-                    {videoRefImageUploading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
-                    Upload Image
-                  </Button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => videoRefFileInputRef.current?.click()}
+                      disabled={(videoGenStep !== "idle" && videoGenStep !== "done") || videoRefImageUploading}
+                      data-testid="btn-upload-video-ref-image"
+                    >
+                      {videoRefImageUploading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
+                      Upload Image
+                    </Button>
+                    <span className="text-xs text-muted-foreground self-center">or</span>
+                  </div>
+                  <Input
+                    placeholder="Paste image URL..."
+                    disabled={videoGenStep !== "idle" && videoGenStep !== "done"}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const val = (e.target as HTMLInputElement).value.trim();
+                        if (val && /^https?:\/\/.+/i.test(val)) {
+                          setVideoRefImageUrl(val);
+                          (e.target as HTMLInputElement).value = "";
+                        } else if (val) {
+                          toast({ title: "Invalid URL", description: "Please enter a valid image URL starting with http:// or https://", variant: "destructive" });
+                        }
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const val = e.target.value.trim();
+                      if (val && /^https?:\/\/.+/i.test(val)) {
+                        setVideoRefImageUrl(val);
+                        e.target.value = "";
+                      }
+                    }}
+                    data-testid="input-video-ref-image-url"
+                  />
                 </div>
               )}
             </div>

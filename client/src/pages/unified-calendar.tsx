@@ -239,6 +239,9 @@ export default function UnifiedCalendarPage() {
   const [videoPlatform, setVideoPlatform] = useState<"veo" | "sora2" | "luma" | "runway">("veo");
   const [videoGenStep, setVideoGenStep] = useState<"idle" | "generating-image" | "generating-video" | "polling" | "done">("idle");
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+  const [videoRefImageUrl, setVideoRefImageUrl] = useState<string | null>(null);
+  const [videoRefImageUploading, setVideoRefImageUploading] = useState(false);
+  const videoRefFileInputRef = useRef<HTMLInputElement>(null);
   const [mlsSelectedProperty, setMlsSelectedProperty] = useState<Property | null>(null);
   const videoMountedRef = useRef(true);
   useEffect(() => {
@@ -2809,6 +2812,71 @@ export default function UnifiedCalendarPage() {
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Reference Image (optional)</Label>
+              <p className="text-xs text-muted-foreground">Upload an image to use as the starting frame for the video</p>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                ref={videoRefFileInputRef}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setVideoRefImageUploading(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append("file", file);
+                    const res = await fetch("/api/upload-reference", {
+                      method: "POST",
+                      credentials: "include",
+                      body: formData,
+                    });
+                    if (!res.ok) throw new Error("Upload failed");
+                    const data = await res.json();
+                    if (data.url) {
+                      setVideoRefImageUrl(data.url);
+                    }
+                  } catch {
+                    toast({ title: "Upload Failed", description: "Could not upload reference image.", variant: "destructive" });
+                  } finally {
+                    setVideoRefImageUploading(false);
+                    if (videoRefFileInputRef.current) videoRefFileInputRef.current.value = "";
+                  }
+                }}
+                data-testid="input-video-ref-image-file"
+              />
+              {videoRefImageUrl ? (
+                <div className="flex items-center gap-2">
+                  <img src={videoRefImageUrl} alt="Reference" className="h-16 w-16 object-cover rounded" data-testid="img-video-ref-preview" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setVideoRefImageUrl(null)}
+                    disabled={videoGenStep !== "idle" && videoGenStep !== "done"}
+                    data-testid="btn-remove-video-ref-image"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => videoRefFileInputRef.current?.click()}
+                    disabled={(videoGenStep !== "idle" && videoGenStep !== "done") || videoRefImageUploading}
+                    data-testid="btn-upload-video-ref-image"
+                  >
+                    {videoRefImageUploading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
+                    Upload Image
+                  </Button>
+                </div>
+              )}
+            </div>
+
             {videoGenStep !== "idle" && videoGenStep !== "done" && (
               <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <div className="flex items-center gap-2">
@@ -2844,18 +2912,22 @@ export default function UnifiedCalendarPage() {
                       setGeneratedVideoUrl(null);
 
                       if (videoPlatform === "veo") {
-                        setVideoGenStep("generating-image");
-                        const imageResponse = await apiRequest("POST", "/api/images/generate", {
-                          prompt: videoPromptText,
-                          aspectRatio: videoAspect,
-                          style: "photorealistic",
-                        });
-                        const imageData = await imageResponse.json();
-                        if (!imageData.imageUrl) throw new Error("Failed to generate image");
+                        let veoImageUrl = videoRefImageUrl;
+                        if (!veoImageUrl) {
+                          setVideoGenStep("generating-image");
+                          const imageResponse = await apiRequest("POST", "/api/images/generate", {
+                            prompt: videoPromptText,
+                            aspectRatio: videoAspect,
+                            style: "photorealistic",
+                          });
+                          const imageData = await imageResponse.json();
+                          if (!imageData.imageUrl) throw new Error("Failed to generate image");
+                          veoImageUrl = imageData.imageUrl;
+                        }
                         setVideoGenStep("generating-video");
                         const presetMap: Record<string, string> = { "9:16": "tiktok", "16:9": "facebook-feed", "1:1": "facebook-feed" };
                         const veoResponse = await apiRequest("POST", "/api/ai/veo/start", {
-                          imageUrl: imageData.imageUrl,
+                          imageUrl: veoImageUrl,
                           preset: presetMap[videoAspect] || "facebook-feed",
                           prompt: videoPromptText,
                           noSound: true,
@@ -2884,10 +2956,14 @@ export default function UnifiedCalendarPage() {
                       } else if (videoPlatform === "sora2") {
                         setVideoGenStep("generating-video");
                         const aspectMap: Record<string, string> = { "16:9": "landscape", "9:16": "portrait", "1:1": "square" };
-                        const createRes = await apiRequest("POST", "/api/sora2/create-video", {
+                        const sora2Body: Record<string, unknown> = {
                           prompt: videoPromptText,
                           aspectRatio: aspectMap[videoAspect] || "landscape",
-                        });
+                        };
+                        if (videoRefImageUrl) {
+                          sora2Body.imageUrls = [videoRefImageUrl];
+                        }
+                        const createRes = await apiRequest("POST", "/api/sora2/create-video", sora2Body);
                         const createData = await createRes.json();
                         if (!createData.taskId) throw new Error("Failed to start Sora 2 video");
                         setVideoGenStep("polling");
@@ -2912,12 +2988,16 @@ export default function UnifiedCalendarPage() {
                       } else if (videoPlatform === "luma") {
                         setVideoGenStep("generating-video");
                         const lumaAspectMap: Record<string, string> = { "16:9": "16:9", "9:16": "9:16", "1:1": "1:1" };
-                        const createRes = await apiRequest("POST", "/api/luma/create-video", {
+                        const lumaBody: Record<string, unknown> = {
                           prompt: videoPromptText,
                           model: "ray-2",
                           aspectRatio: lumaAspectMap[videoAspect] || "16:9",
                           duration: 5,
-                        });
+                        };
+                        if (videoRefImageUrl) {
+                          lumaBody.keyframeImageUrl = videoRefImageUrl;
+                        }
+                        const createRes = await apiRequest("POST", "/api/luma/create-video", lumaBody);
                         const createData = await createRes.json();
                         if (!createData.taskId) throw new Error("Failed to start Luma video");
                         setVideoGenStep("polling");
@@ -2942,13 +3022,20 @@ export default function UnifiedCalendarPage() {
                       } else if (videoPlatform === "runway") {
                         setVideoGenStep("generating-video");
                         const runwayRatioMap: Record<string, string> = { "16:9": "1280:720", "9:16": "720:1280", "1:1": "720:720" };
-                        const createRes = await apiRequest("POST", "/api/runway/create-video", {
+                        const runwayBody: Record<string, unknown> = {
                           promptText: videoPromptText,
-                          mode: "text-to-video",
-                          model: "gen4.5",
                           ratio: runwayRatioMap[videoAspect] || "1280:720",
                           duration: 5,
-                        });
+                        };
+                        if (videoRefImageUrl) {
+                          runwayBody.mode = "image-to-video";
+                          runwayBody.model = "gen4_turbo";
+                          runwayBody.promptImage = videoRefImageUrl;
+                        } else {
+                          runwayBody.mode = "text-to-video";
+                          runwayBody.model = "gen4.5";
+                        }
+                        const createRes = await apiRequest("POST", "/api/runway/create-video", runwayBody);
                         const createData = await createRes.json();
                         if (!createData.taskId) throw new Error("Failed to start Runway video");
                         setVideoGenStep("polling");

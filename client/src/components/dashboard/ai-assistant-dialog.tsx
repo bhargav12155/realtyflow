@@ -1239,6 +1239,13 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           setLumaBatchProgress(null);
           stopLumaPolling();
           toast({ title: "Luma Extended Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+        } else if (data.status === "stitching") {
+          setLumaStatus("processing");
+          setLumaBatchProgress({
+            completedClips: data.totalClips || 2,
+            currentClip: data.totalClips || 2,
+            totalClips: data.totalClips || 2,
+          });
         } else {
           setLumaStatus("processing");
           setLumaBatchProgress({
@@ -2589,7 +2596,11 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         {lumaBatchProgress ? (
-                          <span>Generating clip {lumaBatchProgress.completedClips < lumaBatchProgress.totalClips ? lumaBatchProgress.completedClips + 1 : lumaBatchProgress.totalClips} of {lumaBatchProgress.totalClips} ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                          lumaBatchProgress.completedClips >= lumaBatchProgress.totalClips ? (
+                            <span>Stitching {lumaBatchProgress.totalClips} clips together ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                          ) : (
+                            <span>Generating clip {lumaBatchProgress.completedClips + 1} of {lumaBatchProgress.totalClips} ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                          )
                         ) : (
                           <span>Luma Ray 2 is generating your video ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
                         )}

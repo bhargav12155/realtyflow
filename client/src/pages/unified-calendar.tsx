@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, ArrowLeft, Wand2, ListChecks, CheckCircle2, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, ChevronDown, Filter, AlertCircle, Image, XCircle, AlertTriangle, Mail } from "lucide-react";
+import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, ArrowLeft, Wand2, ListChecks, CheckCircle2, Eye, Home, MoreHorizontal, Heart, MessageCircle, Send, Bookmark, Edit2, Save, Upload, ChevronDown, Filter, AlertCircle, Image, XCircle, AlertTriangle, Mail, Video, Building2 } from "lucide-react";
 import { FaFacebook, FaInstagram, FaLinkedin, FaYoutube, FaTiktok } from "react-icons/fa";
 import { FaXTwitter } from "react-icons/fa6";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
 import { AiGeneratedBadge } from "@/components/shared/ai-generated-badge";
+import { ImagePicker } from "@/components/shared/image-picker";
 import { useAuth } from "@/hooks/useAuth";
 import { useBusinessType } from "@/lib/businessContext";
 import { INDUSTRY_CALENDAR_BLUEPRINTS } from "@shared/industryCalendarBlueprints";
@@ -228,6 +229,18 @@ export default function UnifiedCalendarPage() {
   const [editImageUrl, setEditImageUrl] = useState<string>("");
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [mediaUploading, setMediaUploading] = useState(false);
+  const [showCreateImageDialog, setShowCreateImageDialog] = useState(false);
+  const [showCreateVideoDialog, setShowCreateVideoDialog] = useState(false);
+  const [showMlsDialog, setShowMlsDialog] = useState(false);
+  const [mlsPhotos, setMlsPhotos] = useState<string[]>([]);
+  const [mlsPropertyAddress, setMlsPropertyAddress] = useState("");
+  const [mlsSearchAddress, setMlsSearchAddress] = useState("");
+  const [mlsSearchLoading, setMlsSearchLoading] = useState(false);
+  const [videoPromptText, setVideoPromptText] = useState("");
+  const [videoAspect, setVideoAspect] = useState("16:9");
+  const [videoGenStep, setVideoGenStep] = useState<"idle" | "generating-image" | "generating-video" | "polling" | "done">("idle");
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+  const videoMountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewFileInputRef = useRef<HTMLInputElement>(null);
   const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);
@@ -400,6 +413,60 @@ export default function UnifiedCalendarPage() {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const handleMlsPhotoSearch = async () => {
+    if (!mlsSearchAddress.trim() || mlsSearchAddress.trim().length < 3) return;
+    setMlsSearchLoading(true);
+    setMlsPhotos([]);
+    setMlsPropertyAddress("");
+    try {
+      const detailsRes = await fetch("/api/property/details-by-address", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ address: mlsSearchAddress.trim() }),
+      });
+      if (detailsRes.ok) {
+        const data = await detailsRes.json();
+        if (data && (data.ListingKey || data.UnparsedAddress)) {
+          const address = data.UnparsedAddress || mlsSearchAddress;
+          const photos = data.Media?.map((m: any) => m.MediaURL).filter(Boolean) || [];
+          setMlsPropertyAddress(address);
+          setMlsPhotos(photos);
+          if (photos.length === 0) {
+            toast({ title: "No Photos", description: "Property found but has no photos.", variant: "destructive" });
+          }
+        } else {
+          const searchRes = await fetch(`/api/property/search?address=${encodeURIComponent(mlsSearchAddress.trim())}`, {
+            credentials: "include",
+          });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            const properties = searchData.properties || [];
+            if (properties.length > 0) {
+              const prop = properties[0];
+              const photos = prop.imageUrl ? [prop.imageUrl] : [];
+              setMlsPropertyAddress(prop.address || mlsSearchAddress);
+              setMlsPhotos(photos);
+              if (photos.length === 0) {
+                toast({ title: "No Photos", description: "Property found but has no photos.", variant: "destructive" });
+              }
+            } else {
+              toast({ title: "Not Found", description: "No property found for that address.", variant: "destructive" });
+            }
+          } else {
+            toast({ title: "Search Failed", description: "Could not search properties.", variant: "destructive" });
+          }
+        }
+      } else {
+        toast({ title: "Search Failed", description: "Could not find property details.", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to search MLS. Please try again.", variant: "destructive" });
+    } finally {
+      setMlsSearchLoading(false);
+    }
+  };
 
   const generatePostsMutation = useMutation({
     mutationFn: async (eventId: string) => {
@@ -2514,7 +2581,7 @@ export default function UnifiedCalendarPage() {
                             }
                           }}
                         />
-                        <div className="flex items-center gap-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <Button
                             type="button"
                             variant="outline"
@@ -2524,10 +2591,47 @@ export default function UnifiedCalendarPage() {
                             data-testid="btn-upload-media-preview"
                           >
                             {mediaUploading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Upload className="w-4 h-4 mr-1" />}
-                            Upload from device
+                            Upload
                           </Button>
-                          <span className="text-xs text-muted-foreground">or paste URL below</span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowCreateImageDialog(true)}
+                            data-testid="btn-create-image-preview"
+                          >
+                            <Image className="w-4 h-4 mr-1" />
+                            Create Image
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setVideoPromptText("");
+                              setVideoGenStep("idle");
+                              setGeneratedVideoUrl(null);
+                              setShowCreateVideoDialog(true);
+                            }}
+                            data-testid="btn-create-video-preview"
+                          >
+                            <Video className="w-4 h-4 mr-1" />
+                            Create Video
+                          </Button>
+                          {businessType === "real_estate" && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowMlsDialog(true)}
+                              data-testid="btn-upload-mls-preview"
+                            >
+                              <Building2 className="w-4 h-4 mr-1" />
+                              From MLS
+                            </Button>
+                          )}
                         </div>
+                        <span className="text-xs text-muted-foreground">or paste URL below</span>
                         <Input
                           id="media-url-input"
                           value={editImageUrl}
@@ -2537,10 +2641,8 @@ export default function UnifiedCalendarPage() {
                         />
                         {editImageUrl && (
                           <div className="flex items-center gap-2">
-                            {/\.(mp4|mov|webm)$/i.test(editImageUrl) ? (
-                              <div className="h-16 w-16 rounded bg-muted flex items-center justify-center" data-testid="preview-media-video">
-                                <Upload className="w-6 h-6 text-muted-foreground" />
-                              </div>
+                            {/\.(mp4|mov|webm|avi)$/i.test(editImageUrl) ? (
+                              <video src={editImageUrl} className="h-16 w-16 object-cover rounded" muted data-testid="preview-media-video" />
                             ) : (
                               <img src={editImageUrl} alt="Media preview" className="h-16 w-16 object-cover rounded" data-testid="preview-media-image" />
                             )}
@@ -2608,7 +2710,11 @@ export default function UnifiedCalendarPage() {
                     </div>
                   )}
                   {previewContent.photoUrl && (
-                    <img src={previewContent.photoUrl} alt="Post media" className="w-full rounded-lg" data-testid="img-post-media" />
+                    /\.(mp4|mov|webm|avi)$/i.test(previewContent.photoUrl) ? (
+                      <video src={previewContent.photoUrl} controls className="w-full rounded-lg" data-testid="video-post-media" />
+                    ) : (
+                      <img src={previewContent.photoUrl} alt="Post media" className="w-full rounded-lg" data-testid="img-post-media" />
+                    )
                   )}
                   {previewContent.platform?.toLowerCase() === "tiktok" && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg" data-testid="info-tiktok-note">
@@ -2684,6 +2790,257 @@ export default function UnifiedCalendarPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showCreateImageDialog} onOpenChange={setShowCreateImageDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create AI Image</DialogTitle>
+          </DialogHeader>
+          <ImagePicker
+            onSelect={(imageUrl) => {
+              if (imageUrl) {
+                setEditImageUrl(imageUrl);
+                setShowCreateImageDialog(false);
+                toast({ title: "Image Attached", description: "AI-generated image has been attached to your post." });
+              }
+            }}
+            platform={previewContent?.platform?.toLowerCase()}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCreateVideoDialog} onOpenChange={(open) => {
+        if (!open && videoGenStep !== "idle" && videoGenStep !== "done") {
+          return;
+        }
+        setShowCreateVideoDialog(open);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create AI Video</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Describe your video</Label>
+              <Textarea
+                value={videoPromptText}
+                onChange={(e) => setVideoPromptText(e.target.value)}
+                placeholder="E.g., A cinematic aerial shot of a luxury home with a pool at sunset..."
+                className="min-h-[80px] text-sm"
+                disabled={videoGenStep !== "idle" && videoGenStep !== "done"}
+                data-testid="textarea-video-prompt-preview"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Aspect Ratio</Label>
+              <Select value={videoAspect} onValueChange={setVideoAspect} disabled={videoGenStep !== "idle" && videoGenStep !== "done"}>
+                <SelectTrigger data-testid="select-video-aspect-preview">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="16:9">Landscape (16:9)</SelectItem>
+                  <SelectItem value="9:16">Portrait (9:16)</SelectItem>
+                  <SelectItem value="1:1">Square (1:1)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {videoGenStep !== "idle" && videoGenStep !== "done" && (
+              <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    {videoGenStep === "generating-image" && "Generating base image..."}
+                    {videoGenStep === "generating-video" && "Starting video generation with VEO 3.1..."}
+                    {videoGenStep === "polling" && "Video is rendering... This may take a few minutes."}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {generatedVideoUrl && videoGenStep === "done" && (
+              <div className="space-y-2">
+                <video src={generatedVideoUrl} controls className="w-full rounded-lg" data-testid="video-preview-result" />
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              {videoGenStep === "idle" && (
+                <Button
+                  className="flex-1"
+                  onClick={async () => {
+                    if (!videoPromptText.trim()) {
+                      toast({ title: "Prompt Required", description: "Please describe the video you want to create.", variant: "destructive" });
+                      return;
+                    }
+                    videoMountedRef.current = true;
+                    try {
+                      setVideoGenStep("generating-image");
+                      setGeneratedVideoUrl(null);
+                      const imageResponse = await apiRequest("POST", "/api/images/generate", {
+                        prompt: videoPromptText,
+                        aspectRatio: videoAspect,
+                        style: "photorealistic",
+                      });
+                      const imageData = await imageResponse.json();
+                      if (!imageData.imageUrl) throw new Error("Failed to generate image");
+                      setVideoGenStep("generating-video");
+                      const presetMap: Record<string, string> = { "9:16": "tiktok", "16:9": "facebook-feed", "1:1": "facebook-feed" };
+                      const veoResponse = await apiRequest("POST", "/api/ai/veo/start", {
+                        imageUrl: imageData.imageUrl,
+                        preset: presetMap[videoAspect] || "facebook-feed",
+                        prompt: videoPromptText,
+                        noSound: true,
+                      });
+                      const veoData = await veoResponse.json();
+                      if (!veoData.operationId) throw new Error("Failed to start video generation");
+                      setVideoGenStep("polling");
+                      const videoUrl = await new Promise<string>((resolve, reject) => {
+                        let pollCount = 0;
+                        const maxPolls = 36;
+                        const interval = setInterval(async () => {
+                          if (!videoMountedRef.current) { clearInterval(interval); reject(new Error("Cancelled")); return; }
+                          pollCount++;
+                          if (pollCount > maxPolls) { clearInterval(interval); reject(new Error("Video generation timed out.")); return; }
+                          try {
+                            const statusRes = await fetch(`/api/ai/veo/status/${veoData.operationId}`, { credentials: "include" });
+                            if (!statusRes.ok) { clearInterval(interval); reject(new Error("Status check failed")); return; }
+                            const statusData = await statusRes.json();
+                            if (statusData.error) { clearInterval(interval); reject(new Error(statusData.error)); return; }
+                            if (statusData.done && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
+                          } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                        }, 5000);
+                      });
+                      if (!videoMountedRef.current) return;
+                      setGeneratedVideoUrl(videoUrl);
+                      setVideoGenStep("done");
+                      toast({ title: "Video Generated!", description: "Your video is ready. Click 'Use This Video' to attach it." });
+                    } catch (error: any) {
+                      if (videoMountedRef.current) {
+                        setVideoGenStep("idle");
+                        toast({ title: "Video Generation Failed", description: error.message || "Please try again.", variant: "destructive" });
+                      }
+                    }
+                  }}
+                  data-testid="btn-generate-video-preview"
+                >
+                  <Sparkles className="w-4 h-4 mr-1" />
+                  Generate Video
+                </Button>
+              )}
+              {videoGenStep === "done" && generatedVideoUrl && (
+                <Button
+                  className="flex-1"
+                  onClick={() => {
+                    setEditImageUrl(generatedVideoUrl);
+                    setShowCreateVideoDialog(false);
+                    setVideoGenStep("idle");
+                    toast({ title: "Video Attached", description: "AI-generated video has been attached to your post." });
+                  }}
+                  data-testid="btn-use-video-preview"
+                >
+                  <Check className="w-4 h-4 mr-1" />
+                  Use This Video
+                </Button>
+              )}
+              {(videoGenStep !== "idle") && videoGenStep !== "done" && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    videoMountedRef.current = false;
+                    setVideoGenStep("idle");
+                    setGeneratedVideoUrl(null);
+                  }}
+                  data-testid="btn-cancel-video-generation"
+                >
+                  Cancel
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  videoMountedRef.current = false;
+                  setShowCreateVideoDialog(false);
+                  setVideoGenStep("idle");
+                }}
+                data-testid="btn-close-video-dialog"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMlsDialog} onOpenChange={(open) => {
+        setShowMlsDialog(open);
+        if (!open) { setMlsPhotos([]); setMlsPropertyAddress(""); setMlsSearchAddress(""); }
+      }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Select Photo from MLS</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Search by address or MLS#</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={mlsSearchAddress}
+                  onChange={(e) => setMlsSearchAddress(e.target.value)}
+                  placeholder="Enter address or MLS number..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && mlsSearchAddress.trim().length >= 3) {
+                      handleMlsPhotoSearch();
+                    }
+                  }}
+                  data-testid="input-mls-search-address"
+                />
+                <Button
+                  onClick={handleMlsPhotoSearch}
+                  disabled={mlsSearchLoading || mlsSearchAddress.trim().length < 3}
+                  size="sm"
+                  data-testid="btn-mls-search"
+                >
+                  {mlsSearchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Home className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+            {mlsPropertyAddress && (
+              <p className="text-sm text-muted-foreground">
+                Property: <span className="font-medium text-foreground">{mlsPropertyAddress}</span>
+              </p>
+            )}
+            {mlsPhotos.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Select a photo ({mlsPhotos.length} available)</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {mlsPhotos.map((url, idx) => (
+                    <button
+                      key={idx}
+                      className="relative aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-primary transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                      onClick={() => {
+                        setEditImageUrl(url);
+                        setShowMlsDialog(false);
+                        setMlsPhotos([]);
+                        setMlsPropertyAddress("");
+                        setMlsSearchAddress("");
+                        toast({ title: "MLS Photo Attached", description: "Property photo has been attached to your post." });
+                      }}
+                      data-testid={`btn-mls-photo-${idx}`}
+                    >
+                      <img src={url} alt={`Property photo ${idx + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {mlsPhotos.length === 0 && mlsPropertyAddress && (
+              <p className="text-sm text-muted-foreground text-center py-4">No photos available for this property.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
         </div>
       </main>
     </div>

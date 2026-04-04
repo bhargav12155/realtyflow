@@ -2622,7 +2622,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                                 onClick={() => setRunwayTransition("cut")}
                                 data-testid="button-runway-transition-cut"
                               >
-                                Hard Cut
+                                Hard Cut (No Transition)
                               </Button>
                             </div>
                           </div>
@@ -3175,7 +3175,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   onClick={() => setStitchTransition("cut")}
                   data-testid="button-stitch-transition-cut"
                 >
-                  Hard Cut
+                  Hard Cut (No Transition)
                 </Button>
               </div>
             </div>

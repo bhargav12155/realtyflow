@@ -247,7 +247,6 @@ export default function UnifiedCalendarPage() {
   useEffect(() => {
     return () => { videoMountedRef.current = false; };
   }, []);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const previewFileInputRef = useRef<HTMLInputElement>(null);
   const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);
   const [autoFillMode, setAutoFillMode] = useState<"month" | "twoweek">("month");

@@ -241,6 +241,9 @@ export default function UnifiedCalendarPage() {
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
   const [mlsSelectedProperty, setMlsSelectedProperty] = useState<Property | null>(null);
   const videoMountedRef = useRef(true);
+  useEffect(() => {
+    return () => { videoMountedRef.current = false; };
+  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewFileInputRef = useRef<HTMLInputElement>(null);
   const [showAutoFillPanel, setShowAutoFillPanel] = useState(false);

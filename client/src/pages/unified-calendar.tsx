@@ -1773,6 +1773,9 @@ export default function UnifiedCalendarPage() {
                                 size="sm"
                                 onClick={() => {
                                   const platformKey = post.platform.toLowerCase() as keyof typeof platformColors;
+                                  setEditingPost(post);
+                                  setEditContent(post.content);
+                                  setEditImageUrl((post.metadata as any)?.imageUrl || "");
                                   handlePreview({
                                     id: `post-${post.id}`,
                                     originalId: post.id,

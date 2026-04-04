@@ -1729,104 +1729,9 @@ export default function UnifiedCalendarPage() {
                                 {post.isAiGenerated && <AiGeneratedBadge size="sm" />}
                               </div>
                               
-                              {editingPost?.id === post.id ? (
-                                <div className="space-y-3">
-                                  <Textarea
-                                    value={editContent}
-                                    onChange={(e) => setEditContent(e.target.value)}
-                                    className="min-h-[100px]"
-                                    data-testid="textarea-edit-post"
-                                  />
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="file"
-                                      ref={fileInputRef}
-                                      accept="image/*,video/*"
-                                      className="hidden"
-                                      onChange={async (e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) {
-                                          try {
-                                            const formData = new FormData();
-                                            formData.append('media', file);
-                                            const response = await fetch('/api/scheduled-posts/upload-media', {
-                                              method: 'POST',
-                                              credentials: 'include',
-                                              body: formData,
-                                            });
-                                            const data = await response.json();
-                                            if (response.ok && data.url) {
-                                              setEditImageUrl(data.url);
-                                              toast({ title: "Media Uploaded", description: "File attached successfully" });
-                                            } else {
-                                              toast({ title: "Upload Failed", description: data.error || "Could not upload media", variant: "destructive" });
-                                            }
-                                          } catch (err) {
-                                            toast({ title: "Upload Failed", description: "Could not upload media", variant: "destructive" });
-                                          }
-                                        }
-                                      }}
-                                    />
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => fileInputRef.current?.click()}
-                                      data-testid="btn-upload-media"
-                                    >
-                                      <Upload className="w-4 h-4 mr-2" />
-                                      Add Media
-                                    </Button>
-                                    {editImageUrl && (
-                                      <div className="relative">
-                                        <img src={editImageUrl} alt="Preview" className="h-12 w-12 object-cover rounded" />
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="absolute -top-2 -right-2 h-5 w-5 p-0 rounded-full bg-red-500 text-white"
-                                          onClick={() => setEditImageUrl("")}
-                                        >
-                                          <X className="w-3 h-3" />
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={() => {
-                                        updatePostMutation.mutate({
-                                          id: post.id,
-                                          content: editContent,
-                                          metadata: { ...post.metadata, imageUrl: editImageUrl || undefined }
-                                        });
-                                      }}
-                                      disabled={updatePostMutation.isPending}
-                                      data-testid="btn-save-edit"
-                                    >
-                                      {updatePostMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
-                                      Save
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => {
-                                        setEditingPost(null);
-                                        setEditContent("");
-                                        setEditImageUrl("");
-                                      }}
-                                      data-testid="btn-cancel-edit"
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  <p className="text-sm line-clamp-2 mb-2">{post.content}</p>
-                                  {post.metadata?.imageUrl && (
-                                    <img src={post.metadata.imageUrl} alt="Post media" className="h-16 w-16 object-cover rounded mb-2" />
-                                  )}
-                                </>
+                              <p className="text-sm line-clamp-2 mb-2">{post.content}</p>
+                              {post.metadata?.imageUrl && (
+                                <img src={post.metadata.imageUrl} alt="Post media" className="h-16 w-16 object-cover rounded mb-2" />
                               )}
                               
                               <div className="flex items-center gap-4 mt-3">
@@ -1863,31 +1768,39 @@ export default function UnifiedCalendarPage() {
                             </div>
                             
                             <div className="flex-shrink-0 flex gap-1">
-                              {editingPost?.id !== post.id && (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      setEditingPost(post);
-                                      setEditContent(post.content);
-                                      setEditImageUrl((post.metadata as any)?.imageUrl || "");
-                                    }}
-                                    data-testid={`btn-edit-post-${post.id}`}
-                                  >
-                                    <Edit2 className="w-4 h-4" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => deletePostMutation.mutate(post.id)}
-                                    disabled={deletePostMutation.isPending}
-                                    data-testid={`btn-delete-post-${post.id}`}
-                                  >
-                                    <Trash2 className="w-4 h-4 text-red-500" />
-                                  </Button>
-                                </>
-                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const platformKey = post.platform.toLowerCase() as keyof typeof platformColors;
+                                  handlePreview({
+                                    id: `post-${post.id}`,
+                                    originalId: post.id,
+                                    title: post.postType ? postTypeLabels[post.postType] || post.postType : "Social Post",
+                                    type: "post" as const,
+                                    date: scheduledDate,
+                                    time: format(scheduledDate, "h:mm a"),
+                                    color: platformColors[platformKey] || "bg-gray-500",
+                                    platform: platformNames[platformKey] || post.platform.charAt(0).toUpperCase() + post.platform.slice(1),
+                                    content: post.content,
+                                    photoUrl: post.metadata?.imageUrl,
+                                    isAiGenerated: post.isAiGenerated || false,
+                                    status: post.status,
+                                  });
+                                }}
+                                data-testid={`btn-edit-post-${post.id}`}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deletePostMutation.mutate(post.id)}
+                                disabled={deletePostMutation.isPending}
+                                data-testid={`btn-delete-post-${post.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              </Button>
                             </div>
                           </div>
                         </div>

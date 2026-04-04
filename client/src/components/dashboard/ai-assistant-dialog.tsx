@@ -1196,6 +1196,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     stopLumaPolling();
     lumaStartTimeRef.current = Date.now();
     setLumaElapsed(0);
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 10;
     lumaElapsedRef.current = setInterval(() => {
       if (lumaStartTimeRef.current) {
         setLumaElapsed(Math.floor((Date.now() - lumaStartTimeRef.current) / 1000));
@@ -1215,9 +1217,19 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             setLumaBatchProgress(null);
             stopLumaPolling();
             toast({ title: "Luma Batch Error", description: errData.error || "Batch not found or expired", variant: "destructive" });
+          } else {
+            consecutiveErrors++;
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+              setLumaStatus("failed");
+              setLumaBatchId(null);
+              setLumaBatchProgress(null);
+              stopLumaPolling();
+              toast({ title: "Luma Connection Lost", description: "Too many consecutive errors while checking video status.", variant: "destructive" });
+            }
           }
           return;
         }
+        consecutiveErrors = 0;
         const data = await res.json();
         if (data.status === "completed" && data.videoUrl) {
           setLumaStatus("completed");
@@ -1256,6 +1268,14 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         }
       } catch (err) {
         console.error("Luma batch poll error:", err);
+        consecutiveErrors++;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          setLumaStatus("failed");
+          setLumaBatchId(null);
+          setLumaBatchProgress(null);
+          stopLumaPolling();
+          toast({ title: "Luma Connection Lost", description: "Too many consecutive errors while checking video status.", variant: "destructive" });
+        }
       }
     }, 10000);
   };

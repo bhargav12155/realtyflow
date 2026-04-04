@@ -23467,6 +23467,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
             }
 
             if (!completed) {
+              lumaTaskOwners.delete(taskId);
               lumaService.updateLumaBatch(batchId, {
                 status: "failed",
                 failedClip: clipIdx,

@@ -23351,7 +23351,13 @@ Be helpful, professional, and concise. Always let users know what the platform c
       }
 
       let result;
-      if (mode === "image-to-video") {
+      if (mode === "text-to-video") {
+        result = await runwayService.createTextToVideoTask(promptText, {
+          model: model || "gen4.5",
+          ratio: ratio || "1280:720",
+          duration: duration || 5,
+        });
+      } else if (mode === "image-to-video") {
         if (!promptImage) {
           return res.status(400).json({ error: "promptImage URL is required for image-to-video mode" });
         }

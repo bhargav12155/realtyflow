@@ -207,6 +207,49 @@ export async function createImageToVideoTask(
   return { taskId: data.id };
 }
 
+export async function createTextToVideoTask(
+  promptText: string,
+  options: {
+    model?: string;
+    ratio?: string;
+    duration?: number;
+    seed?: number;
+  } = {}
+): Promise<RunwayTaskResult> {
+  const body: Record<string, any> = {
+    model: options.model || "gen4.5",
+    promptText,
+    ratio: options.ratio || "1280:720",
+    duration: options.duration || 5,
+  };
+
+  if (options.seed !== undefined) {
+    body.seed = options.seed;
+  }
+
+  console.log(`🎬 [Runway] Creating text-to-video task: prompt="${promptText.substring(0, 80)}..." model=${body.model}`);
+
+  const response = await fetch(`${RUNWAY_API_BASE}/text_to_video`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Runway API error ${response.status}: ${text}`);
+  }
+
+  const data = await response.json();
+  console.log("[Runway] create response:", JSON.stringify(data));
+
+  if (!data.id) {
+    throw new Error("Runway API did not return a task ID");
+  }
+
+  return { taskId: data.id };
+}
+
 export async function getTaskStatus(taskId: string): Promise<RunwayStatusResult> {
   const response = await fetch(`${RUNWAY_API_BASE}/tasks/${encodeURIComponent(taskId)}`, {
     method: "GET",
@@ -249,6 +292,7 @@ export async function getTaskStatus(taskId: string): Promise<RunwayStatusResult>
 export const runwayService = {
   createVideoToVideoTask,
   createImageToVideoTask,
+  createTextToVideoTask,
   getTaskStatus,
   createBatch,
   getBatch,

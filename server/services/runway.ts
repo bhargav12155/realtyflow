@@ -24,6 +24,7 @@ export interface RunwayBatchInfo {
   promptText: string;
   stitchedVideoUrl?: string;
   status: "pending" | "processing" | "stitching" | "completed" | "failed";
+  transition: "crossfade" | "cut";
   createdAt: number;
 }
 
@@ -41,7 +42,7 @@ function cleanupStaleBatches() {
 
 setInterval(cleanupStaleBatches, 5 * 60 * 1000);
 
-export function createBatch(userId: string, totalSegments: number, promptText: string): string {
+export function createBatch(userId: string, totalSegments: number, promptText: string, transition: "crossfade" | "cut" = "crossfade"): string {
   cleanupStaleBatches();
   const batchId = crypto.randomUUID();
   runwayBatches.set(batchId, {
@@ -53,6 +54,7 @@ export function createBatch(userId: string, totalSegments: number, promptText: s
     totalSegments,
     promptText,
     status: "pending",
+    transition,
     createdAt: Date.now(),
   });
   return batchId;

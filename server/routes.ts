@@ -2052,7 +2052,8 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
   // Combine multiple videos into a full house tour using ffmpeg
   app.post("/api/ai/veo/combine", requireAuth, async (req, res) => {
     try {
-      const { videoUrls, title } = req.body;
+      const { videoUrls, title, transition: transitionParam } = req.body;
+      const transition: "crossfade" | "cut" = transitionParam === "cut" ? "cut" : "crossfade";
       const userId = req.user?.id;
 
       if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
@@ -2137,42 +2138,49 @@ Visual Style & Movement: Start the video with a wide view (matching the widest i
         // Output file
         const outputFile = path.join(tempDir, "combined_tour.mp4");
 
-        console.log(`🔧 [VEO Combine] Running ffmpeg to combine ${downloadedFiles.length} videos with crossfade...`);
+        console.log(`🔧 [VEO Combine] Running ffmpeg to combine ${downloadedFiles.length} videos with ${transition} transition...`);
         
-        const fadeDuration = 0.5;
-        
-        if (downloadedFiles.length === 2) {
-          const probeDuration = async (file: string): Promise<number> => {
-            try {
-              const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
-              return parseFloat(stdout.trim()) || 5;
-            } catch { return 5; }
-          };
-          const dur0 = await probeDuration(downloadedFiles[0]);
-          const offset = Math.max(dur0 - fadeDuration, 0.5);
-          const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
-          await execAsync(ffmpegCmd, { timeout: 300000 });
-        } else {
-          const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
-          let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
-          let prevOutput = "n0";
-          const probeDuration = async (file: string): Promise<number> => {
-            try {
-              const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
-              return parseFloat(stdout.trim()) || 5;
-            } catch { return 5; }
-          };
-          let accDuration = await probeDuration(downloadedFiles[0]);
-          for (let i = 1; i < downloadedFiles.length; i++) {
-            const offset = Math.max(accDuration - fadeDuration, 0.5);
-            const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
-            filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
-            const nextDur = await probeDuration(downloadedFiles[i]);
-            accDuration = offset + nextDur;
-            prevOutput = outLabel;
+        if (transition === "cut") {
+          const normalizedFiles: string[] = [];
+          for (let i = 0; i < downloadedFiles.length; i++) {
+            const normFile = path.join(tempDir, `norm_${i}.mp4`);
+            await execAsync(`ffmpeg -y -i "${downloadedFiles[i]}" -vf "scale=1280:720,fps=30,format=yuv420p" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${normFile}"`, { timeout: 120000 });
+            normalizedFiles.push(normFile);
           }
-          const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
-          await execAsync(ffmpegCmd, { timeout: 300000 });
+          const concatList = normalizedFiles.map(f => `file '${f}'`).join("\n");
+          const concatFilePath = path.join(tempDir, "concat.txt");
+          await fs.writeFile(concatFilePath, concatList);
+          await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -c copy -movflags +faststart "${outputFile}"`, { timeout: 300000 });
+        } else {
+          const fadeDuration = 0.5;
+          const probeDuration = async (file: string): Promise<number> => {
+            try {
+              const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+              return parseFloat(stdout.trim()) || 5;
+            } catch { return 5; }
+          };
+
+          if (downloadedFiles.length === 2) {
+            const dur0 = await probeDuration(downloadedFiles[0]);
+            const offset = Math.max(dur0 - fadeDuration, 0.5);
+            const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+            await execAsync(ffmpegCmd, { timeout: 300000 });
+          } else {
+            const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+            let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
+            let prevOutput = "n0";
+            let accDuration = await probeDuration(downloadedFiles[0]);
+            for (let i = 1; i < downloadedFiles.length; i++) {
+              const offset = Math.max(accDuration - fadeDuration, 0.5);
+              const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
+              filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
+              const nextDur = await probeDuration(downloadedFiles[i]);
+              accDuration = offset + nextDur;
+              prevOutput = outLabel;
+            }
+            const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+            await execAsync(ffmpegCmd, { timeout: 300000 });
+          }
         }
 
         // Read the combined video
@@ -23624,7 +23632,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
   app.post("/api/runway/create-extended-video", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id || req.user?.claims?.sub);
-      const { segmentUrls, promptText, referenceImageUrl } = req.body;
+      const { segmentUrls, promptText, referenceImageUrl, transition: transParam } = req.body;
+      const batchTransition: "crossfade" | "cut" = transParam === "cut" ? "cut" : "crossfade";
 
       if (!Array.isArray(segmentUrls) || segmentUrls.length < 2) {
         return res.status(400).json({ error: "At least 2 segment URLs are required" });
@@ -23634,7 +23643,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.status(400).json({ error: "promptText is required" });
       }
 
-      const batchId = runwayService.createBatch(userId, segmentUrls.length, promptText);
+      const batchId = runwayService.createBatch(userId, segmentUrls.length, promptText, batchTransition);
 
       console.log(`🎬 [Runway] Creating extended video batch ${batchId}: ${segmentUrls.length} segments for user ${userId}`);
 
@@ -23762,7 +23771,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
               return;
             }
 
-            console.log(`🔗 [Runway] Stitching ${videoUrls.length} segments for batch ${batchId}`);
+            const batchTransition = updatedBatch.transition || "crossfade";
+            console.log(`🔗 [Runway] Stitching ${videoUrls.length} segments for batch ${batchId} with ${batchTransition} transition`);
 
             const { exec } = await import("child_process");
             const { promisify } = await import("util");
@@ -23786,35 +23796,48 @@ Be helpful, professional, and concise. Always let users know what the platform c
               }
 
               const outputFile = pathM.join(tempDir, "stitched.mp4");
-              const fadeDuration = 0.5;
 
-              const probeDuration = async (file: string): Promise<number> => {
-                try {
-                  const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
-                  return parseFloat(stdout.trim()) || 5;
-                } catch { return 5; }
-              };
-
-              if (downloadedFiles.length === 2) {
-                const dur0 = await probeDuration(downloadedFiles[0]);
-                const offset = Math.max(dur0 - fadeDuration, 0.5);
-                const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
-                await execAsync(ffmpegCmd, { timeout: 300000 });
-              } else {
-                const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
-                let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
-                let prevOutput = "n0";
-                let accDuration = await probeDuration(downloadedFiles[0]);
-                for (let i = 1; i < downloadedFiles.length; i++) {
-                  const offset = Math.max(accDuration - fadeDuration, 0.5);
-                  const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
-                  filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
-                  const nextDur = await probeDuration(downloadedFiles[i]);
-                  accDuration = offset + nextDur;
-                  prevOutput = outLabel;
+              if (batchTransition === "cut") {
+                const normalizedFiles: string[] = [];
+                for (let i = 0; i < downloadedFiles.length; i++) {
+                  const normFile = pathM.join(tempDir, `norm_${i}.mp4`);
+                  await execAsync(`ffmpeg -y -i "${downloadedFiles[i]}" -vf "scale=1280:720,fps=30,format=yuv420p" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${normFile}"`, { timeout: 120000 });
+                  normalizedFiles.push(normFile);
                 }
-                const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
-                await execAsync(ffmpegCmd, { timeout: 300000 });
+                const concatList = normalizedFiles.map(f => `file '${f}'`).join("\n");
+                const concatFilePath = pathM.join(tempDir, "concat.txt");
+                await fsP.writeFile(concatFilePath, concatList);
+                await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -c copy -movflags +faststart "${outputFile}"`, { timeout: 300000 });
+              } else {
+                const fadeDuration = 0.5;
+                const probeDuration = async (file: string): Promise<number> => {
+                  try {
+                    const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+                    return parseFloat(stdout.trim()) || 5;
+                  } catch { return 5; }
+                };
+
+                if (downloadedFiles.length === 2) {
+                  const dur0 = await probeDuration(downloadedFiles[0]);
+                  const offset = Math.max(dur0 - fadeDuration, 0.5);
+                  const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                  await execAsync(ffmpegCmd, { timeout: 300000 });
+                } else {
+                  const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+                  let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
+                  let prevOutput = "n0";
+                  let accDuration = await probeDuration(downloadedFiles[0]);
+                  for (let i = 1; i < downloadedFiles.length; i++) {
+                    const offset = Math.max(accDuration - fadeDuration, 0.5);
+                    const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
+                    filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
+                    const nextDur = await probeDuration(downloadedFiles[i]);
+                    accDuration = offset + nextDur;
+                    prevOutput = outLabel;
+                  }
+                  const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                  await execAsync(ffmpegCmd, { timeout: 300000 });
+                }
               }
 
               const combinedBuffer = await fsP.readFile(outputFile);

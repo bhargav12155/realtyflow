@@ -548,6 +548,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [userVideosLoading, setUserVideosLoading] = useState(false);
   const [selectedVideoIds, setSelectedVideoIds] = useState<Set<number>>(new Set());
   const [stitchingVideos, setStitchingVideos] = useState(false);
+  const [stitchTransition, setStitchTransition] = useState<"crossfade" | "cut">("crossfade");
+  const [runwayTransition, setRunwayTransition] = useState<"crossfade" | "cut">("crossfade");
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const videoUploadInputRef = useRef<HTMLInputElement>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -1526,6 +1528,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             segmentUrls: splitData.segmentUrls,
             promptText: runwayPrompt,
             referenceImageUrl: runwayRefImage?.url || undefined,
+            transition: runwayTransition,
           }),
         });
         const batchData = await batchRes.json();
@@ -1699,7 +1702,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         method: "POST",
         headers,
         credentials: "include",
-        body: JSON.stringify({ videoUrls: selectedUrls, title: "Stitched Video" }),
+        body: JSON.stringify({ videoUrls: selectedUrls, title: "Stitched Video", transition: stitchTransition }),
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
@@ -2599,9 +2602,34 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                         )}
                       </div>
                       {runwayTotalDuration > 10 && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400">
-                          Your video will be split into {Math.ceil(runwayTotalDuration / runwayClipDuration)} segments of {runwayClipDuration}s each, transformed separately, then auto-stitched with crossfade transitions.
-                        </p>
+                        <>
+                          <div>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Stitch Transition</label>
+                            <div className="flex gap-1">
+                              <Button
+                                variant={runwayTransition === "crossfade" ? "default" : "outline"}
+                                size="sm"
+                                className="flex-1 h-7 text-xs"
+                                onClick={() => setRunwayTransition("crossfade")}
+                                data-testid="button-runway-transition-crossfade"
+                              >
+                                Crossfade
+                              </Button>
+                              <Button
+                                variant={runwayTransition === "cut" ? "default" : "outline"}
+                                size="sm"
+                                className="flex-1 h-7 text-xs"
+                                onClick={() => setRunwayTransition("cut")}
+                                data-testid="button-runway-transition-cut"
+                              >
+                                Hard Cut
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Your video will be split into {Math.ceil(runwayTotalDuration / runwayClipDuration)} segments of {runwayClipDuration}s each, transformed separately, then auto-stitched{runwayTransition === "crossfade" ? " with crossfade transitions" : " with hard cuts"}.
+                          </p>
+                        </>
                       )}
                     </>
                   )}
@@ -3124,9 +3152,33 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
               </div>
             </div>
 
-            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-              Select 2 or more videos to combine into one with crossfade transitions.
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+              Select 2 or more videos to combine into one.
             </p>
+
+            <div className="mb-3">
+              <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Transition</label>
+              <div className="flex gap-1">
+                <Button
+                  variant={stitchTransition === "crossfade" ? "default" : "outline"}
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={() => setStitchTransition("crossfade")}
+                  data-testid="button-stitch-transition-crossfade"
+                >
+                  Crossfade
+                </Button>
+                <Button
+                  variant={stitchTransition === "cut" ? "default" : "outline"}
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={() => setStitchTransition("cut")}
+                  data-testid="button-stitch-transition-cut"
+                >
+                  Hard Cut
+                </Button>
+              </div>
+            </div>
 
             {userVideosLoading ? (
               <div className="flex items-center justify-center py-8">

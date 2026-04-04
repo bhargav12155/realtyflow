@@ -2341,7 +2341,14 @@ export default function UnifiedCalendarPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+      <Dialog open={showPreview} onOpenChange={(open) => {
+        setShowPreview(open);
+        if (!open) {
+          setEditingPost(null);
+          setEditContent("");
+          setEditImageUrl("");
+        }
+      }}>
         <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>

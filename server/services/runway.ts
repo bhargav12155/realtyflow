@@ -25,6 +25,7 @@ export interface RunwayBatchInfo {
   stitchedVideoUrl?: string;
   status: "pending" | "processing" | "stitching" | "completed" | "failed";
   transition: "crossfade" | "cut";
+  orchestrator: "parallel" | "sequential";
   createdAt: number;
 }
 
@@ -42,7 +43,7 @@ function cleanupStaleBatches() {
 
 setInterval(cleanupStaleBatches, 5 * 60 * 1000);
 
-export function createBatch(userId: string, totalSegments: number, promptText: string, transition: "crossfade" | "cut" = "crossfade"): string {
+export function createBatch(userId: string, totalSegments: number, promptText: string, transition: "crossfade" | "cut" = "crossfade", orchestrator: "parallel" | "sequential" = "parallel"): string {
   cleanupStaleBatches();
   const batchId = crypto.randomUUID();
   runwayBatches.set(batchId, {
@@ -55,6 +56,7 @@ export function createBatch(userId: string, totalSegments: number, promptText: s
     promptText,
     status: "pending",
     transition,
+    orchestrator,
     createdAt: Date.now(),
   });
   return batchId;
@@ -75,6 +77,7 @@ export function updateBatchSegment(batchId: string, segmentIndex: number, videoU
   const batch = runwayBatches.get(batchId);
   if (batch) {
     batch.completedVideoUrls.set(segmentIndex, videoUrl);
+    batch.createdAt = Date.now();
   }
 }
 
@@ -82,6 +85,7 @@ export function markBatchSegmentFailed(batchId: string, segmentIndex: number) {
   const batch = runwayBatches.get(batchId);
   if (batch) {
     batch.failedSegments.add(segmentIndex);
+    batch.createdAt = Date.now();
   }
 }
 
@@ -90,6 +94,7 @@ export function updateBatchStatus(batchId: string, status: RunwayBatchInfo["stat
   if (batch) {
     batch.status = status;
     if (stitchedUrl) batch.stitchedVideoUrl = stitchedUrl;
+    batch.createdAt = Date.now();
   }
 }
 

@@ -1523,23 +1523,26 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           setRunwayVideoUrl(data.videoUrl);
           setRunwayBatchId(null);
           setRunwayBatchProgress(null);
+          const extModelLabel = runwayMode === "text-to-video" ? "Gen-4.5" : runwayMode === "image-to-video" ? "Gen-4 Turbo" : "Gen-4 Aleph";
           const videoMsg: Message = {
             role: "assistant",
-            content: `Your extended Runway Gen-4 Aleph video (${data.totalSegments} clips stitched) is ready!`,
+            content: `Your extended Runway ${extModelLabel} video (${data.totalSegments} clips stitched) is ready!`,
             videoUrl: data.videoUrl,
           };
           setMessages(prev => [...prev, videoMsg]);
           toast({ title: "Extended Video Ready!", description: `${data.totalSegments} clips generated and stitched together!` });
 
-          const notifyToken = getAuthToken();
-          const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
-          if (notifyToken) notifyHeaders["Authorization"] = `Bearer ${notifyToken}`;
-          fetch("/api/runway/notify-completion", {
-            method: "POST",
-            headers: notifyHeaders,
-            credentials: "include",
-            body: JSON.stringify({ videoUrl: data.videoUrl, taskId: batchId }),
-          }).catch(() => {});
+          if (data.orchestrator !== "sequential") {
+            const notifyToken = getAuthToken();
+            const notifyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+            if (notifyToken) notifyHeaders["Authorization"] = `Bearer ${notifyToken}`;
+            fetch("/api/runway/notify-completion", {
+              method: "POST",
+              headers: notifyHeaders,
+              credentials: "include",
+              body: JSON.stringify({ videoUrl: data.videoUrl, taskId: batchId }),
+            }).catch(() => {});
+          }
         } else if (data.status === "failed") {
           stopRunwayPolling();
           setRunwayStatus("failed");
@@ -1582,6 +1585,37 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
       if (runwayMode === "text-to-video") {
+        const isExtendedText = runwayTextDuration > 10;
+
+        if (isExtendedText) {
+          const totalClips = Math.ceil(runwayTextDuration / 10);
+          const batchRes = await fetch("/api/runway/create-extended-generate", {
+            method: "POST",
+            headers,
+            credentials: "include",
+            body: JSON.stringify({
+              mode: "text-to-video",
+              promptText: runwayPrompt,
+              ratio: runwayAspectRatio,
+              clipDuration: 10,
+              totalClips,
+              transition: runwayTransition,
+            }),
+          });
+          const batchData = await batchRes.json();
+          if (!batchRes.ok) throw new Error(batchData.error || "Failed to start extended text-to-video");
+
+          setRunwayBatchId(batchData.batchId);
+          setRunwayBatchProgress({ completed: 0, total: batchData.totalSegments });
+          startRunwayBatchPolling(batchData.batchId);
+
+          const userMsg: Message = { role: "user", content: `Generate ${runwayTextDuration}s extended video with Runway Gen-4.5: ${runwayPrompt}` };
+          const assistantMsg: Message = { role: "assistant", content: `Runway Gen-4.5 is generating ${totalClips} sequential clips of 10s each (${runwayTextDuration}s total). Each clip takes 2-5 minutes, then they'll be auto-stitched together...` };
+          setMessages(prev => [...prev, userMsg, assistantMsg]);
+          toast({ title: "Extended Text-to-Video Started!", description: `Generating ${totalClips} clips for a ${runwayTextDuration}s video.` });
+          return;
+        }
+
         const res = await fetch("/api/runway/create-video", {
           method: "POST",
           headers,
@@ -1612,6 +1646,39 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           setRunwayStatus("idle");
           return;
         }
+
+        const isExtendedImage = runwayTextDuration > 10;
+
+        if (isExtendedImage) {
+          const totalClips = Math.ceil(runwayTextDuration / 10);
+          const batchRes = await fetch("/api/runway/create-extended-generate", {
+            method: "POST",
+            headers,
+            credentials: "include",
+            body: JSON.stringify({
+              mode: "image-to-video",
+              promptText: runwayPrompt,
+              promptImage: runwayRefImage.url,
+              ratio: runwayAspectRatio,
+              clipDuration: 10,
+              totalClips,
+              transition: runwayTransition,
+            }),
+          });
+          const batchData = await batchRes.json();
+          if (!batchRes.ok) throw new Error(batchData.error || "Failed to start extended image-to-video");
+
+          setRunwayBatchId(batchData.batchId);
+          setRunwayBatchProgress({ completed: 0, total: batchData.totalSegments });
+          startRunwayBatchPolling(batchData.batchId);
+
+          const userMsg: Message = { role: "user", content: `Generate ${runwayTextDuration}s extended video from image with Runway Gen-4 Turbo: ${runwayPrompt}` };
+          const assistantMsg: Message = { role: "assistant", content: `Runway Gen-4 Turbo is generating ${totalClips} sequential clips of 10s each (${runwayTextDuration}s total) from your image. Each clip takes 2-5 minutes, then they'll be auto-stitched together...` };
+          setMessages(prev => [...prev, userMsg, assistantMsg]);
+          toast({ title: "Extended Image-to-Video Started!", description: `Generating ${totalClips} clips for a ${runwayTextDuration}s video.` });
+          return;
+        }
+
         const res = await fetch("/api/runway/create-video", {
           method: "POST",
           headers,
@@ -2718,39 +2785,66 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   </div>
 
                   {(runwayMode === "text-to-video" || runwayMode === "image-to-video") && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Aspect Ratio</label>
-                        <Select value={runwayAspectRatio} onValueChange={(v) => setRunwayAspectRatio(v as typeof runwayAspectRatio)}>
-                          <SelectTrigger className="w-full h-8 text-xs" data-testid="select-runway-aspect">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="1280:720">Landscape (16:9)</SelectItem>
-                            <SelectItem value="720:1280">Portrait (9:16)</SelectItem>
-                          </SelectContent>
-                        </Select>
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Aspect Ratio</label>
+                          <Select value={runwayAspectRatio} onValueChange={(v) => setRunwayAspectRatio(v as typeof runwayAspectRatio)}>
+                            <SelectTrigger className="w-full h-8 text-xs" data-testid="select-runway-aspect">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1280:720">Landscape (16:9)</SelectItem>
+                              <SelectItem value="720:1280">Portrait (9:16)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Total Duration</label>
+                          <Select value={String(runwayTextDuration)} onValueChange={(v) => setRunwayTextDuration(Number(v))}>
+                            <SelectTrigger className="w-full h-8 text-xs" data-testid="select-runway-text-duration">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="5">5 seconds</SelectItem>
+                              <SelectItem value="10">10 seconds</SelectItem>
+                              <SelectItem value="20">20 seconds</SelectItem>
+                              <SelectItem value="30">30 seconds</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Duration</label>
-                        <Select value={String(runwayTextDuration)} onValueChange={(v) => setRunwayTextDuration(Number(v))}>
-                          <SelectTrigger className="w-full h-8 text-xs" data-testid="select-runway-text-duration">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="2">2 seconds</SelectItem>
-                            <SelectItem value="3">3 seconds</SelectItem>
-                            <SelectItem value="4">4 seconds</SelectItem>
-                            <SelectItem value="5">5 seconds</SelectItem>
-                            <SelectItem value="6">6 seconds</SelectItem>
-                            <SelectItem value="7">7 seconds</SelectItem>
-                            <SelectItem value="8">8 seconds</SelectItem>
-                            <SelectItem value="9">9 seconds</SelectItem>
-                            <SelectItem value="10">10 seconds</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
+                      {runwayTextDuration > 10 && (
+                        <>
+                          <div>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Stitch Transition</label>
+                            <div className="flex gap-1">
+                              <Button
+                                variant={runwayTransition === "crossfade" ? "default" : "outline"}
+                                size="sm"
+                                className="flex-1 h-7 text-xs"
+                                onClick={() => setRunwayTransition("crossfade")}
+                                data-testid="button-runway-text-transition-crossfade"
+                              >
+                                Crossfade
+                              </Button>
+                              <Button
+                                variant={runwayTransition === "cut" ? "default" : "outline"}
+                                size="sm"
+                                className="flex-1 h-7 text-xs"
+                                onClick={() => setRunwayTransition("cut")}
+                                data-testid="button-runway-text-transition-cut"
+                              >
+                                Hard Cut (No Transition)
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            {runwayTextDuration}s video will be generated as {Math.ceil(runwayTextDuration / 10)} sequential clips of 10s each, using the last frame of each clip as a starting point for the next to maintain visual continuity{runwayTransition === "crossfade" ? ", then stitched with crossfade transitions" : ", then stitched with hard cuts"}.
+                          </p>
+                        </>
+                      )}
+                    </>
                   )}
 
                   {runwayMode === "video-to-video" && (

@@ -24035,6 +24035,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
           videoUrl: batch.stitchedVideoUrl,
           completedSegments: batch.completedVideoUrls.size,
           totalSegments: batch.totalSegments,
+          orchestrator: batch.orchestrator,
         });
       }
 
@@ -24052,6 +24053,15 @@ Be helpful, professional, and concise. Always let users know what the platform c
         return res.json({
           status: "stitching",
           completedSegments: batch.completedVideoUrls.size,
+          totalSegments: batch.totalSegments,
+        });
+      }
+
+      if (batch.orchestrator === "sequential") {
+        return res.json({
+          status: "processing",
+          completedSegments: batch.completedVideoUrls.size,
+          failedSegments: batch.failedSegments.size,
           totalSegments: batch.totalSegments,
         });
       }
@@ -24216,6 +24226,271 @@ Be helpful, professional, and concise. Always let users know what the platform c
     } catch (error: any) {
       console.error("Runway batch-status error:", error);
       res.status(500).json({ error: error.message || "Failed to get batch status" });
+    }
+  });
+
+  app.post("/api/runway/create-extended-generate", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { mode, promptText, promptImage, ratio, clipDuration, totalClips, transition: transParam } = req.body;
+
+      if (!promptText || typeof promptText !== "string") {
+        return res.status(400).json({ error: "promptText is required" });
+      }
+      if (mode !== "text-to-video" && mode !== "image-to-video") {
+        return res.status(400).json({ error: "mode must be text-to-video or image-to-video" });
+      }
+      if (mode === "image-to-video" && !promptImage) {
+        return res.status(400).json({ error: "promptImage is required for image-to-video mode" });
+      }
+
+      const clips = [2, 3].includes(Number(totalClips)) ? Number(totalClips) : 2;
+      const perClipDuration = [5, 10].includes(Number(clipDuration)) ? Number(clipDuration) : 10;
+      const batchTransition: "crossfade" | "cut" = transParam === "cut" ? "cut" : "crossfade";
+      const aspectRatio = ratio || "1280:720";
+
+      const batchId = runwayService.createBatch(userId, clips, promptText, batchTransition, "sequential");
+      console.log(`🎬 [Runway] Creating extended ${mode} batch ${batchId}: ${clips} clips of ${perClipDuration}s for user ${userId}`);
+
+      (async () => {
+        try {
+          for (let clipIdx = 0; clipIdx < clips; clipIdx++) {
+            const batch = runwayService.getBatch(batchId);
+            if (!batch || batch.status === "failed") return;
+
+            let taskId: string;
+
+            if (clipIdx === 0) {
+              if (mode === "text-to-video") {
+                const result = await runwayService.createTextToVideoTask(promptText, {
+                  ratio: aspectRatio,
+                  duration: perClipDuration,
+                });
+                taskId = result.taskId;
+              } else {
+                const result = await runwayService.createImageToVideoTask(promptImage, promptText, {
+                  ratio: aspectRatio,
+                  duration: perClipDuration,
+                });
+                taskId = result.taskId;
+              }
+            } else {
+              const prevVideoUrl = batch.completedVideoUrls.get(clipIdx - 1);
+              if (!prevVideoUrl) {
+                runwayService.updateBatchStatus(batchId, "failed");
+                return;
+              }
+
+              const { exec } = await import("child_process");
+              const { promisify } = await import("util");
+              const execAsync = promisify(exec);
+              const fsP = await import("fs/promises");
+              const pathM = await import("path");
+              const osM = await import("os");
+
+              const extractDir = pathM.join(osM.tmpdir(), `runway-frame-${Date.now()}`);
+              await fsP.mkdir(extractDir, { recursive: true });
+
+              let lastFrameUrl: string;
+              try {
+                const parsedUrl = new URL(prevVideoUrl);
+                if (parsedUrl.protocol !== "https:") throw new Error("Only HTTPS clip URLs are allowed");
+                const suspiciousPatterns = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+                if (suspiciousPatterns.test(prevVideoUrl)) throw new Error("Invalid clip URL detected");
+
+                const videoFile = pathM.join(extractDir, "prev.mp4");
+                const frameFile = pathM.join(extractDir, "lastframe.jpg");
+                const resp = await fetch(prevVideoUrl);
+                if (!resp.ok) throw new Error("Failed to download previous clip");
+                const buf = Buffer.from(await resp.arrayBuffer());
+                await fsP.writeFile(videoFile, buf);
+
+                await execAsync(`ffmpeg -y -sseof -0.1 -i "${videoFile}" -frames:v 1 -q:v 2 "${frameFile}"`, { timeout: 30000 });
+
+                const frameBuffer = await fsP.readFile(frameFile);
+                const { UnifiedUploadService } = await import("./services/unifiedUpload");
+                const uploadSvc = new UnifiedUploadService();
+                const s3Key = `runway-frames/${userId}/${batchId}-clip${clipIdx}-lastframe.jpg`;
+                lastFrameUrl = await uploadSvc.uploadBuffer(frameBuffer, s3Key, "image/jpeg", true, 3600);
+                console.log(`✅ [Runway] Extracted last frame from clip ${clipIdx}: ${lastFrameUrl.substring(0, 60)}...`);
+              } finally {
+                await fsP.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+              }
+
+              const result = await runwayService.createImageToVideoTask(lastFrameUrl, promptText, {
+                ratio: aspectRatio,
+                duration: perClipDuration,
+              });
+              taskId = result.taskId;
+            }
+
+            runwayTaskOwners.set(taskId, userId);
+            runwayService.addTaskToBatch(batchId, taskId);
+            console.log(`✅ [Runway] Clip ${clipIdx + 1}/${clips} started: ${taskId}`);
+
+            let completed = false;
+            let pollAttempts = 0;
+            const MAX_POLL_ATTEMPTS = 120;
+            while (!completed && pollAttempts < MAX_POLL_ATTEMPTS) {
+              await new Promise(resolve => setTimeout(resolve, 10000));
+              pollAttempts++;
+
+              try {
+                const status = await runwayService.getTaskStatus(taskId);
+                if (status.status === "completed" && status.videoUrl) {
+                  runwayService.updateBatchSegment(batchId, clipIdx, status.videoUrl);
+                  runwayTaskOwners.delete(taskId);
+                  console.log(`✅ [Runway] Clip ${clipIdx + 1}/${clips} completed: ${status.videoUrl.substring(0, 60)}...`);
+                  completed = true;
+                } else if (status.status === "failed") {
+                  runwayService.markBatchSegmentFailed(batchId, clipIdx);
+                  runwayService.updateBatchStatus(batchId, "failed");
+                  runwayTaskOwners.delete(taskId);
+                  return;
+                }
+              } catch (err) {
+                console.warn(`[Runway] Poll error for clip ${clipIdx + 1}:`, err);
+              }
+            }
+
+            if (!completed) {
+              runwayTaskOwners.delete(taskId);
+              runwayService.markBatchSegmentFailed(batchId, clipIdx);
+              runwayService.updateBatchStatus(batchId, "failed");
+              return;
+            }
+          }
+
+          const finalBatch = runwayService.getBatch(batchId);
+          if (!finalBatch) return;
+
+          const videoUrls: string[] = [];
+          for (let i = 0; i < finalBatch.totalSegments; i++) {
+            const url = finalBatch.completedVideoUrls.get(i);
+            if (url) videoUrls.push(url);
+          }
+
+          if (videoUrls.length < 2) {
+            const singleUrl = videoUrls[0] || "";
+            runwayService.updateBatchStatus(batchId, "completed", singleUrl);
+            return;
+          }
+
+          runwayService.updateBatchStatus(batchId, "stitching");
+          console.log(`🔗 [Runway] Stitching ${videoUrls.length} clips for batch ${batchId} with ${finalBatch.transition} transition`);
+
+          const { exec } = await import("child_process");
+          const { promisify } = await import("util");
+          const execAsync = promisify(exec);
+          const fsP = await import("fs/promises");
+          const pathM = await import("path");
+          const osM = await import("os");
+
+          const tempDir = pathM.join(osM.tmpdir(), `runway-gen-stitch-${Date.now()}`);
+          await fsP.mkdir(tempDir, { recursive: true });
+
+          try {
+            const downloadedFiles: string[] = [];
+            for (let i = 0; i < videoUrls.length; i++) {
+              const clipUrl = videoUrls[i];
+              const parsedUrl = new URL(clipUrl);
+              if (parsedUrl.protocol !== "https:") throw new Error("Only HTTPS clip URLs are allowed");
+              const suspPat = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+              if (suspPat.test(clipUrl)) throw new Error("Invalid clip URL detected");
+
+              const tempFile = pathM.join(tempDir, `video_${i}.mp4`);
+              const resp = await fetch(clipUrl);
+              if (!resp.ok) throw new Error(`Failed to download clip ${i + 1}`);
+              const buf = Buffer.from(await resp.arrayBuffer());
+              await fsP.writeFile(tempFile, buf);
+              downloadedFiles.push(tempFile);
+            }
+
+            const outputFile = pathM.join(tempDir, "stitched.mp4");
+
+            if (finalBatch.transition === "cut") {
+              const normalizedFiles: string[] = [];
+              for (let i = 0; i < downloadedFiles.length; i++) {
+                const normFile = pathM.join(tempDir, `norm_${i}.mp4`);
+                await execAsync(`ffmpeg -y -i "${downloadedFiles[i]}" -vf "scale=1280:720,fps=30,format=yuv420p" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${normFile}"`, { timeout: 120000 });
+                normalizedFiles.push(normFile);
+              }
+              const concatList = normalizedFiles.map(f => `file '${f}'`).join("\n");
+              const concatFilePath = pathM.join(tempDir, "concat.txt");
+              await fsP.writeFile(concatFilePath, concatList);
+              await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -c copy -movflags +faststart "${outputFile}"`, { timeout: 300000 });
+            } else {
+              const fadeDuration = 0.5;
+              const probeDuration = async (file: string): Promise<number> => {
+                try {
+                  const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+                  return parseFloat(stdout.trim()) || 10;
+                } catch { return 10; }
+              };
+
+              if (downloadedFiles.length === 2) {
+                const dur0 = await probeDuration(downloadedFiles[0]);
+                const offset = Math.max(dur0 - fadeDuration, 0.5);
+                const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                await execAsync(ffmpegCmd, { timeout: 300000 });
+              } else {
+                const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+                let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
+                let prevOutput = "n0";
+                let accDuration = await probeDuration(downloadedFiles[0]);
+                for (let i = 1; i < downloadedFiles.length; i++) {
+                  const offset = Math.max(accDuration - fadeDuration, 0.5);
+                  const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
+                  filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
+                  const nextDur = await probeDuration(downloadedFiles[i]);
+                  accDuration = offset + nextDur;
+                  prevOutput = outLabel;
+                }
+                const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                await execAsync(ffmpegCmd, { timeout: 300000 });
+              }
+            }
+
+            const combinedBuffer = await fsP.readFile(outputFile);
+            const { UnifiedUploadService } = await import("./services/unifiedUpload");
+            const uploadSvc = new UnifiedUploadService();
+            const modeLabel = mode === "text-to-video" ? "text" : "image";
+            const s3Key = `videos/runway-extended/${modeLabel}-stitched-${Date.now()}-${userId}.mp4`;
+            const s3Url = await uploadSvc.uploadBuffer(combinedBuffer, s3Key, "video/mp4");
+
+            await fsP.rm(tempDir, { recursive: true, force: true });
+            runwayService.updateBatchStatus(batchId, "completed", s3Url);
+            console.log(`✅ [Runway] Extended ${mode} video stitched: ${s3Url}`);
+
+            const modelLabel = mode === "text-to-video" ? "Gen-4.5" : "Gen-4 Turbo";
+            await db
+              .insert(videoContent)
+              .values({
+                userId: String(userId),
+                title: `Runway ${modelLabel} Extended Video (${clips * perClipDuration}s)`,
+                script: `Generated via Runway ${modelLabel} extended (Batch: ${batchId})`,
+                videoUrl: s3Url,
+                status: "ready",
+              })
+              .catch((err: any) => {
+                console.warn("Failed to save Runway extended video to DB:", err?.message);
+              });
+          } catch (err: any) {
+            await fsP.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+            console.error("Runway gen-stitch error:", err);
+            runwayService.updateBatchStatus(batchId, "failed");
+          }
+        } catch (err: any) {
+          console.error("Runway extended generation error:", err);
+          runwayService.updateBatchStatus(batchId, "failed");
+        }
+      })();
+
+      runwayService.updateBatchStatus(batchId, "processing");
+      res.json({ batchId, totalSegments: clips });
+    } catch (error: any) {
+      console.error("Runway create-extended-generate error:", error);
+      res.status(500).json({ error: error.message || "Failed to create extended video" });
     }
   });
 

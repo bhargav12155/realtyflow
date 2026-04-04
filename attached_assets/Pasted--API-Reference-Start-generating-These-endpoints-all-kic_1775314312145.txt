@@ -1,0 +1,2543 @@
+# API Reference
+
+## Start generating
+
+These endpoints all kick off tasks to create generations.
+
+## Image to video
+
+`POST /v1/image_to_video`
+
+This endpoint will start a new task to generate a video from an image.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+Fields change based on which value is passed. Select which value to show documentation for.`gen4.5`, `gen4_turbo`, `gen3a_turbo`, `veo3.1`, `veo3.1_fast`, `veo3`
+
+`promptText` *(required)* `string` [ 1 .. 1000 ] characters
+A non-empty string up to 1000 characters (measured in UTF-16 code units). This should describe in detail what should appear in the output.
+
+`promptImage` *(required)* `string or Array of PromptImages (objects)`
+One of the following shapes: `string` A HTTPS URL, Runway or data URI containing an encoded image. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`PromptImages`Array of `objects` = 1 items `uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded image. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`position` *(required)* `string`
+The position of the image in the output video. "first" will use the image as the first frame of the video.
+
+This field must be set to the exact value `first`.
+
+`ratio` *(required)* `string`
+Accepted values:"1280:720", "720:1280", "1104:832", "960:960", "832:1104", "1584:672" The resolution of the output video.
+
+`duration` *(required)* `integer` [ 2 .. 10 ]
+The number of seconds of duration for the output video. Must be an integer from 2 to 10.
+
+`seed` `integer` [ 0 .. 4294967295 ]
+If unspecified, a random number is chosen. Varying the seed integer is a way to get different results for the same other request parameters. Using the same seed integer for an identical request will produce similar results.
+
+`contentModeration` `object`
+Settings that affect the behavior of the content moderation system.
+
+`publicFigureThreshold` `string`
+Accepted values:"auto", "low" When set to `low`, the content moderation system will be less strict about preventing generations that include recognizable public figures.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.imageToVideo
+.create({
+model: 'gen4_turbo',
+promptImage: 'https://example.com/bunny.jpg',
+promptText: 'A cute bunny hopping in a meadow',
+duration: 10,
+})
+.waitForTaskOutput();
+
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Text to video
+
+`POST /v1/text_to_video`
+
+This endpoint will start a new task to generate a video from a text prompt.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+Fields change based on which value is passed. Select which value to show documentation for.`gen4.5`, `veo3.1`, `veo3.1_fast`, `veo3`
+
+`promptText` *(required)* `string` [ 1 .. 1000 ] characters
+A non-empty string up to 1000 characters (measured in UTF-16 code units). This should describe in detail what should appear in the output.
+
+`ratio` *(required)* `string`
+Accepted values:"1280:720", "720:1280" The resolution of the output video.
+
+`duration` *(required)* `integer` [ 2 .. 10 ]
+The number of seconds of duration for the output video. Must be an integer from 2 to 10.
+
+`seed` `integer` [ 0 .. 4294967295 ]
+If unspecified, a random number is chosen. Varying the seed integer is a way to get different results for the same other request parameters. Using the same seed integer for an identical request will produce similar results.
+
+`contentModeration` `object`
+Settings that affect the behavior of the content moderation system.
+
+`publicFigureThreshold` `string`
+Accepted values:"auto", "low" When set to `low`, the content moderation system will be less strict about preventing generations that include recognizable public figures.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.textToVideo
+.create({
+model: 'veo3.1',
+promptText: 'A cute bunny hopping in a meadow',
+ratio: '1280:720',
+duration: 8,
+})
+.waitForTaskOutput();
+
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Video to video
+
+`POST /v1/video_to_video`
+
+This endpoint will start a new task to generate a video from a video.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `gen4_aleph`.
+
+`videoUri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded video. See [our docs](/assets/inputs#videos) on video inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:video\/.* A data URI containing encoded media.
+
+`promptText` *(required)* `string` [ 1 .. 1000 ] characters
+A non-empty string up to 1000 characters (measured in UTF-16 code units). This should describe in detail what should appear in the output.
+
+`seed` `integer` [ 0 .. 4294967295 ]
+If unspecified, a random number is chosen. Varying the seed integer is a way to get different results for the same other request parameters. Using the same seed integer for an identical request will produce similar results.
+
+`references` `ImageReference (object)`
+An array of references. Currently up to one reference is supported. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+`ImageReference` `object` Passing an image reference allows the model to emulate the style or content of the reference in the output.
+
+`type` *(required)* `string`
+This field must be set to the exact value `image`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded image. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`contentModeration` `object`
+Settings that affect the behavior of the content moderation system.
+
+`publicFigureThreshold` `string`
+Accepted values:"auto", "low" When set to `low`, the content moderation system will be less strict about preventing generations that include recognizable public figures.
+
+`ratio` `string`
+Deprecated Accepted values:"1280:720", "720:1280", "1104:832", "960:960", "832:1104", "1584:672", "848:480", "640:480" Deprecated. This field is ignored. The resolution of the output video is determined by the input video.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.videoToVideo
+.create({
+model: 'gen4_aleph',
+videoUri: 'https://example.com/bunny.mp4',
+promptText: 'string',
+references: [
+{
+type: 'image',
+uri: 'https://example.com/easter-scene.jpg',
+},
+],
+ratio: '1280:720',
+})
+.waitForTaskOutput();
+
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Text/Image to Image
+
+`POST /v1/text_to_image`
+
+This endpoint will start a new task to generate images from text and/or image(s)
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+Fields change based on which value is passed. Select which value to show documentation for.`gen4_image_turbo`, `gen4_image`, `gemini_2.5_flash`
+
+`promptText` *(required)* `string` [ 1 .. 1000 ] characters
+A non-empty string up to 1000 characters (measured in UTF-16 code units). This should describe in detail what should appear in the output.
+
+`ratio` *(required)* `string`
+Accepted values:"1024:1024", "1080:1080", "1168:880", "1360:768", "1440:1080", "1080:1440", "1808:768", "1920:1080", "1080:1920", "2112:912", "1280:720", "720:1280", "720:720", "960:720", "720:960", "1680:720" The resolution of the output image.
+
+`referenceImages` *(required)* `objects` [ 1 .. 3 ] items
+An array of one to three images to be used as references for the generated image output.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded image. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`tag` `string` [ 3 .. 16 ] characters
+A tag to identify the reference image. This is used to reference the image in prompt text.
+
+`seed` `integer` [ 0 .. 4294967295 ]
+If unspecified, a random number is chosen. Varying the seed integer is a way to get different results for the same other request parameters. Using the same seed integer for an identical request will produce similar results.
+
+`contentModeration` `object`
+Settings that affect the behavior of the content moderation system.
+
+`publicFigureThreshold` `string`
+Accepted values:"auto", "low" When set to `low`, the content moderation system will be less strict about preventing generations that include recognizable public figures.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.textToImage
+.create({
+model: 'gen4_image',
+promptText: 'A serene landscape with mountains',
+ratio: '1360:768',
+})
+.waitForTaskOutput();
+
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Control a character
+
+`POST /v1/character_performance`
+
+This endpoint will start a new task to control a character's facial expressions and body movements using a reference video.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `act_two`.
+
+`character` *(required)* `CharacterImage (object) or CharacterVideo (object)`
+The character to control. You can either provide a video or an image. A visually recognizable face must be visible and stay within the frame.
+
+One of the following shapes:`CharacterImage` `object` An image of your character. In the output, the character will use the reference video performance in its original static environment.
+
+`type` *(required)* `string`
+This field must be set to the exact value `image`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded image. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`CharacterVideo` `object` A video of your character. In the output, the character will use the reference video performance in its original animated environment and some of the character's own movements.
+
+`type` *(required)* `string`
+This field must be set to the exact value `video`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded video. See [our docs](/assets/inputs#videos) on video inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:video\/.* A data URI containing encoded media.
+
+`reference` *(required)* `CharacterReferenceVideo (object)`
+The reference video containing the performance to apply to the character.
+
+`CharacterReferenceVideo` `object` A video of a person performing in the manner that you would like your character to perform. The video must be between 3 and 30 seconds in duration.
+
+`type` *(required)* `string`
+This field must be set to the exact value `video`.
+
+`uri` *(required)* `string`
+A video of a person performing in the manner that you would like your character to perform. The video must be between 3 and 30 seconds in duration. See [our docs](/assets/inputs#videos) on video inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:video\/.* A data URI containing encoded media.
+
+`seed` `integer` [ 0 .. 4294967295 ]
+If unspecified, a random number is chosen. Varying the seed integer is a way to get different results for the same other request parameters. Using the same seed integer for an identical request will produce similar results.
+
+`bodyControl` `boolean`
+A boolean indicating whether to enable body control. When enabled, non-facial movements and gestures will be applied to the character in addition to facial expressions.
+
+`expressionIntensity` `integer` [ 1 .. 5 ]
+Default:3 An integer between 1 and 5 (inclusive). A larger value increases the intensity of the character's expression.
+
+`ratio` `string`
+Accepted values:"1280:720", "720:1280", "960:960", "1104:832", "832:1104", "1584:672" The resolution of the output video.
+
+`contentModeration` `object`
+Settings that affect the behavior of the content moderation system.
+
+`publicFigureThreshold` `string`
+Accepted values:"auto", "low" When set to `low`, the content moderation system will be less strict about preventing generations that include recognizable public figures.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.characterPerformance
+.create({
+model: 'act_two',
+character: {
+type: 'video',
+uri: 'https://example.com/posedCharacter.mp4',
+},
+reference: {
+type: 'video',
+uri: 'https://example.com/actorPerformance.mp4',
+},
+ratio: '1280:720',
+})
+.waitForTaskOutput();
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Generate sound effects
+
+`POST /v1/sound_effect`
+
+This endpoint will start a new task to generate sound effects from a text description.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `eleven_text_to_sound_v2`.
+
+`promptText` *(required)* `string` [ 1 .. 3000 ] characters
+A text description of the sound effect to generate.
+
+`duration` `number` [ 0.5 .. 30 ]
+The duration of the sound effect in seconds, between 0.5 and 30 seconds. If not provided, the duration will be determined automatically based on the text description.
+
+`loop` `boolean`
+Default:false Whether the output sound effect should be designed to loop seamlessly.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.soundEffect
+.create({
+model: 'eleven_text_to_sound_v2',
+promptText: 'A thunderstorm with heavy rain',
+duration: 10,
+loop: true,
+})
+.waitForTaskOutput();
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Speech to speech
+
+`POST /v1/speech_to_speech`
+
+This endpoint will start a new task to convert speech from one voice to another in audio or video.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `eleven_multilingual_sts_v2`.
+
+`media` *(required)* `SpeechToSpeechAudio (object) or SpeechToSpeechVideo (object)`
+One of the following shapes:`SpeechToSpeechAudio` `object` An audio file containing dialogue to be processed.
+
+`type` *(required)* `string`
+This field must be set to the exact value `audio`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded audio. See [our docs](/assets/inputs#audio) on audio inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:audio\/.* A data URI containing encoded media.
+
+`SpeechToSpeechVideo` `object` A video file containing dialogue to be processed.
+
+`type` *(required)* `string`
+This field must be set to the exact value `video`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded video. See [our docs](/assets/inputs#videos) on video inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:video\/.* A data URI containing encoded media.
+
+`voice` *(required)* `RunwayPresetVoice (object)`
+The voice to use for the generated speech.
+
+`RunwayPresetVoice` `object` A voice preset from the RunwayML API.
+
+`type` *(required)* `string`
+This field must be set to the exact value `runway-preset`.
+
+`presetId` *(required)* `string`
+Accepted values:"Maya", "Arjun", "Serene", "Bernard", "Billy", "Mark", "Clint", "Mabel", "Chad", "Leslie", "Eleanor", "Elias", "Elliot", "Grungle", "Brodie", "Sandra", "Kirk", "Kylie", "Lara", "Lisa", "Malachi", "Marlene", "Martin", "Miriam", "Monster", "Paula", "Pip", "Rusty", "Ragnar", "Xylar", "Maggie", "Jack", "Katie", "Noah", "James", "Rina", "Ella", "Mariah", "Frank", "Claudia", "Niki", "Vincent", "Kendrick", "Myrna", "Tom", "Wanda", "Benjamin", "Kiana", "Rachel" The preset voice ID to use for the generated speech.
+
+`removeBackgroundNoise` `boolean`
+Whether to remove background noise from the generated speech.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const audioTask = await client.speechToSpeech
+.create({
+model: 'eleven_multilingual_sts_v2',
+media: {
+type: 'audio',
+uri: 'https://example.com/audio.mp3',
+},
+voice: {
+type: 'runway-preset',
+presetId: 'Maggie',
+},
+})
+.waitForTaskOutput();
+console.log(audioTask);
+
+const videoTask = await client.speechToSpeech
+.create({
+model: 'eleven_multilingual_sts_v2',
+media: {
+type: 'video',
+uri: 'https://example.com/video.mp4',
+},
+voice: {
+type: 'runway-preset',
+presetId: 'Noah',
+},
+})
+.waitForTaskOutput();
+console.log(videoTask);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Text to speech
+
+`POST /v1/text_to_speech`
+
+This endpoint will start a new task to generate speech from text.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `eleven_multilingual_v2`.
+
+`promptText` *(required)* `string` [ 1 .. 1000 ] characters
+A non-empty string up to 1000 characters (measured in UTF-16 code units). This should describe in detail what should appear in the output.
+
+`voice` *(required)* `RunwayPresetVoice (object)`
+The voice to use for the generated speech.
+
+`RunwayPresetVoice` `object` A voice preset from the RunwayML API.
+
+`type` *(required)* `string`
+This field must be set to the exact value `runway-preset`.
+
+`presetId` *(required)* `string`
+Accepted values:"Maya", "Arjun", "Serene", "Bernard", "Billy", "Mark", "Clint", "Mabel", "Chad", "Leslie", "Eleanor", "Elias", "Elliot", "Grungle", "Brodie", "Sandra", "Kirk", "Kylie", "Lara", "Lisa", "Malachi", "Marlene", "Martin", "Miriam", "Monster", "Paula", "Pip", "Rusty", "Ragnar", "Xylar", "Maggie", "Jack", "Katie", "Noah", "James", "Rina", "Ella", "Mariah", "Frank", "Claudia", "Niki", "Vincent", "Kendrick", "Myrna", "Tom", "Wanda", "Benjamin", "Kiana", "Rachel" The preset voice ID to use for the generated speech.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.textToSpeech
+.create({
+model: 'eleven_multilingual_v2',
+promptText: 'The quick brown fox jumps over the lazy dog',
+voice: {
+type: 'runway-preset',
+presetId: 'Leslie',
+},
+})
+.waitForTaskOutput();
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Voice dubbing
+
+`POST /v1/voice_dubbing`
+
+This endpoint will start a new task to dub audio content to a target language.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `eleven_voice_dubbing`.
+
+`audioUri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded audio. See [our docs](/assets/inputs#audio) on audio inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:audio\/.* A data URI containing encoded media.
+
+`targetLang` *(required)* `string`
+Accepted values:"en", "hi", "pt", "zh", "es", "fr", "de", "ja", "ar", "ru", "ko", "id", "it", "nl", "tr", "pl", "sv", "fil", "ms", "ro", "uk", "el", "cs", "da", "fi", "bg", "hr", "sk", "ta" The target language code to dub the audio to (e.g., "es" for Spanish, "fr" for French).
+
+`disableVoiceCloning` `boolean`
+Whether to disable voice cloning and use a generic voice instead.
+
+`dropBackgroundAudio` `boolean`
+Whether to remove background audio from the dubbed output.
+
+`numSpeakers` `integer` ( 0 .. 9007199254740991 ]
+The number of speakers in the audio. If not provided, it will be detected automatically.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.voiceDubbing
+.create({
+model: 'eleven_voice_dubbing',
+audioUri: 'https://example.com/audio.mp3',
+targetLang: 'es',
+})
+.waitForTaskOutput();
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Voice isolation
+
+`POST /v1/voice_isolation`
+
+This endpoint will start a new task to isolate the voice from the background audio. Audio duration must be greater than 4.6 seconds and less than 3600 seconds.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+This field must be set to the exact value `eleven_voice_isolation`.
+
+`audioUri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded audio. See [our docs](/assets/inputs#audio) on audio inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:audio\/.* A data URI containing encoded media.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const task = await client.voiceIsolation
+.create({
+model: 'eleven_voice_isolation',
+audioUrl: 'https://example.com/audio.mp3',
+})
+.waitForTaskOutput();
+console.log(task);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Task management
+
+Endpoints for managing tasks that have been submitted.
+
+## Get task detail
+
+`GET /v1/tasks/{id}`
+
+Return details about a task. Consumers of this API should not expect updates more frequent than once every five seconds for a given task.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of a previously-submitted task that has not been canceled or deleted.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+// Fetch the current state of the task:
+const task = await client.tasks.retrieve(
+'17f20503-6c24-4c16-946b-35dbbce2af2f'
+);
+
+// Or, wait for the task to succeed or fail:
+const task = await client.tasks
+.retrieve('17f20503-6c24-4c16-946b-35dbbce2af2f')
+.waitForTaskOutput();
+```
+
+`An example of a pending task`, `An example of a throttled task`, `An example of a running task`, `An example of a succeeded task`, `An example of a failed task````json
+{"id": "17f20503-6c24-4c16-946b-35dbbce2af2f","status": "PENDING","createdAt": "2024-06-27T19:49:32.334Z"}
+```
+
+## Cancel or delete a task
+
+`DELETE /v1/tasks/{id}`
+
+Tasks that are running, pending, or throttled can be canceled by invoking this method. Invoking this method for other tasks will delete them.
+
+The output data associated with a deleted task will be deleted from persistent storage in accordance with our data retention policy. Aborted and deleted tasks will not be able to be fetched again in the future.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of a previously-submitted task that has not been canceled or deleted.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+await client.tasks.delete('17f20503-6c24-4c16-946b-35dbbce2af2f');
+```
+
+## Uploads
+
+Endpoints for uploading media files.
+
+## Upload a file
+
+`POST /v1/uploads`
+
+Uploads a temporary media file that can be referenced in API generation requests. The uploaded files will be automatically expired and deleted after a period of time. It is strongly recommended to use our SDKs for this which have a simplified interface that directly accepts file objects.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`filename` *(required)* `string` [ 3 .. 255 ] characters
+The filename of the file to upload. Must have a valid extension and be a supported media type (image, video, or audio).
+
+`type` *(required)* `string`
+Accepted value:"ephemeral" The type of upload to create
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+import fs from 'node:fs';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+filename = './funny-cats.mp4';
+const uploadUri = await client.uploads.createEphemeral(
+fs.createReadStream(filename),
+);
+
+// Use the runwayUri in generation requests
+const task = await client.videoToVideo
+.create({
+model: 'gen4_aleph',
+videoUri: uploadUri,
+promptText: 'Add the easter elements to the cat video',
+references: [
+{
+type: 'image',
+uri: 'https://example.com/easter-scene.jpg',
+},
+],
+ratio: '1280:720',
+})
+.waitForTaskOutput();
+
+console.log(task);
+```
+
+```json
+{"uploadUrl": "http://example.com","fields": {"property1": "string","property2": "string"},"runwayUri": "string"}
+```
+
+## Workflows
+
+## List published workflows
+
+`GET /v1/workflows`
+
+Returns a list of all published workflows for the authenticated user, grouped by source workflow with their published versions.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const { data: workflows } = await client.workflows.list();
+console.log(workflows);
+```
+
+```json
+{"data": [{"name": "My Video Generator","versions": [{"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890","version": 2,"createdAt": "2024-06-27T19:49:32.334Z"},{"id": "b2c3d4e5-f6a7-8901-bcde-f12345678901","version": 1,"createdAt": "2024-06-20T10:30:00.000Z"}]}]}
+```
+
+## Run a published workflow
+
+`POST /v1/workflows/{id}`
+
+Start a new task to execute a published workflow. You can optionally provide custom input values via `nodeOutputs` to override the defaults defined in the workflow graph.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of the published workflow to run. You can copy this value from the developer portal.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`nodeOutputs` `object`
+Optional node outputs to override default values. Keys are node IDs from the workflow graph, values are objects mapping output keys to typed values.
+
+`property name*` `object`
+`property name*` `WorkflowNodeOutputPrimitive (object) or WorkflowNodeOutputImage (object) or WorkflowNodeOutputVideo (object) or WorkflowNodeOutputAudio (object)`
+One of the following shapes:`WorkflowNodeOutputPrimitive` `object` A primitive value (string, number, or boolean)
+
+`type` *(required)* `string`
+This field must be set to the exact value `primitive`.
+
+`value` *(required)* `string or number or boolean`
+One of the following shapes: `string` `number` `boolean`
+
+`WorkflowNodeOutputImage` `object` An image asset
+
+`type` *(required)* `string`
+This field must be set to the exact value `image`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded image. See [our docs](/assets/inputs#images) on image inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https://.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`WorkflowNodeOutputVideo` `object` A video asset
+
+`type` *(required)* `string`
+This field must be set to the exact value `video`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded video. See [our docs](/assets/inputs#videos) on video inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https://.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:video\/.* A data URI containing encoded media.
+
+`WorkflowNodeOutputAudio` `object` An audio asset
+
+`type` *(required)* `string`
+This field must be set to the exact value `audio`.
+
+`uri` *(required)* `string`
+A HTTPS URL, Runway or data URI containing an encoded audio. See [our docs](/assets/inputs#audio) on audio inputs for more information.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https://.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:audio\/.* A data URI containing encoded media.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const { id } = await client.workflows.run('YOUR_WORKFLOW_ID', {
+nodeOutputs: {
+'node-uuid': {
+// For text/number/boolean values, use type: 'primitive'
+'prompt': { type: 'primitive', value: 'A beautiful sunset' },
+// For media assets, use type: 'image', 'video', or 'audio'
+'image': { type: 'image', uri: 'https://example.com/image.jpg' },
+},
+},
+});
+
+// Then poll for the workflow result
+const invocation = await client.workflowInvocations
+.retrieve(id)
+.waitForTaskOutput();
+
+console.log(invocation);
+```
+
+```json
+{"id": "17f20503-6c24-4c16-946b-35dbbce2af2f"}
+```
+
+## Get workflow details
+
+`GET /v1/workflows/{id}`
+
+Returns details about a specific published workflow, including its graph schema.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of the published workflow to run. You can copy this value from the developer portal.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const workflow = await client.workflows.retrieve(
+'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+);
+console.log(workflow);
+```
+
+```json
+{"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890","name": "My Video Generator","description": "A workflow that generates videos from text prompts","version": 1,"createdAt": "2024-06-27T19:49:32.334Z","updatedAt": "2024-06-27T19:49:32.334Z","graph": {"version": 1,"nodes": [ ],"edges": [ ]}}
+```
+
+## Get workflow invocation detail
+
+`GET /v1/workflow_invocations/{id}`
+
+Return details about a workflow invocation. Consumers of this API should not expect updates more frequent than once every five seconds for a given workflow invocation.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of a previously-submitted workflow invocation that has not been canceled or deleted.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+// Fetch the current state of the workflow invocation:
+const invocation = await client.workflowInvocations.retrieve(
+'17f20503-6c24-4c16-946b-35dbbce2af2f'
+);
+
+// Or, wait for the workflow to succeed or fail:
+const invocation = await client.workflowInvocations
+.retrieve('17f20503-6c24-4c16-946b-35dbbce2af2f')
+.waitForTaskOutput();
+```
+
+`An example of a pending workflow invocation`, `An example of a running workflow invocation`, `An example of a succeeded workflow invocation`, `An example of a failed workflow invocation````json
+{"id": "17f20503-6c24-4c16-946b-35dbbce2af2f","status": "PENDING","createdAt": "2024-06-27T19:49:32.334Z"}
+```
+
+## Avatars
+
+## List avatars
+
+`GET /v1/avatars`
+
+List avatars for the authenticated user with cursor-based pagination.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Query parameters
+
+`limit` *(required)* `integer` [ 1 .. 100 ]
+Default:50 The maximum number of items to return per page.
+
+`cursor` `string` [ 1 .. 1000 ] characters
+Cursor from a previous response for fetching the next page of results.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const avatars = await client.avatars.list();
+for await (const avatar of avatars) {
+console.log(avatar);
+}
+```
+
+```json
+{"data": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","personality": "string","startScript": "string","voice": {"type": "runway-live-preset","presetId": "victoria","name": "string","description": "string"},"referenceImageUri": "string","processedImageUri": "string","documentIds": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],"createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z","status": "PROCESSING"}],"hasMore": true,"nextCursor": "string"}
+```
+
+## Create avatar
+
+`POST /v1/avatars`
+
+Create a new avatar with a reference image and voice.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`name` *(required)* `string` [ 1 .. 50 ] characters
+The character name for the avatar.
+
+`referenceImage` *(required)* `string`
+A HTTPS URL, Runway URI, or data URI containing the avatar reference image. See [our docs](/assets/inputs#images) for supported formats.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`personality` *(required)* `string` [ 1 .. 2000 ] characters
+System prompt defining how the avatar should behave in conversations.
+
+`voice` *(required)* `RunwayLivePresetVoice (object) or CustomVoice (object)`
+The voice configuration for the avatar.
+
+One of the following shapes:`RunwayLivePresetVoice` `object` A preset voice from the Runway API.
+
+`type` *(required)* `string`
+This field must be set to the exact value `runway-live-preset`.
+
+`presetId` *(required)* `string`
+Accepted values:"victoria", "vincent", "clara", "drew", "skye", "max", "morgan", "felix", "mia", "marcus", "summer", "ruby", "aurora", "jasper", "leo", "adrian", "nina", "emma", "blake", "david", "maya", "nathan", "sam", "georgia", "petra", "adam", "zach", "violet", "roman", "luna" The ID of a preset voice. Available voices: `victoria` (Victoria), `vincent` (Vincent), `clara` (Clara), `drew` (Drew), `skye` (Skye), `max` (Max), `morgan` (Morgan), `felix` (Felix), `mia` (Mia), `marcus` (Marcus), `summer` (Summer), `ruby` (Ruby), `aurora` (Aurora), `jasper` (Jasper), `leo` (Leo), `adrian` (Adrian), `nina` (Nina), `emma` (Emma), `blake` (Blake), `david` (David), `maya` (Maya), `nathan` (Nathan), `sam` (Sam), `georgia` (Georgia), `petra` (Petra), `adam` (Adam), `zach` (Zach), `violet` (Violet), `roman` (Roman), `luna` (Luna).
+
+`CustomVoice` `object` A custom voice created via the Voices API.
+
+`type` *(required)* `string`
+This field must be set to the exact value `custom`.
+
+`id` *(required)* `string`
+The ID of a custom voice created via the Voices API.
+
+`startScript` `string` <= 2000 characters
+Optional opening message that the avatar will say when a session starts.
+
+`documentIds` `strings` <= 50 items
+Optional list of knowledge document IDs to attach to this avatar. Documents provide additional context during conversations.
+
+`imageProcessing` `string`
+Default:"optimize"Accepted values:"optimize", "none" Controls image preprocessing. `optimize` improves the image for better avatar results. `none` uses the image as-is; quality not guaranteed.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const avatar = await client.avatars.create({
+name: 'Customer Support Agent',
+referenceImage: 'https://example.com/reference.jpg',
+personality: 'You are a helpful customer support agent. Be friendly and concise.',
+voice: { type: 'runway-live-preset', presetId: 'adrian' },
+});
+console.log(avatar);
+```
+
+`AvatarProcessing`, `AvatarReady`, `AvatarFailed````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","personality": "string","startScript": "string","voice": {"type": "runway-live-preset","presetId": "victoria","name": "string","description": "string"},"referenceImageUri": "string","processedImageUri": "string","documentIds": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],"createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z","status": "AvatarProcessing"}
+```
+
+## List conversations
+
+`GET /v1/avatars/{id}/conversations`
+
+List conversations for a specific avatar with cursor-based pagination.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The avatar ID.
+
+### Query parameters
+
+`limit` *(required)* `integer` [ 1 .. 100 ]
+Default:20 The maximum number of items to return per page.
+
+`cursor` `string` [ 1 .. 1000 ] characters
+Cursor from a previous response for fetching the next page of results.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+for await (const conversation of client.avatars.conversations.list(
+'550e8400-e29b-41d4-a716-446655440000'
+)) {
+console.log(conversation.name, conversation.status);
+}
+```
+
+```json
+{"data": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","status": "in_progress","avatarId": "ac572b6e-802b-4b9e-a602-0786d4441e67","avatarName": "string","createdAt": "2019-08-24T14:15:22Z","duration": -9007199254740991}],"hasMore": true,"nextCursor": "string"}
+```
+
+## Get conversation
+
+`GET /v1/avatars/{id}/conversations/{conversationId}`
+
+Get detailed information about a specific conversation.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The avatar ID.
+
+`conversationId` *(required)* `string`
+The conversation ID.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const conversation = await client.avatars.conversations.retrieve(
+'550e8400-e29b-41d4-a716-446655440000',
+'660e8400-e29b-41d4-a716-446655440001'
+);
+console.log(conversation.status, conversation.transcript);
+```
+
+`Option 1`, `Option 2`, `Option 3````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","avatar": {"type": "preset","presetId": "string"},"createdAt": "2019-08-24T14:15:22Z","maxDuration": -9007199254740991,"transcript": [{"role": "user","content": "string","timestamp": "2019-08-24T14:15:22Z"}],"recordingUrl": "http://example.com","status": "Option 1","startedAt": "2019-08-24T14:15:22Z","duration": -9007199254740991}
+```
+
+## Get avatar
+
+`GET /v1/avatars/{id}`
+
+Get details of a specific avatar.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const avatar = await client.avatars.retrieve(
+'550e8400-e29b-41d4-a716-446655440000'
+);
+console.log(avatar);
+```
+
+`AvatarProcessing`, `AvatarReady`, `AvatarFailed````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","personality": "string","startScript": "string","voice": {"type": "runway-live-preset","presetId": "victoria","name": "string","description": "string"},"referenceImageUri": "string","processedImageUri": "string","documentIds": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],"createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z","status": "AvatarProcessing"}
+```
+
+## Update avatar
+
+`PATCH /v1/avatars/{id}`
+
+Update an existing avatar. At least one field must be provided.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`name` `string` [ 1 .. 50 ] characters
+The character name for the avatar.
+
+`referenceImage` `string`
+A HTTPS URL, Runway URI, or data URI containing the avatar reference image. See [our docs](/assets/inputs#images) for supported formats.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 5242880 ] characters ^data:image\/.* A data URI containing encoded media.
+
+`personality` `string` [ 1 .. 2000 ] characters
+System prompt defining how the avatar should behave in conversations.
+
+`startScript` `string or null`
+Optional opening message that the avatar will say when a session starts. Set to null to clear.
+
+One of the following shapes: `string` <= 2000 characters Optional opening message that the avatar will say when a session starts. Set to null to clear.
+
+`null` Optional opening message that the avatar will say when a session starts. Set to null to clear.
+
+`voice` `RunwayLivePresetVoice (object) or CustomVoice (object)`
+The voice configuration for the avatar.
+
+One of the following shapes:`RunwayLivePresetVoice` `object` A preset voice from the Runway API.
+
+`type` *(required)* `string`
+This field must be set to the exact value `runway-live-preset`.
+
+`presetId` *(required)* `string`
+Accepted values:"victoria", "vincent", "clara", "drew", "skye", "max", "morgan", "felix", "mia", "marcus", "summer", "ruby", "aurora", "jasper", "leo", "adrian", "nina", "emma", "blake", "david", "maya", "nathan", "sam", "georgia", "petra", "adam", "zach", "violet", "roman", "luna" The ID of a preset voice. Available voices: `victoria` (Victoria), `vincent` (Vincent), `clara` (Clara), `drew` (Drew), `skye` (Skye), `max` (Max), `morgan` (Morgan), `felix` (Felix), `mia` (Mia), `marcus` (Marcus), `summer` (Summer), `ruby` (Ruby), `aurora` (Aurora), `jasper` (Jasper), `leo` (Leo), `adrian` (Adrian), `nina` (Nina), `emma` (Emma), `blake` (Blake), `david` (David), `maya` (Maya), `nathan` (Nathan), `sam` (Sam), `georgia` (Georgia), `petra` (Petra), `adam` (Adam), `zach` (Zach), `violet` (Violet), `roman` (Roman), `luna` (Luna).
+
+`CustomVoice` `object` A custom voice created via the Voices API.
+
+`type` *(required)* `string`
+This field must be set to the exact value `custom`.
+
+`id` *(required)* `string`
+The ID of a custom voice created via the Voices API.
+
+`documentIds` `strings` <= 50 items
+List of knowledge document IDs to attach to this avatar. Replaces all current attachments. Documents provide additional context during conversations.
+
+`imageProcessing` `string`
+Default:"optimize"Accepted values:"optimize", "none" Controls image preprocessing. `optimize` improves the image for better avatar results. `none` uses the image as-is; quality not guaranteed.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const avatar = await client.avatars.update(
+'550e8400-e29b-41d4-a716-446655440000',
+{ name: 'Updated Avatar Name' }
+);
+console.log(avatar);
+```
+
+`AvatarProcessing`, `AvatarReady`, `AvatarFailed````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","personality": "string","startScript": "string","voice": {"type": "runway-live-preset","presetId": "victoria","name": "string","description": "string"},"referenceImageUri": "string","processedImageUri": "string","documentIds": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],"createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z","status": "AvatarProcessing"}
+```
+
+## Delete avatar
+
+`DELETE /v1/avatars/{id}`
+
+Delete an avatar.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+await client.avatars.delete('550e8400-e29b-41d4-a716-446655440000');
+```
+
+## Knowledge
+
+## Create document
+
+`POST /v1/documents`
+
+Create a new knowledge document. Documents can be attached to avatars to provide additional context during conversations.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`name` *(required)* `string` [ 1 .. 255 ] characters
+A descriptive name for the document.
+
+`content` *(required)* `string` [ 1 .. 200000 ] characters
+The markdown or plain text content of the document.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const document = await client.documents.create({
+name: 'Product FAQ',
+content: '# Product FAQ\n\n## What is your return policy?\n...',
+});
+console.log(document);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","type": "text","usedBy": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","imageUrl": "http://example.com"}],"content": "string","createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z"}
+```
+
+## List documents
+
+`GET /v1/documents`
+
+List knowledge documents for the authenticated user with cursor-based pagination.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Query parameters
+
+`limit` *(required)* `integer` [ 1 .. 100 ]
+Default:50 The maximum number of items to return per page.
+
+`cursor` `string` [ 1 .. 1000 ] characters
+Cursor from a previous response for fetching the next page of results.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const documents = await client.documents.list();
+for await (const document of documents) {
+console.log(document);
+}
+```
+
+```json
+{"data": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","type": "text","usedBy": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","imageUrl": "http://example.com"}],"createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z"}],"hasMore": true,"nextCursor": "string"}
+```
+
+## Get document
+
+`GET /v1/documents/{id}`
+
+Get details of a specific knowledge document.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The document ID.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const document = await client.documents.retrieve(
+'550e8400-e29b-41d4-a716-446655440000'
+);
+console.log(document);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","type": "text","usedBy": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","imageUrl": "http://example.com"}],"content": "string","createdAt": "2019-08-24T14:15:22Z","updatedAt": "2019-08-24T14:15:22Z"}
+```
+
+## Update document
+
+`PATCH /v1/documents/{id}`
+
+Update a knowledge document. At least one of `name` or `content` must be provided.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The document ID.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`name` `string` [ 1 .. 255 ] characters
+A new name for the document.
+
+`content` `string` [ 1 .. 200000 ] characters
+New markdown or plain text content for the document.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+await client.documents.update(
+'550e8400-e29b-41d4-a716-446655440000',
+{ name: 'Updated Product FAQ' }
+);
+```
+
+## Delete document
+
+`DELETE /v1/documents/{id}`
+
+Delete a knowledge document. This also removes it from all avatars it was attached to.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The document ID.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+await client.documents.delete('550e8400-e29b-41d4-a716-446655440000');
+```
+
+## Realtime Sessions
+
+## Create realtime session
+
+`POST /v1/realtime_sessions`
+
+Create a new realtime session with the specified model configuration.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`model` *(required)* `string`
+The realtime session model type.
+
+This field must be set to the exact value `gwm1_avatars`.
+
+`avatar` *(required)* `RunwayPresetAvatar (object) or CustomAvatar (object)`
+The avatar configuration for the session.
+
+One of the following shapes:`RunwayPresetAvatar` `object` A preset avatar from Runway.
+
+`type` *(required)* `string`
+This field must be set to the exact value `runway-preset`.
+
+`presetId` *(required)* `string`
+Accepted values:"game-character", "music-superstar", "game-character-man", "cat-character", "influencer", "tennis-coach", "human-resource", "fashion-designer", "cooking-teacher" ID of a preset avatar.
+
+`CustomAvatar` `object` A user-created avatar.
+
+`type` *(required)* `string`
+This field must be set to the exact value `custom`.
+
+`avatarId` *(required)* `string`
+ID of a user-created avatar.
+
+`maxDuration` `integer` [ 10 .. 300 ]
+Default:300 Maximum session duration in seconds.
+
+`personality` `string` [ 1 .. 2000 ] characters
+Override the avatar personality for this session. If not provided, uses the avatar default.
+
+`startScript` `string` [ 1 .. 2000 ] characters
+Override the avatar start script for this session. If not provided, uses the avatar default.
+
+`tools` `ClientEventTool (object) or BackendRPCTool (object)` <= 20 items
+A tool available to the avatar during the session.
+
+One of the following shapes:`ClientEventTool` `object` A fire-and-forget tool that sends arguments to the frontend client of the realtime session.
+
+`type` *(required)* `string`
+This field must be set to the exact value `client_event`.
+
+`name` *(required)* `string` [ 1 .. 64 ] characters
+The tool name. Must start with a letter or underscore, followed by alphanumeric characters or underscores.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of when and how the tool should be used. Be specific so the avatar understands the right context to invoke it.
+
+`parameters` `StringParameter (object) or IntegerParameter (object) or NumberParameter (object) or BooleanParameter (object) or ArrayParameter (object) or ObjectParameter (object)` <= 20 items
+One of the following shapes:`StringParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `string`.
+
+`enum` `strings` <= 20 items
+Allowed values for the parameter.
+
+`IntegerParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `integer`.
+
+`NumberParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `number`.
+
+`BooleanParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `boolean`.
+
+`ArrayParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `array`.
+
+`items` *(required)* `object`
+Item schema for array elements.
+
+`type` *(required)* `string`
+Accepted values:"string", "integer", "number", "boolean" The type of each element in the array.
+
+`ObjectParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `object`.
+
+`properties` *(required)* `any` <= 20 items
+The properties of the object.
+
+`BackendRPCTool` `object` A tool that makes a round-trip RPC call to your backend server during the session.
+
+`type` *(required)* `string`
+This field must be set to the exact value `backend_rpc`.
+
+`name` *(required)* `string` [ 1 .. 64 ] characters
+The tool name. Must start with a letter or underscore, followed by alphanumeric characters or underscores.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of when and how the tool should be used. Be specific so the avatar understands the right context to invoke it.
+
+`parameters` `StringParameter (object) or IntegerParameter (object) or NumberParameter (object) or BooleanParameter (object) or ArrayParameter (object) or ObjectParameter (object)` <= 20 items
+One of the following shapes:`StringParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `string`.
+
+`enum` `strings` <= 20 items
+Allowed values for the parameter.
+
+`IntegerParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `integer`.
+
+`NumberParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `number`.
+
+`BooleanParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `boolean`.
+
+`ArrayParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `array`.
+
+`items` *(required)* `object`
+Item schema for array elements.
+
+`type` *(required)* `string`
+Accepted values:"string", "integer", "number", "boolean" The type of each element in the array.
+
+`ObjectParameter` `object` `name` *(required)* `string` [ 1 .. 64 ] characters
+The parameter name.
+
+`description` *(required)* `string` [ 1 .. 1024 ] characters
+A description of the parameter.
+
+`required` `boolean`
+Default:true Whether the parameter is required.
+
+`type` *(required)* `string`
+This field must be set to the exact value `object`.
+
+`properties` *(required)* `any` <= 20 items
+The properties of the object.
+
+`timeoutSeconds` `number` [ 1 .. 8 ]
+Default:4 Maximum time to wait for the backend to respond.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const session = await client.realtimeSessions.create({
+model: 'gwm1_avatars',
+avatar: {
+type: 'custom',
+avatarId: '550e8400-e29b-41d4-a716-446655440000',
+},
+});
+console.log(session.id);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Get realtime session
+
+`GET /v1/realtime_sessions/{id}`
+
+Get the status of a realtime session.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The realtime session ID.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const session = await client.realtimeSessions.retrieve(
+'550e8400-e29b-41d4-a716-446655440000'
+);
+console.log(session.status);
+```
+
+`SessionNotReady`, `SessionReady`, `SessionRunning`, `SessionCompleted`, `SessionFailed`, `SessionCancelled````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","createdAt": "2019-08-24T14:15:22Z","status": "SessionNotReady","queued": true}
+```
+
+## Cancel realtime session
+
+`DELETE /v1/realtime_sessions/{id}`
+
+Cancel an active realtime session.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The realtime session ID.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+await client.realtimeSessions.delete(
+'550e8400-e29b-41d4-a716-446655440000'
+);
+```
+
+## Organization
+
+## Get organization information
+
+`GET /v1/organization`
+
+Get usage tier and credit balance information about the organization associated with the API key used to make the request.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const details = await client.organization.retrieve();
+console.log(details.creditBalance);
+```
+
+```json
+{"tier": {"maxMonthlyCreditSpend": 9007199254740991,"models": {"property1": {"maxConcurrentGenerations": 9007199254740991,"maxDailyGenerations": 9007199254740991},"property2": {"maxConcurrentGenerations": 9007199254740991,"maxDailyGenerations": 9007199254740991}}},"creditBalance": 9007199254740991,"usage": {"models": {"property1": {"dailyGenerations": 9007199254740991},"property2": {"dailyGenerations": 9007199254740991}}}}
+```
+
+## Query credit usage
+
+`POST /v1/organization/usage`
+
+Fetch credit usage data broken down by model and day for the organization associated with the API key used to make the request. Up to 90 days of data can be queried at a time.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`startDate` `string`
+The start date of the usage data in ISO-8601 format (YYYY-MM-DD). If unspecified, it will default to 30 days before the current date. All dates are in UTC.
+
+`beforeDate` `string`
+The end date of the usage data in ISO-8601 format (YYYY-MM-DD), not inclusive. If unspecified, it will default to thirty days after the start date. Must be less than or equal to 90 days after the start date. All dates are in UTC.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const usage = await client.organization.retrieveUsage();
+console.log(usage);
+```
+
+```json
+{"results": [{"date": "2019-08-24","usedCredits": [{"model": "gen4.5","amount": 9007199254740991}]}],"models": ["gen4.5"]}
+```
+
+## Voices
+
+## List voices
+
+`GET /v1/voices`
+
+List custom voices for the authenticated organization with cursor-based pagination.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Query parameters
+
+`limit` *(required)* `integer` [ 1 .. 100 ]
+Default:50 The maximum number of items to return per page.
+
+`cursor` `string` [ 1 .. 1000 ] characters
+Cursor from a previous response for fetching the next page of results.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const voices = await client.voices.list();
+
+for await (const voice of voices) {
+console.log(voice);
+}
+```
+
+```json
+{"data": [{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","description": "string","createdAt": "2019-08-24T14:15:22Z","status": "PROCESSING"}],"hasMore": true,"nextCursor": "string"}
+```
+
+## Create a voice
+
+`POST /v1/voices`
+
+Create a custom voice from a text description, or clone a voice from an audio sample.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`name` *(required)* `string` [ 1 .. 100 ] characters
+A name for the voice.
+
+`from` *(required)* `VoiceFromText (object) or VoiceFromAudio (object)`
+One of the following shapes:`VoiceFromText` `object` The source configuration for creating the voice.
+
+`type` *(required)* `string`
+This field must be set to the exact value `text`.
+
+`prompt` *(required)* `string` [ 20 .. 1000 ] characters
+A text description of the desired voice characteristics. Must be at least 20 characters.
+
+`model` *(required)* `string`
+Accepted values:"eleven_ttv_v3", "eleven_multilingual_ttv_v2" The voice design model to use. Prefer eleven_ttv_v3 (latest); eleven_multilingual_ttv_v2 is the previous generation.
+
+`VoiceFromAudio` `object` `type` *(required)* `string`
+This field must be set to the exact value `audio`.
+
+`audio` *(required)* `string`
+Audio sample to clone the voice from. Must be between 10 seconds and 5 minutes long and at most 10MB. For best results, use a clear recording with minimal background noise and varied tone.
+
+One of the following shapes: `string` [ 13 .. 2048 ] characters ^https:\/\/.* A HTTPS URL.
+
+`string` [ 13 .. 5000 ] characters ^runway:\/\/.* A Runway upload URI. See [https://docs.dev.runwayml.com/assets/uploads](https://docs.dev.runwayml.com/assets/uploads) for more information.
+
+`string` [ 13 .. 16777216 ] characters ^data:audio\/.* A data URI containing encoded media.
+
+`description` `string or null`
+An optional description of the voice.
+
+One of the following shapes: `string` [ 1 .. 512 ] characters An optional description of the voice.
+
+`null` An optional description of the voice.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const voice = await client.voices.create({
+name: 'My Custom Voice',
+from: {
+type: 'text',
+prompt: 'A warm, friendly voice with a slight British accent',
+model: 'eleven_ttv_v3',
+},
+});
+console.log(voice.id);
+```
+
+```json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08"}
+```
+
+## Get a voice
+
+`GET /v1/voices/{id}`
+
+Get details about a specific custom voice.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of the voice to retrieve.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const voice = await client.voices.retrieve('550e8400-e29b-41d4-a716-446655440000');
+console.log(voice);
+```
+
+`VoiceProcessing`, `VoiceReady`, `VoiceFailed````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","description": "string","createdAt": "2019-08-24T14:15:22Z","status": "VoiceProcessing"}
+```
+
+## Delete a voice
+
+`DELETE /v1/voices/{id}`
+
+Delete a custom voice.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of the voice to delete.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+await client.voices.delete('550e8400-e29b-41d4-a716-446655440000');
+```
+
+## Update a voice
+
+`PATCH /v1/voices/{id}`
+
+Update the name and/or description of a custom voice.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Path parameters
+
+`id` *(required)* `string`
+The ID of the voice to update.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`name` `string` [ 1 .. 100 ] characters
+A name for the voice.
+
+`description` `string or null`
+An optional description of the voice.
+
+One of the following shapes: `string` [ 1 .. 512 ] characters An optional description of the voice.
+
+`null` An optional description of the voice.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const voice = await client.voices.update(
+'550e8400-e29b-41d4-a716-446655440000',
+{ name: 'My Updated Voice' },
+);
+console.log(voice.name);
+```
+
+`VoiceProcessing`, `VoiceReady`, `VoiceFailed````json
+{"id": "497f6eca-6276-4993-bfeb-53cbbbba6f08","name": "string","description": "string","createdAt": "2019-08-24T14:15:22Z","status": "VoiceProcessing"}
+```
+
+## Preview a voice
+
+`POST /v1/voices/preview`
+
+Generate a short audio preview of a voice from a text description. Use this to audition a voice before creating it.
+
+### Authentication
+
+`Authorization`
+Use the HTTP `Authorization` header with the `Bearer` scheme along with an API key.
+
+### Headers
+
+`X-Runway-Version` *(required)* `string`
+The version of the RunwayML API being used. You can read more about versioning [here](/api-details/versioning).
+
+This field must be set to the exact value `2024-11-06`.
+
+### Request body
+
+`prompt` *(required)* `string` [ 20 .. 1000 ] characters
+A text description of the desired voice characteristics. Must be at least 20 characters.
+
+`model` *(required)* `string`
+Accepted values:"eleven_ttv_v3", "eleven_multilingual_ttv_v2" The voice design model to use. Prefer eleven_ttv_v3 (latest); eleven_multilingual_ttv_v2 is the previous generation.
+
+### Responses
+
+```
+// npm install --save @runwayml/sdk
+import RunwayML from '@runwayml/sdk';
+
+// The env var RUNWAYML_API_SECRET is expected to contain your API key.
+const client = new RunwayML();
+
+const preview = await client.voices.preview({
+prompt: 'A warm, friendly voice with a slight British accent',
+model: 'eleven_ttv_v3',
+});
+console.log(preview.url, preview.durationSecs);
+```
+
+```json
+{"url": "http://example.com","durationSecs": 0}
+```

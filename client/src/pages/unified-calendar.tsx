@@ -239,7 +239,7 @@ export default function UnifiedCalendarPage() {
   const [videoPlatform, setVideoPlatform] = useState<"veo" | "sora2" | "luma" | "runway">("veo");
   const [videoGenStep, setVideoGenStep] = useState<"idle" | "generating-image" | "generating-video" | "polling" | "done">("idle");
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
-  const [mlsSelectedProperty, setMlsSelectedProperty] = useState<any>(null);
+  const [mlsSelectedProperty, setMlsSelectedProperty] = useState<Property | null>(null);
   const videoMountedRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewFileInputRef = useRef<HTMLInputElement>(null);
@@ -2769,7 +2769,7 @@ export default function UnifiedCalendarPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <Label className="text-sm font-medium">AI Platform</Label>
-              <Select value={videoPlatform} onValueChange={(v: any) => setVideoPlatform(v)} disabled={videoGenStep !== "idle" && videoGenStep !== "done"}>
+              <Select value={videoPlatform} onValueChange={(v) => setVideoPlatform(v as "veo" | "sora2" | "luma" | "runway")} disabled={videoGenStep !== "idle" && videoGenStep !== "done"}>
                 <SelectTrigger data-testid="select-video-platform-preview">
                   <SelectValue />
                 </SelectTrigger>
@@ -2873,7 +2873,7 @@ export default function UnifiedCalendarPage() {
                               const statusData = await statusRes.json();
                               if (statusData.error) { clearInterval(interval); reject(new Error(statusData.error)); return; }
                               if (statusData.done && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
-                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                            } catch (err: unknown) { clearInterval(interval); reject(new Error(err instanceof Error ? err.message : "Status check failed")); }
                           }, 5000);
                         });
                         if (!videoMountedRef.current) return;
@@ -2901,7 +2901,7 @@ export default function UnifiedCalendarPage() {
                               const statusData = await statusRes.json();
                               if (statusData.status === "failed") { clearInterval(interval); reject(new Error(statusData.error || "Video generation failed")); return; }
                               if (statusData.status === "completed" && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
-                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                            } catch (err: unknown) { clearInterval(interval); reject(new Error(err instanceof Error ? err.message : "Status check failed")); }
                           }, 5000);
                         });
                         if (!videoMountedRef.current) return;
@@ -2931,7 +2931,7 @@ export default function UnifiedCalendarPage() {
                               const statusData = await statusRes.json();
                               if (statusData.status === "failed") { clearInterval(interval); reject(new Error(statusData.error || "Video generation failed")); return; }
                               if (statusData.status === "completed" && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
-                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                            } catch (err: unknown) { clearInterval(interval); reject(new Error(err instanceof Error ? err.message : "Status check failed")); }
                           }, 5000);
                         });
                         if (!videoMountedRef.current) return;
@@ -2962,7 +2962,7 @@ export default function UnifiedCalendarPage() {
                               const statusData = await statusRes.json();
                               if (statusData.status === "failed") { clearInterval(interval); reject(new Error(statusData.error || "Video generation failed")); return; }
                               if (statusData.status === "completed" && statusData.videoUrl) { clearInterval(interval); resolve(statusData.videoUrl); }
-                            } catch (err: any) { clearInterval(interval); reject(new Error(err.message)); }
+                            } catch (err: unknown) { clearInterval(interval); reject(new Error(err instanceof Error ? err.message : "Status check failed")); }
                           }, 5000);
                         });
                         if (!videoMountedRef.current) return;
@@ -2971,10 +2971,10 @@ export default function UnifiedCalendarPage() {
 
                       setVideoGenStep("done");
                       toast({ title: "Video Generated!", description: "Your video is ready. Click 'Use This Video' to attach it." });
-                    } catch (error: any) {
+                    } catch (error: unknown) {
                       if (videoMountedRef.current) {
                         setVideoGenStep("idle");
-                        toast({ title: "Video Generation Failed", description: error.message || "Please try again.", variant: "destructive" });
+                        toast({ title: "Video Generation Failed", description: error instanceof Error ? error.message : "Please try again.", variant: "destructive" });
                       }
                     }
                   }}

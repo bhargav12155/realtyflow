@@ -520,9 +520,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [lumaImageUploading, setLumaImageUploading] = useState(false);
   const [lumaModel, setLumaModel] = useState<"ray-2" | "ray-flash-2">("ray-2");
   const [lumaAspectRatio, setLumaAspectRatio] = useState<"16:9" | "9:16" | "1:1">("16:9");
-  const [lumaDuration, setLumaDuration] = useState<string>("5s");
+  const [lumaTotalDuration, setLumaTotalDuration] = useState<string>("9s");
   const [lumaLoop, setLumaLoop] = useState(false);
   const lumaImageInputRef = useRef<HTMLInputElement>(null);
+  const [lumaBatchId, setLumaBatchId] = useState<string | null>(null);
+  const [lumaBatchProgress, setLumaBatchProgress] = useState<{ completedClips: number; currentClip: number; totalClips: number } | null>(null);
+  const [lumaTransition, setLumaTransition] = useState<"crossfade" | "cut">("crossfade");
   const [runwayMode, setRunwayMode] = useState<"text-to-video" | "image-to-video" | "video-to-video">("text-to-video");
   const [runwayPrompt, setRunwayPrompt] = useState("");
   const [runwayTaskId, setRunwayTaskId] = useState<string | null>(null);
@@ -1135,6 +1138,8 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     setLumaStatus("idle");
     setLumaTaskId(null);
     setLumaVideoUrl(null);
+    setLumaBatchId(null);
+    setLumaBatchProgress(null);
     toast({ title: "Video Generation Cancelled", description: "Luma Ray 2 video generation has been cancelled." });
   };
 
@@ -1187,47 +1192,148 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
     }, 10000);
   };
 
+  const startLumaBatchPolling = (batchId: string) => {
+    stopLumaPolling();
+    lumaStartTimeRef.current = Date.now();
+    setLumaElapsed(0);
+    lumaElapsedRef.current = setInterval(() => {
+      if (lumaStartTimeRef.current) {
+        setLumaElapsed(Math.floor((Date.now() - lumaStartTimeRef.current) / 1000));
+      }
+    }, 1000);
+    lumaPollRef.current = setInterval(async () => {
+      try {
+        const token = getAuthToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const res = await fetch(`/api/luma/batch-status/${batchId}`, { headers, credentials: "include" });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: "Server error" }));
+          if (res.status === 404 || res.status === 403) {
+            setLumaStatus("failed");
+            setLumaBatchId(null);
+            setLumaBatchProgress(null);
+            stopLumaPolling();
+            toast({ title: "Luma Batch Error", description: errData.error || "Batch not found or expired", variant: "destructive" });
+          }
+          return;
+        }
+        const data = await res.json();
+        if (data.status === "completed" && data.videoUrl) {
+          setLumaStatus("completed");
+          setLumaVideoUrl(data.videoUrl);
+          setLumaBatchId(null);
+          setLumaBatchProgress(null);
+          stopLumaPolling();
+          const assistantMsg: Message = {
+            role: "assistant",
+            content: `Your Luma Ray 2 extended video (${data.totalClips * 9}s) is ready!`,
+            videoUrl: data.videoUrl,
+          };
+          setMessages(prev => [...prev, assistantMsg]);
+          setVideoMode(false);
+          toast({ title: "Luma Ray 2 Extended Video Ready!", description: "Your multi-clip AI-generated video is ready to view." });
+        } else if (data.status === "failed") {
+          setLumaStatus("failed");
+          setLumaBatchId(null);
+          setLumaBatchProgress(null);
+          stopLumaPolling();
+          toast({ title: "Luma Extended Generation Failed", description: data.error || "Something went wrong", variant: "destructive" });
+        } else {
+          setLumaStatus("processing");
+          setLumaBatchProgress({
+            completedClips: data.completedClips || 0,
+            currentClip: data.currentClip || 1,
+            totalClips: data.totalClips || 2,
+          });
+        }
+      } catch (err) {
+        console.error("Luma batch poll error:", err);
+      }
+    }, 10000);
+  };
+
   const startLumaGeneration = async () => {
     if (!lumaPrompt.trim()) {
       toast({ title: "Prompt Required", description: "Please enter a video prompt.", variant: "destructive" });
       return;
     }
+
+    const isExtended = lumaTotalDuration === "18s" || lumaTotalDuration === "27s";
+
     setLumaStatus("pending");
     try {
       const token = getAuthToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      const bodyData: Record<string, any> = {
-        prompt: lumaPrompt,
-        model: lumaModel,
-        aspectRatio: lumaAspectRatio,
-        duration: lumaDuration,
-        loop: lumaLoop,
-      };
-      if (lumaImages.length > 0) {
-        bodyData.keyframeImageUrl = lumaImages[0].url;
+
+      if (isExtended) {
+        const totalClips = lumaTotalDuration === "27s" ? 3 : 2;
+        const bodyData: Record<string, any> = {
+          prompt: lumaPrompt,
+          model: lumaModel,
+          aspectRatio: lumaAspectRatio,
+          totalClips,
+          transition: lumaTransition,
+        };
+        if (lumaImages.length > 0) {
+          bodyData.keyframeImageUrl = lumaImages[0].url;
+        }
+        const res = await fetch("/api/luma/create-extended-video", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify(bodyData),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.batchId) {
+          throw new Error(data.error || "Failed to start Luma Ray 2 extended video");
+        }
+        setLumaBatchId(data.batchId);
+        setLumaBatchProgress({ completedClips: 0, currentClip: 1, totalClips });
+        setLumaStatus("processing");
+        startLumaBatchPolling(data.batchId);
+        const imageNote = lumaImages.length > 0 ? " (with reference image)" : "";
+        const userMsg: Message = { role: "user", content: `Generate a Luma Ray 2 extended video (${lumaTotalDuration})${imageNote}: ${lumaPrompt}` };
+        const assistantMsg: Message = { role: "assistant", content: `Luma Ray 2 (${lumaModel}) is creating a ${lumaTotalDuration} video from ${totalClips} sequential clips. Each clip uses the last frame of the previous one for continuity. This may take ${totalClips * 3}–${totalClips * 5} minutes...` };
+        setMessages(prev => [...prev, userMsg, assistantMsg]);
+        setLumaImages([]);
+        setLumaPrompt("");
+        setVideoMode(false);
+        toast({ title: "Luma Extended Video Started!", description: `Generating ${totalClips} clips sequentially. Please wait.` });
+      } else {
+        const bodyData: Record<string, any> = {
+          prompt: lumaPrompt,
+          model: lumaModel,
+          aspectRatio: lumaAspectRatio,
+          duration: lumaTotalDuration,
+          loop: lumaLoop,
+        };
+        if (lumaImages.length > 0) {
+          bodyData.keyframeImageUrl = lumaImages[0].url;
+        }
+        const res = await fetch("/api/luma/create-video", {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify(bodyData),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.taskId) {
+          throw new Error(data.error || "Failed to start Luma Ray 2");
+        }
+        setLumaTaskId(data.taskId);
+        setLumaStatus("processing");
+        startLumaPolling(data.taskId);
+        const imageNote = lumaImages.length > 0 ? " (with reference image)" : "";
+        const userMsg: Message = { role: "user", content: `Generate a Luma Ray 2 video${imageNote}: ${lumaPrompt}` };
+        const assistantMsg: Message = { role: "assistant", content: `Luma Ray 2 (${lumaModel}) is creating your video. This usually takes 1–5 minutes. I'll show it here when it's ready...` };
+        setMessages(prev => [...prev, userMsg, assistantMsg]);
+        setLumaImages([]);
+        setLumaPrompt("");
+        setVideoMode(false);
+        toast({ title: "Luma Video Started!", description: "Luma Ray 2 AI is generating your video. Please wait a few minutes." });
       }
-      const res = await fetch("/api/luma/create-video", {
-        method: "POST",
-        headers,
-        credentials: "include",
-        body: JSON.stringify(bodyData),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.taskId) {
-        throw new Error(data.error || "Failed to start Luma Ray 2");
-      }
-      setLumaTaskId(data.taskId);
-      setLumaStatus("processing");
-      startLumaPolling(data.taskId);
-      const imageNote = lumaImages.length > 0 ? " (with reference image)" : "";
-      const userMsg: Message = { role: "user", content: `Generate a Luma Ray 2 video${imageNote}: ${lumaPrompt}` };
-      const assistantMsg: Message = { role: "assistant", content: `Luma Ray 2 (${lumaModel}) is creating your video. This usually takes 1–5 minutes. I'll show it here when it's ready...` };
-      setMessages(prev => [...prev, userMsg, assistantMsg]);
-      setLumaImages([]);
-      setLumaPrompt("");
-      setVideoMode(false);
-      toast({ title: "Luma Video Started!", description: "Luma Ray 2 AI is generating your video. Please wait a few minutes." });
     } catch (error: any) {
       setLumaStatus("failed");
       toast({ title: "Luma Failed", description: error?.message || "Could not start Luma Ray 2 video", variant: "destructive" });
@@ -2368,30 +2474,65 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       </Select>
                     </div>
                     <div>
-                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Duration</label>
-                      <Select value={lumaDuration} onValueChange={setLumaDuration}>
+                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Total Duration</label>
+                      <Select value={lumaTotalDuration} onValueChange={setLumaTotalDuration}>
                         <SelectTrigger className="w-full h-8 text-xs" data-testid="select-luma-duration">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="5s">5 seconds</SelectItem>
                           <SelectItem value="9s">9 seconds</SelectItem>
+                          <SelectItem value="18s">18s (2 clips)</SelectItem>
+                          <SelectItem value="27s">27s (3 clips)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="luma-loop"
-                      checked={lumaLoop}
-                      onCheckedChange={(checked) => setLumaLoop(checked === true)}
-                      data-testid="checkbox-luma-loop"
-                    />
-                    <label htmlFor="luma-loop" className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
-                      Seamless loop
-                    </label>
-                  </div>
+                  {(lumaTotalDuration === "18s" || lumaTotalDuration === "27s") && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        Your video will be generated as {lumaTotalDuration === "27s" ? "3" : "2"} sequential 9s clips. Each clip uses the last frame of the previous one as a keyframe for visual continuity, then all clips are auto-stitched{lumaTransition === "crossfade" ? " with crossfade transitions" : " with hard cuts"}.
+                      </p>
+                      <div>
+                        <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">Stitch Transition</label>
+                        <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+                          <Button
+                            variant={lumaTransition === "crossfade" ? "default" : "outline"}
+                            size="sm"
+                            className="flex-1 h-7 text-xs rounded-none border-0"
+                            onClick={() => setLumaTransition("crossfade")}
+                            data-testid="button-luma-transition-crossfade"
+                          >
+                            Crossfade
+                          </Button>
+                          <Button
+                            variant={lumaTransition === "cut" ? "default" : "outline"}
+                            size="sm"
+                            className="flex-1 h-7 text-xs rounded-none border-0"
+                            onClick={() => setLumaTransition("cut")}
+                            data-testid="button-luma-transition-cut"
+                          >
+                            Hard Cut (No Transition)
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {lumaTotalDuration !== "18s" && lumaTotalDuration !== "27s" && (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="luma-loop"
+                        checked={lumaLoop}
+                        onCheckedChange={(checked) => setLumaLoop(checked === true)}
+                        data-testid="checkbox-luma-loop"
+                      />
+                      <label htmlFor="luma-loop" className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                        Seamless loop
+                      </label>
+                    </div>
+                  )}
 
                   <div>
                     <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
@@ -2447,9 +2588,21 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Luma Ray 2 is generating your video ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                        {lumaBatchProgress ? (
+                          <span>Generating clip {lumaBatchProgress.completedClips < lumaBatchProgress.totalClips ? lumaBatchProgress.completedClips + 1 : lumaBatchProgress.totalClips} of {lumaBatchProgress.totalClips} ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                        ) : (
+                          <span>Luma Ray 2 is generating your video ({Math.floor(lumaElapsed / 60)}:{String(lumaElapsed % 60).padStart(2, "0")} elapsed)…</span>
+                        )}
                       </div>
-                      {lumaElapsed >= 300 && (
+                      {lumaBatchProgress && (
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2" data-testid="luma-batch-progress-bar">
+                          <div
+                            className="bg-primary h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${Math.round((lumaBatchProgress.completedClips / lumaBatchProgress.totalClips) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+                      {lumaElapsed >= 300 && !lumaBatchProgress && (
                         <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded px-3 py-2" data-testid="luma-timeout-warning">
                           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                           <span>This is taking longer than expected. You can keep waiting or cancel.</span>

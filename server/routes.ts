@@ -23319,6 +23319,345 @@ Be helpful, professional, and concise. Always let users know what the platform c
     }
   });
 
+  app.post("/api/luma/create-extended-video", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { prompt, model, aspectRatio, totalClips, keyframeImageUrl, transition: transParam } = req.body;
+      const batchTransition: "crossfade" | "cut" = transParam === "cut" ? "cut" : "crossfade";
+
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+
+      const clips = [2, 3].includes(Number(totalClips)) ? Number(totalClips) : 2;
+      const lumaModel = model === "ray-flash-2" ? "ray-flash-2" : "ray-2";
+
+      const batchId = lumaService.createLumaBatch(
+        userId,
+        clips,
+        prompt,
+        lumaModel,
+        aspectRatio || undefined,
+        keyframeImageUrl || undefined,
+        batchTransition
+      );
+
+      console.log(`🎬 [Luma] Creating extended video batch ${batchId}: ${clips} clips for user ${userId}`);
+
+      const firstResult = await lumaService.createVideoTask(prompt, {
+        model: lumaModel,
+        aspectRatio: aspectRatio || undefined,
+        duration: "9s",
+        loop: false,
+        keyframeImageUrl: keyframeImageUrl || undefined,
+      });
+
+      lumaTaskOwners.set(firstResult.taskId, userId);
+      lumaService.updateLumaBatch(batchId, {
+        status: "processing",
+        currentTaskId: firstResult.taskId,
+        currentClipIndex: 0,
+      });
+
+      console.log(`✅ [Luma] Clip 1/${clips} started: ${firstResult.taskId}`);
+
+      (async () => {
+        try {
+          for (let clipIdx = 0; clipIdx < clips; clipIdx++) {
+            const batch = lumaService.getLumaBatch(batchId);
+            if (!batch || batch.status === "failed") return;
+
+            let taskId: string;
+            if (clipIdx === 0) {
+              taskId = firstResult.taskId;
+            } else {
+              const prevVideoUrl = batch.clipVideoUrls.get(clipIdx - 1);
+              if (!prevVideoUrl) {
+                lumaService.updateLumaBatch(batchId, { status: "failed", error: "Previous clip has no video URL" });
+                return;
+              }
+
+              const { exec } = await import("child_process");
+              const { promisify } = await import("util");
+              const execAsync = promisify(exec);
+              const fsP = await import("fs/promises");
+              const pathM = await import("path");
+              const osM = await import("os");
+
+              const extractDir = pathM.join(osM.tmpdir(), `luma-frame-${Date.now()}`);
+              await fsP.mkdir(extractDir, { recursive: true });
+
+              let lastFrameUrl: string;
+              try {
+                const parsedClipUrl = new URL(prevVideoUrl);
+                if (parsedClipUrl.protocol !== "https:") {
+                  throw new Error("Only HTTPS clip URLs are allowed");
+                }
+                const suspiciousPatterns = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+                if (suspiciousPatterns.test(prevVideoUrl)) {
+                  throw new Error("Invalid clip URL detected");
+                }
+
+                const videoFile = pathM.join(extractDir, "prev.mp4");
+                const frameFile = pathM.join(extractDir, "lastframe.jpg");
+                const resp = await fetch(prevVideoUrl);
+                if (!resp.ok) throw new Error("Failed to download previous clip");
+                const buf = Buffer.from(await resp.arrayBuffer());
+                await fsP.writeFile(videoFile, buf);
+
+                await execAsync(`ffmpeg -y -sseof -0.1 -i "${videoFile}" -frames:v 1 -q:v 2 "${frameFile}"`, { timeout: 30000 });
+
+                const frameBuffer = await fsP.readFile(frameFile);
+                const { UnifiedUploadService } = await import("./services/unifiedUpload");
+                const uploadSvc = new UnifiedUploadService();
+                const s3Key = `luma-frames/${userId}/${batchId}-clip${clipIdx}-lastframe.jpg`;
+                lastFrameUrl = await uploadSvc.uploadBuffer(frameBuffer, s3Key, "image/jpeg", true, 3600);
+                console.log(`✅ [Luma] Extracted last frame from clip ${clipIdx}: ${lastFrameUrl.substring(0, 60)}...`);
+              } finally {
+                await fsP.rm(extractDir, { recursive: true, force: true }).catch(() => {});
+              }
+
+              const nextResult = await lumaService.createVideoTask(prompt, {
+                model: lumaModel,
+                aspectRatio: aspectRatio || undefined,
+                duration: "9s",
+                loop: false,
+                keyframeImageUrl: lastFrameUrl,
+              });
+
+              taskId = nextResult.taskId;
+              lumaTaskOwners.set(taskId, userId);
+              lumaService.updateLumaBatch(batchId, {
+                currentTaskId: taskId,
+                currentClipIndex: clipIdx,
+              });
+              console.log(`✅ [Luma] Clip ${clipIdx + 1}/${clips} started: ${taskId}`);
+            }
+
+            let completed = false;
+            let pollAttempts = 0;
+            const MAX_POLL_ATTEMPTS = 120;
+            while (!completed && pollAttempts < MAX_POLL_ATTEMPTS) {
+              await new Promise(resolve => setTimeout(resolve, 10000));
+              pollAttempts++;
+
+              try {
+                const status = await lumaService.getTaskStatus(taskId);
+                if (status.status === "completed" && status.videoUrl) {
+                  const currentBatch = lumaService.getLumaBatch(batchId);
+                  if (currentBatch) {
+                    currentBatch.clipVideoUrls.set(clipIdx, status.videoUrl);
+                    currentBatch.completedClips = clipIdx + 1;
+                  }
+                  lumaTaskOwners.delete(taskId);
+                  console.log(`✅ [Luma] Clip ${clipIdx + 1}/${clips} completed: ${status.videoUrl.substring(0, 60)}...`);
+                  completed = true;
+                } else if (status.status === "failed") {
+                  lumaService.updateLumaBatch(batchId, {
+                    status: "failed",
+                    failedClip: clipIdx,
+                    error: status.error || `Clip ${clipIdx + 1} failed to generate`,
+                  });
+                  lumaTaskOwners.delete(taskId);
+                  return;
+                }
+              } catch (err) {
+                console.warn(`[Luma] Poll error for clip ${clipIdx + 1}:`, err);
+              }
+            }
+
+            if (!completed) {
+              lumaService.updateLumaBatch(batchId, {
+                status: "failed",
+                failedClip: clipIdx,
+                error: `Clip ${clipIdx + 1} timed out after ${MAX_POLL_ATTEMPTS * 10}s`,
+              });
+              return;
+            }
+          }
+
+          const finalBatch = lumaService.getLumaBatch(batchId);
+          if (!finalBatch) return;
+
+          const videoUrls: string[] = [];
+          for (let i = 0; i < finalBatch.totalClips; i++) {
+            const url = finalBatch.clipVideoUrls.get(i);
+            if (url) videoUrls.push(url);
+          }
+
+          if (videoUrls.length < 2) {
+            const singleUrl = videoUrls[0] || "";
+            lumaService.updateLumaBatch(batchId, { status: "completed", stitchedVideoUrl: singleUrl });
+            return;
+          }
+
+          lumaService.updateLumaBatch(batchId, { status: "stitching" });
+          console.log(`🔗 [Luma] Stitching ${videoUrls.length} clips for batch ${batchId} with ${finalBatch.transition} transition`);
+
+          const { exec } = await import("child_process");
+          const { promisify } = await import("util");
+          const execAsync = promisify(exec);
+          const fsP = await import("fs/promises");
+          const pathM = await import("path");
+          const osM = await import("os");
+
+          const tempDir = pathM.join(osM.tmpdir(), `luma-stitch-${Date.now()}`);
+          await fsP.mkdir(tempDir, { recursive: true });
+
+          try {
+            const downloadedFiles: string[] = [];
+            for (let i = 0; i < videoUrls.length; i++) {
+              const clipUrl = videoUrls[i];
+              const parsedStitchUrl = new URL(clipUrl);
+              if (parsedStitchUrl.protocol !== "https:") throw new Error("Only HTTPS clip URLs are allowed");
+              const suspPat = /127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|localhost|0\.0\.0\.0/i;
+              if (suspPat.test(clipUrl)) throw new Error("Invalid clip URL detected");
+
+              const tempFile = pathM.join(tempDir, `video_${i}.mp4`);
+              const resp = await fetch(clipUrl);
+              if (!resp.ok) throw new Error(`Failed to download clip ${i + 1}`);
+              const buf = Buffer.from(await resp.arrayBuffer());
+              await fsP.writeFile(tempFile, buf);
+              downloadedFiles.push(tempFile);
+            }
+
+            const outputFile = pathM.join(tempDir, "stitched.mp4");
+
+            if (finalBatch.transition === "cut") {
+              const normalizedFiles: string[] = [];
+              for (let i = 0; i < downloadedFiles.length; i++) {
+                const normFile = pathM.join(tempDir, `norm_${i}.mp4`);
+                await execAsync(`ffmpeg -y -i "${downloadedFiles[i]}" -vf "scale=1280:720,fps=30,format=yuv420p" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${normFile}"`, { timeout: 120000 });
+                normalizedFiles.push(normFile);
+              }
+              const concatList = normalizedFiles.map(f => `file '${f}'`).join("\n");
+              const concatFilePath = pathM.join(tempDir, "concat.txt");
+              await fsP.writeFile(concatFilePath, concatList);
+              await execAsync(`ffmpeg -y -f concat -safe 0 -i "${concatFilePath}" -c copy -movflags +faststart "${outputFile}"`, { timeout: 300000 });
+            } else {
+              const fadeDuration = 0.5;
+              const probeDuration = async (file: string): Promise<number> => {
+                try {
+                  const { stdout } = await execAsync(`ffprobe -v error -show_entries format=duration -of csv=p=0 "${file}"`);
+                  return parseFloat(stdout.trim()) || 9;
+                } catch { return 9; }
+              };
+
+              if (downloadedFiles.length === 2) {
+                const dur0 = await probeDuration(downloadedFiles[0]);
+                const offset = Math.max(dur0 - fadeDuration, 0.5);
+                const ffmpegCmd = `ffmpeg -y -i "${downloadedFiles[0]}" -i "${downloadedFiles[1]}" -filter_complex "[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                await execAsync(ffmpegCmd, { timeout: 300000 });
+              } else {
+                const inputs = downloadedFiles.map(f => `-i "${f}"`).join(" ");
+                let filterComplex = downloadedFiles.map((_, i) => `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`).join(";");
+                let prevOutput = "n0";
+                let accDuration = await probeDuration(downloadedFiles[0]);
+                for (let i = 1; i < downloadedFiles.length; i++) {
+                  const offset = Math.max(accDuration - fadeDuration, 0.5);
+                  const outLabel = i < downloadedFiles.length - 1 ? `xf${i}` : "vout";
+                  filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outLabel}]`;
+                  const nextDur = await probeDuration(downloadedFiles[i]);
+                  accDuration = offset + nextDur;
+                  prevOutput = outLabel;
+                }
+                const ffmpegCmd = `ffmpeg -y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outputFile}"`;
+                await execAsync(ffmpegCmd, { timeout: 300000 });
+              }
+            }
+
+            const combinedBuffer = await fsP.readFile(outputFile);
+            const { UnifiedUploadService } = await import("./services/unifiedUpload");
+            const uploadSvc = new UnifiedUploadService();
+            const s3Key = `videos/luma-extended/stitched-${Date.now()}-${userId}.mp4`;
+            const s3Url = await uploadSvc.uploadBuffer(combinedBuffer, s3Key, "video/mp4");
+
+            await fsP.rm(tempDir, { recursive: true, force: true });
+            lumaService.updateLumaBatch(batchId, { status: "completed", stitchedVideoUrl: s3Url });
+            console.log(`✅ [Luma] Extended video stitched: ${s3Url}`);
+
+            await db
+              .insert(videoContent)
+              .values({
+                userId: String(userId),
+                title: `Luma Ray 2 Extended Video (${clips * 9}s)`,
+                script: `Generated via Luma Ray 2 extended (Batch: ${batchId})`,
+                videoUrl: s3Url,
+                status: "ready",
+              })
+              .catch((err: any) => {
+                console.warn("Failed to save Luma extended video to DB:", err?.message);
+              });
+          } catch (err: any) {
+            await fsP.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+            console.error("Luma stitch error:", err);
+            lumaService.updateLumaBatch(batchId, { status: "failed", error: "Failed to stitch clips" });
+          }
+        } catch (err: any) {
+          console.error("Luma extended generation error:", err);
+          lumaService.updateLumaBatch(batchId, { status: "failed", error: err.message || "Extended generation failed" });
+        }
+      })();
+
+      res.json({ batchId, totalClips: clips });
+    } catch (error: any) {
+      console.error("Luma create-extended-video error:", error);
+      res.status(500).json({ error: error.message || "Failed to create extended video" });
+    }
+  });
+
+  app.get("/api/luma/batch-status/:batchId", requireAuth, async (req: any, res) => {
+    try {
+      const userId = String(req.user?.id || req.user?.claims?.sub);
+      const { batchId } = req.params;
+
+      const batch = lumaService.getLumaBatch(batchId);
+      if (!batch) {
+        return res.status(404).json({ error: "Batch not found or expired" });
+      }
+      if (batch.userId !== userId) {
+        return res.status(403).json({ error: "Not authorized to view this batch" });
+      }
+
+      if (batch.status === "completed") {
+        return res.json({
+          status: "completed",
+          videoUrl: batch.stitchedVideoUrl,
+          completedClips: batch.completedClips,
+          totalClips: batch.totalClips,
+        });
+      }
+
+      if (batch.status === "failed") {
+        return res.json({
+          status: "failed",
+          completedClips: batch.completedClips,
+          totalClips: batch.totalClips,
+          failedClip: batch.failedClip,
+          error: batch.error || "Extended video generation failed",
+        });
+      }
+
+      if (batch.status === "stitching") {
+        return res.json({
+          status: "stitching",
+          completedClips: batch.completedClips,
+          totalClips: batch.totalClips,
+        });
+      }
+
+      res.json({
+        status: "processing",
+        completedClips: batch.completedClips,
+        currentClip: batch.currentClipIndex + 1,
+        totalClips: batch.totalClips,
+      });
+    } catch (error: any) {
+      console.error("Luma batch-status error:", error);
+      res.status(500).json({ error: error.message || "Failed to get batch status" });
+    }
+  });
+
   // =====================================================
   // Runway Gen-4 Aleph Video Generation Routes
   // =====================================================

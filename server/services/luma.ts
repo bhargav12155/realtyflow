@@ -14,6 +14,86 @@ export interface LumaStatusResult {
   error?: string;
 }
 
+export interface LumaBatchInfo {
+  batchId: string;
+  userId: string;
+  totalClips: number;
+  completedClips: number;
+  currentClipIndex: number;
+  currentTaskId: string | null;
+  clipVideoUrls: Map<number, string>;
+  failedClip: number | null;
+  prompt: string;
+  model: LumaModel;
+  aspectRatio?: LumaAspectRatio;
+  keyframeImageUrl?: string;
+  transition: "crossfade" | "cut";
+  stitchedVideoUrl?: string;
+  status: "pending" | "processing" | "stitching" | "completed" | "failed";
+  error?: string;
+  createdAt: number;
+}
+
+const lumaBatches = new Map<string, LumaBatchInfo>();
+const BATCH_TTL_MS = 60 * 60 * 1000;
+
+function cleanupStaleBatches() {
+  const now = Date.now();
+  for (const [id, batch] of lumaBatches) {
+    if (now - batch.createdAt > BATCH_TTL_MS) {
+      lumaBatches.delete(id);
+    }
+  }
+}
+
+setInterval(cleanupStaleBatches, 5 * 60 * 1000);
+
+export function createLumaBatch(
+  userId: string,
+  totalClips: number,
+  prompt: string,
+  model: LumaModel,
+  aspectRatio?: LumaAspectRatio,
+  keyframeImageUrl?: string,
+  transition: "crossfade" | "cut" = "crossfade"
+): string {
+  cleanupStaleBatches();
+  const batchId = crypto.randomUUID();
+  lumaBatches.set(batchId, {
+    batchId,
+    userId,
+    totalClips,
+    completedClips: 0,
+    currentClipIndex: 0,
+    currentTaskId: null,
+    clipVideoUrls: new Map(),
+    failedClip: null,
+    prompt,
+    model,
+    aspectRatio,
+    keyframeImageUrl,
+    transition,
+    status: "pending",
+    createdAt: Date.now(),
+  });
+  return batchId;
+}
+
+export function getLumaBatch(batchId: string): LumaBatchInfo | undefined {
+  return lumaBatches.get(batchId);
+}
+
+export function updateLumaBatch(batchId: string, updates: Partial<LumaBatchInfo>) {
+  const batch = lumaBatches.get(batchId);
+  if (batch) {
+    Object.assign(batch, updates);
+  }
+}
+
+export function deleteLumaBatch(batchId: string) {
+  lumaBatches.delete(batchId);
+}
+
 function getApiKey(): string {
   const key = process.env.LUMA_API_KEY;
   if (!key) {
@@ -134,4 +214,8 @@ export async function getTaskStatus(taskId: string): Promise<LumaStatusResult> {
 export const lumaService = {
   createVideoTask,
   getTaskStatus,
+  createLumaBatch,
+  getLumaBatch,
+  updateLumaBatch,
+  deleteLumaBatch,
 };

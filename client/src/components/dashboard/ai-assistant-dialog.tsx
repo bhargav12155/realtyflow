@@ -1320,9 +1320,10 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           stopRunwayPolling();
           setRunwayStatus("completed");
           setRunwayVideoUrl(data.videoUrl);
+          const modelLabel = runwayMode === "text-to-video" ? "Gen-4.5" : runwayMode === "image-to-video" ? "Gen-4 Turbo" : "Gen-4 Aleph";
           const videoMsg: Message = {
             role: "assistant",
-            content: "Your Runway Gen-4 Aleph video is ready!",
+            content: `Your Runway ${modelLabel} video is ready!`,
             videoUrl: data.videoUrl,
           };
           setMessages(prev => [...prev, videoMsg]);

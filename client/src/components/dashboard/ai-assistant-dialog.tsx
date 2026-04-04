@@ -2174,12 +2174,6 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="veo">
-                      <div className="flex flex-col">
-                        <span>Google VEO (Property Tour)</span>
-                        <span className="text-xs text-gray-500">Upload room photos — cinematic walk-through</span>
-                      </div>
-                    </SelectItem>
                     <SelectItem value="sora2">
                       <div className="flex flex-col">
                         <span>Sora 2 (OpenAI)</span>
@@ -2196,6 +2190,12 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                       <div className="flex flex-col">
                         <span>Runway Gen-4</span>
                         <span className="text-xs text-gray-500">Text/Image/Video to video — 2-5 min</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="veo">
+                      <div className="flex flex-col">
+                        <span>Google VEO (Property Tour)</span>
+                        <span className="text-xs text-gray-500">Upload room photos — cinematic walk-through</span>
                       </div>
                     </SelectItem>
                   </SelectContent>

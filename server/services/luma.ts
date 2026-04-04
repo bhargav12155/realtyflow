@@ -87,6 +87,7 @@ export function updateLumaBatch(batchId: string, updates: Partial<LumaBatchInfo>
   const batch = lumaBatches.get(batchId);
   if (batch) {
     Object.assign(batch, updates);
+    batch.createdAt = Date.now();
   }
 }
 

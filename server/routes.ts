@@ -8389,8 +8389,9 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(400).json({ error: "Cannot generate posts for past months" });
       }
       const maxDay = new Date(year, month + 1, 0).getDate();
-      let effectiveStartDay = requestedStartDay
-        ? Math.max(1, Math.min(requestedStartDay, maxDay))
+      const parsedStartDay = typeof requestedStartDay === 'number' && Number.isFinite(requestedStartDay) ? Math.round(requestedStartDay) : null;
+      let effectiveStartDay = parsedStartDay
+        ? Math.max(1, Math.min(parsedStartDay, maxDay))
         : isCurrentMonth ? now.getDate() : 1;
       if (isCurrentMonth && effectiveStartDay < now.getDate()) {
         effectiveStartDay = now.getDate();

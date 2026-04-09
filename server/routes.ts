@@ -8382,10 +8382,19 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       }
 
       const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const isCurrentMonth = month === now.getMonth() && year === now.getFullYear();
-      const effectiveStartDay = requestedStartDay
-        ? Math.max(1, Math.min(requestedStartDay, new Date(year, month + 1, 0).getDate()))
+      const isPastMonth = year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth());
+      if (isPastMonth) {
+        return res.status(400).json({ error: "Cannot generate posts for past months" });
+      }
+      const maxDay = new Date(year, month + 1, 0).getDate();
+      let effectiveStartDay = requestedStartDay
+        ? Math.max(1, Math.min(requestedStartDay, maxDay))
         : isCurrentMonth ? now.getDate() : 1;
+      if (isCurrentMonth && effectiveStartDay < now.getDate()) {
+        effectiveStartDay = now.getDate();
+      }
 
       const clampedPostsPerWeek = Math.min(Math.max(1, postsPerWeek), 7);
       const isTwoWeekMode = requestedWeeks === 2;
@@ -8479,6 +8488,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         platform: string,
         blueprintDescription?: string,
       ) => {
+        if (scheduleDate < todayStart) return;
         const keywords = categoryKeywordsMap[category] || ["marketing", "local business"];
         let content = "";
         let hashtags: string[] = [];

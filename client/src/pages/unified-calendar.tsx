@@ -1312,7 +1312,10 @@ export default function UnifiedCalendarPage() {
                     <Input
                       type="date"
                       value={campaignStartDate}
-                      onChange={(e) => setCampaignStartDate(e.target.value)}
+                      onChange={(e) => {
+                        if (e.target.value) setCampaignStartDate(e.target.value);
+                      }}
+                      required
                       min={(() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; })()}
                       className="w-full text-sm"
                       data-testid="input-campaign-start-date"

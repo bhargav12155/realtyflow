@@ -227,7 +227,8 @@ export function PropertyTourStudio() {
   const [connectionTo, setConnectionTo] = useState<string>("");
   const [connectionLabel, setConnectionLabel] = useState<string>("");
 
-  const [tourVideoEngine, setTourVideoEngine] = useState<"veo" | "sora2">("veo");
+  const [tourVideoEngine, setTourVideoEngine] = useState<"veo" | "sora2" | "luma">("veo");
+  const [lumaModel, setLumaModel] = useState<"ray-2" | "ray-flash-2">("ray-2");
   const [sjinnTourChatId, setSjinnTourChatId] = useState<string | null>(null);
   const [sjinnTourStatus, setSjinnTourStatus] = useState<"idle" | "pending" | "processing" | "completed" | "failed">("idle");
   const [sjinnTourVideoUrl, setSjinnTourVideoUrl] = useState<string | null>(null);
@@ -817,6 +818,8 @@ ${propertyDetails}`;
           script: generatedScript,
           backgroundType,
           includeBranding,
+          engine: tourVideoEngine,
+          lumaModel: tourVideoEngine === "luma" ? lumaModel : undefined,
           roomClipDuration: ROOM_CLIP_DURATION,
           cameraPositions,
           roomConnections,
@@ -863,7 +866,7 @@ ${propertyDetails}`;
         variant: "destructive",
       });
     }
-  }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, getRoomsWithPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData]);
+  }, [selectedProperty, noMlsMode, selectedAvatar, generatedScript, getRoomsWithPhotos, backgroundType, includeBranding, toast, pollJobStatus, avatarsData, tourVideoEngine, lumaModel, tourOrder, roomPhotos, cameraPositions, roomConnections]);
 
   const SORA2_TOUR_STORAGE_KEY = "sora2_tour_pending_task";
   const SORA2_TOUR_MAX_POLL_MS = 15 * 60 * 1000;
@@ -1903,13 +1906,41 @@ ${propertyDetails}`;
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="veo">Google VEO 3.1 — Cinematic Room Videos</SelectItem>
+                  <SelectItem value="luma">Luma Ray 2 — Cinematic Room Videos</SelectItem>
                   <SelectItem value="sora2">Sora 2 (OpenAI) — HD Cinematic AI Video</SelectItem>
                 </SelectContent>
               </Select>
               {tourVideoEngine === "veo" ? (
                 <p className="text-xs text-muted-foreground">VEO 3.1 generates individual cinematic clips per room using your uploaded photos.</p>
+              ) : tourVideoEngine === "luma" ? (
+                <p className="text-xs text-muted-foreground">Luma Ray 2 generates cinematic room videos from your photos. Models: ray-2 (best quality) or ray-flash-2 (faster).</p>
               ) : (
                 <p className="text-xs text-amber-600 dark:text-amber-400">Sora 2 generates a single AI video from your property details and script — no photos required. Estimated time: 3–10 minutes.</p>
+              )}
+              {tourVideoEngine === "luma" && (
+                <div className="flex items-center gap-3 pt-1">
+                  <Label className="text-xs text-muted-foreground">Model:</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={lumaModel === "ray-2" ? "default" : "outline"}
+                      className="h-7 text-xs px-3"
+                      onClick={() => setLumaModel("ray-2")}
+                      data-testid="luma-model-ray2"
+                    >
+                      ray-2 (Best Quality)
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={lumaModel === "ray-flash-2" ? "default" : "outline"}
+                      className="h-7 text-xs px-3"
+                      onClick={() => setLumaModel("ray-flash-2")}
+                      data-testid="luma-model-ray-flash-2"
+                    >
+                      ray-flash-2 (Faster)
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -2293,7 +2324,7 @@ ${propertyDetails}`;
               </div>
             )}
 
-            {tourVideoEngine === "veo" && !isGenerating && !generationComplete && (
+            {(tourVideoEngine === "veo" || tourVideoEngine === "luma") && !isGenerating && !generationComplete && (
               <div className="flex justify-center">
                 <Button
                   size="lg"
@@ -2308,7 +2339,7 @@ ${propertyDetails}`;
               </div>
             )}
 
-            {tourVideoEngine !== "veo" && (
+            {tourVideoEngine === "sora2" && (
               <div className="space-y-4">
                 {sjinnTourStatus === "idle" && (
                   <div className="flex justify-center">

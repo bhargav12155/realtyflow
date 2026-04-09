@@ -19502,6 +19502,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
     roomClipDuration?: number;
     cameraPositions?: Record<string, { x: number; y: number; photoIndex: number; direction?: number }[]>;
     roomConnections?: RoomConnection[];
+    engine?: "veo" | "sora2" | "luma";
+    lumaModel?: "ray-2" | "ray-flash-2";
     avatarId: string;
     avatarImageKey?: string;
     script: string;
@@ -19733,8 +19735,252 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       
       console.log(`📸 [PropertyTour] Processed ${processedPhotos.length} photos for video generation`);
       
-      const { veoVideoService } = await import("./services/veo-video");
       const { VideoStudioService } = await import("./services/video-studio");
+      
+      if (job.engine === "luma") {
+        const { lumaService } = await import("./services/luma");
+        job.message = "Starting Luma Ray 2 cinematic video generation...";
+        console.log(`🎬 [PropertyTour] ========================================`);
+        console.log(`🎬 [PropertyTour] VIDEO ENGINE: LUMA RAY 2 (${(job.lumaModel || "ray-2").toUpperCase()})`);
+        console.log(`🎬 [PropertyTour] COMPLIANCE MODE: Camera motion only, no AI additions`);
+        console.log(`🎬 [PropertyTour] ========================================`);
+
+        job.progress = 10;
+
+        const roomBatches = groupPhotosByRoom(processedPhotos, job.roomTypes || [], job.cameraPositions);
+        const roomVideos: string[] = [];
+        const roomVideoMap: Record<string, string> = {};
+        const totalRooms = roomBatches.length;
+
+        console.log(`🏠 [PropertyTour/Luma] Processing ${totalRooms} rooms with grouped photos`);
+
+        for (let roomIdx = 0; roomIdx < roomBatches.length; roomIdx++) {
+          const room = roomBatches[roomIdx];
+          const roomDesc = ROOM_PROMPT_MAP[room.roomType] || ROOM_PROMPT_MAP["auto"];
+
+          job.progress = 10 + Math.floor((roomIdx / totalRooms) * 50);
+          job.message = `Luma: Generating ${room.roomType.replace("-", " ")} video (${roomIdx + 1}/${totalRooms})...`;
+
+          console.log(`🏠 [PropertyTour/Luma] Room ${roomIdx + 1}/${totalRooms}: ${room.roomType} with ${room.photos.length} photos`);
+
+          const primaryPhoto = room.photos[0];
+          if (!primaryPhoto) {
+            console.error(`❌ [PropertyTour/Luma] No photos for room ${room.roomType}, skipping`);
+            continue;
+          }
+
+          const connections = job.roomConnections || [];
+          const incomingConn = connections.find(c => c.toRoom === room.roomType);
+          const outgoingConn = connections.find(c => c.fromRoom === room.roomType);
+          const connectionCtx = {
+            fromRoom: incomingConn ? (ROOM_PROMPT_MAP[incomingConn.fromRoom] || incomingConn.fromRoom) : undefined,
+            toRoom: outgoingConn ? (ROOM_PROMPT_MAP[outgoingConn.toRoom] || outgoingConn.toRoom) : undefined,
+            label: incomingConn?.label || outgoingConn?.label || undefined,
+          };
+
+          const compliancePrompt = getCompliancePrompt(roomDesc, true, room.cameraPositions, connectionCtx);
+
+          try {
+            const taskResult = await lumaService.createVideoTask(compliancePrompt, {
+              model: job.lumaModel || "ray-2",
+              aspectRatio: "16:9",
+              duration: "5",
+              keyframeImageUrl: primaryPhoto,
+            });
+
+            console.log(`⏳ [PropertyTour/Luma] Task created: ${taskResult.taskId}, polling for completion...`);
+
+            const maxPollMs = 300000;
+            const pollIntervalMs = 5000;
+            const pollStart = Date.now();
+            let clipUrl: string | null = null;
+
+            while (Date.now() - pollStart < maxPollMs) {
+              await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+              const status = await lumaService.getTaskStatus(taskResult.taskId);
+
+              if (status.status === "completed" && status.videoUrl) {
+                clipUrl = status.videoUrl;
+                console.log(`✅ [PropertyTour/Luma] Room ${roomIdx + 1} clip ready`);
+                break;
+              }
+
+              if (status.status === "failed") {
+                console.error(`❌ [PropertyTour/Luma] Room ${roomIdx + 1} failed: ${status.error}`);
+                if (!job.error) job.error = status.error || "Luma generation failed";
+                break;
+              }
+            }
+
+            if (!clipUrl) {
+              console.error(`❌ [PropertyTour/Luma] Room ${roomIdx + 1} timed out or failed`);
+              continue;
+            }
+
+            const fsPromises = await import('fs/promises');
+            const path = await import('path');
+            const outputDir = '/tmp/luma-tour-clips';
+            await fsPromises.mkdir(outputDir, { recursive: true });
+
+            const localPath = path.join(outputDir, `luma-${job.id}-room-${roomIdx}.mp4`);
+            const videoResponse = await fetch(clipUrl);
+            const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+            await fsPromises.writeFile(localPath, videoBuffer);
+
+            const s3Service = new UnifiedUploadService();
+            const s3Key = `property-tour-videos/${job.userId}/luma-${job.id}-${room.roomType}.mp4`;
+            const uploadedUrl = await s3Service.uploadBuffer(videoBuffer, s3Key, 'video/mp4', true, 86400);
+
+            if (uploadedUrl) {
+              roomVideos.push(uploadedUrl);
+              roomVideoMap[room.roomType] = uploadedUrl;
+              console.log(`✅ [PropertyTour/Luma] ${room.roomType} uploaded: ${uploadedUrl.substring(0, 60)}...`);
+            }
+
+            await fsPromises.unlink(localPath).catch(() => {});
+          } catch (lumaErr: any) {
+            console.error(`❌ [PropertyTour/Luma] Room ${roomIdx + 1} error:`, lumaErr.message);
+            if (!job.error) job.error = lumaErr.message;
+          }
+        }
+
+        if (roomVideos.length > 0) {
+          job.motionVideos = roomVideos;
+          job.roomVideoMap = roomVideoMap;
+          job.progress = 50;
+          console.log(`✅ [PropertyTour/Luma] Generated ${roomVideos.length} room videos`);
+
+          if (roomVideos.length > 1) {
+            job.progress = 55;
+            job.message = "Combining Luma room videos into complete tour...";
+            console.log(`🎬 [PropertyTour/Luma] Combining ${roomVideos.length} room videos with crossfade transitions...`);
+
+            try {
+              const { spawn } = await import('child_process');
+              const fsPromises = await import('fs/promises');
+              const path = await import('path');
+
+              const outputDir = '/tmp/property-tour-final';
+              await fsPromises.mkdir(outputDir, { recursive: true });
+
+              const finalFilename = `complete-tour-${job.id}.mp4`;
+              const finalPath = path.join(outputDir, finalFilename);
+
+              const localVideoPaths: string[] = [];
+              for (let i = 0; i < roomVideos.length; i++) {
+                const videoUrl = roomVideos[i];
+                const localPath = path.join(outputDir, `room-${i}.mp4`);
+
+                if (videoUrl.startsWith('/tmp/')) {
+                  localVideoPaths.push(videoUrl);
+                } else if (videoUrl.startsWith('http')) {
+                  const response = await fetch(videoUrl);
+                  const buffer = Buffer.from(await response.arrayBuffer());
+                  await fsPromises.writeFile(localPath, buffer);
+                  localVideoPaths.push(localPath);
+                } else {
+                  localVideoPaths.push(videoUrl);
+                }
+              }
+
+              const fadeDuration = 0.5;
+              const clipDuration = 5;
+
+              if (localVideoPaths.length === 1) {
+                await fsPromises.copyFile(localVideoPaths[0], finalPath);
+              } else if (localVideoPaths.length === 2) {
+                const offset = clipDuration - fadeDuration;
+                await new Promise<void>((resolve, reject) => {
+                  const ffmpeg = spawn('ffmpeg', [
+                    '-y',
+                    '-i', localVideoPaths[0],
+                    '-i', localVideoPaths[1],
+                    '-filter_complex',
+                    `[0:v]scale=1280:720,fps=30,format=yuv420p[v0];[1:v]scale=1280:720,fps=30,format=yuv420p[v1];[v0][v1]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[vout]`,
+                    '-map', '[vout]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '22',
+                    '-an',
+                    '-movflags', '+faststart',
+                    finalPath
+                  ]);
+                  ffmpeg.stderr.on('data', (data: Buffer) => {
+                    console.log(`[FFmpeg Luma Tour] ${data.toString().slice(0, 200)}`);
+                  });
+                  ffmpeg.on('close', (code: number | null) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`ffmpeg xfade exited with code ${code}`));
+                  });
+                  ffmpeg.on('error', reject);
+                });
+              } else {
+                const inputs = localVideoPaths.map((p) => ['-i', p]).flat();
+                let filterComplex = localVideoPaths.map((_, i) =>
+                  `[${i}:v]scale=1280:720,fps=30,format=yuv420p[n${i}]`
+                ).join(';');
+
+                let prevOutput = 'n0';
+                for (let i = 1; i < localVideoPaths.length; i++) {
+                  const offset = (clipDuration - fadeDuration) * i;
+                  const outputLabel = i === localVideoPaths.length - 1 ? 'vout' : `x${i}`;
+                  filterComplex += `;[${prevOutput}][n${i}]xfade=transition=fade:duration=${fadeDuration}:offset=${offset}[${outputLabel}]`;
+                  prevOutput = outputLabel;
+                }
+
+                await new Promise<void>((resolve, reject) => {
+                  const ffmpegArgs = [
+                    '-y',
+                    ...inputs,
+                    '-filter_complex', filterComplex,
+                    '-map', '[vout]',
+                    '-c:v', 'libx264',
+                    '-preset', 'fast',
+                    '-crf', '22',
+                    '-an',
+                    '-movflags', '+faststart',
+                    finalPath
+                  ];
+                  console.log(`[FFmpeg Luma Tour] Running xfade with ${localVideoPaths.length} clips`);
+                  const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+                  ffmpeg.stderr.on('data', (data: Buffer) => {
+                    console.log(`[FFmpeg Luma Tour] ${data.toString().slice(0, 200)}`);
+                  });
+                  ffmpeg.on('close', (code: number | null) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`ffmpeg xfade chain exited with code ${code}`));
+                  });
+                  ffmpeg.on('error', reject);
+                });
+              }
+
+              const combinedBuffer = await fsPromises.readFile(finalPath);
+              const s3Service = new UnifiedUploadService();
+              const tourKey = `property-tour-videos/${job.userId}/complete-tour-${job.id}.mp4`;
+              const tourUrl = await s3Service.uploadBuffer(combinedBuffer, tourKey, 'video/mp4', true, 86400);
+
+              if (tourUrl) {
+                job.combinedTourUrl = tourUrl;
+                console.log(`✅ [PropertyTour/Luma] Complete tour video ready: ${roomVideos.length} rooms combined`);
+              }
+
+              await fsPromises.rm(outputDir, { recursive: true, force: true }).catch(() => {});
+            } catch (combineErr) {
+              console.error(`❌ [PropertyTour/Luma] Failed to combine tour videos:`, combineErr);
+            }
+          }
+
+          job.progress = 60;
+        } else {
+          console.error(`❌ [PropertyTour/Luma] No room videos generated`);
+          job.status = "failed";
+          job.error = job.error || "Luma video generation failed. Please try again or check your LUMA_API_KEY.";
+          job.message = job.error;
+          propertyTourJobs.set(job.id, job);
+          return;
+        }
+      } else if (!job.engine || job.engine === "veo") {
+      const { veoVideoService } = await import("./services/veo-video");
       
       if (veoVideoService.isConfigured()) {
         job.message = "Starting Gemini VEO 3.1 panoramic video generation...";
@@ -20167,6 +20413,14 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         propertyTourJobs.set(job.id, job);
         return;
       }
+      } else {
+        console.error(`❌ [PropertyTour] Unsupported engine: ${job.engine}`);
+        job.status = "failed";
+        job.error = `Unsupported video engine: ${job.engine}. Please select VEO, Luma, or Sora 2.`;
+        job.message = job.error;
+        propertyTourJobs.set(job.id, job);
+        return;
+      }
       
       if (job.motionVideos.length > 0 && job.avatarImageKey && job.avatarId !== "no-avatar") {
         job.progress = 70;
@@ -20284,7 +20538,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(401).json({ error: "Unauthorized" });
       }
 
-      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration, cameraPositions, roomConnections } = req.body;
+      const { photos, roomTypes, tourOrder, avatarId, avatarImageKey, script, backgroundType, includeBranding, property, roomClipDuration, cameraPositions, roomConnections, engine, lumaModel } = req.body;
 
       if (!photos || !Array.isArray(photos) || photos.length === 0) {
         return res.status(400).json({ error: "At least one photo is required" });
@@ -20336,6 +20590,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         cameraPositions: cameraPositions || {},
         roomConnections: Array.isArray(roomConnections) ? roomConnections : [],
         tourOrder: tourOrder || [],
+        engine: engine === "luma" ? "luma" : engine === "sora2" ? "sora2" : "veo",
+        lumaModel: lumaModel === "ray-flash-2" ? "ray-flash-2" : "ray-2",
         property,
         klingTaskIds: [],
         motionVideos: [],

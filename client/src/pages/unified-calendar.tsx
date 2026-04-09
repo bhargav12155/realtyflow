@@ -257,6 +257,14 @@ export default function UnifiedCalendarPage() {
     "home_improvement", "investment_tips", "community_events", "success_stories"
   ]);
   const [autoFillProgress, setAutoFillProgress] = useState(0);
+  const [campaignStartDate, setCampaignStartDate] = useState(() => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  });
+  const [showBestTimes, setShowBestTimes] = useState(false);
 
   const industryBlueprint = INDUSTRY_CALENDAR_BLUEPRINTS[businessType];
   const industryContent = INDUSTRY_CONTENT[businessType] || INDUSTRY_CONTENT.general;
@@ -521,13 +529,15 @@ export default function UnifiedCalendarPage() {
   const generateMonthlyMutation = useMutation({
     mutationFn: async () => {
       setAutoFillProgress(10);
-      const month = selectedDate.getMonth();
-      const year = selectedDate.getFullYear();
+      const startDate = new Date(campaignStartDate + 'T00:00:00');
+      const month = startDate.getMonth();
+      const year = startDate.getFullYear();
       const res = await apiRequest("POST", "/api/scheduled-posts/generate-monthly", {
         platforms: autoFillPlatforms,
         postsPerWeek: autoFillFrequency,
         month,
         year,
+        startDay: startDate.getDate(),
         categories: autoFillCategories,
       });
       setAutoFillProgress(90);
@@ -542,7 +552,7 @@ export default function UnifiedCalendarPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
       toast({
         title: "Month Auto-Filled!",
-        description: `Created ${data.count} AI-generated posts across ${autoFillPlatforms.length} platforms for ${format(selectedDate, "MMMM yyyy")}`,
+        description: `Created ${data.count} AI-generated posts across ${autoFillPlatforms.length} platforms starting ${format(new Date(campaignStartDate + 'T00:00:00'), "MMM d, yyyy")}`,
       });
     },
     onError: (error: Error) => {
@@ -558,13 +568,15 @@ export default function UnifiedCalendarPage() {
   const generateTwoWeekMutation = useMutation({
     mutationFn: async () => {
       setAutoFillProgress(10);
-      const month = selectedDate.getMonth();
-      const year = selectedDate.getFullYear();
+      const startDate = new Date(campaignStartDate + 'T00:00:00');
+      const month = startDate.getMonth();
+      const year = startDate.getFullYear();
       const res = await apiRequest("POST", "/api/scheduled-posts/generate-monthly", {
         platforms: autoFillPlatforms.length > 0 ? autoFillPlatforms : ["facebook", "instagram", "linkedin", "x"],
         postsPerWeek: 3,
         month,
         year,
+        startDay: startDate.getDate(),
         weeks: 2,
         categories: autoFillCategories,
       });
@@ -580,7 +592,7 @@ export default function UnifiedCalendarPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
       toast({
         title: "Two-Week Blueprint Generated!",
-        description: `Created ${data.count} SEO-optimized posts for the first 2 weeks of ${format(selectedDate, "MMMM yyyy")} with question hooks and keyword-rich captions.`,
+        description: `Created ${data.count} SEO-optimized posts for 2 weeks starting ${format(new Date(campaignStartDate + 'T00:00:00'), "MMM d, yyyy")} with question hooks and keyword-rich captions.`,
       });
     },
     onError: (error: Error) => {
@@ -1277,7 +1289,7 @@ export default function UnifiedCalendarPage() {
                   >
                     <CalendarDays className="w-4 h-4 mx-auto mb-1" />
                     Full Month
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Fill {format(selectedDate, "MMMM")} with posts</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Fill remaining month with posts</p>
                   </button>
                   <button
                     onClick={() => setAutoFillMode("twoweek")}
@@ -1292,6 +1304,44 @@ export default function UnifiedCalendarPage() {
                     Two-Week Blueprint
                     <p className="text-[10px] text-muted-foreground mt-0.5">SEO-optimized 14-day plan</p>
                   </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs font-medium mb-2 block">Campaign Start Date</Label>
+                    <Input
+                      type="date"
+                      value={campaignStartDate}
+                      onChange={(e) => setCampaignStartDate(e.target.value)}
+                      min={(() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`; })()}
+                      className="w-full text-sm"
+                      data-testid="input-campaign-start-date"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">Posts will be scheduled starting from this date</p>
+                  </div>
+
+                  <button
+                    onClick={() => setShowBestTimes(!showBestTimes)}
+                    className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    data-testid="btn-toggle-best-times"
+                  >
+                    <Clock className="w-3 h-3" />
+                    {showBestTimes ? "Hide" : "Show"} Best Times to Post
+                    <ChevronDown className={`w-3 h-3 transition-transform ${showBestTimes ? "rotate-180" : ""}`} />
+                  </button>
+                  {showBestTimes && (
+                    <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 space-y-1.5">
+                      <p className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-1">Recommended posting windows:</p>
+                      <div className="grid gap-1 text-[10px]">
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300"><FaFacebook className="w-3 h-3 text-blue-600" /> <span className="font-medium">Facebook:</span> Tue–Thu, 9am–12pm</div>
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300"><FaInstagram className="w-3 h-3 text-pink-500" /> <span className="font-medium">Instagram:</span> Mon/Wed/Fri, 11am–1pm</div>
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300"><FaLinkedin className="w-3 h-3 text-blue-700" /> <span className="font-medium">LinkedIn:</span> Tue–Wed, 8am–10am</div>
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300"><FaXTwitter className="w-3 h-3" /> <span className="font-medium">X/Twitter:</span> Wed–Fri, 9am–11am</div>
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300"><FaTiktok className="w-3 h-3" /> <span className="font-medium">TikTok:</span> Tue/Thu/Sat, 7pm–9pm</div>
+                        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300"><FaYoutube className="w-3 h-3 text-red-600" /> <span className="font-medium">YouTube:</span> Thu–Sat, 2pm–4pm</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {autoFillMode === "twoweek" ? (

@@ -8374,11 +8374,18 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         weeks: requestedWeeks,
         categories: userCategories,
         agentName,
+        startDay: requestedStartDay,
       } = req.body;
 
       if (month === undefined || year === undefined) {
         return res.status(400).json({ error: "month and year are required" });
       }
+
+      const now = new Date();
+      const isCurrentMonth = month === now.getMonth() && year === now.getFullYear();
+      const effectiveStartDay = requestedStartDay
+        ? Math.max(1, Math.min(requestedStartDay, new Date(year, month + 1, 0).getDate()))
+        : isCurrentMonth ? now.getDate() : 1;
 
       const clampedPostsPerWeek = Math.min(Math.max(1, postsPerWeek), 7);
       const isTwoWeekMode = requestedWeeks === 2;
@@ -8422,11 +8429,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
       const postingHours = [9, 11, 13, 15, 17];
 
-      const firstDay = new Date(year, month, 1);
+      const firstDay = new Date(year, month, effectiveStartDay);
       const lastDay = new Date(year, month + 1, 0);
       const fullMonthDays = lastDay.getDate();
-      const daysInMonth = isTwoWeekMode ? 14 : fullMonthDays;
-      const totalWeeks = isTwoWeekMode ? 2 : Math.ceil(fullMonthDays / 7);
+      const remainingDays = fullMonthDays - effectiveStartDay + 1;
+      const daysInMonth = isTwoWeekMode ? Math.min(14, remainingDays) : remainingDays;
+      const totalWeeks = isTwoWeekMode ? 2 : Math.ceil(remainingDays / 7);
 
       const realEstateCategoryKeywords: Record<string, string[]> = {
         market_update: ["market trends", "home prices", "real estate market"],
@@ -8579,12 +8587,14 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         for (let entryIdx = 0; entryIdx < weekEntries.length; entryIdx++) {
           const entry = weekEntries[entryIdx];
           const isWeek2 = entryIdx >= (effectiveBlueprint.week1?.length || 0);
-          const weekOffset = isWeek2 ? 7 : 0;
+          const weekBaseDay = isWeek2 ? effectiveStartDay + 7 : effectiveStartDay;
           const targetDayOffset = dayNameToOffset[entry.day] ?? 1;
-          const firstDayOfWeek = new Date(year, month, 1).getDay();
-          let dayOfMonth = targetDayOffset - firstDayOfWeek + 1 + weekOffset;
-          if (dayOfMonth < 1) dayOfMonth += 7;
-          if (dayOfMonth > 14) dayOfMonth = Math.min(dayOfMonth, 14);
+          const baseDayOfWeek = new Date(year, month, weekBaseDay).getDay();
+          let dayOfMonth = weekBaseDay + (targetDayOffset - baseDayOfWeek);
+          if (dayOfMonth < weekBaseDay) dayOfMonth += 7;
+          const weekEnd = weekBaseDay + 6;
+          if (dayOfMonth > weekEnd) dayOfMonth -= 7;
+          if (dayOfMonth < effectiveStartDay || dayOfMonth > fullMonthDays) continue;
           const neighborhood = neighborhoods[entryIdx % neighborhoods.length];
           const hour = postingHours[entryIdx % postingHours.length];
 
@@ -8600,8 +8610,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           const weekStart = week * 7;
           const availableDays: number[] = [];
           for (let d = weekStart; d < Math.min(weekStart + 7, daysInMonth); d++) {
-            availableDays.push(d + 1);
+            const dayNum = effectiveStartDay + d;
+            if (dayNum <= fullMonthDays) {
+              availableDays.push(dayNum);
+            }
           }
+          if (availableDays.length === 0) continue;
           const step = Math.max(1, Math.floor(availableDays.length / clampedPostsPerWeek));
           for (let p = 0; p < clampedPostsPerWeek && p < availableDays.length; p++) {
             const dayIndex = Math.min(p * step, availableDays.length - 1);

@@ -504,15 +504,24 @@ export class SocialMediaService {
           );
         }
         if (errorData?.error?.code === 100) {
+          const msg = errorData.error?.message || "";
+          const isAspectRatio = /aspect.ratio|dimensions|width|height|too (wide|tall|large|small)/i.test(msg);
+          if (isAspectRatio) {
+            throw new Error(
+              `Instagram rejected this media due to unsupported dimensions. Supported aspect ratios: 1:1 (square, 1080×1080), 4:5 (portrait, 1080×1350), 1.91:1 (landscape, 1080×566). Images must be between 320px and 1440px wide. Videos must be 1:1, 4:5, or 16:9 with min 500px width.`,
+            );
+          }
           throw new Error(
-            `Instagram API error: ${errorData.error?.message || "Invalid parameters. Please check your content and image."}`,
+            `Instagram API error: ${msg || "Invalid parameters. Please check your content and image."}`,
           );
         }
 
+        const genericMsg = errorData?.error?.message || "Unknown error";
+        const isGenericAspect = /aspect.ratio|dimensions|width|height/i.test(genericMsg);
         throw new Error(
-          `Instagram container creation failed: ${
-            errorData?.error?.message || "Unknown error"
-          }`,
+          isGenericAspect
+            ? `Instagram rejected this media due to unsupported dimensions. Supported aspect ratios: 1:1 (square, 1080×1080), 4:5 (portrait, 1080×1350), 1.91:1 (landscape, 1080×566). Images must be between 320px and 1440px wide.`
+            : `Instagram container creation failed: ${genericMsg}`,
         );
       }
 
@@ -588,15 +597,21 @@ export class SocialMediaService {
           throw new Error("Instagram session expired during publishing.");
         }
         if (errorData?.error?.code === 100) {
+          const pubMsg = errorData.error?.message || "";
+          const isPubAspect = /aspect.ratio|dimensions|width|height/i.test(pubMsg);
           throw new Error(
-            "Failed to publish Instagram content. Please try again.",
+            isPubAspect
+              ? `Instagram rejected this media due to unsupported dimensions. Supported aspect ratios: 1:1 (square, 1080×1080), 4:5 (portrait, 1080×1350), 1.91:1 (landscape, 1080×566). Images must be between 320px and 1440px wide.`
+              : "Failed to publish Instagram content. Please try again.",
           );
         }
 
+        const pubGenericMsg = errorData?.error?.message || "Unknown error";
+        const isPubGenericAspect = /aspect.ratio|dimensions|width|height/i.test(pubGenericMsg);
         throw new Error(
-          `Instagram publishing failed: ${
-            errorData?.error?.message || "Unknown error"
-          }`,
+          isPubGenericAspect
+            ? `Instagram rejected this media due to unsupported dimensions. Supported aspect ratios: 1:1 (square, 1080×1080), 4:5 (portrait, 1080×1350), 1.91:1 (landscape, 1080×566). Images must be between 320px and 1440px wide.`
+            : `Instagram publishing failed: ${pubGenericMsg}`,
         );
       }
 

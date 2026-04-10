@@ -547,11 +547,11 @@ export class SocialMediaService {
         throw new Error("Instagram media processing timed out. Please try again.");
       }
 
-      // Step 3: Publish the media container (try Facebook Graph API first)
+      // Step 3: Publish the media container (try Instagram Graph API first, then Facebook)
       const publishEndpoints = [
-        `https://graph.facebook.com/v22.0/${userId}/media_publish`,
-        `https://graph.instagram.com/v22.0/${userId}/media_publish`,
         `https://graph.instagram.com/v22.0/me/media_publish`,
+        `https://graph.instagram.com/v22.0/${userId}/media_publish`,
+        `https://graph.facebook.com/v22.0/${userId}/media_publish`,
       ];
 
       let publishResponse: Response | null = null;
@@ -577,7 +577,7 @@ export class SocialMediaService {
         lastPublishError = pubError;
         console.error(`📸 Instagram Publish Error (${endpoint}):`, JSON.stringify(pubError));
 
-        if (pubError.error?.code === 190) break;
+        if (pubError.error?.code === 190 && endpoint.includes('graph.facebook.com')) break;
       }
 
       if (!publishResponse || !publishResponse.ok) {

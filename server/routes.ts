@@ -5612,6 +5612,30 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         }
       }
 
+      // Also include directly-connected Instagram accounts (Instagram Business Login)
+      const instagramAccount = socialAccounts.find(
+        (acc) => acc.platform.toLowerCase() === "instagram" && acc.isConnected
+      );
+      if (instagramAccount) {
+        const igMeta = (instagramAccount.metadata as any) || {};
+        const directIgId = igMeta.instagramBusinessAccountId ||
+          (instagramAccount.accountUsername?.split(':')[0]) ||
+          instagramAccount.platformUserId;
+        if (directIgId) {
+          const alreadyIncluded = instagramAccounts.some(
+            (a: any) => a.instagramBusinessAccountId === directIgId
+          );
+          if (!alreadyIncluded) {
+            instagramAccounts.push({
+              instagramBusinessAccountId: directIgId,
+              pageId: "direct",
+              pageName: igMeta.username || instagramAccount.accountUsername || "Instagram Account",
+              username: igMeta.username || instagramAccount.accountUsername,
+            });
+          }
+        }
+      }
+
       res.json(instagramAccounts);
     } catch (error: any) {
       console.error(

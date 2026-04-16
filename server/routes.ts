@@ -12510,8 +12510,12 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             });
           }
         }
-      } else if (otherUnsupportedFormats.includes(contentType.toLowerCase())) {
-        console.log(`🔄 Converting ${contentType} to JPEG for HeyGen compatibility...`);
+      } else if (otherUnsupportedFormats.includes(contentType.toLowerCase()) ||
+          req.file.originalname?.toLowerCase().endsWith('.avif') ||
+          req.file.originalname?.toLowerCase().endsWith('.webp')) {
+        const detectedFormat = req.file.originalname?.toLowerCase().endsWith('.avif') ? 'AVIF' :
+          req.file.originalname?.toLowerCase().endsWith('.webp') ? 'WebP' : contentType;
+        console.log(`🔄 Converting ${detectedFormat} to JPEG for HeyGen compatibility...`);
         const sharp = (await import("sharp")).default;
         imageBuffer = await sharp(req.file.buffer)
           .jpeg({ quality: 95 })

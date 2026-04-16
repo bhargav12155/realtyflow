@@ -12516,12 +12516,34 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const detectedFormat = req.file.originalname?.toLowerCase().endsWith('.avif') ? 'AVIF' :
           req.file.originalname?.toLowerCase().endsWith('.webp') ? 'WebP' : contentType;
         console.log(`🔄 Converting ${detectedFormat} to JPEG for HeyGen compatibility...`);
-        const sharp = (await import("sharp")).default;
-        imageBuffer = await sharp(req.file.buffer)
-          .jpeg({ quality: 95 })
-          .toBuffer();
-        contentType = "image/jpeg";
-        console.log(`✅ Converted to JPEG: ${imageBuffer.length} bytes`);
+        try {
+          const sharp = (await import("sharp")).default;
+          imageBuffer = await sharp(req.file.buffer, { failOn: 'none' })
+            .jpeg({ quality: 95 })
+            .toBuffer();
+          contentType = "image/jpeg";
+          console.log(`✅ Converted to JPEG: ${imageBuffer.length} bytes`);
+        } catch (convertError: any) {
+          console.warn(`⚠️ Sharp conversion failed for ${detectedFormat}: ${convertError?.message}`);
+          console.log(`🔄 Trying PNG intermediate conversion...`);
+          try {
+            const sharp = (await import("sharp")).default;
+            imageBuffer = await sharp(req.file.buffer, { failOn: 'none' })
+              .png()
+              .toBuffer();
+            imageBuffer = await sharp(imageBuffer)
+              .jpeg({ quality: 95 })
+              .toBuffer();
+            contentType = "image/jpeg";
+            console.log(`✅ Converted via PNG intermediate: ${imageBuffer.length} bytes`);
+          } catch (fallbackError: any) {
+            console.error(`❌ All conversion attempts failed for ${detectedFormat}: ${fallbackError?.message}`);
+            return res.status(400).json({
+              error: `This ${detectedFormat} image couldn't be converted. Please save it as JPEG or PNG and try again.`,
+              details: convertError?.message
+            });
+          }
+        }
       }
 
       const { HeyGenAvatarIVService } = await import("./services/heygen-avatar-iv");

@@ -46,6 +46,47 @@ function makeFakeMultiOpenAI(nextResponse = "OpenAI says hi"): FakeMultiOpenAI {
   return fake;
 }
 
+interface QueuedFakeMultiOpenAI {
+  makeRequest: AiChatDeps["multiOpenAI"]["makeRequest"];
+  calls: Call[];
+  responses: string[];
+}
+
+function makeQueuedFakeMultiOpenAI(
+  responses: string[],
+): QueuedFakeMultiOpenAI {
+  const calls: Call[] = [];
+  const queue = [...responses];
+  return {
+    calls,
+    responses,
+    async makeRequest(kind, fn) {
+      const fakeClient = {
+        chat: {
+          completions: {
+            create: async (params: any) => {
+              calls.push({ kind, messages: params.messages });
+              const content = queue.length > 0 ? queue.shift()! : "";
+              return {
+                choices: [
+                  {
+                    message: { content },
+                    finish_reason: "stop",
+                  },
+                ],
+              };
+            },
+          },
+        },
+      };
+      return fn(fakeClient);
+    },
+  };
+}
+
+const FALLBACK_MESSAGE =
+  "I'm having trouble processing your request right now. Could you try rephrasing your question or try again in a moment?";
+
 function makeFakeChatService(label: string): ChatService & {
   calls: Array<{ message: string; systemPrompt?: string; images?: any[] }>;
 } {
@@ -357,6 +398,81 @@ describe("/api/ai/chat handler", () => {
       });
     }
   });
+
+  describe("empty-response retry & final fallback", () => {
+    it("retries with simpler prompt and returns the retry content when first response is empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", "retry-content-here"]);
+      const { app } = buildAiChatApp({ multiOpenAI: queued });
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "What is the meaning of life?",
+        provider: "openai",
+        generalMode: false,
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.message, "retry-content-here");
+      assert.equal(queued.calls.length, 2, "must retry exactly once");
+
+      const firstSystem = queued.calls[0].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      const retrySystem = queued.calls[1].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      assert.match(firstSystem, /Creating social media posts/);
+      assert.equal(
+        retrySystem,
+        "You are a helpful assistant for real estate professionals. Be concise and helpful.",
+      );
+      const retryUser = queued.calls[1].messages.find(
+        (m: any) => m.role === "user",
+      );
+      assert.equal(retryUser.content, "What is the meaning of life?");
+    });
+
+    it("uses generic simpler retry prompt when generalMode=true", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", "general-retry"]);
+      const { app } = buildAiChatApp({ multiOpenAI: queued });
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Tell me a joke",
+        provider: "openai",
+        generalMode: true,
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.message, "general-retry");
+      assert.equal(queued.calls.length, 2);
+      const retrySystem = queued.calls[1].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      assert.equal(
+        retrySystem,
+        "You are a helpful assistant. Be concise and helpful.",
+      );
+    });
+
+    it("returns the canned fallback message when both responses are empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", ""]);
+      const { app } = buildAiChatApp({ multiOpenAI: queued });
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Hello?",
+        provider: "openai",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.message, FALLBACK_MESSAGE);
+      assert.equal(queued.calls.length, 2);
+    });
+
+    it("treats whitespace-only responses as empty and falls through to the canned message", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["   ", "\n\t"]);
+      const { app } = buildAiChatApp({ multiOpenAI: queued });
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Hello?",
+        provider: "openai",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.message, FALLBACK_MESSAGE);
+      assert.equal(queued.calls.length, 2);
+    });
+  });
 });
 
 describe("/api/ai-assistant/chat handler", () => {
@@ -605,5 +721,134 @@ describe("/api/ai-assistant/chat handler", () => {
       [],
     );
     assert.equal(res.status, 400);
+  });
+
+  describe("empty-response retry & final fallback (text path)", () => {
+    it("retries with simpler prompt and returns the retry content when first response is empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", "text-retry-content"]);
+      const { app } = buildAssistantApp({ multiOpenAI: queued });
+      const res = await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { message: "Help me", provider: "openai", generalMode: false },
+        [],
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.assistantMessage.content, "text-retry-content");
+      assert.equal(queued.calls.length, 2);
+      const retrySystem = queued.calls[1].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      assert.equal(
+        retrySystem,
+        "You are a helpful real estate assistant. Be concise.",
+      );
+    });
+
+    it("uses generic simpler retry prompt when generalMode=true", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", "text-retry-generic"]);
+      const { app } = buildAssistantApp({ multiOpenAI: queued });
+      const res = await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { message: "Help me", provider: "openai", generalMode: true },
+        [],
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.assistantMessage.content, "text-retry-generic");
+      assert.equal(queued.calls.length, 2);
+      const retrySystem = queued.calls[1].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      assert.equal(retrySystem, "You are a helpful assistant. Be concise.");
+    });
+
+    it("returns the canned fallback message when both responses are empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", ""]);
+      const { app } = buildAssistantApp({ multiOpenAI: queued });
+      const res = await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { message: "Help me", provider: "openai" },
+        [],
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.assistantMessage.content, FALLBACK_MESSAGE);
+      assert.equal(queued.calls.length, 2);
+    });
+  });
+
+  describe("empty-response retry & final fallback (vision path)", () => {
+    const fakeFile: any = {
+      buffer: Buffer.from("fake"),
+      originalname: "photo.png",
+      mimetype: "image/png",
+    };
+
+    it("retries with simpler prompt and returns the retry content when first vision response is empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", "vision-retry-content"]);
+      const { app } = buildAssistantApp({ multiOpenAI: queued });
+      const res = await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { message: "Describe this", provider: "openai", generalMode: false },
+        [fakeFile],
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.assistantMessage.content, "vision-retry-content");
+      assert.equal(queued.calls.length, 2);
+      assert.equal(queued.calls[0].kind, "vision");
+      assert.equal(queued.calls[1].kind, "content");
+      const retrySystem = queued.calls[1].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      assert.equal(
+        retrySystem,
+        "You are a helpful real estate AI assistant. Be concise.",
+      );
+      const retryUser = queued.calls[1].messages.find(
+        (m: any) => m.role === "user",
+      );
+      assert.equal(retryUser.content, "Describe this");
+    });
+
+    it("uses generic simpler retry prompt and falls back to the default user prompt when message is empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", "vision-retry-generic"]);
+      const { app } = buildAssistantApp({ multiOpenAI: queued });
+      const res = await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { provider: "openai", generalMode: true },
+        [fakeFile],
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.assistantMessage.content, "vision-retry-generic");
+      assert.equal(queued.calls.length, 2);
+      const retrySystem = queued.calls[1].messages.find(
+        (m: any) => m.role === "system",
+      )?.content;
+      assert.equal(retrySystem, "You are a helpful AI assistant. Be concise.");
+      const retryUser = queued.calls[1].messages.find(
+        (m: any) => m.role === "user",
+      );
+      assert.equal(
+        retryUser.content,
+        "Please describe what you see in the uploaded images.",
+      );
+    });
+
+    it("returns the canned fallback message when both vision responses are empty", async () => {
+      const queued = makeQueuedFakeMultiOpenAI(["", ""]);
+      const { app } = buildAssistantApp({ multiOpenAI: queued });
+      const res = await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { message: "Describe this", provider: "openai" },
+        [fakeFile],
+      );
+      assert.equal(res.status, 200);
+      assert.equal(res.body.assistantMessage.content, FALLBACK_MESSAGE);
+      assert.equal(queued.calls.length, 2);
+    });
   });
 });

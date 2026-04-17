@@ -21256,22 +21256,34 @@ WHATSAPP & BULK MESSAGING:
 Be helpful, professional, and concise. Always let users know what the platform can do for them.`;
 
       try {
-        // If user explicitly chose Claude AND there are no images, route to Claude.
-        // Vision (image) requests always fall through to OpenAI gpt-4o below.
-        if (provider === "claude" && imageUrls.length === 0) {
-          const { anthropicService } = await import("./services/anthropic");
-          const claudeResult = await anthropicService.chat(message || "", [], systemPrompt);
-          if (claudeResult.success && claudeResult.message) {
-            aiResponse = claudeResult.message;
-          } else {
-            console.warn(`⚠️ [AI Assistant] Claude failed, falling back to OpenAI: ${claudeResult.error}`);
-            aiResponse = "";
+        // Provider routing for text-only requests:
+        // - claude: route to Anthropic (no vision support here, falls back below if images)
+        // - gemini: route to Gemini service
+        // - openai/auto: fall through to OpenAI logic below
+        // Vision (image) requests always fall through to OpenAI gpt-4o below regardless of provider.
+        aiResponse = "";
+        if (imageUrls.length === 0) {
+          if (provider === "claude") {
+            const { anthropicService } = await import("./services/anthropic");
+            const claudeResult = await anthropicService.chat(message || "", [], systemPrompt);
+            if (claudeResult.success && claudeResult.message) {
+              aiResponse = claudeResult.message;
+            } else {
+              console.warn(`⚠️ [AI Assistant] Claude failed, falling back to OpenAI: ${claudeResult.error}`);
+            }
+          } else if (provider === "gemini") {
+            const { geminiService } = await import("./services/gemini");
+            const geminiResult = await geminiService.chat(message || "", [], systemPrompt);
+            if (geminiResult.success && geminiResult.message) {
+              aiResponse = geminiResult.message;
+            } else {
+              console.warn(`⚠️ [AI Assistant] Gemini failed, falling back to OpenAI: ${geminiResult.error}`);
+            }
           }
-        } else if (provider === "claude" && imageUrls.length > 0) {
+        } else if (provider === "claude") {
           console.log("ℹ️ [AI Assistant] Claude selected but images attached — falling back to GPT-4o vision");
-          aiResponse = "";
-        } else {
-          aiResponse = "";
+        } else if (provider === "gemini") {
+          console.log("ℹ️ [AI Assistant] Gemini selected with images — using GPT-4o vision (Gemini vision not wired here)");
         }
 
         if (aiResponse) {

@@ -68,8 +68,10 @@ export class AnthropicService {
         messages,
       });
 
-      const textBlock = response.content.find((b: any) => b.type === "text") as any;
-      const text = textBlock?.text || "";
+      const textBlock = response.content.find(
+        (b): b is Anthropic.TextBlock => b.type === "text"
+      );
+      const text = textBlock?.text ?? "";
 
       if (!text || text.trim() === "") {
         return {
@@ -79,11 +81,13 @@ export class AnthropicService {
       }
 
       return { success: true, message: text };
-    } catch (error: any) {
-      console.error("❌ [Anthropic] Chat error:", error?.message || error);
+    } catch (error) {
+      const errMessage =
+        error instanceof Error ? error.message : "Claude chat failed";
+      console.error("❌ [Anthropic] Chat error:", errMessage);
       return {
         success: false,
-        error: error?.message || "Claude chat failed",
+        error: errMessage,
       };
     }
   }

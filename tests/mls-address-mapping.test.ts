@@ -91,7 +91,7 @@ describe("pickBathrooms", () => {
     assert.equal(
       pickBathrooms({
         BathroomsTotalDecimal: undefined,
-        BathroomsTotal: "" as any,
+        BathroomsTotal: "",
       }),
       null,
     );
@@ -99,7 +99,7 @@ describe("pickBathrooms", () => {
 
   it("parses string numerics from the upstream payload", () => {
     assert.equal(
-      pickBathrooms({ BathroomsTotalDecimal: "3.5" as any }),
+      pickBathrooms({ BathroomsTotalDecimal: "3.5" }),
       3.5,
     );
   });

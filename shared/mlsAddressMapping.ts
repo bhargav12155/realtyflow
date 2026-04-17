@@ -68,15 +68,26 @@ function firstString(...values: Array<unknown>): string {
  * Picks the listing's own MLS number from a GBCMA / Simple-CMA / Paragon
  * address-lookup payload. NEVER returns the listing agent's MLS member ID
  * (`ListAgentMlsId`) — that is the agent's identifier, not the listing's.
+ *
+ * As a defense in depth, any candidate that matches `ListAgentMlsId` is
+ * skipped, in case an upstream mapper accidentally pollutes a listing
+ * field (e.g., `mlsNumber`) with the agent's ID.
  */
 export function pickListingMlsNumber(p: AddressLookupResponse): string {
-  return firstString(
+  const agentId = firstString(p.ListAgentMlsId);
+  for (const candidate of [
     p.ListingId,
     p.MLSNumber,
     p.mlsNumber,
     p.ListingKeyNumeric,
     p.ListingKey,
-  );
+  ]) {
+    const value = firstString(candidate);
+    if (!value) continue;
+    if (agentId && value === agentId) continue;
+    return value;
+  }
+  return "";
 }
 
 /**

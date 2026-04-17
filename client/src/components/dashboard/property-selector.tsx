@@ -13,7 +13,9 @@ import { mapAddressLookupToProperty } from "@shared/mlsAddressMapping";
 export interface Property {
   id: string;
   mlsId: string;
-  listPrice: number;
+  /** null when the upstream MLS service did not provide a price.
+   *  Renderers MUST treat this as "not provided" rather than a real $0. */
+  listPrice: number | null;
   address: string;
   city: string;
   state: string;
@@ -146,16 +148,11 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
             squareFootage: mapped.squareFootage === null,
           };
           setAutoFoundMissingFields(missing);
-          const foundProperty: Property = {
-            ...mapped,
-            // Sentinel values are only used as fallbacks for the few rendering
-            // paths that haven't been updated to handle null. The card itself
-            // hides these values when the corresponding `missing` flag is set.
-            listPrice: mapped.listPrice ?? 0,
-            bedrooms: mapped.bedrooms,
-            bathrooms: mapped.bathrooms,
-            squareFootage: mapped.squareFootage,
-          };
+          // Pass through null values unchanged. The Property interface
+          // declares listPrice / bedrooms / bathrooms / squareFootage
+          // as nullable so renderers must show "Not provided" instead
+          // of a misleading "$0" / "0 beds".
+          const foundProperty: Property = mapped;
 
           setSearchParams(prev => ({
             ...prev,
@@ -357,7 +354,8 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
     }
   };
 
-  const formatPrice = (price: number) => {
+  const formatPrice = (price: number | null) => {
+    if (price === null || !Number.isFinite(price)) return 'Price not provided';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',

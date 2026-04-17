@@ -246,7 +246,7 @@ export function PropertyTourStudio() {
     mutationFn: async (property: Property) => {
       const propertyDetails = `
 Property Address: ${property.address}, ${property.city}, ${property.state} ${property.zipCode}
-List Price: $${property.listPrice.toLocaleString()}
+List Price: ${property.listPrice !== null ? `$${property.listPrice.toLocaleString()}` : "Not provided"}
 ${property.bedrooms ? `Bedrooms: ${property.bedrooms}` : ""}
 ${property.bathrooms ? `Bathrooms: ${property.bathrooms}` : ""}
 ${property.squareFootage ? `Square Footage: ${property.squareFootage.toLocaleString()} sq ft` : ""}
@@ -1050,7 +1050,7 @@ ${propertyDetails}`;
     if (!selectedProperty && !noMlsMode) return;
     
     const defaultContent = selectedProperty 
-      ? `🏠 Just listed! Beautiful property at ${selectedProperty.address}, ${selectedProperty.city}, ${selectedProperty.state}. Listed at $${selectedProperty.listPrice.toLocaleString()}. Check out this virtual tour! #RealEstate #PropertyTour #NewListing`
+      ? `🏠 Just listed! Beautiful property at ${selectedProperty.address}, ${selectedProperty.city}, ${selectedProperty.state}.${selectedProperty.listPrice !== null ? ` Listed at $${selectedProperty.listPrice.toLocaleString()}.` : ""} Check out this virtual tour! #RealEstate #PropertyTour #NewListing`
       : `🏠 Check out this amazing property tour! #RealEstate #PropertyTour`;
     setShareContent(defaultContent);
     
@@ -1214,7 +1214,7 @@ ${propertyDetails}`;
                   {selectedProperty.address}, {selectedProperty.city}, {selectedProperty.state}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  ${selectedProperty.listPrice.toLocaleString()} • {selectedProperty.photoUrls?.length || 0} photos available
+                  {selectedProperty.listPrice !== null ? `$${selectedProperty.listPrice.toLocaleString()}` : "Price not provided"} • {selectedProperty.photoUrls?.length || 0} photos available
                 </p>
               </div>
             )}

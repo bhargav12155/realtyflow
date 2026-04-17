@@ -99,7 +99,7 @@ interface SocialMediaAccount {
 interface Property {
   id: string;
   mlsId: string;
-  listPrice: number;
+  listPrice: number | null;
   address: string;
   city: string;
   state: string;
@@ -1782,7 +1782,8 @@ export function SocialMediaManager() {
     postType: string,
     platform: string,
   ) => {
-    const formatPrice = (price: number) => {
+    const formatPrice = (price: number | null) => {
+      if (price === null || !Number.isFinite(price)) return "Price not provided";
       return new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: "USD",
@@ -4148,9 +4149,9 @@ ${agentName} | ${brokerageName}
                                 {selectedProperty.state}
                               </div>
                               <div className="text-sm font-medium mt-1">
-                                $
-                                {selectedProperty.listPrice?.toLocaleString() ||
-                                  "0"}
+                                {selectedProperty.listPrice !== null && selectedProperty.listPrice !== undefined
+                                  ? `$${selectedProperty.listPrice.toLocaleString()}`
+                                  : "Price not provided"}
                               </div>
                               <div className="text-xs text-muted-foreground mt-1">
                                 {selectedProperty.bedrooms || 0}bd •{" "}
@@ -4190,7 +4191,7 @@ ${agentName} | ${brokerageName}
                             "--- Property ---",
                             `Address: ${selectedProperty.address}`,
                             `${selectedProperty.city}, ${selectedProperty.state}`,
-                            `Price: $${selectedProperty.listPrice?.toLocaleString() || "0"}`,
+                            `Price: ${selectedProperty.listPrice !== null && selectedProperty.listPrice !== undefined ? `$${selectedProperty.listPrice.toLocaleString()}` : "Not provided"}`,
                             `${selectedProperty.bedrooms || 0} bd • ${selectedProperty.bathrooms || 0} ba • ${selectedProperty.squareFootage?.toLocaleString() || "0"} sq ft`,
                           );
                         }

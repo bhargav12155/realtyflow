@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Search, Home, MapPin, Bed, Bath, Square, DollarSign, Calendar, Eye, Loader2, X, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { mapAddressLookupToProperty } from "@shared/mlsAddressMapping";
 
 export interface Property {
   id: string;
@@ -126,36 +127,27 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
         
         // Auto-fill search parameters with GBCMA data
         if (propertyData && (propertyData.ListingKey || propertyData.UnparsedAddress)) {
+          const mapped = mapAddressLookupToProperty(propertyData, address);
+          // The Property interface treats `listPrice` as a required number
+          // because downstream consumers (formatPrice, social media templates)
+          // pass it directly to Intl.NumberFormat. Coerce null → 0 here while
+          // keeping bedrooms / bathrooms / squareFootage genuinely nullable so
+          // missing data shows as blank instead of a misleading "0".
+          const foundProperty: Property = {
+            ...mapped,
+            listPrice: mapped.listPrice ?? 0,
+          };
+
           setSearchParams(prev => ({
             ...prev,
-            mlsNumber: propertyData.ListAgentMlsId || propertyData.mlsNumber || prev.mlsNumber,
+            // Use the LISTING's MLS number (not the agent's ID).
+            mlsNumber: foundProperty.mlsId || prev.mlsNumber,
             listingAgent: propertyData.ListAgentFullName || propertyData.ListingAgent || propertyData.listingAgent || prev.listingAgent,
             city: propertyData.City || prev.city,
             neighborhood: propertyData.SubdivisionName || propertyData.Neighborhood || prev.neighborhood,
             address: propertyData.UnparsedAddress || prev.address
           }));
-          
-          // Create a property object for auto-selection
-          const foundProperty: Property = {
-            id: propertyData.ListingKey || 'auto-found',
-            mlsId: propertyData.ListAgentMlsId || '',
-            address: propertyData.UnparsedAddress || address,
-            city: propertyData.City || '',
-            state: 'NE',
-            zipCode: propertyData.PostalCode || '',
-            listPrice: Number(propertyData.ListPrice) || 0,
-            bedrooms: Number(propertyData.BedroomsTotal) || 0,
-            bathrooms: Number(propertyData.BathroomsTotal) || 0,
-            squareFootage: Number(propertyData.LivingArea) || 0,
-            propertyType: 'Residential',
-            listingStatus: propertyData.MlsStatus || '',
-            listingDate: propertyData.ListingContractDate || propertyData.OnMarketDate || '',
-            description: propertyData.PublicRemarks || '',
-            features: [],
-            photoUrls: propertyData.Media?.map((m: any) => m.MediaURL) || [],
-            neighborhood: propertyData.SubdivisionName || null,
-            agentName: propertyData.ListAgentFullName || null
-          };
+
           setAutoFoundProperty(foundProperty);
           toast({
             title: "Property Found",

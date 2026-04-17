@@ -1,0 +1,609 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import express, { type Express } from "express";
+import {
+  createAiChatHandler,
+  createAiAssistantChatHandler,
+  type AiChatDeps,
+  type AiAssistantDeps,
+  type ChatService,
+} from "../server/routes/ai-chat-handlers";
+
+type Call = { kind: string; messages: any[] };
+
+interface FakeMultiOpenAI {
+  makeRequest: AiChatDeps["multiOpenAI"]["makeRequest"];
+  calls: Call[];
+  nextResponse: string;
+}
+
+function makeFakeMultiOpenAI(nextResponse = "OpenAI says hi"): FakeMultiOpenAI {
+  const calls: Call[] = [];
+  const fake: FakeMultiOpenAI = {
+    calls,
+    nextResponse,
+    async makeRequest(kind, fn) {
+      const fakeClient = {
+        chat: {
+          completions: {
+            create: async (params: any) => {
+              calls.push({ kind, messages: params.messages });
+              return {
+                choices: [
+                  {
+                    message: { content: fake.nextResponse },
+                    finish_reason: "stop",
+                  },
+                ],
+              };
+            },
+          },
+        },
+      };
+      return fn(fakeClient);
+    },
+  };
+  return fake;
+}
+
+function makeFakeChatService(label: string): ChatService & {
+  calls: Array<{ message: string; systemPrompt?: string; images?: any[] }>;
+} {
+  const calls: Array<{
+    message: string;
+    systemPrompt?: string;
+    images?: any[];
+  }> = [];
+  return {
+    calls,
+    async chat(message, _history, systemPrompt, images) {
+      calls.push({ message, systemPrompt, images });
+      return { success: true, message: `${label}: ${message}` };
+    },
+  };
+}
+
+function makeFakeOpenAIService() {
+  const calls: Array<{ prompt: string }> = [];
+  return {
+    calls,
+    async generateImage(opts: { prompt: string }) {
+      calls.push(opts);
+      return "https://example.com/fake-image.png";
+    },
+  };
+}
+
+const fakeUserPreferencesTable = { userId: Symbol("userId") } as any;
+const fakeAiAssistantMessagesTable = { id: Symbol("id") } as any;
+
+function makeFakeDb() {
+  // Chainable select for /api/ai/chat path: db.select().from(...).where(...).limit(1)
+  const select = () => ({
+    from: () => ({
+      where: () => ({
+        limit: async (_n: number) => [
+          {
+            serviceArea: "Downtown",
+            communities: ["Old Market", "Benson"],
+          },
+        ],
+      }),
+    }),
+  });
+
+  // Chainable insert for assistant: db.insert(table).values(v).returning()
+  const inserts: any[] = [];
+  const insert = (_table: any) => ({
+    values: (v: any) => ({
+      returning: async () => {
+        const row = { id: inserts.length + 1, ...v };
+        inserts.push(row);
+        return [row];
+      },
+    }),
+  });
+
+  return { select, insert, inserts } as any;
+}
+
+const fakeStorage = {
+  async getCompanyProfile(_userId: any) {
+    return {
+      companyName: "Acme Realty",
+      tagline: "Best in town",
+      city: "Omaha",
+      state: "NE",
+    };
+  },
+};
+
+function buildAiChatApp(overrides: Partial<AiChatDeps> = {}) {
+  const multiOpenAI = makeFakeMultiOpenAI("openai-default-response");
+  const openaiService = makeFakeOpenAIService();
+  const claudeService = makeFakeChatService("claude");
+  const geminiService = makeFakeChatService("gemini");
+  const db = makeFakeDb();
+
+  const handler = createAiChatHandler({
+    multiOpenAI,
+    openaiService,
+    storage: fakeStorage,
+    db,
+    userPreferencesTable: fakeUserPreferencesTable,
+    loadAnthropic: async () => ({ anthropicService: claudeService }),
+    loadGemini: async () => ({ geminiService }),
+    ...overrides,
+  });
+
+  const app: Express = express();
+  app.use(express.json());
+  app.post("/api/ai/chat", (req: any, res, next) => {
+    req.user = { id: 42 };
+    handler(req, res).catch(next);
+  });
+  return { app, multiOpenAI, openaiService, claudeService, geminiService, db };
+}
+
+function buildAssistantApp(overrides: Partial<AiAssistantDeps> = {}) {
+  const multiOpenAI = makeFakeMultiOpenAI("vision-or-text-default");
+  const claudeService = makeFakeChatService("claude");
+  const geminiService = makeFakeChatService("gemini");
+  const db = makeFakeDb();
+  const s3UploadService = {
+    async uploadBuffer(_b: Buffer, key: string, _mime: string) {
+      return `https://s3.example.com/${key}`;
+    },
+  };
+
+  const handler = createAiAssistantChatHandler({
+    multiOpenAI,
+    db,
+    aiAssistantMessagesTable: fakeAiAssistantMessagesTable,
+    s3UploadService,
+    loadAnthropic: async () => ({ anthropicService: claudeService }),
+    loadGemini: async () => ({ geminiService }),
+    ...overrides,
+  });
+
+  const app: Express = express();
+  app.use(express.json());
+  app.post("/api/ai-assistant/chat", (req: any, res, next) => {
+    req.user = { id: 99 };
+    if (!req.files) req.files = [];
+    handler(req, res).catch(next);
+  });
+  return { app, multiOpenAI, claudeService, geminiService, db };
+}
+
+async function postJSON(app: Express, path: string, body: any) {
+  const server = app.listen(0);
+  try {
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+    const url = `http://127.0.0.1:${addr.port}${path}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json: any = await res.json().catch(() => ({}));
+    return { status: res.status, body: json };
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+async function postWithFiles(
+  app: Express,
+  path: string,
+  body: any,
+  files: Express.Multer.File[],
+) {
+  const handler = (app as any)._router.stack.find(
+    (l: any) => l.route?.path === path,
+  );
+  assert.ok(handler, `route ${path} not registered`);
+
+  // Bypass HTTP and call the handler directly with files attached
+  const req: any = {
+    body,
+    files,
+    user: { id: 99 },
+  };
+
+  return new Promise<{ status: number; body: any }>((resolve, reject) => {
+    let statusCode = 200;
+    const res: any = {
+      status(code: number) {
+        statusCode = code;
+        return res;
+      },
+      json(payload: any) {
+        resolve({ status: statusCode, body: payload });
+      },
+    };
+    const stack = handler.route.stack;
+    // The last layer is our handler wrapper
+    const fn = stack[stack.length - 1].handle;
+    try {
+      fn(req, res, reject);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+describe("/api/ai/chat handler", () => {
+  describe("provider routing", () => {
+    it("routes to Claude when provider=claude", async () => {
+      const { app, claudeService, multiOpenAI } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Hello there",
+        provider: "claude",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "claude");
+      assert.equal(res.body.message, "claude: Hello there");
+      assert.equal(claudeService.calls.length, 1);
+      assert.equal(multiOpenAI.calls.length, 0);
+    });
+
+    it("routes to Gemini when provider=gemini", async () => {
+      const { app, geminiService, multiOpenAI } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Tell me a joke",
+        provider: "gemini",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "gemini");
+      assert.equal(res.body.message, "gemini: Tell me a joke");
+      assert.equal(geminiService.calls.length, 1);
+      assert.equal(multiOpenAI.calls.length, 0);
+    });
+
+    it("routes to OpenAI when provider=openai", async () => {
+      const { app, multiOpenAI, claudeService, geminiService } =
+        buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "What is 2+2?",
+        provider: "openai",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "openai");
+      assert.equal(res.body.message, "openai-default-response");
+      assert.equal(multiOpenAI.calls.length, 1);
+      assert.equal(claudeService.calls.length, 0);
+      assert.equal(geminiService.calls.length, 0);
+    });
+
+    it("routes to OpenAI when provider=auto", async () => {
+      const { app, multiOpenAI } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Hi",
+        provider: "auto",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "openai");
+      assert.equal(multiOpenAI.calls.length, 1);
+    });
+
+    it("rejects unknown providers", async () => {
+      const { app } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Hi",
+        provider: "bogus",
+      });
+      assert.equal(res.status, 400);
+    });
+  });
+
+  describe("generalMode toggle", () => {
+    for (const provider of ["openai", "claude", "gemini", "auto"]) {
+      it(`omits company/location context in general mode (provider=${provider})`, async () => {
+        const { app, multiOpenAI, claudeService, geminiService } =
+          buildAiChatApp();
+        await postJSON(app, "/api/ai/chat", {
+          message: "Tell me about cats",
+          provider,
+          generalMode: true,
+        });
+
+        const systemPrompts: string[] = [
+          ...multiOpenAI.calls.map(
+            (c) =>
+              c.messages.find((m: any) => m.role === "system")?.content ?? "",
+          ),
+          ...claudeService.calls.map((c) => c.systemPrompt ?? ""),
+          ...geminiService.calls.map((c) => c.systemPrompt ?? ""),
+        ];
+
+        assert.ok(
+          systemPrompts.length > 0,
+          "expected at least one system prompt",
+        );
+        for (const prompt of systemPrompts) {
+          assert.doesNotMatch(
+            prompt,
+            /real estate|Acme Realty|Omaha|Downtown|Old Market/i,
+            `general-mode prompt leaked context: ${prompt}`,
+          );
+          assert.match(prompt, /helpful AI assistant/i);
+        }
+      });
+
+      it(`includes real-estate context when generalMode=false (provider=${provider})`, async () => {
+        const { app, multiOpenAI, claudeService, geminiService } =
+          buildAiChatApp();
+        await postJSON(app, "/api/ai/chat", {
+          message: "Tell me about my market",
+          provider,
+          generalMode: false,
+        });
+
+        const systemPrompts: string[] = [
+          ...multiOpenAI.calls.map(
+            (c) =>
+              c.messages.find((m: any) => m.role === "system")?.content ?? "",
+          ),
+          ...claudeService.calls.map((c) => c.systemPrompt ?? ""),
+          ...geminiService.calls.map((c) => c.systemPrompt ?? ""),
+        ];
+
+        assert.ok(systemPrompts.length > 0);
+        for (const prompt of systemPrompts) {
+          assert.match(prompt, /real estate/i);
+        }
+      });
+    }
+  });
+});
+
+describe("/api/ai-assistant/chat handler", () => {
+  it("routes text-only messages to Claude when provider=claude", async () => {
+    const { app, claudeService, multiOpenAI } = buildAssistantApp();
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Hello Claude", provider: "claude" },
+      [],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body.assistantMessage.content, "claude: Hello Claude");
+    assert.equal(claudeService.calls.length, 1);
+    assert.equal(multiOpenAI.calls.length, 0);
+  });
+
+  it("routes text-only messages to Gemini when provider=gemini", async () => {
+    const { app, geminiService, multiOpenAI } = buildAssistantApp();
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Hi Gemini", provider: "gemini" },
+      [],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body.assistantMessage.content, "gemini: Hi Gemini");
+    assert.equal(geminiService.calls.length, 1);
+    assert.equal(multiOpenAI.calls.length, 0);
+  });
+
+  it("routes text-only messages to OpenAI when provider=openai", async () => {
+    const { app, claudeService, geminiService, multiOpenAI } =
+      buildAssistantApp();
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Hi GPT", provider: "openai" },
+      [],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body.assistantMessage.content, "vision-or-text-default");
+    assert.equal(multiOpenAI.calls.length, 1);
+    assert.equal(multiOpenAI.calls[0].kind, "content");
+    assert.equal(claudeService.calls.length, 0);
+    assert.equal(geminiService.calls.length, 0);
+  });
+
+  it("routes text-only messages to OpenAI when provider=auto", async () => {
+    const { app, multiOpenAI } = buildAssistantApp();
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Hi", provider: "auto" },
+      [],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(multiOpenAI.calls.length, 1);
+    assert.equal(multiOpenAI.calls[0].kind, "content");
+  });
+
+  it("uses Claude native vision when provider=claude with images", async () => {
+    const { app, multiOpenAI, claudeService } = buildAssistantApp();
+    const fakeFile: any = {
+      buffer: Buffer.from("fake"),
+      originalname: "photo.png",
+      mimetype: "image/png",
+    };
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Describe this", provider: "claude" },
+      [fakeFile],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(claudeService.calls.length, 1, "Claude must be invoked");
+    assert.equal(
+      claudeService.calls[0].images?.length,
+      1,
+      "Claude must receive image inputs",
+    );
+    assert.equal(
+      claudeService.calls[0].images?.[0].mediaType,
+      "image/png",
+    );
+    assert.equal(
+      multiOpenAI.calls.length,
+      0,
+      "GPT-4o must not be called when Claude vision succeeds",
+    );
+  });
+
+  it("falls back to GPT-4o vision when Claude vision fails", async () => {
+    const failingClaude: ChatService & {
+      calls: Array<{ message: string; systemPrompt?: string; images?: any[] }>;
+    } = {
+      calls: [],
+      async chat(message, _history, systemPrompt, images) {
+        this.calls.push({ message, systemPrompt, images });
+        return { success: false, error: "claude vision boom" };
+      },
+    };
+    const { app, multiOpenAI } = buildAssistantApp({
+      loadAnthropic: async () => ({ anthropicService: failingClaude }),
+    });
+    const fakeFile: any = {
+      buffer: Buffer.from("fake"),
+      originalname: "photo.png",
+      mimetype: "image/png",
+    };
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Describe this", provider: "claude" },
+      [fakeFile],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(failingClaude.calls.length, 1);
+    assert.equal(multiOpenAI.calls.length, 1);
+    assert.equal(multiOpenAI.calls[0].kind, "vision");
+    const userMsg = multiOpenAI.calls[0].messages.find(
+      (m: any) => m.role === "user",
+    );
+    assert.ok(Array.isArray(userMsg.content));
+    assert.ok(
+      userMsg.content.some((p: any) => p.type === "image_url"),
+      "fallback vision request must include image_url part",
+    );
+  });
+
+  it("uses Gemini native vision when provider=gemini with images", async () => {
+    const { app, multiOpenAI, geminiService } = buildAssistantApp();
+    const fakeFile: any = {
+      buffer: Buffer.from("fake"),
+      originalname: "photo.jpg",
+      mimetype: "image/jpeg",
+    };
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "What's in this picture?", provider: "gemini" },
+      [fakeFile],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(geminiService.calls.length, 1);
+    assert.equal(geminiService.calls[0].images?.length, 1);
+    assert.equal(geminiService.calls[0].images?.[0].mediaType, "image/jpeg");
+    assert.equal(multiOpenAI.calls.length, 0);
+  });
+
+  it("falls back to GPT-4o vision when Gemini vision fails", async () => {
+    const failingGemini: ChatService & {
+      calls: Array<{ message: string; systemPrompt?: string; images?: any[] }>;
+    } = {
+      calls: [],
+      async chat(message, _history, systemPrompt, images) {
+        this.calls.push({ message, systemPrompt, images });
+        return { success: false, error: "gemini vision boom" };
+      },
+    };
+    const { app, multiOpenAI } = buildAssistantApp({
+      loadGemini: async () => ({ geminiService: failingGemini }),
+    });
+    const fakeFile: any = {
+      buffer: Buffer.from("fake"),
+      originalname: "photo.jpg",
+      mimetype: "image/jpeg",
+    };
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "What's in this picture?", provider: "gemini" },
+      [fakeFile],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(failingGemini.calls.length, 1);
+    assert.equal(multiOpenAI.calls.length, 1);
+    assert.equal(multiOpenAI.calls[0].kind, "vision");
+  });
+
+  for (const provider of ["openai", "claude", "gemini", "auto"]) {
+    it(`uses generic system prompt in general mode (provider=${provider})`, async () => {
+      const { app, multiOpenAI, claudeService, geminiService } =
+        buildAssistantApp();
+      await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        {
+          message: "Help me bake a cake",
+          provider,
+          generalMode: true,
+        },
+        [],
+      );
+
+      const prompts: string[] = [
+        ...multiOpenAI.calls.map(
+          (c) =>
+            c.messages.find((m: any) => m.role === "system")?.content ?? "",
+        ),
+        ...claudeService.calls.map((c) => c.systemPrompt ?? ""),
+        ...geminiService.calls.map((c) => c.systemPrompt ?? ""),
+      ];
+      assert.ok(prompts.length > 0);
+      for (const p of prompts) {
+        assert.doesNotMatch(
+          p,
+          /iMakePage|real estate|My Golden Brick|HeyGen|Kling/i,
+          `general-mode prompt leaked context: ${p}`,
+        );
+        assert.match(p, /helpful AI assistant/i);
+      }
+    });
+
+    it(`uses real-estate system prompt when generalMode=false (provider=${provider})`, async () => {
+      const { app, multiOpenAI, claudeService, geminiService } =
+        buildAssistantApp();
+      await postWithFiles(
+        app,
+        "/api/ai-assistant/chat",
+        { message: "Help me list a property", provider, generalMode: false },
+        [],
+      );
+
+      const prompts: string[] = [
+        ...multiOpenAI.calls.map(
+          (c) =>
+            c.messages.find((m: any) => m.role === "system")?.content ?? "",
+        ),
+        ...claudeService.calls.map((c) => c.systemPrompt ?? ""),
+        ...geminiService.calls.map((c) => c.systemPrompt ?? ""),
+      ];
+      assert.ok(prompts.length > 0);
+      for (const p of prompts) {
+        assert.match(p, /iMakePage|real estate/i);
+      }
+    });
+  }
+
+  it("returns 400 when both message and files are missing", async () => {
+    const { app } = buildAssistantApp();
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { provider: "openai" },
+      [],
+    );
+    assert.equal(res.status, 400);
+  });
+});

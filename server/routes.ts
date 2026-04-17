@@ -21120,6 +21120,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       // Upload files to S3 and collect attachment info
       const attachments: { url: string; type: string; name: string }[] = [];
       const imageUrls: string[] = [];
+      const imageInputs: { url: string; mediaType: string }[] = [];
 
       for (const file of files) {
         try {
@@ -21139,9 +21140,10 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
             name: file.originalname,
           });
 
-          // Collect image URLs for OpenAI vision
+          // Collect image URLs for vision (OpenAI / Claude)
           if (file.mimetype.startsWith('image/')) {
             imageUrls.push(url);
+            imageInputs.push({ url, mediaType: file.mimetype });
           }
         } catch (uploadError) {
           console.error("Error uploading file:", uploadError);
@@ -21194,11 +21196,12 @@ WHATSAPP & BULK MESSAGING:
 Be helpful, professional, and concise. Always let users know what the platform can do for them.`;
 
       try {
-        // Provider routing for text-only requests:
-        // - claude: route to Anthropic (no vision support here, falls back below if images)
-        // - gemini: route to Gemini service
-        // - openai/auto: fall through to OpenAI logic below
-        // Vision (image) requests always fall through to OpenAI gpt-4o below regardless of provider.
+        // Provider routing:
+        // - claude: route to Anthropic. Uses Claude vision when images are
+        //   attached; falls back to GPT-4o vision below only if Claude fails.
+        // - gemini: route to Gemini for text. Image requests still fall through
+        //   to GPT-4o vision below (Gemini vision not wired here yet).
+        // - openai/auto: fall through to OpenAI (text or gpt-4o vision) below.
         aiResponse = "";
         if (imageUrls.length === 0) {
           if (provider === "claude") {
@@ -21219,7 +21222,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
             }
           }
         } else if (provider === "claude") {
-          console.log("ℹ️ [AI Assistant] Claude selected but images attached — falling back to GPT-4o vision");
+          // Use Claude's native vision support when the user explicitly picked Claude.
+          console.log(`🖼️ [AI Assistant] Claude selected with ${imageUrls.length} image(s) — using Claude vision`);
+          const { anthropicService } = await import("./services/anthropic");
+          const claudeResult = await anthropicService.chat(
+            message || "",
+            [],
+            systemPrompt,
+            imageInputs
+          );
+          if (claudeResult.success && claudeResult.message) {
+            aiResponse = claudeResult.message;
+          } else {
+            console.warn(`⚠️ [AI Assistant] Claude vision failed, falling back to GPT-4o vision: ${claudeResult.error}`);
+          }
         } else if (provider === "gemini") {
           console.log("ℹ️ [AI Assistant] Gemini selected with images — using GPT-4o vision (Gemini vision not wired here)");
         }

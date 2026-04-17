@@ -80,6 +80,7 @@ import {
   BookOpen,
   ChevronDown,
   FileText,
+  Pencil,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useBusinessType } from "@/lib/businessContext";
@@ -998,6 +999,7 @@ export function SocialMediaManager() {
   );
   const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
+  const [isEditingPreview, setIsEditingPreview] = useState(false);
   const [facebookPages, setFacebookPages] = useState<any[]>([]);
   const [facebookPagesLoaded, setFacebookPagesLoaded] = useState(false);
   const [selectedFacebookPage, setSelectedFacebookPage] = useState<string>("");
@@ -4051,7 +4053,7 @@ ${agentName} | ${brokerageName}
           )}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
-              <Dialog open={showPreview} onOpenChange={setShowPreview}>
+              <Dialog open={showPreview} onOpenChange={(open) => { setShowPreview(open); if (!open) setIsEditingPreview(false); }}>
                 <DialogTrigger asChild>
                   <Button
                     variant="ghost"
@@ -4090,9 +4092,18 @@ ${agentName} | ${brokerageName}
                           <div className="text-xs text-muted-foreground mb-2">
                             {businessName} at {brokerageName}
                           </div>
-                          <div className="text-sm text-foreground whitespace-pre-wrap">
-                            {postContent}
-                          </div>
+                          {isEditingPreview ? (
+                            <Textarea
+                              value={postContent}
+                              onChange={(e) => setPostContent(e.target.value)}
+                              className="min-h-[160px] text-sm"
+                              data-testid="textarea-preview-edit"
+                            />
+                          ) : (
+                            <div className="text-sm text-foreground whitespace-pre-wrap">
+                              {postContent}
+                            </div>
+                          )}
                           {(selectedPropertyPhotoUrl || selectedMediaIds.length > 0) && (
                             <div className="mt-3 grid grid-cols-1 gap-2">
                               {selectedPropertyPhotoUrl && (
@@ -4147,10 +4158,28 @@ ${agentName} | ${brokerageName}
                       </div>
                     </div>
                   </div>
-                  <DialogFooter>
+                  <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-2">
                     <Button
                       variant="outline"
-                      className="w-full"
+                      className="w-full sm:flex-1"
+                      data-testid={isEditingPreview ? "button-done-edit-preview" : "button-edit-preview"}
+                      onClick={() => setIsEditingPreview((v) => !v)}
+                    >
+                      {isEditingPreview ? (
+                        <>
+                          <Check className="h-4 w-4 mr-2" />
+                          Done
+                        </>
+                      ) : (
+                        <>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Edit
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full sm:flex-1"
                       data-testid="button-download-post"
                       onClick={() => {
                         const platforms = selectedPlatforms.length > 0

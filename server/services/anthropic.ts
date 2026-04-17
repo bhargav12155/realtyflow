@@ -1,0 +1,92 @@
+import Anthropic from "@anthropic-ai/sdk";
+
+const CLAUDE_MODEL = "claude-sonnet-4-5";
+
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+interface AnthropicChatResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export class AnthropicService {
+  private client: Anthropic | null = null;
+  private lastApiKey: string | null = null;
+
+  private getClient(): Anthropic | null {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      console.warn("⚠️ [Anthropic] No ANTHROPIC_API_KEY found in environment");
+      return null;
+    }
+    if (this.client && this.lastApiKey === apiKey) {
+      return this.client;
+    }
+    console.log("✅ [Anthropic] Initializing Claude client");
+    this.client = new Anthropic({ apiKey });
+    this.lastApiKey = apiKey;
+    return this.client;
+  }
+
+  async chat(
+    message: string,
+    conversationHistory?: ChatMessage[],
+    customSystemPrompt?: string
+  ): Promise<AnthropicChatResponse> {
+    const client = this.getClient();
+    if (!client) {
+      return {
+        success: false,
+        error: "Claude API key not configured. Please add ANTHROPIC_API_KEY to secrets.",
+      };
+    }
+
+    try {
+      console.log(`💬 [Anthropic] Processing chat with ${CLAUDE_MODEL}`);
+
+      const systemPrompt =
+        customSystemPrompt ||
+        `You are a helpful AI assistant for real estate professionals. Be professional, helpful, and focused on real estate marketing. Keep responses concise but informative.`;
+
+      const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+      if (conversationHistory && conversationHistory.length > 0) {
+        for (const msg of conversationHistory) {
+          const role = msg.role === "assistant" ? "assistant" : "user";
+          messages.push({ role, content: msg.content });
+        }
+      }
+      messages.push({ role: "user", content: message });
+
+      const response = await client.messages.create({
+        model: CLAUDE_MODEL,
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages,
+      });
+
+      const textBlock = response.content.find((b: any) => b.type === "text") as any;
+      const text = textBlock?.text || "";
+
+      if (!text || text.trim() === "") {
+        return {
+          success: false,
+          error: "Claude returned an empty response. Please try again.",
+        };
+      }
+
+      return { success: true, message: text };
+    } catch (error: any) {
+      console.error("❌ [Anthropic] Chat error:", error?.message || error);
+      return {
+        success: false,
+        error: error?.message || "Claude chat failed",
+      };
+    }
+  }
+}
+
+export const anthropicService = new AnthropicService();

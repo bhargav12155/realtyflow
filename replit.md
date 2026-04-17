@@ -16,6 +16,7 @@ The backend is developed with Express.js and TypeScript (ESM). Authentication is
 
 Key features include:
 - **AI Content Generator Wizard**: Integrates Gemini 2.5 Flash for generating diverse marketing content.
+- **AI Assistant Providers + General Mode**: The AI Assistant chat dialog supports four providers selectable from a dropdown — Auto (defaults to GPT-4o), ChatGPT (GPT-4o), Gemini 2.5 Flash, and Claude Sonnet 4.5 (`server/services/anthropic.ts`, model constant `claude-sonnet-4-5`, `ANTHROPIC_API_KEY` env var). A "General Mode" checkbox next to the dropdown (persisted in localStorage as `ai-assistant-general-mode`) swaps the system prompt from real-estate-primed (with location/Omaha context) to a generic "helpful AI assistant" prompt across all providers and both endpoints (`/api/ai/chat` text-only and `/api/ai-assistant/chat` with file uploads). Defaults to OFF. When Claude is selected with image attachments, the request falls back to GPT-4o vision since Claude vision is not wired here.
 - **AI Image Generation**: The AI chat assistant detects image generation requests and generates images using Gemini 2.5 Flash Image (`gemini-2.5-flash-image`) via `@google/genai` SDK with `responseModalities: ["TEXT", "IMAGE"]`. Images are stored in object storage with base64 data URI fallback. Detection uses regex pattern matching on user messages. Images display inline in chat with download and open-in-new-tab links.
 - **Video Studio**: Supports avatar generation with gestures and voice extraction (using `ffmpeg` and HeyGen), and advanced video generation capabilities through Sora 2 (OpenAI via sora2api.ai), Luma Ray 2 (Dream Machine API), and Kling AI for motion videos.
 - **Luma Ray 2 Integration**: AI video generation via Luma Dream Machine API (`server/services/luma.ts`). Supports text-to-video and image-to-video (keyframe). Models: `ray-2` (best quality) and `ray-flash-2` (faster). Options: aspect ratio (16:9, 9:16, 1:1), duration (5s, 9s), seamless loop. API: `POST /api/luma/create-video`, `GET /api/luma/status/:taskId`. Requires `LUMA_API_KEY` env var. Accessible from AI Assistant dialog as third video platform option alongside VEO and Sora 2.
@@ -37,7 +38,7 @@ Key features include:
 
 ## External Dependencies
 - **Database**: PostgreSQL (Neon)
-- **AI Services**: Gemini 2.5 Flash (text), Google Imagen 3 (images), Kling AI, ElevenLabs, Gemini VEO 3.1, Sora 2 (OpenAI via sora2api.ai), Luma Ray 2 (Dream Machine API), Runway Gen-4 (text-to-video gen4.5, image-to-video gen4_turbo, video-to-video gen4_aleph)
+- **AI Services**: Gemini 2.5 Flash (text), Anthropic Claude Sonnet 4.5 (`@anthropic-ai/sdk`, text-only chat in AI Assistant), Google Imagen 3 (images), Kling AI, ElevenLabs, Gemini VEO 3.1, Sora 2 (OpenAI via sora2api.ai), Luma Ray 2 (Dream Machine API), Runway Gen-4 (text-to-video gen4.5, image-to-video gen4_turbo, video-to-video gen4_aleph)
 - **Authentication**: Replit OpenID Connect
 - **Social Media APIs**: Twitter/X OAuth 2.0, YouTube OAuth, Meta Graph API (for Facebook, Instagram, WhatsApp)
 - **UI Components**: Radix UI, Tailwind CSS

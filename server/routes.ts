@@ -1245,21 +1245,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // AI Assistant Chat endpoint - supports multiple providers
   app.post("/api/ai/chat", requireAuth, async (req, res) => {
     try {
-      const { message, conversationHistory = [], provider = "auto" } = req.body;
+      const { message, conversationHistory = [], provider = "auto", generalMode = false } = req.body;
       
       if (!message || typeof message !== "string") {
         return res.status(400).json({ error: "Message is required" });
       }
 
-      const validProviders = ["openai", "gemini", "auto"];
+      const validProviders = ["openai", "gemini", "claude", "auto"];
       if (!validProviders.includes(provider)) {
-        return res.status(400).json({ error: "Invalid provider. Must be 'openai', 'gemini', or 'auto'" });
+        return res.status(400).json({ error: "Invalid provider. Must be 'openai', 'gemini', 'claude', or 'auto'" });
       }
+
+      const isGeneralMode = generalMode === true || generalMode === "true";
+      const GENERIC_SYSTEM_PROMPT = "You are a helpful AI assistant. Help the user with whatever they ask. Be clear and concise.";
 
       const userId = req.user?.id;
       let companyProfile = null;
       let userPreferencesData = null;
-      if (userId) {
+      if (userId && !isGeneralMode) {
         companyProfile = await storage.getCompanyProfile(userId);
         // Fetch user preferences for localized content
         const prefResults = await db
@@ -1272,7 +1275,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Build location context string
       let locationContext = "";
-      if (userPreferencesData) {
+      if (!isGeneralMode && userPreferencesData) {
         if (userPreferencesData.serviceArea) {
           locationContext += `The user is a real estate agent serving the ${userPreferencesData.serviceArea} area.`;
         } else if ((companyProfile as any)?.city || (companyProfile as any)?.state) {
@@ -1292,12 +1295,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locationContext = `The user operates in ${cpArea}.`;
       }
 
+      // Use Claude when explicitly requested
+      if (provider === "claude") {
+        const { anthropicService } = await import("./services/anthropic");
+        const claudeSystemPrompt = isGeneralMode
+          ? GENERIC_SYSTEM_PROMPT
+          : `You are a helpful AI assistant for real estate professionals. 
+You help with:
+- Creating social media posts and marketing content
+- Writing blog articles and property descriptions
+- Answering real estate marketing questions
+- Providing market insights and advice
+- Generating image and video ideas
+
+${locationContext ? locationContext : ""}
+
+Be professional, helpful, and focused on real estate marketing. Keep responses concise but informative.`.trim();
+
+        const result = await anthropicService.chat(message, conversationHistory, claudeSystemPrompt);
+        if (!result.success) {
+          return res.status(500).json({ error: result.error || "Claude chat failed" });
+        }
+        return res.json({
+          message: result.message,
+          role: "assistant",
+          provider: "claude",
+        });
+      }
+
       // Use Gemini when explicitly requested
       if (provider === "gemini") {
         const { geminiService } = await import("./services/gemini");
         
         // Build Gemini system prompt with location context
-        const geminiSystemPrompt = `You are a helpful AI assistant for real estate professionals. 
+        const geminiSystemPrompt = isGeneralMode
+          ? GENERIC_SYSTEM_PROMPT
+          : `You are a helpful AI assistant for real estate professionals. 
 You help with:
 - Creating social media posts and marketing content
 - Writing blog articles and property descriptions
@@ -1337,10 +1370,9 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
       }
 
       // Use OpenAI for "openai" and "auto" providers
-      const messages = [
-        {
-          role: "system" as const,
-          content: `You are a helpful AI assistant for real estate professionals. 
+      const openaiSystemContent = isGeneralMode
+        ? GENERIC_SYSTEM_PROMPT
+        : `You are a helpful AI assistant for real estate professionals. 
 You help with:
 - Creating social media posts and marketing content
 - Writing blog articles and property descriptions
@@ -1352,7 +1384,11 @@ ${locationContext ? locationContext : ""}
 
 ${companyProfile ? `The user works for ${companyProfile.companyName || "a real estate company"} with tagline: "${companyProfile.tagline || ""}"` : ""}
 
-Be professional, helpful, and focused on real estate marketing. Keep responses concise but informative.`
+Be professional, helpful, and focused on real estate marketing. Keep responses concise but informative.`;
+      const messages = [
+        {
+          role: "system" as const,
+          content: openaiSystemContent
         },
         ...conversationHistory.map((msg: { role: string; content: string }) => ({
           role: msg.role as "user" | "assistant",
@@ -1391,7 +1427,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
           return await client.chat.completions.create({
             model: "gpt-4o",
             messages: [
-              { role: "system" as const, content: "You are a helpful assistant for real estate professionals. Be concise and helpful." },
+              { role: "system" as const, content: isGeneralMode ? "You are a helpful assistant. Be concise and helpful." : "You are a helpful assistant for real estate professionals. Be concise and helpful." },
               { role: "user" as const, content: message }
             ],
             max_completion_tokens: 500,
@@ -21135,8 +21171,9 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(401).json({ error: "User not authenticated" });
       }
 
-      const { message } = req.body;
+      const { message, provider = "auto", generalMode = false } = req.body;
       const files = req.files as Express.Multer.File[] || [];
+      const isGeneralMode = generalMode === true || generalMode === "true";
 
       if (!message && files.length === 0) {
         return res.status(400).json({ error: "Message or files required" });
@@ -21187,7 +21224,9 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       // Prepare OpenAI request with image support
       let aiResponse: string;
       
-      const systemPrompt = `You are an AI assistant for iMakePage (imakepage.com), an AI-powered real estate marketing platform built by My Golden Brick. You help real estate agents with:
+      const systemPrompt = isGeneralMode
+        ? "You are a helpful AI assistant. Help the user with whatever they ask. Be clear and concise."
+        : `You are an AI assistant for iMakePage (imakepage.com), an AI-powered real estate marketing platform built by My Golden Brick. You help real estate agents with:
 
 CONTENT & MARKETING:
 - Writing property descriptions and marketing content
@@ -21217,7 +21256,27 @@ WHATSAPP & BULK MESSAGING:
 Be helpful, professional, and concise. Always let users know what the platform can do for them.`;
 
       try {
-        if (imageUrls.length > 0) {
+        // If user explicitly chose Claude AND there are no images, route to Claude.
+        // Vision (image) requests always fall through to OpenAI gpt-4o below.
+        if (provider === "claude" && imageUrls.length === 0) {
+          const { anthropicService } = await import("./services/anthropic");
+          const claudeResult = await anthropicService.chat(message || "", [], systemPrompt);
+          if (claudeResult.success && claudeResult.message) {
+            aiResponse = claudeResult.message;
+          } else {
+            console.warn(`⚠️ [AI Assistant] Claude failed, falling back to OpenAI: ${claudeResult.error}`);
+            aiResponse = "";
+          }
+        } else if (provider === "claude" && imageUrls.length > 0) {
+          console.log("ℹ️ [AI Assistant] Claude selected but images attached — falling back to GPT-4o vision");
+          aiResponse = "";
+        } else {
+          aiResponse = "";
+        }
+
+        if (aiResponse) {
+          // Claude path succeeded; skip OpenAI calls below.
+        } else if (imageUrls.length > 0) {
           // Use vision model for image analysis
           const contentParts: any[] = [];
           
@@ -21263,7 +21322,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 return await client.chat.completions.create({
                   model: 'gpt-4o',
                   messages: [
-                    { role: 'system', content: "You are a helpful real estate AI assistant. Be concise." },
+                    { role: 'system', content: isGeneralMode ? "You are a helpful AI assistant. Be concise." : "You are a helpful real estate AI assistant. Be concise." },
                     { role: 'user', content: message || "Please describe what you see in the uploaded images." },
                   ],
                   max_tokens: 1000,
@@ -21306,7 +21365,7 @@ Be helpful, professional, and concise. Always let users know what the platform c
                 return await client.chat.completions.create({
                   model: 'gpt-4o',
                   messages: [
-                    { role: 'system', content: "You are a helpful assistant. Be concise." },
+                    { role: 'system', content: isGeneralMode ? "You are a helpful assistant. Be concise." : "You are a helpful real estate assistant. Be concise." },
                     { role: 'user', content: message },
                   ],
                   max_tokens: 1000,

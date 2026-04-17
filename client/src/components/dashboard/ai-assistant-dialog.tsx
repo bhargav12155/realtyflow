@@ -482,7 +482,16 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini">("auto");
+  const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini" | "claude">("auto");
+  const [generalMode, setGeneralMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("ai-assistant-general-mode") === "true";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("ai-assistant-general-mode", String(generalMode));
+    }
+  }, [generalMode]);
   const [videoMode, setVideoMode] = useState(false);
   const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2" | "luma" | "runway">("veo");
   const [sora2Prompt, setSora2Prompt] = useState("");
@@ -2116,6 +2125,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
         const formData = new FormData();
         formData.append("message", trimmedInput);
         formData.append("provider", aiProvider);
+        formData.append("generalMode", String(generalMode));
         filesToSend.forEach(file => {
           formData.append("files", file);
         });
@@ -2145,6 +2155,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
             message: trimmedInput,
             conversationHistory: messages,
             provider: aiProvider,
+            generalMode,
           }),
         });
 
@@ -2319,7 +2330,7 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
             <div className="flex items-center gap-3 mb-3">
               <label className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">AI Provider:</label>
-              <Select value={aiProvider} onValueChange={(value: "auto" | "openai" | "gemini") => setAiProvider(value)}>
+              <Select value={aiProvider} onValueChange={(value: "auto" | "openai" | "gemini" | "claude") => setAiProvider(value)}>
                 <SelectTrigger className="w-[200px] h-8 text-xs" data-testid="select-ai-provider">
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
@@ -2327,8 +2338,23 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
                   <SelectItem value="auto">Auto (Recommended)</SelectItem>
                   <SelectItem value="openai">ChatGPT (GPT-4o)</SelectItem>
                   <SelectItem value="gemini">Gemini</SelectItem>
+                  <SelectItem value="claude">Claude (Sonnet 4.5)</SelectItem>
                 </SelectContent>
               </Select>
+              <label
+                className="ml-2 inline-flex items-center gap-1.5 cursor-pointer select-none"
+                title="Removes real-estate framing — use for any topic"
+                data-testid="label-general-mode"
+              >
+                <input
+                  type="checkbox"
+                  checked={generalMode}
+                  onChange={(e) => setGeneralMode(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                  data-testid="checkbox-general-mode"
+                />
+                <span className="text-xs text-gray-600 dark:text-gray-300">General Mode</span>
+              </label>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Quick Actions</p>
             <div className="flex flex-wrap gap-2">

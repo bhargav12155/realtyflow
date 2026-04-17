@@ -21199,8 +21199,8 @@ Be helpful, professional, and concise. Always let users know what the platform c
         // Provider routing:
         // - claude: route to Anthropic. Uses Claude vision when images are
         //   attached; falls back to GPT-4o vision below only if Claude fails.
-        // - gemini: route to Gemini for text. Image requests still fall through
-        //   to GPT-4o vision below (Gemini vision not wired here yet).
+        // - gemini: route to Gemini for text and vision (when images are
+        //   attached). Falls back to GPT-4o vision below only if Gemini fails.
         // - openai/auto: fall through to OpenAI (text or gpt-4o vision) below.
         aiResponse = "";
         if (imageUrls.length === 0) {
@@ -21237,7 +21237,20 @@ Be helpful, professional, and concise. Always let users know what the platform c
             console.warn(`⚠️ [AI Assistant] Claude vision failed, falling back to GPT-4o vision: ${claudeResult.error}`);
           }
         } else if (provider === "gemini") {
-          console.log("ℹ️ [AI Assistant] Gemini selected with images — using GPT-4o vision (Gemini vision not wired here)");
+          // Use Gemini's native vision support when the user explicitly picked Gemini.
+          console.log(`🖼️ [AI Assistant] Gemini selected with ${imageUrls.length} image(s) — using Gemini vision`);
+          const { geminiService } = await import("./services/gemini");
+          const geminiResult = await geminiService.chat(
+            message || "",
+            [],
+            systemPrompt,
+            imageInputs
+          );
+          if (geminiResult.success && geminiResult.message) {
+            aiResponse = geminiResult.message;
+          } else {
+            console.warn(`⚠️ [AI Assistant] Gemini vision failed, falling back to GPT-4o vision: ${geminiResult.error}`);
+          }
         }
 
         if (aiResponse) {

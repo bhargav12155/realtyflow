@@ -5,10 +5,51 @@ interface ChatMessage {
   content: string;
 }
 
+export interface ChatImageInput {
+  url: string;
+  mediaType?: string;
+}
+
 interface GeminiChatResponse {
   success: boolean;
   message?: string;
   error?: string;
+}
+
+type GeminiMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
+const SUPPORTED_GEMINI_MEDIA_TYPES: ReadonlySet<string> = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+function normalizeGeminiMediaType(mediaType?: string): GeminiMediaType {
+  const lower = (mediaType || "").toLowerCase();
+  if (lower === "image/jpg") return "image/jpeg";
+  if (SUPPORTED_GEMINI_MEDIA_TYPES.has(lower)) {
+    return lower as GeminiMediaType;
+  }
+  return "image/jpeg";
+}
+
+async function fetchImageAsBase64ForGemini(
+  url: string,
+  fallbackMediaType?: string
+): Promise<{ data: string; mediaType: GeminiMediaType }> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch image (${response.status} ${response.statusText}): ${url}`
+    );
+  }
+  const headerType = response.headers.get("content-type") || undefined;
+  const mediaType = normalizeGeminiMediaType(
+    headerType?.split(";")[0]?.trim() || fallbackMediaType
+  );
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return { data: buffer.toString("base64"), mediaType };
 }
 
 export class GeminiService {
@@ -33,7 +74,12 @@ export class GeminiService {
     return this.client;
   }
 
-  async chat(message: string, conversationHistory?: ChatMessage[], customSystemPrompt?: string): Promise<GeminiChatResponse> {
+  async chat(
+    message: string,
+    conversationHistory?: ChatMessage[],
+    customSystemPrompt?: string,
+    images?: ChatImageInput[]
+  ): Promise<GeminiChatResponse> {
     const client = this.getClient();
     
     if (!client) {
@@ -41,8 +87,12 @@ export class GeminiService {
       return { success: false, error: "Gemini API key not configured. Please add GEMINI_API_KEY to secrets." };
     }
 
+    const hasImages = Array.isArray(images) && images.length > 0;
+
     try {
-      console.log(`💬 [Gemini] Processing chat message with gemini-2.5-flash`);
+      console.log(
+        `💬 [Gemini] Processing chat message with gemini-2.5-flash${hasImages ? ` (vision: ${images!.length} image${images!.length === 1 ? "" : "s"})` : ""}`
+      );
 
       const systemPrompt = customSystemPrompt || `You are a helpful AI assistant for real estate professionals. 
 You help with:
@@ -54,7 +104,10 @@ You help with:
 
 Be professional, helpful, and focused on real estate marketing. Keep responses concise but informative.`;
 
-      const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+      type GeminiPart =
+        | { text: string }
+        | { inlineData: { mimeType: string; data: string } };
+      const contents: Array<{ role: string; parts: GeminiPart[] }> = [];
 
       if (conversationHistory && conversationHistory.length > 0) {
         for (const msg of conversationHistory) {
@@ -66,9 +119,29 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         }
       }
 
+      const userParts: GeminiPart[] = [];
+      if (hasImages) {
+        for (const img of images!) {
+          try {
+            const { data, mediaType } = await fetchImageAsBase64ForGemini(img.url, img.mediaType);
+            userParts.push({ inlineData: { mimeType: mediaType, data } });
+          } catch (fetchErr) {
+            const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+            console.error(`❌ [Gemini] Image fetch failed: ${errMsg}`);
+            throw new Error(`Failed to load image for Gemini vision: ${errMsg}`);
+          }
+        }
+        const textForVision = message && message.trim() !== ""
+          ? message
+          : "Please analyze the attached image(s).";
+        userParts.push({ text: textForVision });
+      } else {
+        userParts.push({ text: message });
+      }
+
       contents.push({
         role: "user",
-        parts: [{ text: message }],
+        parts: userParts,
       });
 
       const response = await client.models.generateContent({

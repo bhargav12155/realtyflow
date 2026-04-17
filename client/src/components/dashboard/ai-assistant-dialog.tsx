@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Send,
   Loader2,
@@ -483,15 +484,24 @@ export function AIAssistantDialog({ open, onOpenChange }: AIAssistantDialogProps
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [aiProvider, setAiProvider] = useState<"auto" | "openai" | "gemini" | "claude">("auto");
+  const { user } = useAuth();
+  const generalModeStorageKey = user?.id
+    ? `ai-assistant-general-mode:${user.id}`
+    : "ai-assistant-general-mode";
   const [generalMode, setGeneralMode] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("ai-assistant-general-mode") === "true";
+    return window.localStorage.getItem(generalModeStorageKey) === "true";
   });
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(generalModeStorageKey);
+    setGeneralMode(stored === "true");
+  }, [generalModeStorageKey]);
+  useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem("ai-assistant-general-mode", String(generalMode));
+      window.localStorage.setItem(generalModeStorageKey, String(generalMode));
     }
-  }, [generalMode]);
+  }, [generalMode, generalModeStorageKey]);
   const [videoMode, setVideoMode] = useState(false);
   const [assistantVideoPlatform, setAssistantVideoPlatform] = useState<"veo" | "sora2" | "luma" | "runway">("veo");
   const [sora2Prompt, setSora2Prompt] = useState("");

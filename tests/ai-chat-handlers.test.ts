@@ -339,6 +339,106 @@ describe("/api/ai/chat handler", () => {
     });
   });
 
+  describe("inline image generation", () => {
+    it("triggers generateImage and returns imageUrl on OpenAI path", async () => {
+      const { app, openaiService } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Please create an image of a cozy living room",
+        provider: "openai",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "openai");
+      assert.equal(openaiService.calls.length, 1);
+      assert.match(
+        openaiService.calls[0].prompt,
+        /cozy living room/i,
+        "image prompt must include the user's request",
+      );
+      assert.equal(
+        res.body.imageUrl,
+        "https://example.com/fake-image.png",
+        "response must surface the generated image URL",
+      );
+    });
+
+    it("triggers generateImage and returns imageUrl on Gemini path", async () => {
+      const { app, openaiService, geminiService } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Generate a photo of a modern kitchen",
+        provider: "gemini",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.provider, "gemini");
+      assert.equal(geminiService.calls.length, 1);
+      assert.equal(openaiService.calls.length, 1);
+      assert.match(openaiService.calls[0].prompt, /modern kitchen/i);
+      assert.equal(res.body.imageUrl, "https://example.com/fake-image.png");
+    });
+
+    it("triggers generateImage on auto provider when prompt matches", async () => {
+      const { app, openaiService } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "make an illustration of a sunset over the ocean",
+        provider: "auto",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(openaiService.calls.length, 1);
+      assert.equal(res.body.imageUrl, "https://example.com/fake-image.png");
+    });
+
+    it("does NOT call generateImage for non-image messages on OpenAI path", async () => {
+      const { app, openaiService } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "What is the capital of France?",
+        provider: "openai",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(openaiService.calls.length, 0);
+      assert.equal(res.body.imageUrl, undefined);
+    });
+
+    it("does NOT call generateImage for non-image messages on Gemini path", async () => {
+      const { app, openaiService } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Tell me a joke about cats",
+        provider: "gemini",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(openaiService.calls.length, 0);
+      assert.equal(res.body.imageUrl, undefined);
+    });
+
+    it("does NOT call generateImage when provider=claude even for image prompts", async () => {
+      const { app, openaiService } = buildAiChatApp();
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Create an image of a beach house",
+        provider: "claude",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(openaiService.calls.length, 0);
+      assert.equal(res.body.imageUrl, undefined);
+    });
+
+    it("still returns the chat message when image generation fails (OpenAI path)", async () => {
+      const failingOpenAI = {
+        calls: [] as Array<{ prompt: string }>,
+        async generateImage(opts: { prompt: string }) {
+          this.calls.push(opts);
+          throw new Error("image gen blew up");
+        },
+      };
+      const { app } = buildAiChatApp({ openaiService: failingOpenAI });
+      const res = await postJSON(app, "/api/ai/chat", {
+        message: "Create an image of a mountain cabin",
+        provider: "openai",
+      });
+      assert.equal(res.status, 200);
+      assert.equal(failingOpenAI.calls.length, 1);
+      assert.equal(res.body.imageUrl, undefined);
+      assert.equal(res.body.message, "openai-default-response");
+    });
+  });
+
   describe("generalMode toggle", () => {
     for (const provider of ["openai", "claude", "gemini", "auto"]) {
       it(`omits company/location context in general mode (provider=${provider})`, async () => {

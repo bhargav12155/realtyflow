@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   mapAddressLookupToProperty,
+  mapSearchResultToProperty,
   pickListingMlsNumber,
   pickBathrooms,
 } from "../shared/mlsAddressMapping";
@@ -172,5 +173,121 @@ describe("mapAddressLookupToProperty", () => {
   it("safely handles missing Media array", () => {
     const result = mapAddressLookupToProperty({ ListingId: "1" });
     assert.deepEqual(result.photoUrls, []);
+  });
+});
+
+describe("mapSearchResultToProperty", () => {
+  it("maps a typical /api/property/search entry correctly", () => {
+    const result = mapSearchResultToProperty({
+      id: "22019876",
+      listPrice: 425000,
+      address: "123 Main St",
+      city: "Omaha",
+      state: "NE",
+      zipCode: "68102",
+      beds: 4,
+      baths: 2.5,
+      sqft: 2400,
+      propertyType: "Residential",
+      status: "Active",
+      onMarketDate: "2025-01-15",
+      condition: ["Updated"],
+      imageUrl: "https://img.example.com/a.jpg",
+      subdivision: "Old Market",
+    });
+
+    assert.equal(result.id, "22019876");
+    assert.equal(result.mlsId, "22019876");
+    assert.equal(result.listPrice, 425000);
+    assert.equal(result.bedrooms, 4);
+    assert.equal(result.bathrooms, 2.5);
+    assert.equal(result.squareFootage, 2400);
+    assert.equal(result.city, "Omaha");
+    assert.equal(result.state, "NE");
+    assert.equal(result.zipCode, "68102");
+    assert.equal(result.propertyType, "Residential");
+    assert.equal(result.listingStatus, "Active");
+    assert.equal(result.listingDate, "2025-01-15");
+    assert.equal(result.neighborhood, "Old Market");
+    assert.deepEqual(result.features, ["Updated"]);
+    assert.deepEqual(result.photoUrls, ["https://img.example.com/a.jpg"]);
+  });
+
+  it("leaves missing numeric fields as null instead of collapsing to 0", () => {
+    const result = mapSearchResultToProperty({
+      id: "22019876",
+      address: "456 Elm St",
+      // No price, beds, baths, sqft
+    });
+
+    assert.equal(result.listPrice, null);
+    assert.equal(result.bedrooms, null);
+    assert.equal(result.bathrooms, null);
+    assert.equal(result.squareFootage, null);
+  });
+
+  it("treats empty strings and null upstream values as null (no silent 0)", () => {
+    const result = mapSearchResultToProperty({
+      id: "1",
+      listPrice: null,
+      beds: "",
+      baths: null,
+      sqft: "",
+    });
+
+    assert.equal(result.listPrice, null);
+    assert.equal(result.bedrooms, null);
+    assert.equal(result.bathrooms, null);
+    assert.equal(result.squareFootage, null);
+  });
+
+  it("parses string numerics from the upstream payload", () => {
+    const result = mapSearchResultToProperty({
+      id: "1",
+      listPrice: "425000",
+      beds: "4",
+      baths: "2.5",
+      sqft: "2400",
+    });
+
+    assert.equal(result.listPrice, 425000);
+    assert.equal(result.bedrooms, 4);
+    assert.equal(result.bathrooms, 2.5);
+    assert.equal(result.squareFootage, 2400);
+  });
+
+  it("defaults state to NE and listingStatus to Active when missing", () => {
+    const result = mapSearchResultToProperty({ id: "1" });
+    assert.equal(result.state, "NE");
+    assert.equal(result.listingStatus, "Active");
+  });
+
+  it("prefers explicit mlsId over id when both are present", () => {
+    const result = mapSearchResultToProperty({
+      id: "row-1",
+      mlsId: "22019876",
+    });
+    assert.equal(result.mlsId, "22019876");
+  });
+
+  it("falls back from photoUrls to imageUrl, and to [] when neither is present", () => {
+    assert.deepEqual(
+      mapSearchResultToProperty({
+        id: "1",
+        photoUrls: ["https://img.example.com/a.jpg", ""],
+      }).photoUrls,
+      ["https://img.example.com/a.jpg"],
+    );
+    assert.deepEqual(
+      mapSearchResultToProperty({
+        id: "1",
+        imageUrl: "https://img.example.com/b.jpg",
+      }).photoUrls,
+      ["https://img.example.com/b.jpg"],
+    );
+    assert.deepEqual(
+      mapSearchResultToProperty({ id: "1" }).photoUrls,
+      [],
+    );
   });
 });

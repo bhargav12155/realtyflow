@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Search, Home, MapPin, Bed, Bath, Square, DollarSign, Calendar, Eye, Loader2, X, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { mapAddressLookupToProperty } from "@shared/mlsAddressMapping";
+import { mapAddressLookupToProperty, mapSearchResultToProperty } from "@shared/mlsAddressMapping";
 
 export interface Property {
   id: string;
@@ -239,26 +239,15 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
       // Transform gbcma API response to our Property interface
       const properties = data.properties || [];
       
-      return properties.map((prop: any) => ({
-        id: prop.id || Math.random().toString(),
-        mlsId: prop.id || '', // gbcma uses 'id' field
-        listPrice: prop.listPrice || 0,
-        address: prop.address || '',
-        city: prop.city || '',
-        state: prop.state || 'NE',
-        zipCode: prop.zipCode || '',
-        bedrooms: prop.beds || 0,
-        bathrooms: prop.baths || 0,
-        squareFootage: prop.sqft || 0,
-        propertyType: prop.propertyType || '',
-        listingStatus: prop.status || 'Active',
-        listingDate: prop.onMarketDate || '',
-        description: '',
-        features: prop.condition || [],
-        photoUrls: prop.imageUrl ? [prop.imageUrl] : [],
-        neighborhood: prop.subdivision || null,
-        agentName: null,
-      }));
+      // Use the shared sibling helper so missing numeric fields stay
+      // null instead of silently collapsing to 0 (mirrors the
+      // address-lookup branch fixed in task #48).
+      return properties.map((prop: any) =>
+        mapSearchResultToProperty({
+          ...prop,
+          mlsId: prop.mlsId ?? prop.id, // gbcma uses 'id' field for the listing
+        }),
+      );
     },
     enabled: false, // Only search when user clicks search button
     retry: false, // Don't auto-retry failed requests

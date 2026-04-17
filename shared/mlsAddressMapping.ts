@@ -113,6 +113,88 @@ export function pickBathrooms(p: AddressLookupResponse): number | null {
 }
 
 /**
+ * Shape of a single property returned by the normalized
+ * `/api/property/search` proxy (gbcma / fallback chain). Fields are
+ * lower-camelCase rather than RESO PascalCase, so it warrants its own
+ * sibling mapper that still funnels through the same null-safe number
+ * helpers used for the address-lookup branch.
+ */
+export interface SearchResultProperty {
+  id?: string | number | null;
+  mlsId?: string | number | null;
+  listPrice?: number | string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  beds?: number | string | null;
+  baths?: number | string | null;
+  sqft?: number | string | null;
+  propertyType?: string | null;
+  status?: string | null;
+  onMarketDate?: string | null;
+  description?: string | null;
+  condition?: string[] | null;
+  features?: string[] | null;
+  imageUrl?: string | null;
+  photoUrls?: string[] | null;
+  subdivision?: string | null;
+  neighborhood?: string | null;
+  agentName?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Maps a single search-result entry into the Property shape used by the
+ * property selector. Mirrors {@link mapAddressLookupToProperty}: numeric
+ * fields fall through to null (instead of 0) when the upstream service
+ * does not provide a value, so missing data is visible rather than
+ * silently looking like a real "0".
+ */
+export function mapSearchResultToProperty(
+  p: SearchResultProperty,
+): MappedAddressProperty {
+  const id =
+    firstString(p.id, p.mlsId) ||
+    Math.random().toString(36).slice(2);
+
+  const photoUrls = Array.isArray(p.photoUrls)
+    ? p.photoUrls.filter(
+        (u): u is string => typeof u === "string" && u.length > 0,
+      )
+    : typeof p.imageUrl === "string" && p.imageUrl.length > 0
+      ? [p.imageUrl]
+      : [];
+
+  const features = Array.isArray(p.features)
+    ? p.features
+    : Array.isArray(p.condition)
+      ? p.condition
+      : [];
+
+  return {
+    id,
+    mlsId: firstString(p.mlsId, p.id),
+    address: firstString(p.address),
+    city: firstString(p.city),
+    state: firstString(p.state) || "NE",
+    zipCode: firstString(p.zipCode),
+    listPrice: toFiniteNumber(p.listPrice),
+    bedrooms: toFiniteNumber(p.beds),
+    bathrooms: toFiniteNumber(p.baths),
+    squareFootage: toFiniteNumber(p.sqft),
+    propertyType: firstString(p.propertyType),
+    listingStatus: firstString(p.status) || "Active",
+    listingDate: firstString(p.onMarketDate),
+    description: firstString(p.description),
+    features,
+    photoUrls,
+    neighborhood: firstString(p.subdivision, p.neighborhood) || null,
+    agentName: firstString(p.agentName) || null,
+  };
+}
+
+/**
  * Maps an address-lookup response into the Property shape used by the
  * property selector. Numeric fields fall through to null (instead of 0)
  * when the upstream service does not provide a value, so missing data

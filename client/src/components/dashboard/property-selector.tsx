@@ -61,12 +61,10 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isSearchingAddress, setIsSearchingAddress] = useState(false);
   const [autoFoundProperty, setAutoFoundProperty] = useState<Property | null>(null);
-  const [autoFoundMissingFields, setAutoFoundMissingFields] = useState<{
-    listPrice: boolean;
-    bedrooms: boolean;
-    bathrooms: boolean;
-    squareFootage: boolean;
-  }>({ listPrice: false, bedrooms: false, bathrooms: false, squareFootage: false });
+  // Beds/baths/sqft are already conditionally rendered based on truthy
+  // values, so null naturally hides them. Only listPrice needs an
+  // explicit "missing" flag to render the "Price not provided" copy.
+  const [autoFoundMissingPrice, setAutoFoundMissingPrice] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<any>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -117,7 +115,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
     if (!address || address.trim().length < 5) return;
     
     setIsSearchingAddress(true);
-    setAutoFoundProperty(null); setAutoFoundMissingFields({ listPrice: false, bedrooms: false, bathrooms: false, squareFootage: false });
+    setAutoFoundProperty(null); setAutoFoundMissingPrice(false);
     
     try {
       console.log('Fetching property details for address:', address);
@@ -136,22 +134,11 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
         // Auto-fill search parameters with GBCMA data
         if (propertyData && (propertyData.ListingKey || propertyData.UnparsedAddress)) {
           const mapped = mapAddressLookupToProperty(propertyData, address);
-          // Track which numeric fields the upstream service did not provide
-          // so the auto-found card can render a "Not provided" placeholder
-          // instead of a misleading "$0" / "0 beds / 0 baths". The shared
-          // `Property` shape used by downstream consumers stays unchanged;
-          // the card-level rendering checks these flags explicitly.
-          const missing = {
-            listPrice: mapped.listPrice === null,
-            bedrooms: mapped.bedrooms === null,
-            bathrooms: mapped.bathrooms === null,
-            squareFootage: mapped.squareFootage === null,
-          };
-          setAutoFoundMissingFields(missing);
-          // Pass through null values unchanged. The Property interface
-          // declares listPrice / bedrooms / bathrooms / squareFootage
-          // as nullable so renderers must show "Not provided" instead
-          // of a misleading "$0" / "0 beds".
+          // listPrice gets a dedicated flag so the card can render
+          // "Price not provided". Beds/baths/sqft already render
+          // conditionally on truthy values, so null naturally hides
+          // them — no extra flag needed.
+          setAutoFoundMissingPrice(mapped.listPrice === null);
           const foundProperty: Property = mapped;
 
           setSearchParams(prev => ({
@@ -304,7 +291,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
       address: "",
       listingAgent: "",
     });
-    setAutoFoundProperty(null); setAutoFoundMissingFields({ listPrice: false, bedrooms: false, bathrooms: false, squareFootage: false });
+    setAutoFoundProperty(null); setAutoFoundMissingPrice(false);
     setSearchMessage('');
   };
 
@@ -366,10 +353,10 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
 
   const PropertyCard = ({
     property,
-    missingFields,
+    missingPrice,
   }: {
     property: Property;
-    missingFields?: { listPrice?: boolean; bedrooms?: boolean; bathrooms?: boolean; squareFootage?: boolean };
+    missingPrice?: boolean;
   }) => (
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => {
       onSelectProperty(property);
@@ -409,7 +396,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
               </div>
               <div className="text-right">
                 <p className="font-bold text-primary" data-testid="text-property-price">
-                  {missingFields?.listPrice
+                  {missingPrice
                     ? <span className="text-muted-foreground font-normal">Price not provided</span>
                     : formatPrice(property.listPrice)}
                 </p>
@@ -547,7 +534,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                       onChange={(e) => {
                         const newAddress = e.target.value;
                         setSearchParams(prev => ({ ...prev, address: newAddress }));
-                        setAutoFoundProperty(null); setAutoFoundMissingFields({ listPrice: false, bedrooms: false, bathrooms: false, squareFootage: false });
+                        setAutoFoundProperty(null); setAutoFoundMissingPrice(false);
                         
                         // Clear existing search timeout
                         if (searchTimeoutRef.current) {
@@ -583,7 +570,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                         type="button"
                         onClick={() => {
                           setSearchParams(prev => ({ ...prev, address: '' }));
-                          setAutoFoundProperty(null); setAutoFoundMissingFields({ listPrice: false, bedrooms: false, bathrooms: false, squareFootage: false });
+                          setAutoFoundProperty(null); setAutoFoundMissingPrice(false);
                         }}
                         className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                         data-testid="button-clear-address"
@@ -687,7 +674,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                     <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">Auto-detected</span>
                   </div>
                   <div className="space-y-3">
-                    <PropertyCard key={autoFoundProperty.id} property={autoFoundProperty} missingFields={autoFoundMissingFields} />
+                    <PropertyCard key={autoFoundProperty.id} property={autoFoundProperty} missingPrice={autoFoundMissingPrice} />
                   </div>
                   <div className="text-center mt-4 text-sm text-muted-foreground">
                     Click "Search Properties" to select this property automatically

@@ -812,6 +812,42 @@ describe("/api/ai-assistant/chat handler", () => {
     });
   }
 
+  it("returns the canned fallback when multiOpenAI.makeRequest throws", async () => {
+    const throwingMultiOpenAI: AiAssistantDeps["multiOpenAI"] & {
+      calls: Call[];
+    } = {
+      calls: [],
+      async makeRequest(kind, _fn) {
+        this.calls.push({ kind, messages: [] });
+        throw new Error("openai exploded mid-conversation");
+      },
+    };
+    const { app, db } = buildAssistantApp({
+      multiOpenAI: throwingMultiOpenAI,
+    });
+    const res = await postWithFiles(
+      app,
+      "/api/ai-assistant/chat",
+      { message: "Hi GPT", provider: "openai" },
+      [],
+    );
+    assert.equal(res.status, 200);
+    assert.equal(throwingMultiOpenAI.calls.length, 1);
+    assert.match(
+      res.body.assistantMessage.content,
+      /I apologize, but I'm having trouble processing your request right now\. Please try again later\./,
+    );
+    const persisted = (db.inserts as any[]).find(
+      (row) => row.role === "assistant",
+    );
+    assert.ok(persisted, "assistant message must be persisted");
+    assert.equal(
+      persisted.content,
+      res.body.assistantMessage.content,
+      "persisted assistant content must match returned fallback",
+    );
+  });
+
   it("returns 400 when both message and files are missing", async () => {
     const { app } = buildAssistantApp();
     const res = await postWithFiles(

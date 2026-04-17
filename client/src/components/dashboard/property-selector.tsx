@@ -241,7 +241,10 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
       
       // Use the shared sibling helper so missing numeric fields stay
       // null instead of silently collapsing to 0 (mirrors the
-      // address-lookup branch fixed in task #48).
+      // address-lookup branch fixed in task #48). The PropertyCard
+      // renderer below relies on these nulls to show explicit
+      // "— beds/baths/sqft" placeholders (task #49) rather than
+      // misrepresenting missing MLS data as a real "0".
       return properties.map((prop: any) =>
         mapSearchResultToProperty({
           ...prop,
@@ -331,7 +334,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
   };
 
   const formatPrice = (price: number | null) => {
-    if (price === null || !Number.isFinite(price)) return 'Price not provided';
+    if (price === null || !Number.isFinite(price)) return 'Price upon request';
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
@@ -386,7 +389,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
               <div className="text-right">
                 <p className="font-bold text-primary" data-testid="text-property-price">
                   {missingPrice
-                    ? <span className="text-muted-foreground font-normal">Price not provided</span>
+                    ? <span className="text-muted-foreground font-normal">Price upon request</span>
                     : formatPrice(property.listPrice)}
                 </p>
                 <Badge variant="secondary" className="text-xs">
@@ -397,24 +400,24 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
 
             {/* Property Features */}
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              {property.bedrooms && (
-                <div className="flex items-center gap-1">
-                  <Bed className="h-3 w-3" />
-                  {property.bedrooms} bed{property.bedrooms !== 1 ? 's' : ''}
-                </div>
-              )}
-              {property.bathrooms && (
-                <div className="flex items-center gap-1">
-                  <Bath className="h-3 w-3" />
-                  {property.bathrooms} bath{property.bathrooms !== 1 ? 's' : ''}
-                </div>
-              )}
-              {property.squareFootage && (
-                <div className="flex items-center gap-1">
-                  <Square className="h-3 w-3" />
-                  {property.squareFootage.toLocaleString()} sqft
-                </div>
-              )}
+              <div className="flex items-center gap-1" data-testid="text-property-beds">
+                <Bed className="h-3 w-3" />
+                {property.bedrooms === null
+                  ? <span className="italic">— beds</span>
+                  : `${property.bedrooms} bed${property.bedrooms !== 1 ? 's' : ''}`}
+              </div>
+              <div className="flex items-center gap-1" data-testid="text-property-baths">
+                <Bath className="h-3 w-3" />
+                {property.bathrooms === null
+                  ? <span className="italic">— baths</span>
+                  : `${property.bathrooms} bath${property.bathrooms !== 1 ? 's' : ''}`}
+              </div>
+              <div className="flex items-center gap-1" data-testid="text-property-sqft">
+                <Square className="h-3 w-3" />
+                {property.squareFootage === null
+                  ? <span className="italic">— sqft</span>
+                  : `${property.squareFootage.toLocaleString()} sqft`}
+              </div>
             </div>
 
             {/* MLS ID and Agent */}

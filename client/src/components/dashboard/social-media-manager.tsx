@@ -1783,7 +1783,7 @@ export function SocialMediaManager() {
     platform: string,
   ) => {
     const formatPrice = (price: number | null) => {
-      if (price === null || !Number.isFinite(price)) return "Price not provided";
+      if (price === null || !Number.isFinite(price)) return "Price upon request";
       return new Intl.NumberFormat("en-US", {
         style: "currency",
         currency: "USD",
@@ -1792,13 +1792,17 @@ export function SocialMediaManager() {
       }).format(price);
     };
 
-    const bedBathText = `${
-      property.bedrooms ? `🛏️ ${property.bedrooms} bed` : ""
-    } ${property.bathrooms ? `🛁 ${property.bathrooms} bath` : ""} ${
-      property.squareFootage
-        ? `📐 ${property.squareFootage.toLocaleString()} sqft`
-        : ""
-    }`;
+    const beds = property.bedrooms === null ? "—" : String(property.bedrooms);
+    const baths = property.bathrooms === null ? "—" : String(property.bathrooms);
+    const sqft =
+      property.squareFootage === null
+        ? "—"
+        : property.squareFootage.toLocaleString();
+    const sqftLong =
+      property.squareFootage === null
+        ? ""
+        : property.squareFootage.toLocaleString() + " square foot ";
+    const bedBathText = `🛏️ ${beds} bed 🛁 ${baths} bath 📐 ${sqft} sqft`;
     const neighborhoodTag = property.neighborhood
       ? property.neighborhood.replace(/\s+/g, "")
       : "";
@@ -1832,11 +1836,7 @@ Contact ${agentName} at ${brokerageName} for more information!
 ${property.address}
 ${formatPrice(property.listPrice)}
 
-✨ ${property.bedrooms}BD ${property.bathrooms}BA${
-          property.squareFootage
-            ? ` | ${property.squareFootage.toLocaleString()} sqft`
-            : ""
-        }
+✨ ${beds}BD ${baths}BA | ${sqft} sqft
 
 ${property.description.substring(0, 150)}...
 
@@ -1848,9 +1848,7 @@ DM for details! 📩
 
         x: `🏠 JUST LISTED!\n\n${property.address}\n${formatPrice(
           property.listPrice,
-        )}\n${property.bedrooms}BD ${
-          property.bathrooms
-        }BA\n\n${property.description.substring(
+        )}\n${beds}BD ${baths}BA\n\n${property.description.substring(
           0,
           100,
         )}...\n\nContact ${agentName} for details!\n\n#JustListed #OmahaRealEstate`,
@@ -1859,15 +1857,9 @@ DM for details! 📩
           property.listPrice,
         )}
 
-Welcome to this stunning ${property.bedrooms} bedroom, ${
-          property.bathrooms
-        } bathroom home in ${
+Welcome to this stunning ${beds} bedroom, ${baths} bathroom home in ${
           property.neighborhood || property.city
-        }! This beautiful ${
-          property.squareFootage
-            ? property.squareFootage.toLocaleString() + " square foot "
-            : ""
-        }${property.propertyType.toLowerCase()} offers everything you've been looking for.
+        }! This beautiful ${sqftLong}${property.propertyType.toLowerCase()} offers everything you've been looking for.
 
 ${property.description}
 
@@ -1946,17 +1938,11 @@ Ready to make your move? Let's chat! 📞
 
 I'm thrilled to share another successful sale in ${
           property.neighborhood || property.city
-        }! This beautiful ${property.bedrooms} bedroom, ${
-          property.bathrooms
-        } bathroom home has found its perfect new owners.
+        }! This beautiful ${beds} bedroom, ${baths} bathroom home has found its perfect new owners.
 
 ${property.description.substring(0, 300)}
 
-This ${
-          property.squareFootage
-            ? property.squareFootage.toLocaleString() + " square foot "
-            : ""
-        }property sold quickly, showcasing the continued strength of ${
+This ${sqftLong}property sold quickly, showcasing the continued strength of ${
           property.neighborhood ? `the ${property.neighborhood}` : "our local"
         } real estate market.
 
@@ -2010,7 +1996,7 @@ Contact ${agentName} at ${brokerageName} today!
 ${property.address}
 NOW ${formatPrice(property.listPrice)}!
 
-✨ ${property.bedrooms}BD ${property.bathrooms}BA
+✨ ${beds}BD ${baths}BA
 
 ${property.description.substring(0, 120)}...
 
@@ -2026,7 +2012,7 @@ DM me now! 📩
 
         x: `💰 PRICE IMPROVED!\n\n${property.address}\nNOW ${formatPrice(
           property.listPrice,
-        )}!\n\n${property.bedrooms}BD ${property.bathrooms}BA\n\n${
+        )}!\n\n${beds}BD ${baths}BA\n\n${
           property.neighborhood
             ? `${property.neighborhood} opportunity!`
             : "Great opportunity!"
@@ -2036,9 +2022,7 @@ DM me now! 📩
           property.listPrice,
         )}
 
-Exciting news! This beautiful ${property.bedrooms} bedroom, ${
-          property.bathrooms
-        } bathroom home just had a strategic price adjustment, making it an even better value for buyers!
+Exciting news! This beautiful ${beds} bedroom, ${baths} bathroom home just had a strategic price adjustment, making it an even better value for buyers!
 
 ${property.description.substring(0, 300)}
 
@@ -2083,7 +2067,7 @@ ${agentName} | ${brokerageName}
 🕐 Sat & Sun 1-4pm
 💰 ${formatPrice(property.listPrice)}
 
-✨ ${property.bedrooms}BD ${property.bathrooms}BA
+✨ ${beds}BD ${baths}BA
 
 ${property.description.substring(0, 120)}...
 
@@ -2099,17 +2083,13 @@ See you there! 👋
 
         x: `🏠 OPEN HOUSE!\n\n📍 ${
           property.address
-        }\n🕐 Sat & Sun 1-4pm\n💰 ${formatPrice(property.listPrice)}\n\n${
-          property.bedrooms
-        }BD ${property.bathrooms}BA\n\n${
+        }\n🕐 Sat & Sun 1-4pm\n💰 ${formatPrice(property.listPrice)}\n\n${beds}BD ${baths}BA\n\n${
           property.neighborhood ? `${property.neighborhood} gem!` : "Must see!"
         }\n\n${agentName} | ${brokerageName.split(" ").map((w: string) => w.charAt(0)).join("")}\n\n#OpenHouse`,
 
         youtube: `🏠 OPEN HOUSE THIS WEEKEND! ${property.address}
 
-Join me Saturday & Sunday, 1:00 PM - 4:00 PM for an exclusive tour of this stunning ${
-          property.bedrooms
-        } bedroom, ${property.bathrooms} bathroom home!
+Join me Saturday & Sunday, 1:00 PM - 4:00 PM for an exclusive tour of this stunning ${beds} bedroom, ${baths} bathroom home!
 
 Price: ${formatPrice(property.listPrice)}
 
@@ -4151,13 +4131,14 @@ ${agentName} | ${brokerageName}
                               <div className="text-sm font-medium mt-1">
                                 {selectedProperty.listPrice !== null && selectedProperty.listPrice !== undefined
                                   ? `$${selectedProperty.listPrice.toLocaleString()}`
-                                  : "Price not provided"}
+                                  : "Price upon request"}
                               </div>
                               <div className="text-xs text-muted-foreground mt-1">
-                                {selectedProperty.bedrooms || 0}bd •{" "}
-                                {selectedProperty.bathrooms || 0}ba •{" "}
-                                {selectedProperty.squareFootage?.toLocaleString() ||
-                                  "0"}{" "}
+                                {selectedProperty.bedrooms === null ? "—" : selectedProperty.bedrooms}bd •{" "}
+                                {selectedProperty.bathrooms === null ? "—" : selectedProperty.bathrooms}ba •{" "}
+                                {selectedProperty.squareFootage === null
+                                  ? "—"
+                                  : selectedProperty.squareFootage.toLocaleString()}{" "}
                                 sq ft
                               </div>
                             </div>
@@ -4191,8 +4172,8 @@ ${agentName} | ${brokerageName}
                             "--- Property ---",
                             `Address: ${selectedProperty.address}`,
                             `${selectedProperty.city}, ${selectedProperty.state}`,
-                            `Price: ${selectedProperty.listPrice !== null && selectedProperty.listPrice !== undefined ? `$${selectedProperty.listPrice.toLocaleString()}` : "Not provided"}`,
-                            `${selectedProperty.bedrooms || 0} bd • ${selectedProperty.bathrooms || 0} ba • ${selectedProperty.squareFootage?.toLocaleString() || "0"} sq ft`,
+                            `Price: ${selectedProperty.listPrice !== null && selectedProperty.listPrice !== undefined ? `$${selectedProperty.listPrice.toLocaleString()}` : "Price upon request"}`,
+                            `${selectedProperty.bedrooms === null ? "—" : selectedProperty.bedrooms} bd • ${selectedProperty.bathrooms === null ? "—" : selectedProperty.bathrooms} ba • ${selectedProperty.squareFootage === null ? "—" : selectedProperty.squareFootage.toLocaleString()} sq ft`,
                           );
                         }
                         const blob = new Blob([lines.join("\n")], { type: "text/plain" });

@@ -452,6 +452,43 @@ export async function uploadToObjectStorage(
   }
 }
 
+export async function persistImageBufferPublic(
+  imageBuffer: Buffer,
+  filename: string,
+  contentType: string = "image/jpeg",
+  subdir: string = "api-safe"
+): Promise<string | null> {
+  try {
+    const objectStorage = new ObjectStorageService();
+    if (!objectStorage.hasPublicPaths()) {
+      console.warn("Public object paths not configured, cannot persist image publicly");
+      return null;
+    }
+
+    const publicPaths = objectStorage.getPublicObjectSearchPaths();
+    const basePath = publicPaths[0];
+    const fullPath = `${basePath}/${subdir}/${filename}`;
+
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+
+    await file.save(imageBuffer, {
+      contentType,
+      resumable: false,
+      metadata: {
+        cacheControl: "public, max-age=31536000",
+      },
+    });
+
+    console.log(`✅ Public image saved to: ${fullPath}`);
+    return `/public-objects/${subdir}/${filename}`;
+  } catch (error) {
+    console.error("Failed to persist public image buffer:", error);
+    return null;
+  }
+}
+
 export async function persistImageFromUrl(
   imageUrl: string,
   filename: string

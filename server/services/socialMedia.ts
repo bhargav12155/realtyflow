@@ -3,6 +3,7 @@ import fs from "fs";
 import OAuth from "oauth-1.0a";
 import path from "path";
 import { whatsappService } from "./whatsapp";
+import { ensureApiSafeImageUrl } from "./imageProcessor";
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v', '.wmv', '.flv', '.3gp']);
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.tiff', '.heif', '.heic', '.webp', '.bmp', '.svg']);
@@ -419,9 +420,17 @@ export class SocialMediaService {
           process.env.REPLIT_DEPLOYMENT_URL ||
           process.env.CLIENT_URL ||
           "http://localhost:5000";
-        let resolvedUrl = mediaUrl.startsWith("http")
+
+        // For images, ensure the URL points to an API-safe format (JPEG/PNG)
+        // before sending to the Meta Graph API. Videos are passed through as-is.
+        const isVideo = !!options?.videoUrls?.[0];
+        const apiSafeMediaUrl = isVideo
           ? mediaUrl
-          : `${baseUrl}${mediaUrl}`;
+          : await ensureApiSafeImageUrl(mediaUrl, { baseUrl });
+
+        let resolvedUrl = apiSafeMediaUrl.startsWith("http")
+          ? apiSafeMediaUrl
+          : `${baseUrl}${apiSafeMediaUrl}`;
 
         // Instagram requires HTTPS URLs - if source is HTTP, proxy through our HTTPS server
         if (resolvedUrl.startsWith("http://")) {
@@ -1589,7 +1598,12 @@ export class SocialMediaService {
       }
 
       // Image/text-only posting below
-      const effectiveImageUrl = imageUrl || (options?.photoUrls && options.photoUrls.length > 0 ? options.photoUrls[0] : undefined);
+      const rawEffectiveImageUrl = imageUrl || (options?.photoUrls && options.photoUrls.length > 0 ? options.photoUrls[0] : undefined);
+
+      // Ensure URL points to an API-safe format (JPEG/PNG) before sending to Meta Graph API
+      const effectiveImageUrl = rawEffectiveImageUrl
+        ? await ensureApiSafeImageUrl(rawEffectiveImageUrl, { baseUrl })
+        : undefined;
       console.log("🔍 Facebook Post Debug - Effective Image URL:", effectiveImageUrl);
 
       const presetPageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
@@ -1634,7 +1648,11 @@ export class SocialMediaService {
       // Handle multiple images: if more than one photoUrl, use multi-photo post
       const photoUrls = options?.photoUrls || (imageUrl ? [imageUrl] : []);
       if (photoUrls.length > 1) {
-        return this.postMultiPhotoToFacebookPage(pageId, content, photoUrls, pageAccessToken);
+        // Ensure each URL points to an API-safe format (JPEG/PNG) before sending to Meta Graph API
+        const safePhotoUrls = await Promise.all(
+          photoUrls.map((u) => ensureApiSafeImageUrl(u, { baseUrl }))
+        );
+        return this.postMultiPhotoToFacebookPage(pageId, content, safePhotoUrls, pageAccessToken, baseUrl);
       }
 
       const formData = new URLSearchParams();
@@ -1678,17 +1696,23 @@ export class SocialMediaService {
     content: string,
     photoUrls: string[],
     pageAccessToken: string,
+    baseUrl?: string,
   ): Promise<{ postId: string }> {
     try {
       console.log(`FB: Starting multi-photo post with ${photoUrls.length} images`);
       const deploymentUrl =
+        baseUrl ||
         process.env.REPLIT_DEPLOYMENT_URL ||
         process.env.CLIENT_URL ||
         "http://localhost:5000";
 
-      // Step 1: Upload each photo as unpublished
+      // Step 1: Upload each photo as unpublished. Photo URLs are expected to
+      // already be in API-safe format (JPEG/PNG) — see ensureApiSafeImageUrl in
+      // postToFacebookPage. Caller-provided URLs that bypass that path are
+      // still defensively normalized below.
       const attachedMedia: Array<{ media_fbid: string }> = [];
-      for (const photoUrl of photoUrls) {
+      for (const rawPhotoUrl of photoUrls) {
+        const photoUrl = await ensureApiSafeImageUrl(rawPhotoUrl, { baseUrl: deploymentUrl });
         const fullImageUrl = photoUrl.startsWith("http")
           ? photoUrl
           : `${deploymentUrl}${photoUrl}`;

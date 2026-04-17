@@ -1,4 +1,19 @@
 import { SocialMediaError } from "./socialMedia";
+import { ensureApiSafeImageUrl } from "./imageProcessor";
+
+function getPublicBaseUrl(): string {
+  return (
+    process.env.REPLIT_DEPLOYMENT_URL ||
+    process.env.CLIENT_URL ||
+    "http://localhost:5000"
+  );
+}
+
+function toAbsoluteUrl(url: string, baseUrl: string): string {
+  if (!url) return url;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${baseUrl}${url.startsWith("/") ? "" : "/"}${url}`;
+}
 
 export class FacebookService {
   /**
@@ -12,20 +27,33 @@ export class FacebookService {
   ): Promise<{ postId: string }> {
     try {
       console.log(`FB: Posting to page ${pageId} with ${photoUrls.length} photos`);
-      
-      if (photoUrls.length > 1) {
-        return this.postMultiPhoto(pageId, content, photoUrls, accessToken);
+
+      const baseUrl = getPublicBaseUrl();
+
+      // Ensure all photo URLs point to API-safe formats (JPEG/PNG) before sending
+      // to Meta Graph API. WebP/AVIF/HEIC etc. may be rejected. Then resolve
+      // any relative paths (like /public-objects/...) to absolute public URLs
+      // since Meta fetches images by URL.
+      const safePhotoUrls = await Promise.all(
+        photoUrls.map(async (u) => {
+          const safe = await ensureApiSafeImageUrl(u, { baseUrl });
+          return toAbsoluteUrl(safe, baseUrl);
+        })
+      );
+
+      if (safePhotoUrls.length > 1) {
+        return this.postMultiPhoto(pageId, content, safePhotoUrls, accessToken);
       }
 
       const formData = new URLSearchParams();
       formData.append("message", content);
       formData.append("access_token", accessToken);
 
-      if (photoUrls.length === 1) {
-        formData.append("url", photoUrls[0]);
+      if (safePhotoUrls.length === 1) {
+        formData.append("url", safePhotoUrls[0]);
       }
 
-      const endpoint = photoUrls.length === 1
+      const endpoint = safePhotoUrls.length === 1
         ? `https://graph.facebook.com/v22.0/${pageId}/photos`
         : `https://graph.facebook.com/v22.0/${pageId}/feed`;
 

@@ -24,7 +24,7 @@ import fs from "fs";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import { nanoid } from "nanoid";
-import { processImage, processImageFile, isDecodableImage } from "./services/imageProcessor";
+import { processImage, processImageFile, isDecodableImage, ensureApiSafeFormat } from "./services/imageProcessor";
 import os from "os";
 import path from "path";
 import { execSync } from "child_process";
@@ -8767,14 +8767,14 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             "uploads",
             req.file.filename
           );
-          const fileBuffer = fs.readFileSync(filePath);
-          const blob = new Blob([fileBuffer], { type: req.file.mimetype });
+          const rawFileBuffer = fs.readFileSync(filePath);
 
-          // Use the simpler talking photo upload (works with Pro/Scale plans)
+          const safeImage = await ensureApiSafeFormat(rawFileBuffer, req.file.mimetype, req.file.originalname);
+
           console.log("📤 Uploading talking photo directly to HeyGen...");
           const heygenResponse = await heygenService.uploadTalkingPhoto(
-            fileBuffer,
-            req.file.mimetype
+            safeImage.buffer,
+            safeImage.contentType
           );
 
           console.log("Full HeyGen response:", JSON.stringify(heygenResponse));
@@ -8882,14 +8882,14 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
               "uploads",
               photoFile.filename
             );
-            const fileBuffer = fs.readFileSync(filePath);
-            const blob = new Blob([fileBuffer], { type: photoFile.mimetype });
+            const rawFileBuffer = fs.readFileSync(filePath);
 
-            // Use the simpler talking photo upload (works with Pro/Scale plans)
+            const safeImage = await ensureApiSafeFormat(rawFileBuffer, photoFile.mimetype, photoFile.originalname);
+
             console.log("📤 Uploading talking photo directly to HeyGen...");
             const heygenResponse = await heygenService.uploadTalkingPhoto(
-              fileBuffer,
-              photoFile.mimetype
+              safeImage.buffer,
+              safeImage.contentType
             );
 
             console.log(
@@ -9932,13 +9932,15 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         return res.status(400).json({ error: "Image file is required" });
       }
 
-      const fileBuffer = fs.readFileSync(tempFilePath);
-      const contentType = req.file.mimetype || "image/jpeg";
+      const rawBuffer = fs.readFileSync(tempFilePath);
 
       console.log(`📤 Video Studio avatar upload for user ${userId}`);
-      console.log(`📤 File: ${req.file.originalname}, ${fileBuffer.length} bytes`);
+      console.log(`📤 File: ${req.file.originalname}, ${rawBuffer.length} bytes`);
 
-      // Use Avatar IV API to upload directly (matching the documented workflow)
+      const safeImage = await ensureApiSafeFormat(rawBuffer, req.file.mimetype, req.file.originalname);
+      const fileBuffer = safeImage.buffer;
+      const contentType = safeImage.contentType;
+
       const { HeyGenAvatarIVService } = await import("./services/heygen-avatar-iv");
       const avatarIVService = new HeyGenAvatarIVService();
 
@@ -12506,81 +12508,9 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       console.log(`📤 Avatar IV upload for user ${userId}`);
       console.log(`📤 File: ${req.file.originalname}, ${req.file.size} bytes, ${req.file.mimetype}`);
 
-      // Convert unsupported formats (WebP, HEIC, etc.) to JPEG for HeyGen
-      let imageBuffer = req.file.buffer;
-      let contentType = req.file.mimetype || "image/jpeg";
-      
-      const heicFormats = ["image/heic", "image/heif"];
-      const otherUnsupportedFormats = ["image/webp", "image/avif"];
-      
-      // Handle HEIC/HEIF separately with heic-convert (pure JS, more reliable)
-      if (heicFormats.includes(contentType.toLowerCase()) || 
-          req.file.originalname?.toLowerCase().endsWith('.heic') ||
-          req.file.originalname?.toLowerCase().endsWith('.heif')) {
-        console.log(`🔄 Converting HEIC/HEIF to JPEG using heic-convert...`);
-        try {
-          const heicConvert = (await import("heic-convert")).default;
-          const outputBuffer = await heicConvert({
-            buffer: req.file.buffer,
-            format: "JPEG",
-            quality: 0.95
-          });
-          imageBuffer = Buffer.from(outputBuffer);
-          contentType = "image/jpeg";
-          console.log(`✅ HEIC converted to JPEG: ${imageBuffer.length} bytes`);
-        } catch (heicError: any) {
-          console.error(`❌ HEIC conversion failed:`, heicError?.message);
-          // Try sharp as fallback
-          try {
-            const sharp = (await import("sharp")).default;
-            imageBuffer = await sharp(req.file.buffer)
-              .jpeg({ quality: 95 })
-              .toBuffer();
-            contentType = "image/jpeg";
-            console.log(`✅ HEIC converted via sharp fallback: ${imageBuffer.length} bytes`);
-          } catch (sharpError: any) {
-            console.error(`❌ Sharp fallback also failed:`, sharpError?.message);
-            return res.status(400).json({ 
-              error: "Failed to convert HEIC image. Please convert to JPEG or PNG before uploading.",
-              details: heicError?.message
-            });
-          }
-        }
-      } else if (otherUnsupportedFormats.includes(contentType.toLowerCase()) ||
-          req.file.originalname?.toLowerCase().endsWith('.avif') ||
-          req.file.originalname?.toLowerCase().endsWith('.webp')) {
-        const detectedFormat = req.file.originalname?.toLowerCase().endsWith('.avif') ? 'AVIF' :
-          req.file.originalname?.toLowerCase().endsWith('.webp') ? 'WebP' : contentType;
-        console.log(`🔄 Converting ${detectedFormat} to JPEG for HeyGen compatibility...`);
-        try {
-          const sharp = (await import("sharp")).default;
-          imageBuffer = await sharp(req.file.buffer, { failOn: 'none' })
-            .jpeg({ quality: 95 })
-            .toBuffer();
-          contentType = "image/jpeg";
-          console.log(`✅ Converted to JPEG: ${imageBuffer.length} bytes`);
-        } catch (convertError: any) {
-          console.warn(`⚠️ Sharp conversion failed for ${detectedFormat}: ${convertError?.message}`);
-          console.log(`🔄 Trying PNG intermediate conversion...`);
-          try {
-            const sharp = (await import("sharp")).default;
-            imageBuffer = await sharp(req.file.buffer, { failOn: 'none' })
-              .png()
-              .toBuffer();
-            imageBuffer = await sharp(imageBuffer)
-              .jpeg({ quality: 95 })
-              .toBuffer();
-            contentType = "image/jpeg";
-            console.log(`✅ Converted via PNG intermediate: ${imageBuffer.length} bytes`);
-          } catch (fallbackError: any) {
-            console.error(`❌ All conversion attempts failed for ${detectedFormat}: ${fallbackError?.message}`);
-            return res.status(400).json({
-              error: `This ${detectedFormat} image couldn't be converted. Please save it as JPEG or PNG and try again.`,
-              details: convertError?.message
-            });
-          }
-        }
-      }
+      const safeImage = await ensureApiSafeFormat(req.file.buffer, req.file.mimetype, req.file.originalname);
+      const imageBuffer = safeImage.buffer;
+      const contentType = safeImage.contentType;
 
       const { HeyGenAvatarIVService } = await import("./services/heygen-avatar-iv");
       const avatarIVService = new HeyGenAvatarIVService();
@@ -12817,21 +12747,25 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         throw new Error(`Failed to download image: ${imageResponse.status}`);
       }
       const imageArrayBuffer = await imageResponse.arrayBuffer();
-      const imageBuffer = Buffer.from(imageArrayBuffer);
-      const contentType = imageResponse.headers.get("content-type") || "image/jpeg";
+      const rawImageBuffer = Buffer.from(imageArrayBuffer);
+      const rawContentType = imageResponse.headers.get("content-type") || "image/jpeg";
 
-      console.log(`📥 Downloaded image: ${imageBuffer.length} bytes, type: ${contentType}`);
+      console.log(`📥 Downloaded image: ${rawImageBuffer.length} bytes, type: ${rawContentType}`);
+
+      const urlFilename = imageUrl.split("/").pop()?.split("?")[0] || "image.jpg";
+      const safeImage = await ensureApiSafeFormat(rawImageBuffer, rawContentType, urlFilename);
 
       const externalServiceUrl = process.env.PHOTO_AVATAR_SERVICE_URL || "http://gb-video-studio-env-2.eba-h2pwbutp.us-east-2.elasticbeanstalk.com";
       console.log(`📤 Uploading look image via external service: ${externalServiceUrl}`);
 
-      const tmpFilePath = path.join(os.tmpdir(), `look-upload-${Date.now()}.jpg`);
-      fs.writeFileSync(tmpFilePath, imageBuffer);
-      console.log(`📁 Wrote temp file: ${tmpFilePath} (${imageBuffer.length} bytes)`);
+      const safeExt = safeImage.contentType === "image/png" ? ".png" : ".jpg";
+      const tmpFilePath = path.join(os.tmpdir(), `look-upload-${Date.now()}${safeExt}`);
+      fs.writeFileSync(tmpFilePath, safeImage.buffer);
+      console.log(`📁 Wrote temp file: ${tmpFilePath} (${safeImage.buffer.length} bytes)`);
 
       let uploadResult: any;
       try {
-        const curlCmd = `curl -s --max-time 60 -X POST "${externalServiceUrl}/api/heygen/assets" -F "file=@${tmpFilePath};type=image/jpeg" -F "kind=image"`;
+        const curlCmd = `curl -s --max-time 60 -X POST "${externalServiceUrl}/api/heygen/assets" -F "file=@${tmpFilePath};type=${safeImage.contentType}" -F "kind=image"`;
         const curlOutput = execSync(curlCmd, { timeout: 65000 }).toString();
         console.log("📦 External service raw response:", curlOutput.substring(0, 500));
         uploadResult = JSON.parse(curlOutput);
@@ -13465,13 +13399,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           const lookName = lookNames[i] || `Look ${i + 1}`;
           
           try {
-            // Read file buffer
-            const fileBuffer = fs.readFileSync(file.path);
+            const rawFileBuffer = fs.readFileSync(file.path);
             
-            // Upload to HeyGen
+            const safeImage = await ensureApiSafeFormat(rawFileBuffer, file.mimetype, file.originalname);
+
             const imageKey = await photoAvatarService.uploadCustomPhoto(
-              fileBuffer,
-              file.mimetype || "image/jpeg"
+              safeImage.buffer,
+              safeImage.contentType
             );
 
             // Add look to the group
@@ -13898,11 +13832,11 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         );
         console.log("✅ Photo backed up to S3:", s3ImageUrl);
 
-        // Upload to HeyGen and get the image key
         const photoAvatarService = new HeyGenPhotoAvatarService();
+        const safeImage = await ensureApiSafeFormat(fileBuffer, req.file.mimetype, req.file.originalname);
         const heygenImageKey = await photoAvatarService.uploadCustomPhoto(
-          fileBuffer,
-          req.file.mimetype
+          safeImage.buffer,
+          safeImage.contentType
         );
 
         console.log("✅ Photo uploaded to HeyGen, key:", heygenImageKey);
@@ -14094,11 +14028,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         }
 
         if (!reusedExistingGroup) {
-          // Step 1: Upload image to external service (kind must be "image" not "photo")
+          const safeImage = await ensureApiSafeFormat(fileBuffer, req.file.mimetype, req.file.originalname);
+
           console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
           const uploadFormData = new FormData();
-          const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-          uploadFormData.append("file", blob, req.file.originalname);
+          const blob = new Blob([safeImage.buffer], { type: safeImage.contentType });
+          const safeFilename = req.file.originalname.replace(/\.[^.]+$/, safeImage.contentType === "image/png" ? ".png" : ".jpg");
+          uploadFormData.append("file", blob, safeFilename);
           uploadFormData.append("kind", "image");
 
           const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {
@@ -14468,11 +14404,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         }
 
         if (!reusedExistingGroup) {
-          // Step 1: Upload image
+          const safeImage = await ensureApiSafeFormat(fileBuffer, req.file.mimetype, req.file.originalname);
+
           console.log("📤 [PROXY] Step 1: Uploading image to /api/heygen/assets");
           const uploadFormData = new FormData();
-          const blob = new Blob([fileBuffer], { type: req.file.mimetype });
-          uploadFormData.append("file", blob, req.file.originalname);
+          const blob = new Blob([safeImage.buffer], { type: safeImage.contentType });
+          const safeFilename = req.file.originalname.replace(/\.[^.]+$/, safeImage.contentType === "image/png" ? ".png" : ".jpg");
+          uploadFormData.append("file", blob, safeFilename);
           uploadFormData.append("kind", "image");
 
           const uploadResponse = await fetch(`${externalServiceUrl}/api/heygen/assets`, {

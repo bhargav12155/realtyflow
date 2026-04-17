@@ -171,6 +171,88 @@ export async function processImage(
   };
 }
 
+const API_SAFE_MIMETYPES = new Set(["image/jpeg", "image/png"]);
+const UNSUPPORTED_EXTENSIONS = new Set([".webp", ".avif", ".heic", ".heif", ".tiff", ".tif", ".bmp", ".gif"]);
+
+export interface ApiSafeImage {
+  buffer: Buffer;
+  contentType: string;
+  converted: boolean;
+}
+
+const HEIC_MIMETYPES = new Set(["image/heic", "image/heif"]);
+const HEIC_EXTENSIONS = new Set([".heic", ".heif"]);
+
+async function convertHeicToJpeg(input: Buffer): Promise<Buffer | null> {
+  try {
+    const heicConvert = (await import("heic-convert")).default;
+    const outputBuffer = await heicConvert({
+      buffer: input,
+      format: "JPEG",
+      quality: 0.95,
+    });
+    console.log(`🔄 [ensureApiSafeFormat] HEIC converted via heic-convert (${input.length} → ${outputBuffer.byteLength} bytes)`);
+    return Buffer.from(outputBuffer);
+  } catch (heicErr: any) {
+    console.warn(`⚠️ [ensureApiSafeFormat] heic-convert failed: ${heicErr?.message}, falling back to sharp`);
+    return null;
+  }
+}
+
+export async function ensureApiSafeFormat(
+  input: Buffer,
+  declaredMimeType?: string,
+  originalFilename?: string
+): Promise<ApiSafeImage> {
+  const ext = originalFilename
+    ? "." + originalFilename.split(".").pop()!.toLowerCase()
+    : "";
+
+  const mimeNormalized = (declaredMimeType || "").toLowerCase();
+
+  const isHeic =
+    HEIC_MIMETYPES.has(mimeNormalized) || HEIC_EXTENSIONS.has(ext);
+
+  if (isHeic) {
+    const heicResult = await convertHeicToJpeg(input);
+    if (heicResult) {
+      return { buffer: heicResult, contentType: "image/jpeg", converted: true };
+    }
+  }
+
+  const metadata = await sharp(input, { failOn: "none" }).metadata();
+  const detectedFormat = metadata.format;
+
+  const isSafeByMime = API_SAFE_MIMETYPES.has(mimeNormalized);
+  const isSafeByFormat =
+    detectedFormat === "jpeg" || detectedFormat === "jpg" || detectedFormat === "png";
+  const hasUnsupportedExt = UNSUPPORTED_EXTENSIONS.has(ext);
+
+  if (isSafeByMime && isSafeByFormat && !hasUnsupportedExt) {
+    return { buffer: input, contentType: mimeNormalized, converted: false };
+  }
+
+  const hasAlpha = metadata.hasAlpha === true;
+  const usePng = hasAlpha && (detectedFormat === "png" || detectedFormat === "gif");
+
+  let pipeline = sharp(input, { failOn: "none" }).rotate();
+
+  if (usePng) {
+    pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: true });
+  } else {
+    pipeline = pipeline.jpeg({ quality: 95, mozjpeg: true });
+  }
+
+  const result = await pipeline.toBuffer();
+  const outputContentType = usePng ? "image/png" : "image/jpeg";
+
+  console.log(
+    `🔄 [ensureApiSafeFormat] Converted from ${detectedFormat || mimeNormalized} → ${outputContentType} (${input.length} → ${result.length} bytes)`
+  );
+
+  return { buffer: result, contentType: outputContentType, converted: true };
+}
+
 export async function processImageFile(
   filePath: string,
   options?: {

@@ -1,9 +1,23 @@
 import { test, describe, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import Module from "node:module";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import sharp from "sharp";
 
 const require = Module.createRequire(import.meta.url);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+type HeicConvertOptions = { buffer: Buffer; format: "JPEG" | "PNG"; quality?: number };
+type HeicConvertFn = (opts: HeicConvertOptions) => Promise<Uint8Array>;
+
+// Capture the real heic-convert implementation BEFORE installing the stub
+// below so the "real HEIC fixture" test can delegate to it via passthrough
+// mode. Resolving once here populates require.cache with the genuine module;
+// we then snapshot the exported function and overwrite the cache entry.
+const realHeicConvert: HeicConvertFn = require("heic-convert");
 
 // A minimal valid 1x1 JPEG used as the canned output of the stubbed
 // heic-convert. Avoids shipping a real HEIC binary fixture while still
@@ -47,11 +61,8 @@ const TINY_JPEG = Buffer.from([
 // require.cache (which the CJS-via-ESM bridge consults) with a Module-shaped
 // record whose `exports` is our typed stub function.
 
-type HeicConvertOptions = { buffer: Buffer; format: "JPEG" | "PNG"; quality?: number };
-type HeicConvertFn = (opts: HeicConvertOptions) => Promise<Uint8Array>;
-
 interface HeicState {
-  mode: "real-failure" | "stub-success";
+  mode: "real-failure" | "stub-success" | "passthrough";
   calls: number;
   lastInput: Buffer | undefined;
 }
@@ -67,6 +78,9 @@ const heicStub: HeicConvertFn = (opts) => {
   heicState.lastInput = opts?.buffer;
   if (heicState.mode === "real-failure") {
     return Promise.reject(new Error("input buffer is not a HEIC image"));
+  }
+  if (heicState.mode === "passthrough") {
+    return realHeicConvert(opts);
   }
   return Promise.resolve(new Uint8Array(TINY_JPEG));
 };
@@ -298,5 +312,52 @@ describe("ensureApiSafeFormat HEIC success path (heic-convert returns valid JPEG
     const result = await ensureApiSafeFormat(Buffer.from([1, 2]), "IMAGE/HEIC", "PIC.HEIC");
     assert.equal(heicState.calls, callsBefore + 1);
     assert.equal(result.contentType, "image/jpeg");
+  });
+});
+
+// End-to-end check against a genuine iPhone-origin HEIC photo. The fixture
+// at fixtures/iphone-sample.heic is a real HEIC file produced by an iPhone
+// (HEVC Main Still Picture profile, 1320x2868 portrait — iPhone screenshot
+// dimensions). The other HEIC tests stub out heic-convert; this one runs the
+// real dependency end-to-end to catch regressions from heic-convert version
+// upgrades, a broken libheif install, or changes to the conversion pipeline.
+describe("ensureApiSafeFormat HEIC real-fixture path (heic-convert exercised end-to-end)", () => {
+  before(() => {
+    heicState.mode = "passthrough";
+  });
+
+  after(() => {
+    heicState.mode = "real-failure";
+  });
+
+  test("decodes a real HEIC fixture and produces a valid JPEG", async () => {
+    const fixturePath = join(__dirname, "fixtures", "iphone-sample.heic");
+    const heicBuffer = readFileSync(fixturePath);
+
+    // Sanity check: the fixture really is a HEIC container ('ftypheic',
+    // 'ftypmif1', 'ftyphevc', etc. live at offset 4).
+    const ftyp = heicBuffer.slice(4, 12).toString("ascii");
+    assert.ok(
+      ftyp.startsWith("ftyp"),
+      `fixture must be an ISO base media file, got header ${JSON.stringify(ftyp)}`
+    );
+
+    const callsBefore = heicState.calls;
+    const result = await ensureApiSafeFormat(heicBuffer, "image/heic", "iphone-sample.heic");
+
+    assert.equal(heicState.calls, callsBefore + 1, "real heic-convert must be invoked exactly once");
+    assert.equal(result.converted, true, "HEIC input must be reported as converted");
+    assert.equal(result.contentType, "image/jpeg", "HEIC must be converted to JPEG");
+
+    // JPEG SOI marker (FF D8 FF) — proves we got a real JPEG, not a fallback.
+    assert.equal(result.buffer[0], 0xff, "output must start with JPEG SOI byte 0xFF");
+    assert.equal(result.buffer[1], 0xd8, "output must start with JPEG SOI byte 0xD8");
+    assert.equal(result.buffer[2], 0xff, "output must continue with JPEG marker 0xFF");
+
+    // Round-trip through sharp to confirm the JPEG decodes and has sensible
+    // dimensions — guards against truncated or malformed encoder output.
+    const meta = await sharp(result.buffer).metadata();
+    assert.equal(meta.format, "jpeg");
+    assert.ok((meta.width || 0) > 0 && (meta.height || 0) > 0, "decoded JPEG must have non-zero dimensions");
   });
 });

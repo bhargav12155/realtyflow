@@ -13,10 +13,29 @@ import { runwayService } from "../services/runway";
 import { sora2Service } from "../services/sora2";
 import { veoVideoService } from "../services/veo-video";
 import { generateMotionVideo, checkMotionVideoStatus } from "../services/kling";
+import {
+  seedanceService,
+  type SeedanceModel,
+  type SeedanceAspectRatio,
+  type SeedanceDuration,
+} from "../services/seedance";
 import { autoEvaluateBatch } from "../services/boardAutoEval";
 
-const PROVIDERS = ["luma", "runway", "sora2", "veo", "kling"] as const;
+const PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
 type Provider = (typeof PROVIDERS)[number];
+
+const SEEDANCE_MODELS: SeedanceModel[] = [
+  "seedance-1-0-pro-250528",
+  "seedance-1-0-lite-t2v-250428",
+  "seedance-1-0-lite-i2v-250428",
+];
+const SEEDANCE_ASPECTS: SeedanceAspectRatio[] = ["16:9", "9:16", "1:1", "4:3", "3:4"];
+
+const seedanceOptionsSchema = z.object({
+  model: z.enum(SEEDANCE_MODELS as [SeedanceModel, ...SeedanceModel[]]).optional(),
+  aspectRatio: z.enum(SEEDANCE_ASPECTS as [SeedanceAspectRatio, ...SeedanceAspectRatio[]]).optional(),
+  durationSeconds: z.union([z.literal(5), z.literal(10)]).optional(),
+});
 type GenMode = "text-to-video" | "image-to-video" | "video-to-video";
 type PollStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -33,6 +52,7 @@ const chatBodySchema = z.object({
   provider: z.enum(PROVIDERS).optional(),
   forceModel: z.string().optional(),
   variations: z.number().int().min(1).max(4).optional(),
+  seedanceOptions: seedanceOptionsSchema.optional(),
   conversationHistory: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
     .optional(),
@@ -71,6 +91,7 @@ function pickDefaultProvider(genMode: GenMode, message: string): Provider {
     if (lower.includes("runway")) return "runway";
     return "luma";
   }
+  if (lower.includes("seedance")) return "seedance";
   if (lower.includes("sora")) return "sora2";
   if (lower.includes("runway")) return "runway";
   return "luma";
@@ -80,6 +101,11 @@ interface DispatchContext {
   prompt: string;
   refAssets: BoardAsset[];
   forceModel?: string;
+  seedanceOptions?: {
+    model?: SeedanceModel;
+    aspectRatio?: SeedanceAspectRatio;
+    durationSeconds?: SeedanceDuration;
+  };
 }
 
 interface PollResult {
@@ -172,6 +198,43 @@ async function dispatchOne(provider: Provider, genMode: GenMode, ctx: DispatchCo
         },
       };
     }
+    case "seedance": {
+      const opts = ctx.seedanceOptions ?? {};
+      const aspectRatio = opts.aspectRatio ?? "16:9";
+      const durationSeconds = opts.durationSeconds ?? 5;
+      // Default model depends on whether we have an image to animate.
+      const defaultModel: SeedanceModel = firstImage
+        ? "seedance-1-0-lite-i2v-250428"
+        : "seedance-1-0-pro-250528";
+      const model = opts.model ?? defaultModel;
+      const task = firstImage
+        ? await seedanceService.createImageToVideo({
+            prompt: ctx.prompt,
+            sourceImageUrl: firstImage,
+            model,
+            aspectRatio,
+            durationSeconds,
+          })
+        : await seedanceService.createTextToVideo({
+            prompt: ctx.prompt,
+            model,
+            aspectRatio,
+            durationSeconds,
+          });
+      return {
+        taskId: task.taskId,
+        modelLabel: ctx.forceModel || model,
+        poll: async () => {
+          const s = await seedanceService.getStatus(task.taskId);
+          if (s.status === "ready") {
+            return { status: "completed", videoUrl: s.videoUrl, durationSeconds };
+          }
+          if (s.status === "failed") return { status: "failed", error: s.error };
+          if (s.status === "generating") return { status: "processing" };
+          return { status: "pending" };
+        },
+      };
+    }
     case "kling": {
       if (!firstImage) throw new Error("Kling image-to-video requires a referenced image asset");
       const r = await generateMotionVideo(firstImage, ctx.prompt, { duration: "5", mode: "pro" });
@@ -225,13 +288,14 @@ async function runBatchInBackground(args: {
   refAssets: BoardAsset[];
   rows: BoardAsset[];
   forceModel?: string;
+  seedanceOptions?: DispatchContext["seedanceOptions"];
 }) {
-  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel } = args;
+  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions } = args;
 
   await Promise.all(
     rows.map(async (row) => {
       try {
-        const dispatch = await dispatchOne(provider, genMode, { prompt, refAssets, forceModel });
+        const dispatch = await dispatchOne(provider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
         await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatch.modelLabel,
         });
@@ -420,6 +484,7 @@ export function registerBoardsChatRoutes(
         refAssets,
         rows,
         forceModel: body.forceModel,
+        seedanceOptions: body.seedanceOptions,
       }).catch((err) => console.error("[boards-chat] background batch error:", err));
 
       return res.json({

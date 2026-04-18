@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Settings as SettingsIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PlatformPicker, PLATFORMS, type ProviderId, type GenerationMode } from "./PlatformPicker";
+import {
+  PlatformPicker,
+  PLATFORMS,
+  type ProviderId,
+  type GenerationMode,
+  type SeedanceOptions,
+} from "./PlatformPicker";
 
 export type ChatMode = "brainstorm" | "create";
 
@@ -21,6 +27,8 @@ interface ChatPanelProps {
   onProviderChange: (p: ProviderId) => void;
   generationMode: GenerationMode;
   onGenerationModeChange: (m: GenerationMode) => void;
+  seedanceOptions?: SeedanceOptions;
+  onSeedanceOptionsChange?: (opts: SeedanceOptions) => void;
   referencedAssetIds: string[];
   onSend: (text: string) => void;
   isSending?: boolean;
@@ -35,6 +43,8 @@ export function ChatPanel({
   onProviderChange,
   generationMode,
   onGenerationModeChange,
+  seedanceOptions,
+  onSeedanceOptionsChange,
   referencedAssetIds,
   onSend,
   isSending,
@@ -124,6 +134,8 @@ export function ChatPanel({
                   onSelectProvider={onProviderChange}
                   selectedMode={generationMode}
                   onSelectMode={onGenerationModeChange}
+                  seedanceOptions={seedanceOptions}
+                  onSeedanceOptionsChange={onSeedanceOptionsChange}
                 />
               </PopoverContent>
             </Popover>

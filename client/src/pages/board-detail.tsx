@@ -9,7 +9,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { BoardCanvas, type CanvasBatch } from "@/components/boards/BoardCanvas";
 import { ChatPanel, type ChatMessage, type ChatMode } from "@/components/boards/ChatPanel";
-import { isGenerationMode, isProviderId, type GenerationMode, type ProviderId } from "@/components/boards/PlatformPicker";
+import {
+  DEFAULT_SEEDANCE_OPTIONS,
+  isGenerationMode,
+  isProviderId,
+  type GenerationMode,
+  type ProviderId,
+  type SeedanceOptions,
+} from "@/components/boards/PlatformPicker";
 
 interface BoardResponse {
   id: string;
@@ -46,6 +53,7 @@ export default function BoardDetailPage() {
   const [mode, setMode] = useState<ChatMode>("create");
   const [provider, setProvider] = useState<ProviderId>("luma");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
+  const [seedanceOptions, setSeedanceOptions] = useState<SeedanceOptions>(DEFAULT_SEEDANCE_OPTIONS);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const boardQuery = useQuery<BoardResponse>({
@@ -84,6 +92,7 @@ export default function BoardDetailPage() {
         provider,
         generationMode,
         referencedAssetIds,
+        ...(provider === "seedance" ? { seedanceOptions } : {}),
       });
       return res.json();
     },
@@ -264,6 +273,8 @@ export default function BoardDetailPage() {
             onProviderChange={setProvider}
             generationMode={generationMode}
             onGenerationModeChange={setGenerationMode}
+            seedanceOptions={seedanceOptions}
+            onSeedanceOptionsChange={setSeedanceOptions}
             referencedAssetIds={referencedAssetIds}
             onSend={(text) => sendChat.mutate(text)}
             isSending={sendChat.isPending}

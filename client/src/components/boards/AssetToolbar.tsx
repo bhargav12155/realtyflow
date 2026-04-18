@@ -1,4 +1,4 @@
-import { Copy, Download, Layers, MessageSquarePlus, RotateCcw, Trash2, X } from "lucide-react";
+import { Copy, Download, Layers, MessageSquarePlus, RotateCcw, Trash2, X, type LucideIcon } from "lucide-react";
 import type { CanvasAsset } from "./BoardCanvas";
 
 interface AssetToolbarProps {
@@ -36,7 +36,7 @@ export function AssetToolbar({ asset, onClose, onDelete, onClearRejection, onReu
       />
       <a
         href={canDownload ? downloadHref : undefined}
-        download={canDownload ? undefined : undefined}
+        download
         target="_blank"
         rel="noreferrer"
         className={`w-7 h-7 rounded-full flex items-center justify-center ${
@@ -66,7 +66,7 @@ function ToolbarButton({
   danger,
   testId,
 }: {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
   disabled?: boolean;

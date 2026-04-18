@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Bell, Share2, Compass, Users, Gauge, ChevronDown, LayoutGrid, ArrowLeft } from "lucide-react";
+import { Bell, Share2, Compass, Users, Gauge, ChevronDown, LayoutGrid, ArrowLeft, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 interface BoardsSidebarProps {
@@ -17,7 +17,7 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
     isActive,
     testId,
   }: {
-    icon: any;
+    icon: LucideIcon;
     label: string;
     href?: string;
     isActive?: boolean;

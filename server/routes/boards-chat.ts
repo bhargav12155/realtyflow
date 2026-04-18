@@ -1,8 +1,4 @@
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
-
-interface AuthedRequest extends Request {
-  user?: { id: string | number; claims?: { sub?: string } };
-}
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { storage as defaultStorage, type IStorage } from "../storage";
@@ -334,12 +330,12 @@ export function registerBoardsChatRoutes(
   const requireAuth =
     deps.auth ??
     (deps.storage
-      ? ((req: AuthedRequest, _res: Response, next: NextFunction) => {
-          if (!req.user) req.user = { id: "test-user" };
+      ? ((req: Request, _res: Response, next: NextFunction) => {
+          if (!req.user) req.user = { id: "test-user", type: "agent", email: "test@example.com" };
           next();
         }) as RequestHandler
       : defaultRequireAuth);
-  app.post("/api/boards/:id/chat", requireAuth, async (req: AuthedRequest, res: Response) => {
+  app.post("/api/boards/:id/chat", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const boardId = req.params.id;

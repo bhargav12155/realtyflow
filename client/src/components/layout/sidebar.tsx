@@ -31,6 +31,7 @@ import {
   ChevronRight,
   FileText,
   Home,
+  LayoutGrid,
   MapPin,
   Menu,
   MessageSquare,
@@ -92,6 +93,14 @@ const navigationItems = [
     href: "/events",
     key: "events",
     isPageLink: true,
+  },
+  {
+    icon: LayoutGrid,
+    label: "Boards",
+    href: "/boards",
+    key: "boards",
+    isPageLink: true,
+    badge: "NEW",
   },
   {
     icon: Video,

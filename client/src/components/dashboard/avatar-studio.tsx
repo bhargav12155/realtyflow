@@ -109,6 +109,10 @@ interface CustomVoice {
   status?: string;
   duration?: number;
   heygenAudioAssetId?: string | null;
+  heygenVoiceId?: string | null;
+  language?: string | null;
+  gender?: string | null;
+  sampleAudioUrl?: string | null;
 }
 
 interface VideoGeneration {
@@ -273,6 +277,8 @@ export function AvatarStudio() {
   const [recordedUrl, setRecordedUrl] = useState<string>("");
   const [recordingTime, setRecordingTime] = useState(0);
   const [voiceName, setVoiceName] = useState("");
+  const [voiceLanguage, setVoiceLanguage] = useState("");
+  const [voiceGender, setVoiceGender] = useState("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1191,10 +1197,22 @@ export function AvatarStudio() {
   });
 
   const uploadVoiceMutation = useMutation({
-    mutationFn: async ({ blob, name }: { blob: Blob; name: string }) => {
+    mutationFn: async ({
+      blob,
+      name,
+      language,
+      gender,
+    }: {
+      blob: Blob;
+      name: string;
+      language?: string;
+      gender?: string;
+    }) => {
       const formData = new FormData();
       formData.append("audio", blob, "recording.webm");
       formData.append("name", name);
+      if (language) formData.append("language", language);
+      if (gender) formData.append("gender", gender);
 
       const response = await fetch("/api/custom-voices", {
         method: "POST",
@@ -1208,21 +1226,61 @@ export function AvatarStudio() {
       }
       return response.json();
     },
-    onSuccess: (data) => {
-      toast({
-        title: "Voice Uploaded!",
-        description: "Your custom voice has been saved.",
-      });
+    onSuccess: (data: CustomVoice & { cloneError?: string }) => {
+      if (data.cloneError) {
+        toast({
+          title: "Voice Saved (Clone Failed)",
+          description: `${data.cloneError} You can retry the clone from "My Voices".`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: data.heygenVoiceId ? "Voice Cloned!" : "Voice Saved",
+          description: data.heygenVoiceId
+            ? "Your cloned voice is ready to narrate avatar videos."
+            : "Your custom voice has been saved.",
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
       setSelectedVoiceId(`voice_library_${data.id}`);
       setRecordedBlob(null);
       setRecordedUrl("");
       setVoiceName("");
+      setVoiceLanguage("");
+      setVoiceGender("");
       setVoiceTab("custom");
     },
     onError: (error: Error) => {
       toast({
         title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const retryCloneMutation = useMutation({
+    mutationFn: async (voiceId: string) => {
+      const response = await fetch(`/api/custom-voices/${voiceId}/retry-clone`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to retry voice clone");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Voice Cloned!",
+        description: "Your cloned voice is ready to use.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Clone Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -2409,15 +2467,40 @@ export function AvatarStudio() {
                               )}
                               <Mic className="h-5 w-5 text-[#D4AF37]" />
                               <span className="font-medium">{voice.name}</span>
-                              <Badge variant="outline" className="text-xs">Custom</Badge>
-                              {voice.status === "ready" && voice.heygenAudioAssetId && (
+                              {voice.status === "ready" && voice.heygenVoiceId ? (
+                                <Badge className="text-xs bg-[#D4AF37]/15 text-[#8a6d10] dark:text-[#D4AF37] border border-[#D4AF37]/30">Cloned</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs">Custom</Badge>
+                              )}
+                              {voice.status === "ready" && !voice.heygenVoiceId && voice.heygenAudioAssetId && (
                                 <Badge className="text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Ready</Badge>
                               )}
+                              {voice.status === "cloning" && (
+                                <Badge className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Cloning…</Badge>
+                              )}
                               {voice.status === "failed" && (
-                                <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">Audio Only</Badge>
+                                <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">Clone Failed</Badge>
                               )}
                             </div>
                             <div className="flex items-center gap-2">
+                              {voice.status === "failed" && voice.heygenAudioAssetId && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    retryCloneMutation.mutate(voice.id);
+                                  }}
+                                  disabled={retryCloneMutation.isPending}
+                                  data-testid={`button-retry-clone-${voice.id}`}
+                                >
+                                  {retryCloneMutation.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    "Retry clone"
+                                  )}
+                                </Button>
+                              )}
                               {voiceAudioUrls[voice.id] && (
                                 <Button
                                   size="sm"
@@ -2558,7 +2641,45 @@ export function AvatarStudio() {
                               data-testid="input-voice-name"
                             />
                           </div>
-                          
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <Label htmlFor="voice-language">Language (optional)</Label>
+                              <Select value={voiceLanguage || "auto"} onValueChange={(v) => setVoiceLanguage(v === "auto" ? "" : v)}>
+                                <SelectTrigger id="voice-language" data-testid="select-voice-language">
+                                  <SelectValue placeholder="Auto detect" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="auto">Auto detect</SelectItem>
+                                  <SelectItem value="en">English</SelectItem>
+                                  <SelectItem value="es">Spanish</SelectItem>
+                                  <SelectItem value="fr">French</SelectItem>
+                                  <SelectItem value="de">German</SelectItem>
+                                  <SelectItem value="pt">Portuguese</SelectItem>
+                                  <SelectItem value="zh">Chinese</SelectItem>
+                                  <SelectItem value="ja">Japanese</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="voice-gender">Gender (optional)</Label>
+                              <Select value={voiceGender || "unspecified"} onValueChange={(v) => setVoiceGender(v === "unspecified" ? "" : v)}>
+                                <SelectTrigger id="voice-gender" data-testid="select-voice-gender">
+                                  <SelectValue placeholder="Unspecified" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="unspecified">Unspecified</SelectItem>
+                                  <SelectItem value="female">Female</SelectItem>
+                                  <SelectItem value="male">Male</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-gray-500">
+                            We'll clone your voice with HeyGen so you can use it as the narrator for any future avatar video.
+                          </p>
+
                           <Button
                             className="w-full bg-[#D4AF37] hover:bg-[#D4AF37]/90"
                             disabled={!voiceName.trim() || uploadVoiceMutation.isPending}
@@ -2567,6 +2688,8 @@ export function AvatarStudio() {
                                 uploadVoiceMutation.mutate({
                                   blob: recordedBlob,
                                   name: voiceName.trim(),
+                                  language: voiceLanguage || undefined,
+                                  gender: voiceGender || undefined,
                                 });
                               }
                             }}
@@ -2575,12 +2698,12 @@ export function AvatarStudio() {
                             {uploadVoiceMutation.isPending ? (
                               <>
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Saving...
+                                Cloning your voice...
                               </>
                             ) : (
                               <>
                                 <Upload className="h-4 w-4 mr-2" />
-                                Save Voice
+                                Save & Clone Voice
                               </>
                             )}
                           </Button>

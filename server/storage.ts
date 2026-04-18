@@ -229,6 +229,11 @@ export interface IStorage {
   getCustomVoice(id: string): Promise<CustomVoice | undefined>;
   getCustomVoiceByIdAndUser(id: string, userId: string): Promise<CustomVoice | undefined>;
   createCustomVoice(voice: InsertCustomVoice): Promise<CustomVoice>;
+  updateCustomVoice(
+    id: string,
+    userId: string,
+    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name">>
+  ): Promise<CustomVoice | undefined>;
   deleteCustomVoice(id: string, userId: string): Promise<boolean>;
 
   // Photo Avatar Groups
@@ -1601,6 +1606,19 @@ export class MemStorage implements IStorage {
     const [voice] = await db
       .insert(customVoices)
       .values(insertVoice)
+      .returning();
+    return voice;
+  }
+
+  async updateCustomVoice(
+    id: string,
+    userId: string,
+    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name">>
+  ): Promise<CustomVoice | undefined> {
+    const [voice] = await db
+      .update(customVoices)
+      .set(updates)
+      .where(and(eq(customVoices.id, id), eq(customVoices.userId, userId)))
       .returning();
     return voice;
   }

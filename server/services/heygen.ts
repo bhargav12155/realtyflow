@@ -420,6 +420,82 @@ export class HeyGenService {
     }
   }
 
+  /**
+   * Clone an instant voice from an already-uploaded HeyGen audio asset.
+   * Returns a HeyGen voice_id that can be used as the narration voice for
+   * any subsequent talking-avatar generation (TTS-based, not audio-driven).
+   *
+   * HeyGen endpoint: POST /v1/voice/clone
+   * Body: { audio_asset_id, name, language?, gender? }
+   * Response shape (per HeyGen API):
+   *   { code: 100, data: { voice_id: string, preview_audio_url?: string }, msg?: string }
+   *
+   * Throws an Error with a user-friendly message on failure.
+   */
+  async cloneVoice(params: {
+    audioAssetId: string;
+    name: string;
+    language?: string;
+    gender?: string;
+  }): Promise<{ voiceId: string; previewAudioUrl?: string }> {
+    const url = `https://api.heygen.com/v1/voice/clone`;
+    const payload: Record<string, unknown> = {
+      audio_asset_id: params.audioAssetId,
+      name: params.name,
+    };
+    if (params.language) payload.language = params.language;
+    if (params.gender) payload.gender = params.gender;
+
+    console.log("🧬 HeyGen Voice Clone request:", { url, name: params.name, language: params.language, gender: params.gender });
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-Api-Key": this.apiKey,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let parsed: { code?: number; msg?: string; message?: string; data?: { voice_id?: string; preview_audio_url?: string; preview_audio?: string } } = {};
+    try {
+      parsed = (await response.json()) as typeof parsed;
+    } catch {
+      const txt = await response.text().catch(() => "");
+      console.error("❌ HeyGen voice clone non-JSON response:", response.status, txt);
+      throw new Error(`Voice cloning failed (HTTP ${response.status}). Please try again.`);
+    }
+
+    if (!response.ok || (parsed.code !== undefined && parsed.code !== 100) || !parsed.data?.voice_id) {
+      const msg = (parsed.msg || parsed.message || "").toString().toLowerCase();
+      console.error("❌ HeyGen voice clone failed:", response.status, parsed);
+      // Map common HeyGen failures to user-friendly messages.
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("Voice cloning is not available on the current HeyGen plan.");
+      }
+      if (response.status === 429 || msg.includes("quota") || msg.includes("limit")) {
+        throw new Error("Voice cloning quota reached on your HeyGen plan. Delete an unused cloned voice or upgrade and try again.");
+      }
+      if (msg.includes("short") || msg.includes("duration") || msg.includes("too brief")) {
+        throw new Error("Recording is too short. Please record at least 30 seconds of clear speech.");
+      }
+      if (msg.includes("noise") || msg.includes("quality") || msg.includes("unclear")) {
+        throw new Error("Audio quality is too low to clone. Try a quieter room and speak clearly.");
+      }
+      if (msg.includes("not found") || msg.includes("invalid")) {
+        throw new Error("Audio sample could not be read by HeyGen. Please re-upload and try again.");
+      }
+      throw new Error(parsed.msg || parsed.message || `Voice cloning failed (HTTP ${response.status}).`);
+    }
+
+    console.log("✅ HeyGen voice clone succeeded:", parsed.data.voice_id);
+    return {
+      voiceId: parsed.data.voice_id,
+      previewAudioUrl: parsed.data.preview_audio_url || parsed.data.preview_audio,
+    };
+  }
+
   // Create avatar with voice cloning from audio file
   async createAvatarWithVoiceCloning(
     imageUrl: string,

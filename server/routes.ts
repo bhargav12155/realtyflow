@@ -8907,51 +8907,130 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           file.mimetype
         );
 
-        let heygenAudioAssetId: string | undefined;
-        let status = "pending";
+        const language: string | undefined =
+          typeof req.body?.language === "string" && req.body.language.trim()
+            ? req.body.language.trim()
+            : undefined;
+        const gender: string | undefined =
+          typeof req.body?.gender === "string" && req.body.gender.trim()
+            ? req.body.gender.trim()
+            : undefined;
 
-        // Upload to HeyGen for voice cloning
+        let heygenAudioAssetId: string | undefined;
+        let heygenVoiceId: string | undefined;
+        let sampleAudioUrl: string | undefined;
+        let status = "pending";
+        let cloneError: string | undefined;
+
+        // Upload to HeyGen, then clone the voice into a reusable HeyGen voice_id.
         try {
           console.log("🎤 Uploading audio to HeyGen for voice cloning...");
 
-          // Upload to HeyGen (reuse fileBuffer from above)
           const heygenService = new HeyGenService();
           heygenAudioAssetId = await heygenService.uploadAudio(
             fileBuffer,
             file.mimetype
           );
-          status = "ready";
 
           console.log(
             "✅ HeyGen upload successful! Audio Asset ID:",
             heygenAudioAssetId
           );
+
+          try {
+            const cloned = await heygenService.cloneVoice({
+              audioAssetId: heygenAudioAssetId,
+              name: name.trim(),
+              language,
+              gender,
+            });
+            heygenVoiceId = cloned.voiceId;
+            sampleAudioUrl = cloned.previewAudioUrl;
+            status = "ready";
+          } catch (cloneErr) {
+            console.error("❌ HeyGen voice clone failed:", cloneErr);
+            cloneError = cloneErr instanceof Error ? cloneErr.message : "Voice cloning failed";
+            // Asset uploaded but clone failed — keep the row so the user can retry.
+            status = "failed";
+          }
         } catch (heygenError) {
           console.error("❌ HeyGen upload failed:", heygenError);
           status = "failed";
-          // Continue anyway - user can still manage the voice in library
+          cloneError = heygenError instanceof Error ? heygenError.message : "Upload to HeyGen failed";
         }
 
-        // Create custom voice record with HeyGen asset ID
+        // Create custom voice record with HeyGen asset/voice IDs.
         const voice = await storage.createCustomVoice({
           userId: user.id,
           name: name.trim(),
           audioUrl,
           fileSize: stats.size,
           heygenAudioAssetId,
+          heygenVoiceId,
+          language,
+          gender,
+          sampleAudioUrl,
           status,
         });
 
         // Clean up uploaded file
-        fs.unlinkSync(file.path);
+        try { fs.unlinkSync(file.path); } catch {}
 
-        res.status(201).json(voice);
+        res.status(201).json({ ...voice, cloneError });
       } catch (error) {
         console.error("Failed to create custom voice:", error);
         res.status(500).json({ error: "Failed to create custom voice" });
       }
     }
   );
+
+  // Retry voice cloning for a failed voice (uses the previously uploaded HeyGen audio asset).
+  app.post("/api/custom-voices/:id/retry-clone", requireAuth, async (req, res) => {
+    try {
+      const user = (req as { user: { id: string } }).user;
+      const { id } = req.params;
+
+      const voice = await storage.getCustomVoiceByIdAndUser(id, user.id);
+      if (!voice) {
+        return res.status(404).json({ error: "Voice not found" });
+      }
+      if (!voice.heygenAudioAssetId) {
+        return res.status(400).json({
+          error: "No audio sample on file for this voice. Please re-upload to clone.",
+        });
+      }
+      if (voice.status === "cloning") {
+        return res.status(409).json({
+          error: "A clone is already in progress for this voice. Please wait for it to finish.",
+        });
+      }
+
+      await storage.updateCustomVoice(id, user.id, { status: "cloning" });
+
+      try {
+        const heygenService = new HeyGenService();
+        const cloned = await heygenService.cloneVoice({
+          audioAssetId: voice.heygenAudioAssetId,
+          name: voice.name,
+          language: voice.language || undefined,
+          gender: voice.gender || undefined,
+        });
+        const updated = await storage.updateCustomVoice(id, user.id, {
+          status: "ready",
+          heygenVoiceId: cloned.voiceId,
+          sampleAudioUrl: cloned.previewAudioUrl ?? voice.sampleAudioUrl ?? null,
+        });
+        return res.json(updated);
+      } catch (cloneErr) {
+        const message = cloneErr instanceof Error ? cloneErr.message : "Voice cloning failed";
+        await storage.updateCustomVoice(id, user.id, { status: "failed" });
+        return res.status(502).json({ error: message });
+      }
+    } catch (error) {
+      console.error("Failed to retry voice clone:", error);
+      res.status(500).json({ error: "Failed to retry voice clone" });
+    }
+  });
 
   // Delete a custom voice
   app.delete("/api/custom-voices/:id", requireAuth, async (req, res) => {
@@ -12847,14 +12926,16 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       
       // Convert custom voices to the same format as HeyGen voices
       const formattedCustomVoices = customVoices
-        .filter(v => v.status === "ready" && v.heygenAudioAssetId)
+        .filter(v => v.status === "ready" && (v.heygenVoiceId || v.heygenAudioAssetId))
         .map(v => ({
-          voice_id: v.heygenAudioAssetId!,
-          name: `${v.name} (Saved)`,
-          language: "Custom",
-          gender: "custom",
-          preview_audio: v.audioUrl,
+          // Prefer the cloned HeyGen voice_id (proper TTS) over the raw audio asset id.
+          voice_id: (v.heygenVoiceId || v.heygenAudioAssetId)!,
+          name: v.heygenVoiceId ? `${v.name} (Cloned)` : `${v.name} (Saved)`,
+          language: v.language || "Custom",
+          gender: v.gender || "custom",
+          preview_audio: v.sampleAudioUrl || v.audioUrl,
           is_custom: true,
+          is_cloned: !!v.heygenVoiceId,
           custom_voice_id: v.id,
         }));
       
@@ -15203,9 +15284,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
         if (voiceLibraryVoice) {
           console.log("🎤 Backend: Voice Library voice detected!");
-          
-          if (voiceLibraryVoice.heygenAudioAssetId && voiceLibraryVoice.status === "ready") {
-            // Use HeyGen audio asset ID (best quality)
+
+          if (voiceLibraryVoice.heygenVoiceId && voiceLibraryVoice.status === "ready") {
+            // Prefer the cloned HeyGen voice_id (TTS-based, drives the script).
+            console.log("🎤 Backend: Using cloned HeyGen Voice ID:", voiceLibraryVoice.heygenVoiceId);
+            finalVoiceId = voiceLibraryVoice.heygenVoiceId;
+          } else if (voiceLibraryVoice.heygenAudioAssetId && voiceLibraryVoice.status === "ready") {
+            // Legacy: use HeyGen audio asset ID directly (audio-driven).
             console.log("🎤 Backend: Using HeyGen Audio Asset ID:", voiceLibraryVoice.heygenAudioAssetId);
             audioAssetId = voiceLibraryVoice.heygenAudioAssetId;
             finalVoiceId = undefined;

@@ -65,6 +65,7 @@ import {
 import { registerBoardsRoutes } from "./routes/boards";
 import { registerBoardsChatRoutes } from "./routes/boards-chat";
 import { registerSeedanceRoutes } from "./routes/seedance";
+import { createRetryCloneHandler } from "./routes/custom-voices-clone";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -8985,52 +8986,14 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   );
 
   // Retry voice cloning for a failed voice (uses the previously uploaded HeyGen audio asset).
-  app.post("/api/custom-voices/:id/retry-clone", requireAuth, async (req, res) => {
-    try {
-      const user = (req as { user: { id: string } }).user;
-      const { id } = req.params;
-
-      const voice = await storage.getCustomVoiceByIdAndUser(id, user.id);
-      if (!voice) {
-        return res.status(404).json({ error: "Voice not found" });
-      }
-      if (!voice.heygenAudioAssetId) {
-        return res.status(400).json({
-          error: "No audio sample on file for this voice. Please re-upload to clone.",
-        });
-      }
-      if (voice.status === "cloning") {
-        return res.status(409).json({
-          error: "A clone is already in progress for this voice. Please wait for it to finish.",
-        });
-      }
-
-      await storage.updateCustomVoice(id, user.id, { status: "cloning" });
-
-      try {
-        const heygenService = new HeyGenService();
-        const cloned = await heygenService.cloneVoice({
-          audioAssetId: voice.heygenAudioAssetId,
-          name: voice.name,
-          language: voice.language || undefined,
-          gender: voice.gender || undefined,
-        });
-        const updated = await storage.updateCustomVoice(id, user.id, {
-          status: "ready",
-          heygenVoiceId: cloned.voiceId,
-          sampleAudioUrl: cloned.previewAudioUrl ?? voice.sampleAudioUrl ?? null,
-        });
-        return res.json(updated);
-      } catch (cloneErr) {
-        const message = cloneErr instanceof Error ? cloneErr.message : "Voice cloning failed";
-        await storage.updateCustomVoice(id, user.id, { status: "failed" });
-        return res.status(502).json({ error: message });
-      }
-    } catch (error) {
-      console.error("Failed to retry voice clone:", error);
-      res.status(500).json({ error: "Failed to retry voice clone" });
-    }
-  });
+  app.post(
+    "/api/custom-voices/:id/retry-clone",
+    requireAuth,
+    createRetryCloneHandler({
+      storage,
+      heygenServiceFactory: () => new HeyGenService(),
+    })
+  );
 
   // Delete a custom voice
   app.delete("/api/custom-voices/:id", requireAuth, async (req, res) => {

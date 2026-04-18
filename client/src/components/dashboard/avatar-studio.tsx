@@ -2407,7 +2407,7 @@ export function AvatarStudio() {
                     <Mic className="h-4 w-4 mr-1 hidden sm:inline" />
                     My Voices
                   </TabsTrigger>
-                  <TabsTrigger value="record" className="text-xs sm:text-sm" data-testid="tab-record">
+                  <TabsTrigger value="record" className="text-xs sm:text-sm" data-testid="tab-record" title="Clone a new voice (record or upload)">
                     <Mic className="h-4 w-4 mr-1 hidden sm:inline" />
                     Record
                   </TabsTrigger>
@@ -2444,9 +2444,22 @@ export function AvatarStudio() {
                 </TabsContent>
 
                 <TabsContent value="custom" className="space-y-3 mt-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-500">
+                      {customVoices.length > 0 ? "Your saved custom voices" : "You don't have any cloned voices yet"}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setVoiceTab("record")}
+                      data-testid="button-clone-new-voice"
+                    >
+                      <Mic className="h-4 w-4 mr-2" />
+                      Clone a new voice
+                    </Button>
+                  </div>
                   {customVoices.length > 0 ? (
                     <>
-                      <p className="text-sm text-gray-500">Your saved custom voices</p>
                       <div className="grid gap-2">
                         {customVoices.map((voice) => (
                           <div
@@ -2596,6 +2609,40 @@ export function AvatarStudio() {
                         
                         <p className="text-xs text-gray-500">
                           Record at least 30 seconds of clear speech for best results
+                        </p>
+
+                        <div className="flex items-center gap-2 w-full">
+                          <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                          <span className="text-xs text-gray-400 uppercase">or</span>
+                          <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                        </div>
+
+                        <input
+                          id="voice-audio-upload"
+                          type="file"
+                          accept="audio/*"
+                          className="hidden"
+                          data-testid="input-upload-voice-file"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const url = URL.createObjectURL(file);
+                            setRecordedBlob(file);
+                            setRecordedUrl(url);
+                            setRecordingTime(0);
+                            e.target.value = "";
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => document.getElementById("voice-audio-upload")?.click()}
+                          data-testid="button-upload-voice-file"
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload an audio file
+                        </Button>
+                        <p className="text-xs text-gray-400">
+                          MP3, WAV, M4A, or any common audio format. 30+ seconds recommended.
                         </p>
                       </>
                     ) : (

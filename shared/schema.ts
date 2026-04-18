@@ -1797,3 +1797,59 @@ export const whatsappBulkSendResults = pgTable("whatsapp_bulk_send_results", {
 });
 
 export type WhatsappBulkSendResult = typeof whatsappBulkSendResults.$inferSelect;
+
+// =====================================================
+// BOARDS — Luma-style generation workspace
+// =====================================================
+export const boards = pgTable("boards", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull().default("Untitled board"),
+  isShared: boolean("is_shared").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("IDX_boards_user").on(table.userId),
+]);
+
+export const insertBoardSchema = createInsertSchema(boards).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertBoard = z.infer<typeof insertBoardSchema>;
+export type Board = typeof boards.$inferSelect;
+
+export const boardAssets = pgTable("board_assets", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+  batchId: varchar("batch_id").notNull(),
+  batchLabel: text("batch_label"),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'image' | 'video' | 'audio'
+  assetUrl: text("asset_url"),
+  thumbnailUrl: text("thumbnail_url"),
+  durationSeconds: real("duration_seconds"),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  modelLabel: text("model_label"),
+  positionX: real("position_x").notNull().default(0),
+  positionY: real("position_y").notNull().default(0),
+  width: real("width").notNull().default(320),
+  height: real("height").notNull().default(180),
+  status: varchar("status", { length: 16 }).notNull().default("queued"), // queued | generating | ready | failed | rejected
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("IDX_board_assets_board").on(table.boardId),
+  index("IDX_board_assets_batch").on(table.batchId),
+]);
+
+export const insertBoardAssetSchema = createInsertSchema(boardAssets).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBoardAsset = z.infer<typeof insertBoardAssetSchema>;
+export type BoardAsset = typeof boardAssets.$inferSelect;

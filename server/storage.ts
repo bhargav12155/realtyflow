@@ -102,6 +102,12 @@ import {
   type BusinessLocation,
   type InsertBusinessLocation,
   businessLocations as businessLocationsTable,
+  boards as boardsTable,
+  boardAssets as boardAssetsTable,
+  type Board,
+  type InsertBoard,
+  type BoardAsset,
+  type InsertBoardAsset,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
@@ -432,6 +438,20 @@ export interface IStorage {
   createBusinessLocation(location: InsertBusinessLocation): Promise<BusinessLocation>;
   updateBusinessLocation(id: string, updates: Partial<BusinessLocation>): Promise<BusinessLocation | undefined>;
   deleteBusinessLocation(id: string): Promise<boolean>;
+
+  // Boards
+  getBoardsByUserId(userId: string): Promise<Board[]>;
+  getBoardById(id: string): Promise<Board | undefined>;
+  createBoard(board: InsertBoard): Promise<Board>;
+  updateBoard(id: string, userId: string, updates: Partial<Board>): Promise<Board | undefined>;
+  deleteBoard(id: string, userId: string): Promise<boolean>;
+
+  // Board Assets
+  getBoardAssets(boardId: string): Promise<BoardAsset[]>;
+  getBoardAssetById(id: string): Promise<BoardAsset | undefined>;
+  createBoardAsset(asset: InsertBoardAsset): Promise<BoardAsset>;
+  updateBoardAsset(id: string, updates: Partial<BoardAsset>): Promise<BoardAsset | undefined>;
+  deleteBoardAsset(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -2796,6 +2816,80 @@ export class MemStorage implements IStorage {
       errorBreakdown: result.errorBreakdown ? JSON.parse(result.errorBreakdown) : null,
       estimatedCost: result.estimatedCost ? parseFloat(result.estimatedCost) : 0,
     };
+  }
+
+  // ============== Boards ==============
+  async getBoardsByUserId(userId: string): Promise<Board[]> {
+    return await db
+      .select()
+      .from(boardsTable)
+      .where(eq(boardsTable.userId, userId))
+      .orderBy(desc(boardsTable.updatedAt));
+  }
+
+  async getBoardById(id: string): Promise<Board | undefined> {
+    const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, id));
+    return board;
+  }
+
+  async createBoard(board: InsertBoard): Promise<Board> {
+    const [created] = await db.insert(boardsTable).values(board).returning();
+    return created;
+  }
+
+  async updateBoard(id: string, userId: string, updates: Partial<Board>): Promise<Board | undefined> {
+    const { id: _ignoreId, userId: _ignoreUser, createdAt: _ignoreCreated, ...safe } = updates as any;
+    const [updated] = await db
+      .update(boardsTable)
+      .set({ ...safe, updatedAt: new Date() })
+      .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteBoard(id: string, userId: string): Promise<boolean> {
+    const [deleted] = await db
+      .delete(boardsTable)
+      .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)))
+      .returning();
+    return !!deleted;
+  }
+
+  // ============== Board Assets ==============
+  async getBoardAssets(boardId: string): Promise<BoardAsset[]> {
+    return await db
+      .select()
+      .from(boardAssetsTable)
+      .where(eq(boardAssetsTable.boardId, boardId))
+      .orderBy(desc(boardAssetsTable.createdAt));
+  }
+
+  async getBoardAssetById(id: string): Promise<BoardAsset | undefined> {
+    const [asset] = await db.select().from(boardAssetsTable).where(eq(boardAssetsTable.id, id));
+    return asset;
+  }
+
+  async createBoardAsset(asset: InsertBoardAsset): Promise<BoardAsset> {
+    const [created] = await db.insert(boardAssetsTable).values(asset).returning();
+    return created;
+  }
+
+  async updateBoardAsset(id: string, updates: Partial<BoardAsset>): Promise<BoardAsset | undefined> {
+    const { id: _ignoreId, boardId: _ignoreBoard, createdAt: _ignoreCreated, ...safe } = updates as any;
+    const [updated] = await db
+      .update(boardAssetsTable)
+      .set(safe)
+      .where(eq(boardAssetsTable.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteBoardAsset(id: string): Promise<boolean> {
+    const [deleted] = await db
+      .delete(boardAssetsTable)
+      .where(eq(boardAssetsTable.id, id))
+      .returning();
+    return !!deleted;
   }
 }
 

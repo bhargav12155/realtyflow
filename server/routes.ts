@@ -65,7 +65,7 @@ import {
 import { registerBoardsRoutes } from "./routes/boards";
 import { registerBoardsChatRoutes } from "./routes/boards-chat";
 import { registerSeedanceRoutes } from "./routes/seedance";
-import { createRetryCloneHandler } from "./routes/custom-voices-clone";
+import { createRetryCloneHandler, createVoiceWithClone, createRenameVoiceHandler } from "./routes/custom-voices-clone";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -8917,62 +8917,23 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             ? req.body.gender.trim()
             : undefined;
 
-        let heygenAudioAssetId: string | undefined;
-        let heygenVoiceId: string | undefined;
-        let sampleAudioUrl: string | undefined;
-        let status = "pending";
-        let cloneError: string | undefined;
-
-        // Upload to HeyGen, then clone the voice into a reusable HeyGen voice_id.
-        try {
-          console.log("🎤 Uploading audio to HeyGen for voice cloning...");
-
-          const heygenService = new HeyGenService();
-          heygenAudioAssetId = await heygenService.uploadAudio(
-            fileBuffer,
-            file.mimetype
-          );
-
-          console.log(
-            "✅ HeyGen upload successful! Audio Asset ID:",
-            heygenAudioAssetId
-          );
-
-          try {
-            const cloned = await heygenService.cloneVoice({
-              audioAssetId: heygenAudioAssetId,
-              name: name.trim(),
-              language,
-              gender,
-            });
-            heygenVoiceId = cloned.voiceId;
-            sampleAudioUrl = cloned.previewAudioUrl;
-            status = "ready";
-          } catch (cloneErr) {
-            console.error("❌ HeyGen voice clone failed:", cloneErr);
-            cloneError = cloneErr instanceof Error ? cloneErr.message : "Voice cloning failed";
-            // Asset uploaded but clone failed — keep the row so the user can retry.
-            status = "failed";
+        // Persist with explicit lifecycle: cloning -> ready|failed.
+        const { voice, cloneError } = await createVoiceWithClone(
+          {
+            userId: user.id,
+            name: name.trim(),
+            audioBuffer: fileBuffer,
+            audioMimeType: file.mimetype,
+            audioUrl,
+            fileSize: stats.size,
+            language,
+            gender,
+          },
+          {
+            storage,
+            heygenServiceFactory: () => new HeyGenService(),
           }
-        } catch (heygenError) {
-          console.error("❌ HeyGen upload failed:", heygenError);
-          status = "failed";
-          cloneError = heygenError instanceof Error ? heygenError.message : "Upload to HeyGen failed";
-        }
-
-        // Create custom voice record with HeyGen asset/voice IDs.
-        const voice = await storage.createCustomVoice({
-          userId: user.id,
-          name: name.trim(),
-          audioUrl,
-          fileSize: stats.size,
-          heygenAudioAssetId,
-          heygenVoiceId,
-          language,
-          gender,
-          sampleAudioUrl,
-          status,
-        });
+        );
 
         // Clean up uploaded file
         try { fs.unlinkSync(file.path); } catch {}
@@ -8983,6 +8944,13 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         res.status(500).json({ error: "Failed to create custom voice" });
       }
     }
+  );
+
+  // Rename a custom voice (My Voices panel)
+  app.patch(
+    "/api/custom-voices/:id",
+    requireAuth,
+    createRenameVoiceHandler({ storage })
   );
 
   // Retry voice cloning for a failed voice (uses the previously uploaded HeyGen audio asset).

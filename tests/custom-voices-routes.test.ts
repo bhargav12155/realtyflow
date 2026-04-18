@@ -1,14 +1,19 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Request, type Response, type NextFunction } from "express";
-import { createRetryCloneHandler } from "../server/routes/custom-voices-clone";
-import type { CustomVoice } from "@shared/schema";
+import {
+  createRetryCloneHandler,
+  createVoiceWithClone,
+  createRenameVoiceHandler,
+} from "../server/routes/custom-voices-clone";
+import type { CustomVoice, InsertCustomVoice } from "@shared/schema";
 
 type VoiceRow = CustomVoice;
 
 class FakeStorage {
   voices = new Map<string, VoiceRow>();
   updates: Array<{ id: string; userId: string; updates: Record<string, unknown> }> = [];
+  private idCounter = 0;
 
   seed(v: Partial<VoiceRow> & { id: string; userId: string; name: string }): VoiceRow {
     const row: VoiceRow = {
@@ -32,6 +37,26 @@ class FakeStorage {
   async getCustomVoiceByIdAndUser(id: string, userId: string): Promise<VoiceRow | undefined> {
     const v = this.voices.get(id);
     return v && v.userId === userId ? v : undefined;
+  }
+
+  async createCustomVoice(input: InsertCustomVoice): Promise<VoiceRow> {
+    this.idCounter += 1;
+    const row: VoiceRow = {
+      id: `v_${this.idCounter}`,
+      userId: input.userId,
+      name: input.name,
+      audioUrl: input.audioUrl,
+      fileSize: input.fileSize ?? 0,
+      heygenAudioAssetId: input.heygenAudioAssetId ?? null,
+      heygenVoiceId: input.heygenVoiceId ?? null,
+      language: input.language ?? null,
+      gender: input.gender ?? null,
+      sampleAudioUrl: input.sampleAudioUrl ?? null,
+      status: input.status ?? "pending",
+      createdAt: new Date(),
+    } as VoiceRow;
+    this.voices.set(row.id, row);
+    return row;
   }
 
   async updateCustomVoice(
@@ -189,5 +214,198 @@ describe("POST /api/custom-voices/:id/retry-clone", () => {
 
     assert.equal(status, 400);
     assert.match((body as { error: string }).error, /No audio sample/);
+  });
+});
+
+describe("createVoiceWithClone (POST /api/custom-voices lifecycle)", () => {
+  let storage: FakeStorage;
+  beforeEach(() => {
+    storage = new FakeStorage();
+  });
+
+  it("uploads to HeyGen, clones, and persists status=ready with heygenVoiceId", async () => {
+    let uploadCalled = 0;
+    let cloneCalled = 0;
+    const { voice, cloneError } = await createVoiceWithClone(
+      {
+        userId: "user-1",
+        name: "Casey",
+        audioBuffer: Buffer.from([1, 2, 3]),
+        audioMimeType: "audio/webm",
+        audioUrl: "https://s3/voice.mp3",
+        fileSize: 1234,
+        language: "en",
+        gender: "female",
+      },
+      {
+        storage: storage as never,
+        heygenServiceFactory: () => ({
+          uploadAudio: async () => {
+            uploadCalled += 1;
+            return "asset_abc";
+          },
+          cloneVoice: async () => {
+            cloneCalled += 1;
+            return { voiceId: "voice_xyz", previewAudioUrl: "https://heygen/p.mp3" };
+          },
+        }),
+      }
+    );
+
+    assert.equal(uploadCalled, 1);
+    assert.equal(cloneCalled, 1);
+    assert.equal(cloneError, undefined);
+    assert.equal(voice.status, "ready");
+    assert.equal(voice.heygenVoiceId, "voice_xyz");
+    assert.equal(voice.heygenAudioAssetId, "asset_abc");
+    assert.equal(voice.sampleAudioUrl, "https://heygen/p.mp3");
+    // Lifecycle: created as cloning, then updated to ready
+    const created = storage.voices.get(voice.id)!;
+    assert.equal(created.status, "ready");
+    assert.deepEqual(
+      storage.updates.map((u) => u.updates.status).filter(Boolean),
+      ["ready"]
+    );
+  });
+
+  it("persists status=failed with cloneError when HeyGen clone rejects (asset still saved)", async () => {
+    const { voice, cloneError } = await createVoiceWithClone(
+      {
+        userId: "user-1",
+        name: "Casey",
+        audioBuffer: Buffer.from([1, 2, 3]),
+        audioMimeType: "audio/webm",
+        audioUrl: "https://s3/voice.mp3",
+        fileSize: 1234,
+      },
+      {
+        storage: storage as never,
+        heygenServiceFactory: () => ({
+          uploadAudio: async () => "asset_abc",
+          cloneVoice: async () => {
+            throw new Error("Voice sample is too short");
+          },
+        }),
+      }
+    );
+
+    assert.equal(voice.status, "failed");
+    assert.equal(voice.heygenAudioAssetId, "asset_abc");
+    assert.equal(voice.heygenVoiceId, null);
+    assert.match(cloneError ?? "", /too short/);
+  });
+
+  it("persists status=failed when HeyGen upload itself fails (no asset id)", async () => {
+    const { voice, cloneError } = await createVoiceWithClone(
+      {
+        userId: "user-1",
+        name: "Casey",
+        audioBuffer: Buffer.from([1, 2, 3]),
+        audioMimeType: "audio/webm",
+        audioUrl: "https://s3/voice.mp3",
+        fileSize: 1234,
+      },
+      {
+        storage: storage as never,
+        heygenServiceFactory: () => ({
+          uploadAudio: async () => {
+            throw new Error("HeyGen upload failed");
+          },
+          cloneVoice: async () => ({ voiceId: "x" }),
+        }),
+      }
+    );
+
+    assert.equal(voice.status, "failed");
+    assert.equal(voice.heygenAudioAssetId, null);
+    assert.equal(voice.heygenVoiceId, null);
+    assert.match(cloneError ?? "", /upload failed/i);
+  });
+});
+
+function buildRenameApp(deps: { storage: FakeStorage; userId?: string }) {
+  const app = express();
+  app.use(express.json());
+  app.patch(
+    "/api/custom-voices/:id",
+    (req: Request, _res: Response, next: NextFunction) => {
+      (req as Request & { user: { id: string } }).user = { id: deps.userId ?? "user-1" };
+      next();
+    },
+    createRenameVoiceHandler({ storage: deps.storage as never })
+  );
+  return app;
+}
+
+async function callRename(app: express.Express, voiceId: string, body: unknown) {
+  return await new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+    const server = app.listen(0, async () => {
+      try {
+        const port = (server.address() as { port: number }).port;
+        const r = await fetch(`http://127.0.0.1:${port}/api/custom-voices/${voiceId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const respBody = await r.json().catch(() => ({}));
+        resolve({ status: r.status, body: respBody });
+      } catch (e) {
+        reject(e);
+      } finally {
+        server.close();
+      }
+    });
+  });
+}
+
+describe("PATCH /api/custom-voices/:id (rename)", () => {
+  let storage: FakeStorage;
+  beforeEach(() => {
+    storage = new FakeStorage();
+  });
+
+  it("renames the voice when the new name is valid and owned by the user", async () => {
+    storage.seed({ id: "v1", userId: "user-1", name: "Old name" });
+    const app = buildRenameApp({ storage });
+    const { status, body } = await callRename(app, "v1", { name: "Friendly New Name" });
+    assert.equal(status, 200);
+    assert.equal((body as { name: string }).name, "Friendly New Name");
+    assert.equal(storage.voices.get("v1")!.name, "Friendly New Name");
+  });
+
+  it("returns 400 when the name is empty/whitespace", async () => {
+    storage.seed({ id: "v1", userId: "user-1", name: "Old" });
+    const app = buildRenameApp({ storage });
+    const { status, body } = await callRename(app, "v1", { name: "   " });
+    assert.equal(status, 400);
+    assert.match((body as { error: string }).error, /required/i);
+    assert.equal(storage.voices.get("v1")!.name, "Old");
+  });
+
+  it("returns 400 when the name exceeds 100 characters", async () => {
+    storage.seed({ id: "v1", userId: "user-1", name: "Old" });
+    const app = buildRenameApp({ storage });
+    const longName = "a".repeat(101);
+    const { status, body } = await callRename(app, "v1", { name: longName });
+    assert.equal(status, 400);
+    assert.match((body as { error: string }).error, /too long/i);
+    assert.equal(storage.voices.get("v1")!.name, "Old");
+  });
+
+  it("returns 404 (no IDOR) when the voice belongs to another user", async () => {
+    storage.seed({ id: "v1", userId: "user-OTHER", name: "Theirs" });
+    const app = buildRenameApp({ storage, userId: "user-1" });
+    const { status, body } = await callRename(app, "v1", { name: "Mine now" });
+    assert.equal(status, 404);
+    assert.equal((body as { error: string }).error, "Voice not found");
+    assert.equal(storage.voices.get("v1")!.name, "Theirs");
+  });
+
+  it("trims surrounding whitespace before persisting", async () => {
+    storage.seed({ id: "v1", userId: "user-1", name: "Old" });
+    const app = buildRenameApp({ storage });
+    const { status, body } = await callRename(app, "v1", { name: "   Padded   " });
+    assert.equal(status, 200);
+    assert.equal((body as { name: string }).name, "Padded");
   });
 });

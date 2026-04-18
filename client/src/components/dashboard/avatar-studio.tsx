@@ -279,6 +279,9 @@ export function AvatarStudio() {
   const [voiceName, setVoiceName] = useState("");
   const [voiceLanguage, setVoiceLanguage] = useState("");
   const [voiceGender, setVoiceGender] = useState("");
+  const [renamingVoiceId, setRenamingVoiceId] = useState<string | null>(null);
+  const [renamingVoiceName, setRenamingVoiceName] = useState("");
+  const renameSubmittedRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1256,6 +1259,35 @@ export function AvatarStudio() {
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const renameVoiceMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: string; name: string }) => {
+      const response = await fetch(`/api/custom-voices/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to rename voice");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Voice Renamed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      setRenamingVoiceId(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Rename Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      setRenamingVoiceId(null);
     },
   });
 
@@ -2479,7 +2511,60 @@ export function AvatarStudio() {
                                 </div>
                               )}
                               <Mic className="h-5 w-5 text-[#D4AF37]" />
-                              <span className="font-medium">{voice.name}</span>
+                              {renamingVoiceId === voice.id ? (
+                                <Input
+                                  autoFocus
+                                  value={renamingVoiceName}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => setRenamingVoiceName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      renameSubmittedRef.current = true;
+                                      const trimmed = renamingVoiceName.trim();
+                                      if (trimmed && trimmed !== voice.name) {
+                                        renameVoiceMutation.mutate({ id: voice.id, name: trimmed });
+                                      } else {
+                                        setRenamingVoiceId(null);
+                                      }
+                                      (e.currentTarget as HTMLInputElement).blur();
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      renameSubmittedRef.current = true;
+                                      setRenamingVoiceId(null);
+                                      (e.currentTarget as HTMLInputElement).blur();
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    if (renameSubmittedRef.current || renameVoiceMutation.isPending) {
+                                      renameSubmittedRef.current = false;
+                                      return;
+                                    }
+                                    const trimmed = renamingVoiceName.trim();
+                                    if (trimmed && trimmed !== voice.name) {
+                                      renameVoiceMutation.mutate({ id: voice.id, name: trimmed });
+                                    } else {
+                                      setRenamingVoiceId(null);
+                                    }
+                                  }}
+                                  className="h-8 w-48"
+                                  data-testid={`input-rename-voice-${voice.id}`}
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="font-medium text-left hover:underline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setRenamingVoiceId(voice.id);
+                                    setRenamingVoiceName(voice.name);
+                                  }}
+                                  title="Click to rename"
+                                  data-testid={`button-rename-voice-${voice.id}`}
+                                >
+                                  {voice.name}
+                                </button>
+                              )}
                               {voice.status === "ready" && voice.heygenVoiceId ? (
                                 <Badge className="text-xs bg-[#D4AF37]/15 text-[#8a6d10] dark:text-[#D4AF37] border border-[#D4AF37]/30">Cloned</Badge>
                               ) : (

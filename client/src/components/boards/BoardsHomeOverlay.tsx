@@ -31,7 +31,7 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
             Create a new board or open an existing one.
           </DialogPrimitive.Description>
 
-          <BoardsHomeView onBoardCreated={() => onOpenChange(false)} hideSidebar />
+          <BoardsHomeView onBoardCreated={() => onOpenChange(false)} />
 
           <DialogPrimitive.Close
             className="fixed right-5 top-4 z-[60] w-9 h-9 rounded-full bg-white/90 hover:bg-white border border-neutral-200 shadow-sm flex items-center justify-center transition focus:outline-none focus:ring-2 focus:ring-neutral-400"

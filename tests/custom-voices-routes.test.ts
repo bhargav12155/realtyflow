@@ -73,7 +73,7 @@ class FakeStorage {
   }
 }
 
-function buildApp(deps: {
+interface BuildAppDeps {
   storage: FakeStorage;
   cloneVoice: (params: {
     audioAssetId: string;
@@ -82,7 +82,16 @@ function buildApp(deps: {
     gender?: string;
   }) => Promise<{ voiceId: string; previewAudioUrl?: string }>;
   userId?: string;
-}) {
+  onCloneComplete?: (params: { userId: string; voice: VoiceRow }) => void;
+  onCloneFailed?: (params: {
+    userId: string;
+    voiceId: string;
+    voiceName: string;
+    error: string;
+  }) => void;
+}
+
+function buildApp(deps: BuildAppDeps) {
   const app = express();
   app.use(express.json());
   app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -94,9 +103,21 @@ function buildApp(deps: {
     createRetryCloneHandler({
       storage: deps.storage as unknown as Parameters<typeof createRetryCloneHandler>[0]["storage"],
       heygenServiceFactory: () => ({ cloneVoice: deps.cloneVoice }),
+      onCloneComplete: deps.onCloneComplete as never,
+      onCloneFailed: deps.onCloneFailed,
     })
   );
   return app;
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("Timed out waiting for predicate");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 async function call(app: express.Express, voiceId: string) {
@@ -124,18 +145,21 @@ describe("POST /api/custom-voices/:id/retry-clone", () => {
     storage = new FakeStorage();
   });
 
-  it("clones the voice, persists the new heygenVoiceId, and flips status to ready", async () => {
+  it("returns 202 immediately with status=cloning, then clones in the background and notifies on success", async () => {
     storage.seed({ id: "v1", userId: "user-1", name: "Casey" });
+    const completions: Array<{ userId: string; voice: VoiceRow }> = [];
     const app = buildApp({
       storage,
       cloneVoice: async () => ({ voiceId: "voice_new", previewAudioUrl: "https://heygen/p.mp3" }),
+      onCloneComplete: (params) => completions.push(params as { userId: string; voice: VoiceRow }),
     });
 
     const { status, body } = await call(app, "v1");
 
-    assert.equal(status, 200);
-    assert.equal((body as { heygenVoiceId: string }).heygenVoiceId, "voice_new");
-    assert.equal((body as { status: string }).status, "ready");
+    assert.equal(status, 202);
+    assert.equal((body as { status: string }).status, "cloning");
+
+    await waitFor(() => completions.length > 0);
     const final = storage.voices.get("v1")!;
     assert.equal(final.heygenVoiceId, "voice_new");
     assert.equal(final.status, "ready");
@@ -145,22 +169,32 @@ describe("POST /api/custom-voices/:id/retry-clone", () => {
       storage.updates.map((u) => u.updates.status).filter(Boolean),
       ["cloning", "ready"]
     );
+    assert.equal(completions[0].voice.heygenVoiceId, "voice_new");
+    assert.equal(completions[0].voice.status, "ready");
+    assert.equal(completions[0].userId, "user-1");
   });
 
-  it("flips status back to failed and returns 502 with the friendly message when HeyGen rejects", async () => {
+  it("flips status back to failed and notifies onCloneFailed when HeyGen rejects", async () => {
     storage.seed({ id: "v2", userId: "user-1", name: "Casey" });
+    const failures: Array<{ voiceId: string; error: string }> = [];
     const app = buildApp({
       storage,
       cloneVoice: async () => {
         throw new Error("Voice sample is too short — please record at least 30 seconds.");
       },
+      onCloneFailed: (p) => failures.push({ voiceId: p.voiceId, error: p.error }),
     });
 
     const { status, body } = await call(app, "v2");
 
-    assert.equal(status, 502);
-    assert.match((body as { error: string }).error, /at least 30 seconds/);
+    // Response is sent immediately as 202 with the cloning row.
+    assert.equal(status, 202);
+    assert.equal((body as { status: string }).status, "cloning");
+
+    await waitFor(() => failures.length > 0);
     assert.equal(storage.voices.get("v2")!.status, "failed");
+    assert.match(failures[0].error, /at least 30 seconds/);
+    assert.equal(failures[0].voiceId, "v2");
   });
 
   it("returns 409 when a clone is already in progress for this voice", async () => {

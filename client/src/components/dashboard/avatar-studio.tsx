@@ -61,6 +61,8 @@ import {
   Copy,
   Heart,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useWebSocket } from "@/hooks/useWebSocket";
 
 const PROFESSIONAL_VOICES = [
   { id: "92c93dc0dff2428ab0bea258ba68f173", name: "Professional Male - Confident" },
@@ -172,6 +174,39 @@ export function AvatarStudio() {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const { isDemo } = useDemo();
+  const { user, isAuthenticated } = useAuth();
+
+  // Subscribe to real-time voice clone updates so the My Voices badges
+  // flip from "Cloning…" to "Cloned" / "Clone Failed" without needing
+  // a manual refresh.
+  useWebSocket({
+    userId: user?.id?.toString() || undefined,
+    autoConnect: isAuthenticated && !!user?.id,
+    showToast: false,
+    onMessage: (message) => {
+      if (
+        message.type === "voice_clone_complete" ||
+        message.type === "voice_clone_failed"
+      ) {
+        queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+        const voiceName = message.data?.voiceName ?? "Voice";
+        if (message.type === "voice_clone_complete") {
+          toast({
+            title: "Voice Cloned!",
+            description: `"${voiceName}" is ready to narrate avatar videos.`,
+          });
+        } else {
+          toast({
+            title: "Clone Failed",
+            description:
+              message.data?.error ||
+              `"${voiceName}" could not be cloned. You can retry from "My Voices".`,
+            variant: "destructive",
+          });
+        }
+      }
+    },
+  });
   
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedAvatarGroup, setSelectedAvatarGroup] = useState<string>("");
@@ -1238,10 +1273,9 @@ export function AvatarStudio() {
         });
       } else {
         toast({
-          title: data.heygenVoiceId ? "Voice Cloned!" : "Voice Saved",
-          description: data.heygenVoiceId
-            ? "Your cloned voice is ready to narrate avatar videos."
-            : "Your custom voice has been saved.",
+          title: "Cloning Voice…",
+          description:
+            "Your voice was saved and is now being cloned. We'll let you know the moment it's ready.",
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
@@ -1305,8 +1339,9 @@ export function AvatarStudio() {
     },
     onSuccess: () => {
       toast({
-        title: "Voice Cloned!",
-        description: "Your cloned voice is ready to use.",
+        title: "Cloning Voice…",
+        description:
+          "We're cloning your voice again. We'll let you know the moment it's ready.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
     },

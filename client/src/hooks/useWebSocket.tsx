@@ -19,7 +19,9 @@ interface WebSocketMessage {
     | "look_generation_failed"
     | "motion_complete"
     | "sjinn_video_ready"
-    | "sora2_video_ready";
+    | "sora2_video_ready"
+    | "voice_clone_complete"
+    | "voice_clone_failed";
   data: any;
   timestamp: string;
   userId?: number;

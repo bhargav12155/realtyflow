@@ -6,6 +6,16 @@ import type { CustomVoice } from "@shared/schema";
 export interface RetryCloneDeps {
   storage: Pick<IStorage, "getCustomVoiceByIdAndUser" | "updateCustomVoice">;
   heygenServiceFactory: () => Pick<HeyGenService, "cloneVoice">;
+  onCloneComplete?: (params: {
+    userId: string;
+    voice: CustomVoice;
+  }) => void;
+  onCloneFailed?: (params: {
+    userId: string;
+    voiceId: string;
+    voiceName: string;
+    error: string;
+  }) => void;
 }
 
 export interface RenameVoiceDeps {
@@ -66,7 +76,7 @@ export async function createVoiceWithClone(
   input: CreateVoiceWithCloneInput,
   deps: CreateVoiceWithCloneDeps
 ): Promise<{ voice: CustomVoice; cloneError?: string }> {
-  let voice = await deps.storage.createCustomVoice({
+  const voice = await deps.storage.createCustomVoice({
     userId: input.userId,
     name: input.name,
     audioUrl: input.audioUrl,
@@ -76,6 +86,78 @@ export async function createVoiceWithClone(
     status: "cloning",
   });
 
+  const result = await runHeyGenCloneTask({
+    voiceId: voice.id,
+    userId: input.userId,
+    name: input.name,
+    audioBuffer: input.audioBuffer,
+    audioMimeType: input.audioMimeType,
+    language: input.language,
+    gender: input.gender,
+    storage: deps.storage,
+    heygenService: deps.heygenServiceFactory(),
+  });
+
+  return { voice: result.voice ?? voice, cloneError: result.cloneError };
+}
+
+/**
+ * Starts a new voice clone in the "cloning" state and returns immediately
+ * with the freshly persisted row plus a promise that resolves when the
+ * background HeyGen upload+clone work has finished. Callers are expected
+ * to respond to the client right away and then await the promise to
+ * broadcast a real-time progress update over WebSocket.
+ */
+export async function startVoiceClone(
+  input: CreateVoiceWithCloneInput,
+  deps: CreateVoiceWithCloneDeps,
+): Promise<{
+  voice: CustomVoice;
+  donePromise: Promise<{ voice: CustomVoice; cloneError?: string }>;
+}> {
+  const voice = await deps.storage.createCustomVoice({
+    userId: input.userId,
+    name: input.name,
+    audioUrl: input.audioUrl,
+    fileSize: input.fileSize,
+    language: input.language,
+    gender: input.gender,
+    status: "cloning",
+  });
+
+  const donePromise = runHeyGenCloneTask({
+    voiceId: voice.id,
+    userId: input.userId,
+    name: input.name,
+    audioBuffer: input.audioBuffer,
+    audioMimeType: input.audioMimeType,
+    language: input.language,
+    gender: input.gender,
+    storage: deps.storage,
+    heygenService: deps.heygenServiceFactory(),
+  }).then((result) => ({
+    voice: result.voice ?? voice,
+    cloneError: result.cloneError,
+  }));
+
+  return { voice, donePromise };
+}
+
+interface RunCloneTaskArgs {
+  voiceId: string;
+  userId: string;
+  name: string;
+  audioBuffer: Buffer;
+  audioMimeType: string;
+  language?: string;
+  gender?: string;
+  storage: Pick<IStorage, "updateCustomVoice">;
+  heygenService: Pick<HeyGenService, "uploadAudio" | "cloneVoice">;
+}
+
+async function runHeyGenCloneTask(
+  args: RunCloneTaskArgs,
+): Promise<{ voice: CustomVoice | undefined; cloneError?: string }> {
   let cloneError: string | undefined;
   let heygenAudioAssetId: string | undefined;
   let heygenVoiceId: string | undefined;
@@ -83,18 +165,16 @@ export async function createVoiceWithClone(
   let nextStatus: "ready" | "failed" = "failed";
 
   try {
-    const heygenService = deps.heygenServiceFactory();
-    heygenAudioAssetId = await heygenService.uploadAudio(
-      input.audioBuffer,
-      input.audioMimeType
+    heygenAudioAssetId = await args.heygenService.uploadAudio(
+      args.audioBuffer,
+      args.audioMimeType,
     );
-
     try {
-      const cloned = await heygenService.cloneVoice({
+      const cloned = await args.heygenService.cloneVoice({
         audioAssetId: heygenAudioAssetId,
-        name: input.name,
-        language: input.language,
-        gender: input.gender,
+        name: args.name,
+        language: args.language,
+        gender: args.gender,
       });
       heygenVoiceId = cloned.voiceId;
       sampleAudioUrl = cloned.previewAudioUrl;
@@ -106,14 +186,14 @@ export async function createVoiceWithClone(
     cloneError = uploadErr instanceof Error ? uploadErr.message : "Upload to HeyGen failed";
   }
 
-  const updated = await deps.storage.updateCustomVoice(voice.id, input.userId, {
+  const updated = await args.storage.updateCustomVoice(args.voiceId, args.userId, {
     status: nextStatus,
     heygenAudioAssetId: heygenAudioAssetId ?? null,
     heygenVoiceId: heygenVoiceId ?? null,
     sampleAudioUrl: sampleAudioUrl ?? null,
   });
 
-  return { voice: updated ?? voice, cloneError };
+  return { voice: updated, cloneError };
 }
 
 export function createRetryCloneHandler(deps: RetryCloneDeps) {
@@ -137,30 +217,52 @@ export function createRetryCloneHandler(deps: RetryCloneDeps) {
         });
       }
 
-      await deps.storage.updateCustomVoice(id, user.id, { status: "cloning" });
+      const cloningRow =
+        (await deps.storage.updateCustomVoice(id, user.id, { status: "cloning" })) ?? {
+          ...voice,
+          status: "cloning",
+        };
 
-      try {
-        const heygenService = deps.heygenServiceFactory();
-        const cloned = await heygenService.cloneVoice({
-          audioAssetId: voice.heygenAudioAssetId,
-          name: voice.name,
-          language: voice.language || undefined,
-          gender: voice.gender || undefined,
-        });
-        const updated = await deps.storage.updateCustomVoice(id, user.id, {
-          status: "ready",
-          heygenVoiceId: cloned.voiceId,
-          sampleAudioUrl: cloned.previewAudioUrl ?? voice.sampleAudioUrl ?? null,
-        });
-        return res.json(updated);
-      } catch (cloneErr) {
-        const message = cloneErr instanceof Error ? cloneErr.message : "Voice cloning failed";
-        await deps.storage.updateCustomVoice(id, user.id, { status: "failed" });
-        return res.status(502).json({ error: message });
-      }
+      // Respond immediately with the "cloning" row so the UI can flip its
+      // badge right away. Run the HeyGen clone in the background and
+      // notify when finished so the UI can flip to "Cloned" / "Clone Failed"
+      // without a manual refresh.
+      res.status(202).json(cloningRow);
+
+      void (async () => {
+        try {
+          const heygenService = deps.heygenServiceFactory();
+          const cloned = await heygenService.cloneVoice({
+            audioAssetId: voice.heygenAudioAssetId!,
+            name: voice.name,
+            language: voice.language || undefined,
+            gender: voice.gender || undefined,
+          });
+          const updated = await deps.storage.updateCustomVoice(id, user.id, {
+            status: "ready",
+            heygenVoiceId: cloned.voiceId,
+            sampleAudioUrl: cloned.previewAudioUrl ?? voice.sampleAudioUrl ?? null,
+          });
+          deps.onCloneComplete?.({
+            userId: user.id,
+            voice: updated ?? { ...cloningRow, status: "ready", heygenVoiceId: cloned.voiceId },
+          });
+        } catch (cloneErr) {
+          const message = cloneErr instanceof Error ? cloneErr.message : "Voice cloning failed";
+          await deps.storage.updateCustomVoice(id, user.id, { status: "failed" });
+          deps.onCloneFailed?.({
+            userId: user.id,
+            voiceId: id,
+            voiceName: voice.name,
+            error: message,
+          });
+        }
+      })();
     } catch (error) {
       console.error("Failed to retry voice clone:", error);
-      res.status(500).json({ error: "Failed to retry voice clone" });
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to retry voice clone" });
+      }
     }
   };
 }

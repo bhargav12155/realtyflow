@@ -65,7 +65,7 @@ import {
 import { registerBoardsRoutes } from "./routes/boards";
 import { registerBoardsChatRoutes } from "./routes/boards-chat";
 import { registerSeedanceRoutes } from "./routes/seedance";
-import { createRetryCloneHandler, createVoiceWithClone, createRenameVoiceHandler } from "./routes/custom-voices-clone";
+import { createRetryCloneHandler, createVoiceWithClone, createRenameVoiceHandler, startVoiceClone } from "./routes/custom-voices-clone";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -8917,8 +8917,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             ? req.body.gender.trim()
             : undefined;
 
-        // Persist with explicit lifecycle: cloning -> ready|failed.
-        const { voice, cloneError } = await createVoiceWithClone(
+        // Persist as "cloning" right away and respond immediately so the UI
+        // can show the new voice with a live "Cloning…" badge. The HeyGen
+        // upload+clone runs in the background and broadcasts a WebSocket
+        // event when finished, flipping the badge to "Cloned" or
+        // "Clone Failed" without a manual refresh.
+        const { voice, donePromise } = await startVoiceClone(
           {
             userId: user.id,
             name: name.trim(),
@@ -8938,7 +8942,35 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         // Clean up uploaded file
         try { fs.unlinkSync(file.path); } catch {}
 
-        res.status(201).json({ ...voice, cloneError });
+        res.status(202).json(voice);
+
+        donePromise
+          .then(({ voice: finalVoice, cloneError }) => {
+            if (cloneError) {
+              realtimeService.notifyVoiceCloneFailed(
+                String(user.id),
+                voice.id,
+                voice.name,
+                cloneError,
+              );
+            } else {
+              realtimeService.notifyVoiceCloneComplete(
+                String(user.id),
+                voice.id,
+                voice.name,
+                finalVoice.heygenVoiceId ?? null,
+              );
+            }
+          })
+          .catch((err) => {
+            console.error("Background voice clone task failed:", err);
+            realtimeService.notifyVoiceCloneFailed(
+              String(user.id),
+              voice.id,
+              voice.name,
+              err instanceof Error ? err.message : "Voice cloning failed",
+            );
+          });
       } catch (error) {
         console.error("Failed to create custom voice:", error);
         res.status(500).json({ error: "Failed to create custom voice" });
@@ -8960,6 +8992,22 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     createRetryCloneHandler({
       storage,
       heygenServiceFactory: () => new HeyGenService(),
+      onCloneComplete: ({ userId, voice }) => {
+        realtimeService.notifyVoiceCloneComplete(
+          String(userId),
+          voice.id,
+          voice.name,
+          voice.heygenVoiceId ?? null,
+        );
+      },
+      onCloneFailed: ({ userId, voiceId, voiceName, error }) => {
+        realtimeService.notifyVoiceCloneFailed(
+          String(userId),
+          voiceId,
+          voiceName,
+          error,
+        );
+      },
     })
   );
 

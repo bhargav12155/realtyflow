@@ -3,7 +3,7 @@ import { Server } from "http";
 import type { IncomingMessage } from "http";
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed";
   data: any;
   timestamp: string;
   userId?: number;
@@ -335,6 +335,44 @@ export class RealtimeService {
       timestamp: new Date().toISOString(),
       userId,
       link: "photo-avatars",
+    });
+  }
+
+  // Notify when a custom voice clone has finished successfully
+  notifyVoiceCloneComplete(
+    userId: string,
+    voiceId: string,
+    voiceName: string,
+    heygenVoiceId?: string | null,
+  ) {
+    this.sendToUser(userId, {
+      type: "voice_clone_complete",
+      data: {
+        voiceId,
+        voiceName,
+        heygenVoiceId: heygenVoiceId ?? null,
+        message: `Voice "${voiceName}" is ready to use!`,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Notify when a custom voice clone has failed
+  notifyVoiceCloneFailed(
+    userId: string,
+    voiceId: string,
+    voiceName: string,
+    error: string,
+  ) {
+    this.sendToUser(userId, {
+      type: "voice_clone_failed",
+      data: {
+        voiceId,
+        voiceName,
+        error,
+        message: `Voice "${voiceName}" clone failed: ${error}`,
+      },
+      timestamp: new Date().toISOString(),
     });
   }
 

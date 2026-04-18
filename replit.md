@@ -39,7 +39,7 @@ Key features include:
 
 ## External Dependencies
 - **Database**: PostgreSQL (Neon)
-- **AI Services**: Gemini 2.5 Flash (text, image), Anthropic Claude Sonnet 4.5, Google Imagen 3, Kling AI, ElevenLabs, Gemini VEO 3.1, Sora 2 (OpenAI via sora2api.ai), Luma Ray 2 (Dream Machine API), Runway Gen-4
+- **AI Services**: Gemini 2.5 Flash (text, image), Anthropic Claude Sonnet 4.5, Google Imagen 3, Kling AI, ElevenLabs, Gemini VEO 3.1, Sora 2 (OpenAI via sora2api.ai), Luma Ray 2 (Dream Machine API), Runway Gen-4, Seedance (BytePlus ModelArk — `seedance-1-0-pro-250528`, `seedance-1-0-lite-t2v-250428`, `seedance-1-0-lite-i2v-250428`; text-to-video and image-to-video only, no v2v)
 - **Authentication**: Replit OpenID Connect
 - **Social Media APIs**: Twitter/X OAuth 2.0, YouTube OAuth, Meta Graph API (Facebook, Instagram, WhatsApp)
 - **UI Components**: Radix UI, Tailwind CSS

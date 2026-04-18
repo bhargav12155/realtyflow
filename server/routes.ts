@@ -64,6 +64,7 @@ import {
 } from "./routes/ai-chat-handlers";
 import { registerBoardsRoutes } from "./routes/boards";
 import { registerBoardsChatRoutes } from "./routes/boards-chat";
+import { registerSeedanceRoutes } from "./routes/seedance";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -721,6 +722,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Boards (Luma-style generation workspace)
   registerBoardsRoutes(app);
   registerBoardsChatRoutes(app);
+  registerSeedanceRoutes(app, requireAuth as any);
 
   // Helper function to ensure S3 URLs are properly formatted
   const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {

@@ -15,7 +15,7 @@ import { veoVideoService } from "../services/veo-video";
 import { generateMotionVideo, checkMotionVideoStatus } from "../services/kling";
 import { autoEvaluateBatch } from "../services/boardAutoEval";
 
-const PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
+const PROVIDERS = ["luma", "runway", "sora2", "veo", "kling"] as const;
 type Provider = (typeof PROVIDERS)[number];
 type GenMode = "text-to-video" | "image-to-video" | "video-to-video";
 type PollStatus = "pending" | "processing" | "completed" | "failed";
@@ -73,7 +73,6 @@ function pickDefaultProvider(genMode: GenMode, message: string): Provider {
   }
   if (lower.includes("sora")) return "sora2";
   if (lower.includes("runway")) return "runway";
-  if (lower.includes("seedance")) return "seedance";
   return "luma";
 }
 
@@ -191,9 +190,6 @@ async function dispatchOne(provider: Provider, genMode: GenMode, ctx: DispatchCo
           return { status: "processing" };
         },
       };
-    }
-    case "seedance": {
-      throw new Error("Seedance provider service is not yet available in this environment");
     }
   }
 }

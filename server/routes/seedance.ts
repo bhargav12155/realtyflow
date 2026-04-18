@@ -95,7 +95,7 @@ export function registerSeedanceRoutes(app: Express, requireAuth: RequestHandler
 
   app.get(
     "/api/seedance/status/:taskId",
-    requireAuth as any,
+    requireAuth,
     async (req: SeedanceAuthedRequest, res: Response) => {
       try {
         const userId = String(req.user?.id ?? req.user?.claims?.sub ?? "");

@@ -12,10 +12,29 @@ const updateBoardSchema = z.object({
 const createBoardSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   isShared: z.boolean().optional(),
-  seedTemplate: z.string().optional(),
 });
 
-const createAssetSchema = insertBoardAssetSchema.omit({ boardId: true });
+const ASSET_KINDS = ["image", "video", "audio"] as const;
+const ASSET_PROVIDERS = [
+  "luma",
+  "runway",
+  "sora2",
+  "seedance",
+  "veo",
+  "kling",
+  "gemini-image",
+  "openai-image",
+  "heygen",
+] as const;
+const ASSET_STATUSES = ["queued", "generating", "ready", "failed", "rejected"] as const;
+
+const createAssetSchema = insertBoardAssetSchema
+  .omit({ boardId: true })
+  .extend({
+    kind: z.enum(ASSET_KINDS),
+    provider: z.enum(ASSET_PROVIDERS),
+    status: z.enum(ASSET_STATUSES).optional(),
+  });
 
 const updateAssetSchema = z.object({
   positionX: z.number().optional(),

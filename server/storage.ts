@@ -2934,6 +2934,7 @@ export class MemStorage implements IStorage {
       .set(updates)
       .where(and(eq(boardAssetsTable.id, assetId), eq(boardAssetsTable.boardId, boardId)))
       .returning();
+    if (updated) await this.touchBoardForUser(boardId, userId);
     return updated;
   }
 
@@ -2944,6 +2945,7 @@ export class MemStorage implements IStorage {
       .delete(boardAssetsTable)
       .where(and(eq(boardAssetsTable.id, assetId), eq(boardAssetsTable.boardId, boardId)))
       .returning();
+    if (deleted) await this.touchBoardForUser(boardId, userId);
     return !!deleted;
   }
 }

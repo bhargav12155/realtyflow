@@ -2,10 +2,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware/auth";
-import {
-  insertBoardSchema,
-  insertBoardAssetSchema,
-} from "@shared/schema";
+import { insertBoardAssetSchema } from "@shared/schema";
 
 const updateBoardSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -43,7 +40,7 @@ export function registerBoardsRoutes(app: Express) {
 
       const enriched = await Promise.all(
         boards.map(async (board) => {
-          const assets = await storage.getBoardAssets(board.id);
+          const assets = await storage.getBoardAssetsForUser(board.id, userId);
           const thumbnails = assets
             .filter((a) => a.thumbnailUrl || a.assetUrl)
             .slice(0, 4)
@@ -89,11 +86,9 @@ export function registerBoardsRoutes(app: Express) {
   app.get("/api/boards/:id", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user!.id);
-      const board = await storage.getBoardById(req.params.id);
-      if (!board || board.userId !== userId) {
-        return res.status(404).json({ error: "Board not found" });
-      }
-      const assets = await storage.getBoardAssets(board.id);
+      const board = await storage.getBoardByIdForUser(req.params.id, userId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+      const assets = await storage.getBoardAssetsForUser(board.id, userId);
       const batchMap = new Map<string, { batchId: string; batchLabel: string | null; assets: typeof assets }>();
       for (const a of assets) {
         const entry = batchMap.get(a.batchId) ?? {
@@ -120,7 +115,7 @@ export function registerBoardsRoutes(app: Express) {
     try {
       const userId = String(req.user!.id);
       const updates = updateBoardSchema.parse(req.body ?? {});
-      const updated = await storage.updateBoard(req.params.id, userId, updates);
+      const updated = await storage.updateBoardForUser(req.params.id, userId, updates);
       if (!updated) return res.status(404).json({ error: "Board not found" });
       res.json(updated);
     } catch (error: any) {
@@ -134,7 +129,7 @@ export function registerBoardsRoutes(app: Express) {
   app.delete("/api/boards/:id", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user!.id);
-      const ok = await storage.deleteBoard(req.params.id, userId);
+      const ok = await storage.deleteBoardForUser(req.params.id, userId);
       if (!ok) return res.status(404).json({ error: "Board not found" });
       res.json({ success: true });
     } catch (error: any) {
@@ -147,17 +142,9 @@ export function registerBoardsRoutes(app: Express) {
   app.post("/api/boards/:id/assets", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user!.id);
-      const board = await storage.getBoardById(req.params.id);
-      if (!board || board.userId !== userId) {
-        return res.status(404).json({ error: "Board not found" });
-      }
       const parsed = createAssetSchema.parse(req.body ?? {});
-      const asset = await storage.createBoardAsset({
-        ...parsed,
-        boardId: board.id,
-      });
-      // Touch board updatedAt
-      await storage.updateBoard(board.id, userId, {});
+      const asset = await storage.createBoardAssetForUser(req.params.id, userId, parsed);
+      if (!asset) return res.status(404).json({ error: "Board not found" });
       res.json(asset);
     } catch (error: any) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
@@ -170,16 +157,14 @@ export function registerBoardsRoutes(app: Express) {
   app.patch("/api/boards/:id/assets/:assetId", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user!.id);
-      const board = await storage.getBoardById(req.params.id);
-      if (!board || board.userId !== userId) {
-        return res.status(404).json({ error: "Board not found" });
-      }
-      const existing = await storage.getBoardAssetById(req.params.assetId);
-      if (!existing || existing.boardId !== board.id) {
-        return res.status(404).json({ error: "Asset not found" });
-      }
       const updates = updateAssetSchema.parse(req.body ?? {});
-      const updated = await storage.updateBoardAsset(existing.id, updates as any);
+      const updated = await storage.updateBoardAssetForUser(
+        req.params.id,
+        req.params.assetId,
+        userId,
+        updates,
+      );
+      if (!updated) return res.status(404).json({ error: "Asset not found" });
       res.json(updated);
     } catch (error: any) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
@@ -192,15 +177,8 @@ export function registerBoardsRoutes(app: Express) {
   app.delete("/api/boards/:id/assets/:assetId", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user!.id);
-      const board = await storage.getBoardById(req.params.id);
-      if (!board || board.userId !== userId) {
-        return res.status(404).json({ error: "Board not found" });
-      }
-      const existing = await storage.getBoardAssetById(req.params.assetId);
-      if (!existing || existing.boardId !== board.id) {
-        return res.status(404).json({ error: "Asset not found" });
-      }
-      await storage.deleteBoardAsset(existing.id);
+      const ok = await storage.deleteBoardAssetForUser(req.params.id, req.params.assetId, userId);
+      if (!ok) return res.status(404).json({ error: "Asset not found" });
       res.json({ success: true });
     } catch (error: any) {
       console.error("[boards] delete asset error:", error);

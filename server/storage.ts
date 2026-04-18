@@ -441,18 +441,37 @@ export interface IStorage {
 
   // Boards
   getBoardsByUserId(userId: string): Promise<Board[]>;
-  getBoardById(id: string): Promise<Board | undefined>;
+  getBoardByIdForUser(id: string, userId: string): Promise<Board | undefined>;
   createBoard(board: InsertBoard): Promise<Board>;
-  updateBoard(id: string, userId: string, updates: Partial<Board>): Promise<Board | undefined>;
-  deleteBoard(id: string, userId: string): Promise<boolean>;
+  updateBoardForUser(id: string, userId: string, updates: BoardUpdate): Promise<Board | undefined>;
+  touchBoardForUser(id: string, userId: string): Promise<void>;
+  deleteBoardForUser(id: string, userId: string): Promise<boolean>;
 
-  // Board Assets
-  getBoardAssets(boardId: string): Promise<BoardAsset[]>;
-  getBoardAssetById(id: string): Promise<BoardAsset | undefined>;
-  createBoardAsset(asset: InsertBoardAsset): Promise<BoardAsset>;
-  updateBoardAsset(id: string, updates: Partial<BoardAsset>): Promise<BoardAsset | undefined>;
-  deleteBoardAsset(id: string): Promise<boolean>;
+  // Board Assets (always user-scoped via boardId + userId)
+  getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]>;
+  getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined>;
+  createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined>;
+  updateBoardAssetForUser(boardId: string, assetId: string, userId: string, updates: BoardAssetUpdate): Promise<BoardAsset | undefined>;
+  deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean>;
 }
+
+// Typed mutation DTOs (kept narrow on purpose: only mutable fields)
+export type BoardUpdate = Partial<Pick<Board, "title" | "isShared">>;
+export type BoardAssetCreate = Omit<InsertBoardAsset, "boardId">;
+export type BoardAssetUpdate = Partial<Pick<
+  BoardAsset,
+  | "positionX"
+  | "positionY"
+  | "width"
+  | "height"
+  | "status"
+  | "rejectionReason"
+  | "assetUrl"
+  | "thumbnailUrl"
+  | "durationSeconds"
+  | "modelLabel"
+  | "batchLabel"
+>>;
 
 export class MemStorage implements IStorage {
   private users: Map<string, User> = new Map();
@@ -2827,8 +2846,11 @@ export class MemStorage implements IStorage {
       .orderBy(desc(boardsTable.updatedAt));
   }
 
-  async getBoardById(id: string): Promise<Board | undefined> {
-    const [board] = await db.select().from(boardsTable).where(eq(boardsTable.id, id));
+  async getBoardByIdForUser(id: string, userId: string): Promise<Board | undefined> {
+    const [board] = await db
+      .select()
+      .from(boardsTable)
+      .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)));
     return board;
   }
 
@@ -2837,17 +2859,23 @@ export class MemStorage implements IStorage {
     return created;
   }
 
-  async updateBoard(id: string, userId: string, updates: Partial<Board>): Promise<Board | undefined> {
-    const { id: _ignoreId, userId: _ignoreUser, createdAt: _ignoreCreated, ...safe } = updates as any;
+  async updateBoardForUser(id: string, userId: string, updates: BoardUpdate): Promise<Board | undefined> {
     const [updated] = await db
       .update(boardsTable)
-      .set({ ...safe, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() })
       .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)))
       .returning();
     return updated;
   }
 
-  async deleteBoard(id: string, userId: string): Promise<boolean> {
+  async touchBoardForUser(id: string, userId: string): Promise<void> {
+    await db
+      .update(boardsTable)
+      .set({ updatedAt: new Date() })
+      .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)));
+  }
+
+  async deleteBoardForUser(id: string, userId: string): Promise<boolean> {
     const [deleted] = await db
       .delete(boardsTable)
       .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)))
@@ -2855,39 +2883,66 @@ export class MemStorage implements IStorage {
     return !!deleted;
   }
 
-  // ============== Board Assets ==============
-  async getBoardAssets(boardId: string): Promise<BoardAsset[]> {
-    return await db
-      .select()
+  // ============== Board Assets (user-scoped via boards.userId) ==============
+  async getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]> {
+    const rows = await db
+      .select({ asset: boardAssetsTable })
       .from(boardAssetsTable)
-      .where(eq(boardAssetsTable.boardId, boardId))
+      .innerJoin(boardsTable, eq(boardsTable.id, boardAssetsTable.boardId))
+      .where(and(eq(boardAssetsTable.boardId, boardId), eq(boardsTable.userId, userId)))
       .orderBy(desc(boardAssetsTable.createdAt));
+    return rows.map((r) => r.asset);
   }
 
-  async getBoardAssetById(id: string): Promise<BoardAsset | undefined> {
-    const [asset] = await db.select().from(boardAssetsTable).where(eq(boardAssetsTable.id, id));
-    return asset;
+  async getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined> {
+    const [row] = await db
+      .select({ asset: boardAssetsTable })
+      .from(boardAssetsTable)
+      .innerJoin(boardsTable, eq(boardsTable.id, boardAssetsTable.boardId))
+      .where(and(
+        eq(boardAssetsTable.id, assetId),
+        eq(boardAssetsTable.boardId, boardId),
+        eq(boardsTable.userId, userId),
+      ));
+    return row?.asset;
   }
 
-  async createBoardAsset(asset: InsertBoardAsset): Promise<BoardAsset> {
-    const [created] = await db.insert(boardAssetsTable).values(asset).returning();
+  async createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined> {
+    // Verify board ownership before insert
+    const board = await this.getBoardByIdForUser(boardId, userId);
+    if (!board) return undefined;
+    const [created] = await db
+      .insert(boardAssetsTable)
+      .values({ ...asset, boardId })
+      .returning();
+    // Touch parent board's updatedAt
+    await this.touchBoardForUser(boardId, userId);
     return created;
   }
 
-  async updateBoardAsset(id: string, updates: Partial<BoardAsset>): Promise<BoardAsset | undefined> {
-    const { id: _ignoreId, boardId: _ignoreBoard, createdAt: _ignoreCreated, ...safe } = updates as any;
+  async updateBoardAssetForUser(
+    boardId: string,
+    assetId: string,
+    userId: string,
+    updates: BoardAssetUpdate,
+  ): Promise<BoardAsset | undefined> {
+    // Verify ownership first to avoid leaking through bare id update
+    const existing = await this.getBoardAssetByIdForUser(boardId, assetId, userId);
+    if (!existing) return undefined;
     const [updated] = await db
       .update(boardAssetsTable)
-      .set(safe)
-      .where(eq(boardAssetsTable.id, id))
+      .set(updates)
+      .where(and(eq(boardAssetsTable.id, assetId), eq(boardAssetsTable.boardId, boardId)))
       .returning();
     return updated;
   }
 
-  async deleteBoardAsset(id: string): Promise<boolean> {
+  async deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean> {
+    const existing = await this.getBoardAssetByIdForUser(boardId, assetId, userId);
+    if (!existing) return false;
     const [deleted] = await db
       .delete(boardAssetsTable)
-      .where(eq(boardAssetsTable.id, id))
+      .where(and(eq(boardAssetsTable.id, assetId), eq(boardAssetsTable.boardId, boardId)))
       .returning();
     return !!deleted;
   }

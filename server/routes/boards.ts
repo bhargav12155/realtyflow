@@ -281,43 +281,8 @@ export function registerBoardsRoutes(
     }
   });
 
-  // Board chat — accepts a user message and returns an acknowledgement.
-  // The full Brainstorm/Create handler with auto-eval is wired up in a
-  // companion task; this endpoint enforces the validation rules the UI
-  // depends on today (provider/v2v gate, board ownership, payload shape)
-  // and emits a stub assistant reply so the panel can be exercised end-to-end.
-  app.post("/api/boards/:id/chat", auth, async (req: any, res) => {
-    try {
-      const userId = String(req.user!.id);
-      const board = await storage.getBoardByIdForUser(req.params.id, userId);
-      if (!board) return res.status(404).json({ error: "Board not found" });
-
-      const payload = boardChatPayloadSchema.parse(req.body ?? {});
-      assertProviderSupportsGenerationMode(payload.provider, payload.generationMode);
-
-      // Acknowledgement reply (full agent runs in the unified handler task).
-      res.json({
-        boardId: board.id,
-        accepted: true,
-        mode: payload.mode,
-        provider: payload.provider,
-        generationMode: payload.generationMode ?? null,
-        referencedAssetIds: payload.referencedAssetIds,
-        reply: {
-          role: "assistant",
-          content:
-            payload.mode === "brainstorm"
-              ? "Got it — I'll plan only and won't execute anything until you switch to Create."
-              : "Queued. I'll generate a batch and drop it on the canvas as it finishes.",
-        },
-      });
-    } catch (error: any) {
-      if (error instanceof BoardChatValidationError) {
-        return res.status(error.status).json({ error: error.message });
-      }
-      if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
-      console.error("[boards] chat error:", error);
-      res.status(500).json({ error: "Failed to handle chat" });
-    }
-  });
+  // NOTE: POST /api/boards/:id/chat is registered in `routes/boards-chat.ts`
+  // (the full Brainstorm/Create handler with auto-eval). The chat schema and
+  // validation helpers above are exported so that handler — and tests — can
+  // share them.
 }

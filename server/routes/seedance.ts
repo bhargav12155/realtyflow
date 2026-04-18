@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, RequestHandler } from "express";
 import { z } from "zod";
 import {
   seedanceService,
@@ -43,14 +43,12 @@ type SeedanceAuthedRequest = Request & {
   user?: { id?: string | number; claims?: { sub?: string } };
 };
 
-type RequireAuth = (req: Request, res: Response, next: () => void) => void;
-
-export function registerSeedanceRoutes(app: Express, requireAuth: RequireAuth) {
+export function registerSeedanceRoutes(app: Express, requireAuth: RequestHandler) {
   const seedanceTaskOwners = new Map<string, string>();
 
   app.post(
     "/api/seedance/create-video",
-    requireAuth as any,
+    requireAuth,
     async (req: SeedanceAuthedRequest, res: Response) => {
       try {
         const userId = String(req.user?.id ?? req.user?.claims?.sub ?? "");

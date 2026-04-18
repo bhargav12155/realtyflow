@@ -1,8 +1,8 @@
-import type { Express } from "express";
+import type { Express, RequestHandler } from "express";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { storage } from "../storage";
-import { requireAuth } from "../middleware/auth";
+import { storage as defaultStorage, type IStorage } from "../storage";
+import { requireAuth as defaultRequireAuth } from "../middleware/auth";
 import type { BoardAsset } from "@shared/schema";
 import type { BoardAssetCreate } from "../storage";
 import OpenAI from "openai";
@@ -219,6 +219,7 @@ async function pollUntilDone(
 }
 
 async function runBatchInBackground(args: {
+  storage: IStorage;
   boardId: string;
   userId: string;
   batchId: string;
@@ -229,7 +230,7 @@ async function runBatchInBackground(args: {
   rows: BoardAsset[];
   forceModel?: string;
 }) {
-  const { boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel } = args;
+  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel } = args;
 
   await Promise.all(
     rows.map(async (row) => {
@@ -324,7 +325,20 @@ async function brainstormReply(
   throw new Error(a.error || g.error || o.error || "All chat providers unavailable");
 }
 
-export function registerBoardsChatRoutes(app: Express) {
+export function registerBoardsChatRoutes(
+  app: Express,
+  deps: { storage?: IStorage; auth?: RequestHandler } = {},
+) {
+  const storage = deps.storage ?? defaultStorage;
+  // Allow tests to inject a permissive auth middleware. Defaults to real requireAuth.
+  const requireAuth =
+    deps.auth ??
+    (deps.storage
+      ? ((req: any, _res: any, next: any) => {
+          if (!req.user) req.user = { id: "test-user", type: "agent", email: "test@example.com" };
+          next();
+        }) as RequestHandler
+      : defaultRequireAuth);
   app.post("/api/boards/:id/chat", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user!.id);
@@ -400,6 +414,7 @@ export function registerBoardsChatRoutes(app: Express) {
       }
 
       runBatchInBackground({
+        storage,
         boardId,
         userId,
         batchId,

@@ -7,6 +7,7 @@ import {
   BoardChatValidationError,
   V2V_PROVIDERS,
 } from "../server/routes/boards";
+import { registerBoardsChatRoutes } from "../server/routes/boards-chat";
 import type { Board, BoardAsset, InsertBoard } from "@shared/schema";
 import type {
   IStorage,
@@ -129,6 +130,7 @@ function buildApp(userId = "user-1"): { app: Express; storage: FakeBoardsStorage
   });
   const storage = new FakeBoardsStorage();
   registerBoardsRoutes(app, { storage: storage as unknown as IStorage });
+  registerBoardsChatRoutes(app, { storage: storage as unknown as IStorage });
   return { app, storage };
 }
 
@@ -253,35 +255,48 @@ describe("Board chat — v2v-only-for-Luma/Runway validation", () => {
     assert.deepEqual(new Set(V2V_PROVIDERS), new Set(["luma", "runway"]));
   });
 
-  it("POST /api/boards/:id/chat returns 400 for v2v on non-luma/runway", async () => {
-    const { app } = buildApp();
+  it("POST /api/boards/:id/chat blocks v2v on non-luma/runway providers", async () => {
+    const { app, storage } = buildApp();
     const created = await callJson(app, "POST", "/api/boards", { title: "B" });
     const boardId = created.body.id;
 
+    // Seed a referenced video asset so the chat handler infers v2v from refs.
+    const videoAsset = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "seed-batch",
+      kind: "video",
+      provider: "luma",
+      assetUrl: "https://example.com/seed.mp4",
+      thumbnailUrl: null,
+      status: "ready",
+    } as BoardAssetCreate);
+
     const bad = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
-      message: "make a v2v",
+      message: "restyle this video",
       mode: "create",
       provider: "sora2",
-      generationMode: "video-to-video",
+      referencedAssetIds: [videoAsset!.id],
     });
     assert.equal(bad.status, 400);
     assert.match(String(bad.body.error), /Luma or Runway/);
 
-    const good = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
-      message: "make a v2v",
+    // Luma+v2v is additionally blocked at the chat-handler preflight (the
+    // generic helper allows it, but the live Luma integration cannot
+    // consume a referenced video as input yet — see Task #58).
+    const lumaV2v = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "restyle this video",
       mode: "create",
       provider: "luma",
-      generationMode: "video-to-video",
+      referencedAssetIds: [videoAsset!.id],
     });
-    assert.equal(good.status, 200);
-    assert.equal(good.body.accepted, true);
-    assert.equal(good.body.reply.role, "assistant");
+    assert.equal(lumaV2v.status, 400);
+    assert.match(String(lumaV2v.body.error), /Runway/i);
   });
 
   it("POST /api/boards/:id/chat returns 404 for unknown board", async () => {
     const { app } = buildApp();
     const res = await callJson(app, "POST", `/api/boards/missing/chat`, {
       message: "hi",
+      mode: "brainstorm",
       provider: "luma",
     });
     assert.equal(res.status, 404);

@@ -722,7 +722,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Boards (Luma-style generation workspace)
   registerBoardsRoutes(app);
   registerBoardsChatRoutes(app);
-  registerSeedanceRoutes(app, requireAuth as any);
+  registerSeedanceRoutes(app, requireAuth);
 
   // Helper function to ensure S3 URLs are properly formatted
   const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {

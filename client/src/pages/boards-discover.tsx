@@ -59,7 +59,7 @@ export default function BoardsDiscoverPage() {
       });
       setLocation(`/boards/${board.id}?${params.toString()}`);
     },
-    onError: (e: any) => {
+    onError: (e: Error) => {
       toast({ title: "Couldn't launch template", description: e?.message ?? String(e), variant: "destructive" });
     },
   });

@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { z } from "zod";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
@@ -104,21 +104,21 @@ export function assertProviderSupportsGenerationMode(
 
 export function registerBoardsRoutes(
   app: Express,
-  deps: { storage?: IStorage; auth?: any } = {},
+  deps: { storage?: IStorage; auth?: RequestHandler } = {},
 ) {
   const storage = deps.storage ?? defaultStorage;
   // Allow tests to inject a permissive auth middleware. Defaults to real requireAuth.
   const auth =
     deps.auth ??
     (deps.storage
-      ? (req: any, _res: any, next: any) => {
+      ? (req: Request, _res: Response, next: NextFunction) => {
           if (!req.user) req.user = { id: "test-user", type: "agent", email: "test@example.com" };
           next();
         }
       : requireAuth);
 
   // List all boards for the current user, with up to 4 most recent asset thumbnails per board
-  app.get("/api/boards", auth, async (req: any, res) => {
+  app.get("/api/boards", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const boards = await storage.getBoardsByUserId(userId);
@@ -143,14 +143,14 @@ export function registerBoardsRoutes(
       );
 
       res.json(enriched);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[boards] list error:", error);
       res.status(500).json({ error: "Failed to list boards" });
     }
   });
 
   // Create a new board
-  app.post("/api/boards", auth, async (req: any, res) => {
+  app.post("/api/boards", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const parsed = createBoardSchema.parse(req.body ?? {});
@@ -170,7 +170,7 @@ export function registerBoardsRoutes(
             }
           : null,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
       console.error("[boards] create error:", error);
       res.status(500).json({ error: "Failed to create board" });
@@ -178,7 +178,7 @@ export function registerBoardsRoutes(
   });
 
   // Get a board with all assets grouped by batchId
-  app.get("/api/boards/:id", auth, async (req: any, res) => {
+  app.get("/api/boards/:id", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const board = await storage.getBoardByIdForUser(req.params.id, userId);
@@ -199,21 +199,21 @@ export function registerBoardsRoutes(
         batches: Array.from(batchMap.values()),
         assets,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[boards] get error:", error);
       res.status(500).json({ error: "Failed to get board" });
     }
   });
 
   // Update board (rename, share)
-  app.patch("/api/boards/:id", auth, async (req: any, res) => {
+  app.patch("/api/boards/:id", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const updates = updateBoardSchema.parse(req.body ?? {});
       const updated = await storage.updateBoardForUser(req.params.id, userId, updates);
       if (!updated) return res.status(404).json({ error: "Board not found" });
       res.json(updated);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
       console.error("[boards] update error:", error);
       res.status(500).json({ error: "Failed to update board" });
@@ -221,27 +221,27 @@ export function registerBoardsRoutes(
   });
 
   // Delete board
-  app.delete("/api/boards/:id", auth, async (req: any, res) => {
+  app.delete("/api/boards/:id", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const ok = await storage.deleteBoardForUser(req.params.id, userId);
       if (!ok) return res.status(404).json({ error: "Board not found" });
       res.json({ success: true });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[boards] delete error:", error);
       res.status(500).json({ error: "Failed to delete board" });
     }
   });
 
   // Add an asset to a board
-  app.post("/api/boards/:id/assets", auth, async (req: any, res) => {
+  app.post("/api/boards/:id/assets", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const parsed = createAssetSchema.parse(req.body ?? {});
       const asset = await storage.createBoardAssetForUser(req.params.id, userId, parsed);
       if (!asset) return res.status(404).json({ error: "Board not found" });
       res.json(asset);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
       console.error("[boards] create asset error:", error);
       res.status(500).json({ error: "Failed to create asset" });
@@ -249,7 +249,7 @@ export function registerBoardsRoutes(
   });
 
   // Update an asset (position, status, rejection reason, etc.)
-  app.patch("/api/boards/:id/assets/:assetId", auth, async (req: any, res) => {
+  app.patch("/api/boards/:id/assets/:assetId", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const updates = updateAssetSchema.parse(req.body ?? {});
@@ -261,7 +261,7 @@ export function registerBoardsRoutes(
       );
       if (!updated) return res.status(404).json({ error: "Asset not found" });
       res.json(updated);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
       console.error("[boards] update asset error:", error);
       res.status(500).json({ error: "Failed to update asset" });
@@ -269,13 +269,13 @@ export function registerBoardsRoutes(
   });
 
   // Delete an asset
-  app.delete("/api/boards/:id/assets/:assetId", auth, async (req: any, res) => {
+  app.delete("/api/boards/:id/assets/:assetId", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const ok = await storage.deleteBoardAssetForUser(req.params.id, req.params.assetId, userId);
       if (!ok) return res.status(404).json({ error: "Asset not found" });
       res.json({ success: true });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("[boards] delete asset error:", error);
       res.status(500).json({ error: "Failed to delete asset" });
     }

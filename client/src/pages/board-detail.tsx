@@ -100,7 +100,7 @@ export default function BoardDetailPage() {
       );
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
     },
-    onError: (e: any, _vars, ctx) => {
+    onError: (e: Error, _vars: unknown, ctx: unknown) => {
       const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
       setMessages((m) =>
         m.map((msg) =>

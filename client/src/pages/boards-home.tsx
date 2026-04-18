@@ -29,7 +29,7 @@ export default function BoardsHomePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
       setLocation(`/boards/${board.id}`);
     },
-    onError: (e: any) => {
+    onError: (e: Error) => {
       toast({ title: "Couldn't create board", description: e?.message ?? String(e), variant: "destructive" });
     },
   });

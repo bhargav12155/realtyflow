@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import {
   registerBoardsRoutes,
   assertProviderSupportsGenerationMode,
@@ -124,17 +124,23 @@ class FakeBoardsStorage {
 function buildApp(userId = "user-1"): { app: Express; storage: FakeBoardsStorage } {
   const app: Express = express();
   app.use(express.json());
-  app.use((req: any, _res, next) => {
-    req.user = { id: userId };
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    req.user = { id: userId, type: "agent", email: "test@example.com" };
     next();
   });
   const storage = new FakeBoardsStorage();
-  registerBoardsRoutes(app, { storage: storage as unknown as IStorage });
-  registerBoardsChatRoutes(app, { storage: storage as unknown as IStorage });
+  const storageAsInterface = storage as unknown as IStorage;
+  registerBoardsRoutes(app, { storage: storageAsInterface });
+  registerBoardsChatRoutes(app, { storage: storageAsInterface });
   return { app, storage };
 }
 
-async function callJson(app: Express, method: string, path: string, body?: any) {
+async function callJson(
+  app: Express,
+  method: string,
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<{ status: number; body: Record<string, unknown> | null }> {
   const server = app.listen(0);
   try {
     const addr = server.address();
@@ -145,7 +151,7 @@ async function callJson(app: Express, method: string, path: string, body?: any) 
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
-    let json: any = null;
+    let json: Record<string, unknown> | null = null;
     try { json = text ? JSON.parse(text) : null; } catch { /* leave null */ }
     return { status: res.status, body: json };
   } finally {
@@ -217,8 +223,8 @@ describe("/api/boards CRUD smoke", () => {
     const got = await callJson(app, "GET", `/api/boards/${boardId}`);
     assert.equal(got.status, 200);
     assert.equal(got.body.batches.length, 2);
-    const a = got.body.batches.find((b: any) => b.batchId === "batch-a");
-    const b = got.body.batches.find((b: any) => b.batchId === "batch-b");
+    const a = got.body.batches.find((b: { batchId: string })  => b.batchId === "batch-a");
+    const b = got.body.batches.find((b: { batchId: string })  => b.batchId === "batch-b");
     assert.equal(a.assets.length, 2);
     assert.equal(b.assets.length, 1);
   });

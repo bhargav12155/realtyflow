@@ -1,4 +1,4 @@
-import { AIAssistantDialog, useAIAssistantDialog } from "@/components/dashboard/ai-assistant-dialog";
+import { BoardsHomeOverlay } from "@/components/boards/BoardsHomeOverlay";
 import { OnboardingDialog } from "@/components/onboarding/onboarding-dialog";
 import { AIContentGenerator } from "@/components/dashboard/ai-content-generator";
 import { AISearchOptimizer } from "@/components/dashboard/ai-search-optimizer";
@@ -44,7 +44,7 @@ export default function Dashboard() {
   const [showSocialLinksPrompt, setShowSocialLinksPrompt] = useState(false);
   const { user, isAuthenticated } = useAuth();
   const [location] = useLocation();
-  const aiAssistant = useAIAssistantDialog();
+  const [boardsOverlayOpen, setBoardsOverlayOpen] = useState(false);
   const { businessType, terms } = useBusinessType();
 
   // Connect to WebSocket for real-time updates
@@ -55,7 +55,7 @@ export default function Dashboard() {
   });
 
   const handleGenerateContent = () => {
-    aiAssistant.openDialog();
+    setBoardsOverlayOpen(true);
   };
 
   // Removed legacy social media setup modal - now using OAuth-only flow
@@ -225,10 +225,10 @@ export default function Dashboard() {
         />
       )}
 
-      {/* AI Assistant Dialog */}
-      <AIAssistantDialog
-        open={aiAssistant.open}
-        onOpenChange={aiAssistant.setOpen}
+      {/* Boards Home Overlay (replaces legacy AI Assistant Dialog) */}
+      <BoardsHomeOverlay
+        open={boardsOverlayOpen}
+        onOpenChange={setBoardsOverlayOpen}
       />
 
       {/* First-time User Onboarding Dialog */}

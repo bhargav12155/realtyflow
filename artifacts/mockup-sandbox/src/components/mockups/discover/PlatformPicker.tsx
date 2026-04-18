@@ -1,7 +1,5 @@
 import { Check, Image as ImageIcon, Film, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { SiOpenai, SiGoogle } from "react-icons/si";
-import type { IconType } from "react-icons";
 
 type Platform = {
   id: string;
@@ -10,17 +8,15 @@ type Platform = {
   v2v: boolean;
   badge?: string;
   accent: string;
-  // Either a react-icons brand logo or a monogram label for platforms without a brand icon
-  brandIcon?: IconType;
-  monogram?: string;
+  monogram: string;
 };
 
 const PLATFORMS: Platform[] = [
   { id: "luma", name: "Luma Ray 2", tagline: "Best motion + camera control", v2v: true, accent: "from-violet-500 to-fuchsia-500", monogram: "L" },
   { id: "runway", name: "Runway Gen-4", tagline: "Cinematic v2v transforms", v2v: true, accent: "from-emerald-500 to-teal-500", monogram: "R" },
-  { id: "sora", name: "Sora 2", tagline: "Coherent long shots, natural physics", v2v: false, badge: "OpenAI", accent: "from-neutral-700 to-neutral-900", brandIcon: SiOpenai },
+  { id: "sora", name: "Sora 2", tagline: "Coherent long shots, natural physics", v2v: false, badge: "OpenAI", accent: "from-neutral-700 to-neutral-900", monogram: "S2" },
   { id: "seedance", name: "Seedance", tagline: "Fast, stylized motion", v2v: false, accent: "from-rose-500 to-orange-500", monogram: "Sd" },
-  { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", brandIcon: SiGoogle },
+  { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", monogram: "V" },
   { id: "kling", name: "Kling AI", tagline: "Strong character consistency", v2v: false, accent: "from-amber-500 to-yellow-500", monogram: "K" },
 ];
 
@@ -34,7 +30,7 @@ function PlatformCard({ p, selected }: { p: Platform; selected?: boolean }) {
     >
       <div className="flex items-start gap-2.5">
         <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${p.accent} flex-shrink-0 flex items-center justify-center text-white shadow-sm font-bold text-[13px]`}>
-          {p.brandIcon ? <p.brandIcon className="w-4 h-4" /> : <span>{p.monogram}</span>}
+          <span>{p.monogram}</span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">

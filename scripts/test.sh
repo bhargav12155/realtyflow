@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Standard test command for the project.
-# Runs backend tests via tsx + node:test, then frontend component tests via vitest.
+# Runs backend tests via node:test (with tsx loader) then frontend tests via vitest.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 shopt -s globstar nullglob
 
-# Backend tests (tsx + node:test, files under tests/)
+# Backend tests (node:test + tsx loader, files under tests/)
 files=(tests/**/*.test.ts)
 if [ ${#files[@]} -eq 0 ]; then
   echo "No backend tests found under tests/"
 else
-  npx tsx --test "${files[@]}"
+  node --import tsx --test "${files[@]}"
 fi
 
 # Frontend component tests (vitest, files under client/)

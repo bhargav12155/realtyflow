@@ -10,5 +10,7 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-variations/FeedDark.tsx": () => import("../components/mockups/dashboard-variations/FeedDark.tsx"),
   "./components/mockups/dashboard-variations/FeedLight.tsx": () => import("../components/mockups/dashboard-variations/FeedLight.tsx"),
   "./components/mockups/dashboard-variations/ScorecardDark.tsx": () => import("../components/mockups/dashboard-variations/ScorecardDark.tsx"),
-  "./components/mockups/dashboard-variations/ScorecardLight.tsx": () => import("../components/mockups/dashboard-variations/ScorecardLight.tsx")
+  "./components/mockups/dashboard-variations/ScorecardLight.tsx": () => import("../components/mockups/dashboard-variations/ScorecardLight.tsx"),
+  "./components/mockups/discover/Discover.tsx": () => import("../components/mockups/discover/Discover.tsx"),
+  "./components/mockups/discover/PlatformPicker.tsx": () => import("../components/mockups/discover/PlatformPicker.tsx")
 };

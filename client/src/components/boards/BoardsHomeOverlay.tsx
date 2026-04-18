@@ -25,6 +25,16 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
             );
             promptInput?.focus();
           }}
+          onPointerDown={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (!target) return;
+            // The X close button manages its own dismissal.
+            if (target.closest('[data-testid="button-close-boards-overlay"]')) return;
+            // Clicks inside an interactive island stay open.
+            if (target.closest("[data-overlay-keep]")) return;
+            // Otherwise the user clicked on the gray backdrop area → dismiss.
+            onOpenChange(false);
+          }}
         >
           <DialogPrimitive.Title className="sr-only">Boards</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">

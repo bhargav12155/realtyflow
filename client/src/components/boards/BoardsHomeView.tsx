@@ -57,14 +57,14 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
       {!hideSidebar && <BoardsSidebar active="boards" />}
       <main className="flex-1 flex flex-col">
         <header className="flex items-center justify-end px-6 pt-4">
-          <button className="w-8 h-8 rounded-full hover:bg-neutral-200/60 flex items-center justify-center" data-testid="button-more">
+          <button className="w-8 h-8 rounded-full hover:bg-neutral-200/60 flex items-center justify-center" data-testid="button-more" data-overlay-keep>
             <MoreVertical className="w-4 h-4 text-neutral-600" />
           </button>
         </header>
 
         <section className="flex flex-col items-center pt-10 pb-8">
           <h1 className="text-2xl text-neutral-900 mb-5 tracking-tight">What do you want to create today?</h1>
-          <div className="w-[560px] max-w-full bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-neutral-200/80 px-5 py-4">
+          <div className="w-[560px] max-w-full bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-neutral-200/80 px-5 py-4" data-overlay-keep>
             <input
               className="w-full bg-transparent outline-none text-[14px] placeholder:text-neutral-400"
               placeholder="Describe what you want to create..."
@@ -93,7 +93,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
           </div>
         </section>
 
-        <div className="flex items-center justify-between px-6 mb-4">
+        <div className="flex items-center justify-between px-6 mb-4" data-overlay-keep>
           <div className="flex items-center gap-5 text-[13px]">
             {(["all", "shared", "mine"] as Tab[]).map((t) => (
               <button
@@ -118,7 +118,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
           </div>
         </div>
 
-        <div className="flex-1 px-6 pb-6 overflow-auto">
+        <div className="flex-1 px-6 pb-6 overflow-auto" data-overlay-keep>
           {boardsQuery.isLoading ? (
             <div className="grid grid-cols-5 gap-4">
               {[...Array(10)].map((_, i) => (

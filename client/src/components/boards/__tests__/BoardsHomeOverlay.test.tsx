@@ -64,14 +64,24 @@ describe("BoardsHomeOverlay dismissal", () => {
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
   });
 
-  it("calls onOpenChange(false) when the backdrop is clicked", async () => {
+  it("calls onOpenChange(false) when a backdrop region (gray gutter) is clicked", async () => {
     const onOpenChange = vi.fn();
     renderOverlay(onOpenChange);
-    const backdrop = await screen.findByTestId("boards-overlay-backdrop");
-    // Radix listens to pointerdown on the overlay; clicking simulates outside-content interaction.
-    fireEvent.pointerDown(backdrop);
-    fireEvent.mouseDown(backdrop);
-    fireEvent.click(backdrop);
+    // The boards-home-view's outer gray bg is part of the visible backdrop area inside the
+    // full-screen Content. Pointer-down here should dismiss because the target is not inside
+    // any [data-overlay-keep] interactive island.
+    const view = await screen.findByTestId("boards-home-view");
+    fireEvent.pointerDown(view);
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("does NOT dismiss when pointer-down lands inside an interactive island (the prompt input)", async () => {
+    const onOpenChange = vi.fn();
+    renderOverlay(onOpenChange);
+    const promptInput = await screen.findByTestId("input-prompt");
+    fireEvent.pointerDown(promptInput);
+    // Allow any async work to settle; then assert no close was called.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 });

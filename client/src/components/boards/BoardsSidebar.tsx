@@ -48,7 +48,7 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
   const displayName = user?.name || user?.email || "Workspace";
 
   return (
-    <aside className="w-[220px] flex-shrink-0 bg-white/60 backdrop-blur-sm border-r border-neutral-200/80 flex flex-col">
+    <aside className="w-[220px] flex-shrink-0 bg-white/60 backdrop-blur-sm border-r border-neutral-200/80 flex flex-col" data-overlay-keep>
       <div className="p-3">
         <button
           className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-neutral-200/60"

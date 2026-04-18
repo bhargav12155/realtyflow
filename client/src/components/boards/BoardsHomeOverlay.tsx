@@ -16,7 +16,7 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
           data-testid="boards-overlay-backdrop"
         />
         <DialogPrimitive.Content
-          className="fixed inset-2 sm:inset-3 z-50 overflow-auto rounded-xl bg-neutral-200/40 shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+          className="fixed inset-0 z-50 overflow-auto bg-neutral-200/40 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
           data-testid="boards-overlay-content"
           onOpenAutoFocus={(e) => {
             e.preventDefault();

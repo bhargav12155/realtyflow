@@ -41,6 +41,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("BoardsHomeOverlay dismissal", () => {
+  it("renders the content as a full-screen (inset-0) surface", async () => {
+    renderOverlay(vi.fn());
+    const content = await screen.findByTestId("boards-overlay-content");
+    expect(content.className).toMatch(/\binset-0\b/);
+    expect(content.className).not.toMatch(/\binset-(?!0\b)\d/);
+  });
+
   it("calls onOpenChange(false) when the X close button is clicked", async () => {
     const onOpenChange = vi.fn();
     renderOverlay(onOpenChange);

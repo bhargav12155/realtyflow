@@ -48,7 +48,6 @@ export const PLATFORMS: Platform[] = [
   { id: "luma", name: "Luma Ray 2", tagline: "Best motion + camera control", v2v: true, accent: "from-violet-500 to-fuchsia-500", monogram: "L" },
   { id: "runway", name: "Runway Gen-4", tagline: "Cinematic v2v transforms", v2v: true, accent: "from-emerald-500 to-teal-500", monogram: "R" },
   { id: "sora2", name: "Sora 2", tagline: "Coherent long shots", v2v: false, badge: "OpenAI", accent: "from-neutral-700 to-neutral-900", brandIcon: SiOpenai },
-  { id: "seedance", name: "Seedance", tagline: "Fast, stylized motion", v2v: false, accent: "from-rose-500 to-orange-500", monogram: "Sd" },
   { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", brandIcon: SiGoogle },
   { id: "kling", name: "Kling AI", tagline: "Strong character consistency", v2v: false, accent: "from-amber-500 to-yellow-500", monogram: "K" },
   { id: "openai-image", name: "OpenAI Image", tagline: "Crisp graphics + thumbnails", v2v: false, badge: "Image", accent: "from-zinc-700 to-zinc-900", brandIcon: SiOpenai },

@@ -1,4 +1,8 @@
-import type { Express, RequestHandler } from "express";
+import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
+
+interface AuthedRequest extends Request {
+  user?: { id: string | number; claims?: { sub?: string } };
+}
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { storage as defaultStorage, type IStorage } from "../storage";
@@ -330,12 +334,12 @@ export function registerBoardsChatRoutes(
   const requireAuth =
     deps.auth ??
     (deps.storage
-      ? ((req: any, _res: any, next: any) => {
-          if (!req.user) req.user = { id: "test-user", type: "agent", email: "test@example.com" };
+      ? ((req: AuthedRequest, _res: Response, next: NextFunction) => {
+          if (!req.user) req.user = { id: "test-user" };
           next();
         }) as RequestHandler
       : defaultRequireAuth);
-  app.post("/api/boards/:id/chat", requireAuth, async (req: any, res) => {
+  app.post("/api/boards/:id/chat", requireAuth, async (req: AuthedRequest, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const boardId = req.params.id;
@@ -431,12 +435,13 @@ export function registerBoardsChatRoutes(
         assets: rows,
         reply: `Started ${batchLabel}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`,
       });
-    } catch (error: any) {
-      if (error?.issues) {
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid body", issues: error.issues });
       }
       console.error("[boards-chat] error:", error);
-      res.status(500).json({ error: error?.message || "Chat handler failed" });
+      const message = error instanceof Error ? error.message : "Chat handler failed";
+      res.status(500).json({ error: message });
     }
   });
 }

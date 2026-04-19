@@ -1846,6 +1846,10 @@ export const boardAssets = pgTable("board_assets", {
   status: varchar("status", { length: 16 }).notNull().default("queued"), // queued | generating | ready | failed | rejected
   rejectionReason: text("rejection_reason"),
   evalHistory: jsonb("eval_history").$type<BoardAssetEvalHistoryEntry[]>().default([]),
+  // When this asset was produced by editing/remixing another asset on the
+  // board (image edit flow), this points to the source asset id so the UI can
+  // surface a before/after view. Nullable for non-edit batches.
+  sourceAssetId: varchar("source_asset_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("IDX_board_assets_board").on(table.boardId),

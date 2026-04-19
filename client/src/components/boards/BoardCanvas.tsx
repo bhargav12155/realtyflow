@@ -11,6 +11,7 @@ export interface CanvasAsset {
   rejectionReason?: string | null;
   kind: string;
   evalHistory?: BoardAssetEvalHistoryEntry[] | null;
+  sourceAssetId?: string | null;
 }
 
 export interface CanvasBatch {
@@ -47,6 +48,13 @@ export function BoardCanvas({
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
 }: BoardCanvasProps) {
+  // Build a quick lookup so each tile can resolve its source-asset thumbnail
+  // (used for the before/after preview on edited image tiles) without a prop
+  // drill from the page level.
+  const assetsById = new Map<string, CanvasAsset>();
+  for (const b of batches) {
+    for (const a of b.assets) assetsById.set(a.id, a);
+  }
   return (
     <main className="relative flex-1 overflow-hidden bg-[radial-gradient(circle,_rgba(0,0,0,0.06)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.06)_1px,_transparent_1px)] [background-size:18px_18px] bg-neutral-100 dark:bg-neutral-950">
       <div className="absolute inset-0 overflow-auto px-8 py-6" onClick={() => onSelectAsset(null)}>
@@ -59,6 +67,7 @@ export function BoardCanvas({
             <BatchGroup
               key={b.batchId}
               batch={b}
+              assetsById={assetsById}
               selectedAssetId={selectedAssetId}
               onSelectAsset={(id) => onSelectAsset(id)}
               onDeleteAsset={onDeleteAsset}
@@ -78,6 +87,7 @@ export function BoardCanvas({
 
 function BatchGroup({
   batch,
+  assetsById,
   selectedAssetId,
   onSelectAsset,
   onDeleteAsset,
@@ -88,6 +98,7 @@ function BatchGroup({
   setWinnerPendingAssetId,
 }: {
   batch: CanvasBatch;
+  assetsById: Map<string, CanvasAsset>;
   selectedAssetId: string | null;
   onSelectAsset: (id: string) => void;
   onDeleteAsset: (id: string) => void;
@@ -139,21 +150,26 @@ function BatchGroup({
       </div>
       <div className="bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800">
         <div className="flex flex-wrap gap-2">
-          {batch.assets.map((a) => (
-            <AssetTile
-              key={a.id}
-              asset={a}
-              selected={a.id === selectedAssetId}
-              isWinner={a.id === winnerId}
-              onSelect={() => onSelectAsset(a.id)}
-              onDelete={() => onDeleteAsset(a.id)}
-              onClearRejection={() => onClearRejection(a.id)}
-              onSetWinner={
-                onSetWinner ? () => onSetWinner(batch.batchId, a.id) : undefined
-              }
-              setWinnerPending={setWinnerPendingAssetId === a.id}
-            />
-          ))}
+          {batch.assets.map((a) => {
+            const source = a.sourceAssetId ? assetsById.get(a.sourceAssetId) ?? null : null;
+            return (
+              <AssetTile
+                key={a.id}
+                asset={a}
+                sourceAsset={source}
+                selected={a.id === selectedAssetId}
+                isWinner={a.id === winnerId}
+                onSelect={() => onSelectAsset(a.id)}
+                onSelectSource={source ? () => onSelectAsset(source.id) : undefined}
+                onDelete={() => onDeleteAsset(a.id)}
+                onClearRejection={() => onClearRejection(a.id)}
+                onSetWinner={
+                  onSetWinner ? () => onSetWinner(batch.batchId, a.id) : undefined
+                }
+                setWinnerPending={setWinnerPendingAssetId === a.id}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
@@ -233,18 +249,22 @@ function ReEvalPopover({
 
 function AssetTile({
   asset,
+  sourceAsset,
   selected,
   isWinner,
   onSelect,
+  onSelectSource,
   onDelete,
   onClearRejection,
   onSetWinner,
   setWinnerPending,
 }: {
   asset: CanvasAsset;
+  sourceAsset?: CanvasAsset | null;
   selected: boolean;
   isWinner: boolean;
   onSelect: () => void;
+  onSelectSource?: () => void;
   onDelete: () => void;
   onClearRejection: () => void;
   onSetWinner?: () => void;
@@ -253,8 +273,10 @@ function AssetTile({
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
   const src = asset.thumbnailUrl || asset.assetUrl;
+  const sourceSrc = sourceAsset ? sourceAsset.thumbnailUrl || sourceAsset.assetUrl : null;
   const history = Array.isArray(asset.evalHistory) ? asset.evalHistory : [];
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [beforeOpen, setBeforeOpen] = useState(false);
   const canPromote =
     !!onSetWinner &&
     !isWinner &&
@@ -265,7 +287,10 @@ function AssetTile({
       className={`relative group flex-shrink-0 w-[150px] h-[110px] ${
         isWinner ? "ring-2 ring-amber-400 rounded-md" : ""
       }`}
-      onMouseLeave={() => setHistoryOpen(false)}
+      onMouseLeave={() => {
+        setHistoryOpen(false);
+        setBeforeOpen(false);
+      }}
     >
       <div
         className={`relative w-full h-full rounded-md overflow-hidden bg-neutral-200 dark:bg-neutral-800 cursor-pointer ${
@@ -345,6 +370,50 @@ function AssetTile({
         >
           <Crown className="w-2.5 h-2.5" />
           {setWinnerPending ? "Setting…" : "Pick a different winner"}
+        </button>
+      )}
+      {sourceAsset && sourceSrc && (
+        <button
+          type="button"
+          className="absolute top-1.5 right-1.5 w-9 h-9 rounded-md overflow-hidden bg-neutral-900/70 ring-1 ring-white/70 shadow opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-20"
+          title="Hover to see the source image"
+          aria-label="Show source image"
+          data-testid={`button-before-${asset.id}`}
+          onMouseEnter={() => setBeforeOpen(true)}
+          onMouseLeave={() => setBeforeOpen(false)}
+          onFocus={() => setBeforeOpen(true)}
+          onBlur={() => setBeforeOpen(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectSource?.();
+          }}
+        >
+          <img src={sourceSrc} alt="" className="w-full h-full object-cover" />
+        </button>
+      )}
+      {beforeOpen && sourceAsset && sourceSrc && (
+        <div
+          className="absolute inset-0 rounded-md overflow-hidden ring-2 ring-blue-500 z-10 pointer-events-none"
+          data-testid={`overlay-before-${asset.id}`}
+        >
+          <img src={sourceSrc} alt="" className="w-full h-full object-cover" />
+          <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] uppercase tracking-wide">
+            Before
+          </div>
+        </div>
+      )}
+      {sourceAsset && (
+        <button
+          type="button"
+          className="absolute -bottom-4 left-0 right-0 mx-auto w-fit max-w-full px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] truncate hover:bg-black/90 z-20"
+          title="Jump to source asset"
+          data-testid={`link-source-${asset.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectSource?.();
+          }}
+        >
+          Edited from source
         </button>
       )}
       {selected && flagged && asset.rejectionReason && (

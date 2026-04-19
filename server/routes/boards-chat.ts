@@ -927,6 +927,13 @@ export function registerBoardsChatRoutes(
       const kind: "image" | "video" = isImage ? "image" : "video";
       const refImageCount = refAssets.filter((a) => a.kind === "image").length;
       const isImageEdit = isImage && refImageCount > 0;
+      // For image edits we record which source asset each result was derived
+      // from so the canvas can render a before/after pairing. We use the first
+      // referenced image (matches what dispatchImage actually feeds to the
+      // provider — see dispatchImage's `firstImage` selection).
+      const editSourceAssetId = isImageEdit
+        ? refAssets.find((a) => a.kind === "image")?.id ?? null
+        : null;
       const batchLabel = isImage
         ? isImageEdit
           ? `Edit referenced image${refImageCount === 1 ? "" : "s"} → ${variations} variation${variations === 1 ? "" : "s"} (${provider})`
@@ -952,6 +959,7 @@ export function registerBoardsChatRoutes(
           thumbnailUrl: null,
           durationSeconds: null,
           rejectionReason: null,
+          sourceAssetId: editSourceAssetId,
         };
         const created = await storage.createBoardAssetForUser(boardId, userId, payload);
         if (created) {

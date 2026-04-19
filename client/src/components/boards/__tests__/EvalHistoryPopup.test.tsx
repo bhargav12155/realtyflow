@@ -90,6 +90,33 @@ describe("Asset tile eval history popover", () => {
     expect(within(second).getByText(/User override/)).toBeTruthy();
   });
 
+  it("renders before/after affordance and source link only for assets with a sourceAssetId", () => {
+    const sourceAsset = {
+      id: "asset-source",
+      assetUrl: "https://example.com/source.png",
+      thumbnailUrl: null,
+      durationSeconds: null,
+      status: "ready",
+      rejectionReason: null,
+      kind: "image",
+    };
+    const editedAsset = {
+      ...baseAsset,
+      id: "asset-edited",
+      sourceAssetId: "asset-source",
+    } as any;
+    const batches: CanvasBatch[] = [
+      { batchId: "batch-source", batchLabel: "Source", assets: [sourceAsset as any] },
+      { batchId: "batch-edit", batchLabel: "Edit", assets: [editedAsset] },
+    ];
+    renderCanvas(batches);
+    expect(screen.getByTestId("button-before-asset-edited")).toBeTruthy();
+    expect(screen.getByTestId("link-source-asset-edited")).toBeTruthy();
+    // Plain (non-edited) source tile has no before/after UI.
+    expect(screen.queryByTestId("button-before-asset-source")).toBeNull();
+    expect(screen.queryByTestId("link-source-asset-source")).toBeNull();
+  });
+
   it("popover is rendered outside the clipped tile container so it is fully visible", () => {
     const evalHistory = [
       { at: "2026-01-01T10:00:00.000Z", source: "auto", outcome: "winner", reason: "ok" },

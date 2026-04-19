@@ -43,6 +43,7 @@ export default function BoardDetailPage() {
       provider: isProviderId(providerRaw) ? providerRaw : null,
       mode: isGenerationMode(modeRaw) ? modeRaw : null,
       template: sp.get("template"),
+      intent: sp.get("intent"),
     };
   }, [location, boardId]);
   const seedAppliedRef = useRef<string | null>(null);
@@ -159,12 +160,21 @@ export default function BoardDetailPage() {
     if (seedParams.provider) setProvider(seedParams.provider);
     if (seedParams.mode) setGenerationMode(seedParams.mode);
     setMode("create");
+    const intentLabels: Record<string, string> = {
+      "social-post": "Social Post",
+      "blog-article": "Blog Article",
+      image: "Image",
+      video: "Video",
+    };
+    const sourceLabel = seedParams.intent
+      ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
+      : `template "${seedParams.template ?? "discover"}"`;
     setMessages((m) => [
       ...m,
       {
         id: `seed-${boardId}`,
         role: "assistant",
-        content: `Seeded from template "${seedParams.template ?? "discover"}". Press send to start: "${seedParams.seed}"`,
+        content: `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`,
       },
     ]);
     // Clean the seed from the URL so a refresh doesn't re-apply it

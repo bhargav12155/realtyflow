@@ -118,10 +118,39 @@ describe("Dashboard → Boards overlay flow", () => {
     fireEvent.keyDown(promptInput, { key: "Enter", code: "Enter" });
 
     await waitFor(() =>
-      expect(apiRequestMock).toHaveBeenCalledWith("POST", "/api/boards", { title: "make me a board" }),
+      expect(apiRequestMock).toHaveBeenCalledWith("POST", "/api/boards", {
+        title: "make me a board",
+        seedPrompt: "make me a board",
+      }),
     );
 
-    await waitFor(() => expect(history[history.length - 1]).toBe("/boards/board-123"));
+    await waitFor(() =>
+      expect(history[history.length - 1]).toBe(`/boards/board-123?seed=make+me+a+board`),
+    );
+    await waitFor(() => expect(screen.queryByTestId("boards-overlay-content")).toBeNull());
+  });
+
+  it("opens overlay on Generate Content, clicking the Image quick-action chip creates a board with intent and navigates with intent param", async () => {
+    const { history } = renderDashboard();
+
+    fireEvent.click(screen.getByTestId("button-generate-content"));
+
+    const chip = await screen.findByTestId("chip-intent-image");
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST" && c[1] === "/api/boards");
+      expect(postCalls.length).toBe(1);
+      const body = postCalls[0][2] as Record<string, unknown>;
+      expect(body.seedIntent).toBe("image");
+      expect((body.seedPrompt as string).startsWith("Create an image of")).toBe(true);
+    });
+
+    await waitFor(() => {
+      const last = history[history.length - 1] ?? "";
+      expect(last.startsWith("/boards/board-123?")).toBe(true);
+      expect(last).toContain("intent=image");
+    });
     await waitFor(() => expect(screen.queryByTestId("boards-overlay-content")).toBeNull());
   });
 });

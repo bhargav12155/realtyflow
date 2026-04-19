@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, MoreVertical, Paperclip, Mic, Search } from "lucide-react";
+import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video } from "lucide-react";
 import { BoardsSidebar } from "@/components/boards/BoardsSidebar";
 import { BoardCard, NewBoardCard, type BoardSummary } from "@/components/boards/BoardCard";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -9,6 +9,50 @@ import { useToast } from "@/hooks/use-toast";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 
 type Tab = "all" | "shared" | "mine";
+
+type BoardIntent = "social-post" | "blog-article" | "image" | "video";
+
+interface QuickAction {
+  id: BoardIntent;
+  label: string;
+  icon: typeof MessageSquare;
+  starterPrompt: string;
+  // Only set provider/generationMode for intents whose values are accepted by
+  // the board chat schema today (see server/routes/boards-chat.ts PROVIDERS).
+  // Image intent leaves these unset so the board chat falls back to its default
+  // valid provider — wiring `openai-image` here would 400 on first send.
+  provider?: "veo";
+  generationMode?: "text-to-video" | "image-to-video" | "video-to-video";
+}
+
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    id: "social-post",
+    label: "Social Post",
+    icon: MessageSquare,
+    starterPrompt: "Draft a social media post about ",
+  },
+  {
+    id: "blog-article",
+    label: "Blog Article",
+    icon: FileText,
+    starterPrompt: "Write a blog article about ",
+  },
+  {
+    id: "image",
+    label: "Image",
+    icon: ImageIcon,
+    starterPrompt: "Create an image of ",
+  },
+  {
+    id: "video",
+    label: "Video",
+    icon: Video,
+    starterPrompt: "Create a short video of ",
+    provider: "veo",
+    generationMode: "text-to-video",
+  },
+];
 
 export interface BoardsHomeViewProps {
   /** Called right before navigation to a newly created board, so an overlay host can close itself. */
@@ -29,20 +73,57 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
     queryKey: ["/api/boards"],
   });
 
+  interface CreateBoardArgs {
+    title?: string;
+    seedPrompt?: string;
+    seedIntent?: BoardIntent;
+    seedProvider?: QuickAction["provider"];
+    seedGenerationMode?: QuickAction["generationMode"];
+  }
+
   const createBoardMutation = useMutation({
-    mutationFn: async (title?: string) => {
-      const res = await apiRequest("POST", "/api/boards", title ? { title } : {});
-      return res.json() as Promise<BoardSummary>;
+    mutationFn: async (args: CreateBoardArgs = {}) => {
+      const body: Record<string, unknown> = {};
+      if (args.title) body.title = args.title;
+      if (args.seedPrompt) body.seedPrompt = args.seedPrompt;
+      if (args.seedIntent) body.seedIntent = args.seedIntent;
+      if (args.seedProvider) body.seedProvider = args.seedProvider;
+      if (args.seedGenerationMode) body.seedGenerationMode = args.seedGenerationMode;
+      const res = await apiRequest("POST", "/api/boards", body);
+      const board = (await res.json()) as BoardSummary;
+      return { board, args };
     },
-    onSuccess: (board) => {
+    onSuccess: ({ board, args }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
       onBoardCreated?.(board);
-      setLocation(`/boards/${board.id}`);
+      const params = new URLSearchParams();
+      if (args.seedPrompt) params.set("seed", args.seedPrompt);
+      if (args.seedProvider) params.set("provider", args.seedProvider);
+      if (args.seedGenerationMode) params.set("mode", args.seedGenerationMode);
+      if (args.seedIntent) params.set("intent", args.seedIntent);
+      const qs = params.toString();
+      setLocation(qs ? `/boards/${board.id}?${qs}` : `/boards/${board.id}`);
     },
     onError: (e: Error) => {
       toast({ title: "Couldn't create board", description: e?.message ?? String(e), variant: "destructive" });
     },
   });
+
+  const handleQuickAction = (action: QuickAction) => {
+    const seed = (prompt.trim() ? prompt.trim() : action.starterPrompt).trim();
+    createBoardMutation.mutate({
+      title: `${action.label}: ${seed.slice(0, 60)}`,
+      seedPrompt: seed,
+      seedIntent: action.id,
+      seedProvider: action.provider,
+      seedGenerationMode: action.generationMode,
+    });
+  };
+
+  const handlePromptSubmit = () => {
+    const trimmed = prompt.trim();
+    createBoardMutation.mutate(trimmed ? { title: trimmed, seedPrompt: trimmed } : {});
+  };
 
   const filtered = useMemo(() => {
     const list = boardsQuery.data ?? [];
@@ -68,7 +149,25 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
         </header>
 
         <section className="flex flex-col items-center pt-10 pb-8">
-          <h1 className="text-2xl text-neutral-900 mb-5 tracking-tight dark:text-neutral-100">What do you want to create today?</h1>
+          <h1 className="text-2xl text-neutral-900 mb-5 tracking-tight dark:text-neutral-100">What do you want to plan for social media this week?</h1>
+          <div className="flex flex-wrap items-center justify-center gap-2 mb-4 w-[560px] max-w-full" data-overlay-keep>
+            {QUICK_ACTIONS.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => handleQuickAction(action)}
+                  disabled={createBoardMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-neutral-200 text-[12px] text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 transition-colors dark:bg-neutral-900 dark:border-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-800/60 dark:hover:border-neutral-700"
+                  data-testid={`chip-intent-${action.id}`}
+                >
+                  <Icon className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
           <div
             className="w-[560px] max-w-full bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-neutral-200/80 px-5 py-4 dark:bg-neutral-900 dark:border-neutral-800"
             data-overlay-keep
@@ -81,7 +180,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  createBoardMutation.mutate(prompt.trim() || undefined);
+                  handlePromptSubmit();
                 }
               }}
               data-testid="input-prompt"
@@ -90,7 +189,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
               <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-attach"><Paperclip className="w-4 h-4" /></button>
               <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-mic"><Mic className="w-4 h-4" /></button>
               <button
-                onClick={() => createBoardMutation.mutate(prompt.trim() || undefined)}
+                onClick={handlePromptSubmit}
                 disabled={createBoardMutation.isPending}
                 className="w-7 h-7 rounded-full bg-neutral-300 hover:bg-neutral-400 disabled:opacity-50 flex items-center justify-center dark:bg-neutral-700 dark:hover:bg-neutral-600"
                 data-testid="button-prompt-send"
@@ -139,7 +238,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
             </div>
           ) : (
             <div className="grid grid-cols-5 gap-4">
-              <NewBoardCard onClick={() => createBoardMutation.mutate(undefined)} />
+              <NewBoardCard onClick={() => createBoardMutation.mutate({})} />
               {filtered.map((b) => (
                 <BoardCard key={b.id} board={b} />
               ))}

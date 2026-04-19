@@ -22,6 +22,14 @@ const updateBoardSchema = z.object({
   isShared: z.boolean().optional(),
 });
 
+export const BOARD_INTENTS = [
+  "social-post",
+  "blog-article",
+  "image",
+  "video",
+] as const;
+export type BoardIntent = (typeof BOARD_INTENTS)[number];
+
 const createBoardSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   isShared: z.boolean().optional(),
@@ -32,6 +40,7 @@ const createBoardSchema = z.object({
   seedProvider: z.enum(ASSET_PROVIDERS).optional(),
   seedGenerationMode: z.enum(["text-to-video", "image-to-video", "video-to-video"]).optional(),
   seedTemplateId: z.string().min(1).max(120).optional(),
+  seedIntent: z.enum(BOARD_INTENTS).optional(),
 });
 export const ASSET_STATUSES = ["queued", "generating", "ready", "failed", "rejected"] as const;
 
@@ -161,12 +170,13 @@ export function registerBoardsRoutes(
       });
       res.json({
         ...board,
-        seed: parsed.seedPrompt
+        seed: parsed.seedPrompt || parsed.seedIntent
           ? {
-              prompt: parsed.seedPrompt,
+              prompt: parsed.seedPrompt ?? null,
               provider: parsed.seedProvider ?? null,
               generationMode: parsed.seedGenerationMode ?? null,
               templateId: parsed.seedTemplateId ?? null,
+              intent: parsed.seedIntent ?? null,
             }
           : null,
       });

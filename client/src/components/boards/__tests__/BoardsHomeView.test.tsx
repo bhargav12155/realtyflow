@@ -59,7 +59,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("BoardsHomeView create-from-prompt", () => {
-  it("submits the prompt as { title } via Enter, navigates to /boards/:id, and fires onBoardCreated", async () => {
+  it("submits the prompt with { title, seedPrompt } via Enter, navigates to /boards/:id, and fires onBoardCreated", async () => {
     const onBoardCreated = vi.fn();
     const { history } = renderWithProviders(<BoardsHomeView onBoardCreated={onBoardCreated} />);
 
@@ -71,14 +71,19 @@ describe("BoardsHomeView create-from-prompt", () => {
       const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
       expect(postCalls.length).toBe(1);
       expect(postCalls[0][1]).toBe("/api/boards");
-      expect(postCalls[0][2]).toEqual({ title: "Plan a video for 123 Main St" });
+      expect(postCalls[0][2]).toEqual({
+        title: "Plan a video for 123 Main St",
+        seedPrompt: "Plan a video for 123 Main St",
+      });
     });
 
     await waitFor(() => {
       expect(onBoardCreated).toHaveBeenCalledWith(
         expect.objectContaining({ id: "brd_test_1", title: "Plan a video for 123 Main St" }),
       );
-      expect(history.at(-1)).toBe("/boards/brd_test_1");
+      expect(history.at(-1)).toBe(
+        `/boards/brd_test_1?seed=${encodeURIComponent("Plan a video for 123 Main St").replace(/%20/g, "+")}`,
+      );
     });
   });
 
@@ -93,6 +98,55 @@ describe("BoardsHomeView create-from-prompt", () => {
       expect(postCalls.length).toBe(1);
       expect(postCalls[0][1]).toBe("/api/boards");
       expect(postCalls[0][2]).toEqual({});
+    });
+  });
+
+  it("clicking the Image chip seeds the prompt and tags the board with the intent (no provider override)", async () => {
+    const { history } = renderWithProviders(<BoardsHomeView />);
+
+    const chip = await screen.findByTestId("chip-intent-image");
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
+      expect(postCalls.length).toBe(1);
+      expect(postCalls[0][1]).toBe("/api/boards");
+      const body = postCalls[0][2] as Record<string, unknown>;
+      expect(body.seedIntent).toBe("image");
+      // Image intent must NOT pre-set provider/generationMode because the
+      // board chat schema does not accept image-only providers like
+      // `openai-image` today — leaving them unset lets the chat default
+      // to a valid provider on first send.
+      expect(body.seedProvider).toBeUndefined();
+      expect(body.seedGenerationMode).toBeUndefined();
+      expect(typeof body.seedPrompt).toBe("string");
+      expect((body.seedPrompt as string).startsWith("Create an image of")).toBe(true);
+    });
+
+    await waitFor(() => {
+      const last = history.at(-1) ?? "";
+      expect(last.startsWith("/boards/brd_test_1?")).toBe(true);
+      expect(last).toContain("intent=image");
+      expect(last).not.toContain("provider=");
+    });
+  });
+
+  it("uses the typed prompt as the chip seed when the input is non-empty", async () => {
+    renderWithProviders(<BoardsHomeView />);
+
+    const input = await screen.findByTestId("input-prompt");
+    fireEvent.change(input, { target: { value: "a sunset over the ocean" } });
+
+    const chip = await screen.findByTestId("chip-intent-video");
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
+      expect(postCalls.length).toBe(1);
+      const body = postCalls[0][2] as Record<string, unknown>;
+      expect(body.seedIntent).toBe("video");
+      expect(body.seedPrompt).toBe("a sunset over the ocean");
+      expect(body.seedProvider).toBe("veo");
     });
   });
 });

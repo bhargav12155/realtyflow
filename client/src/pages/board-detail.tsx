@@ -130,6 +130,7 @@ export default function BoardDetailPage() {
             content: lines.join("\n"),
           },
         ]);
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
         return;
       }
       if (

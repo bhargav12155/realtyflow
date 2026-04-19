@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Flag, Tag, Plus, Minus as MinusIcon } from "lucide-react";
+import { Flag, Tag, Plus, Minus as MinusIcon, History } from "lucide-react";
+import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 
 export interface CanvasAsset {
   id: string;
@@ -9,6 +10,7 @@ export interface CanvasAsset {
   status: string;
   rejectionReason?: string | null;
   kind: string;
+  evalHistory?: BoardAssetEvalHistoryEntry[] | null;
 }
 
 export interface CanvasBatch {
@@ -107,41 +109,68 @@ function AssetTile({
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
   const src = asset.thumbnailUrl || asset.assetUrl;
+  const history = Array.isArray(asset.evalHistory) ? asset.evalHistory : [];
+  const [historyOpen, setHistoryOpen] = useState(false);
   return (
     <div
-      className={`relative rounded-md overflow-hidden bg-neutral-200 dark:bg-neutral-800 group flex-shrink-0 w-[150px] h-[110px] cursor-pointer ${
-        selected ? "ring-2 ring-blue-500" : ""
-      }`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelect();
-      }}
-      data-testid={`asset-${asset.id}`}
+      className="relative group flex-shrink-0 w-[150px] h-[110px]"
+      onMouseLeave={() => setHistoryOpen(false)}
     >
-      {src ? (
-        <img src={src} alt="" className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">
-          {generating ? "generating…" : "no preview"}
-        </div>
-      )}
-      {generating && (
-        <div
-          className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-300/60 dark:bg-neutral-700/60 overflow-hidden"
-          data-testid={`progress-${asset.id}`}
+      <div
+        className={`relative w-full h-full rounded-md overflow-hidden bg-neutral-200 dark:bg-neutral-800 cursor-pointer ${
+          selected ? "ring-2 ring-blue-500" : ""
+        }`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+        data-testid={`asset-${asset.id}`}
+      >
+        {src ? (
+          <img src={src} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">
+            {generating ? "generating…" : "no preview"}
+          </div>
+        )}
+        {generating && (
+          <div
+            className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-300/60 dark:bg-neutral-700/60 overflow-hidden"
+            data-testid={`progress-${asset.id}`}
+          >
+            <div className="h-full w-1/3 bg-blue-500 rounded-r-full animate-progress-slide" />
+          </div>
+        )}
+        {asset.durationSeconds != null && (
+          <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[10px] text-white">
+            <span className="font-medium">{Math.round(asset.durationSeconds)}s</span>
+          </div>
+        )}
+        {flagged && (
+          <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 border border-white shadow flex items-center justify-center" data-testid={`badge-flag-${asset.id}`}>
+            <Flag className="w-2.5 h-2.5 text-white" strokeWidth={3} fill="white" />
+          </div>
+        )}
+      </div>
+      {history.length > 0 && (
+        <button
+          type="button"
+          className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-20"
+          title={`${history.length} eval ${history.length === 1 ? "entry" : "entries"}`}
+          aria-label="Show eval history"
+          data-testid={`button-history-${asset.id}`}
+          onMouseEnter={() => setHistoryOpen(true)}
+          onFocus={() => setHistoryOpen(true)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setHistoryOpen((v) => !v);
+          }}
         >
-          <div className="h-full w-1/3 bg-blue-500 rounded-r-full animate-progress-slide" />
-        </div>
+          <History className="w-3 h-3" />
+        </button>
       )}
-      {asset.durationSeconds != null && (
-        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[10px] text-white">
-          <span className="font-medium">{Math.round(asset.durationSeconds)}s</span>
-        </div>
-      )}
-      {flagged && (
-        <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 border border-white shadow flex items-center justify-center" data-testid={`badge-flag-${asset.id}`}>
-          <Flag className="w-2.5 h-2.5 text-white" strokeWidth={3} fill="white" />
-        </div>
+      {historyOpen && history.length > 0 && (
+        <EvalHistoryPopup assetId={asset.id} entries={history} />
       )}
       {selected && flagged && asset.rejectionReason && (
         <RejectionPopup
@@ -150,6 +179,57 @@ function AssetTile({
           onClear={onClearRejection}
         />
       )}
+    </div>
+  );
+}
+
+function EvalHistoryPopup({ assetId, entries }: { assetId: string; entries: BoardAssetEvalHistoryEntry[] }) {
+  const sorted = [...entries].sort((a, b) => {
+    const ta = new Date(a.at).getTime();
+    const tb = new Date(b.at).getTime();
+    return (Number.isFinite(ta) ? ta : 0) - (Number.isFinite(tb) ? tb : 0);
+  });
+  const outcomeColor: Record<string, string> = {
+    winner: "bg-emerald-500/90",
+    promoted: "bg-blue-500/90",
+    rejected: "bg-rose-500/90",
+    demoted: "bg-amber-500/90",
+  };
+  return (
+    <div
+      className="absolute top-full mt-1 left-0 w-[260px] max-h-[260px] overflow-y-auto bg-white text-neutral-900 rounded-lg shadow-xl border border-neutral-200 p-2.5 z-30 dark:bg-neutral-900 dark:text-neutral-100 dark:border-neutral-700"
+      data-testid={`popup-history-${assetId}`}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 mb-1.5">
+        EVAL HISTORY
+      </div>
+      <ol className="space-y-1.5">
+        {sorted.map((e, idx) => {
+          const ts = new Date(e.at);
+          const tsLabel = Number.isFinite(ts.getTime()) ? ts.toLocaleString() : e.at;
+          const color = outcomeColor[e.outcome] ?? "bg-neutral-500/90";
+          return (
+            <li key={`${e.at}-${idx}`} className="text-[11px] leading-snug" data-testid={`history-entry-${assetId}-${idx}`}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide text-white ${color}`}>
+                  {e.outcome}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                  {e.source}
+                </span>
+                {e.modelUsed && (
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">· {e.modelUsed}</span>
+                )}
+              </div>
+              <div className="text-[10px] text-neutral-500 dark:text-neutral-400 mt-0.5">{tsLabel}</div>
+              {e.reason && (
+                <div className="text-[11px] text-neutral-700 dark:text-neutral-200 mt-0.5">{e.reason}</div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

@@ -105,11 +105,14 @@ import {
   boards as boardsTable,
   boardAssets as boardAssetsTable,
   boardShares as boardSharesTable,
+  notifications as notificationsTable,
   type Board,
   type InsertBoard,
   type BoardAsset,
   type InsertBoardAsset,
   type BoardShare,
+  type Notification,
+  type InsertNotification,
   users as usersTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -465,6 +468,12 @@ export interface IStorage {
   unshareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<boolean>;
   /** Recipient-initiated removal: lets a shared user drop themselves from a board's share list. */
   leaveSharedBoard(boardId: string, userId: string): Promise<boolean>;
+
+  // Notifications (in-app)
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getNotificationsForUser(userId: string): Promise<Notification[]>;
+  markNotificationRead(id: string, userId: string): Promise<Notification | undefined>;
+  markAllNotificationsRead(userId: string): Promise<number>;
 
   // Board Assets (always user-scoped via boardId + userId)
   getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]>;
@@ -3004,6 +3013,40 @@ export class MemStorage implements IStorage {
   async createBoard(board: InsertBoard): Promise<Board> {
     const [created] = await db.insert(boardsTable).values(board).returning();
     return created;
+  }
+
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const [created] = await db
+      .insert(notificationsTable)
+      .values(notification)
+      .returning();
+    return created;
+  }
+
+  async getNotificationsForUser(userId: string): Promise<Notification[]> {
+    return db
+      .select()
+      .from(notificationsTable)
+      .where(eq(notificationsTable.userId, userId))
+      .orderBy(desc(notificationsTable.createdAt));
+  }
+
+  async markNotificationRead(id: string, userId: string): Promise<Notification | undefined> {
+    const [updated] = await db
+      .update(notificationsTable)
+      .set({ isRead: true })
+      .where(and(eq(notificationsTable.id, id), eq(notificationsTable.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async markAllNotificationsRead(userId: string): Promise<number> {
+    const updated = await db
+      .update(notificationsTable)
+      .set({ isRead: true })
+      .where(and(eq(notificationsTable.userId, userId), eq(notificationsTable.isRead, false)))
+      .returning();
+    return updated.length;
   }
 
   async updateBoardForUser(id: string, userId: string, updates: BoardUpdate): Promise<Board | undefined> {

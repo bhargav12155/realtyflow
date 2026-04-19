@@ -64,6 +64,7 @@ import {
 } from "./routes/ai-chat-handlers";
 import { registerBoardsRoutes } from "./routes/boards";
 import { registerBoardsChatRoutes } from "./routes/boards-chat";
+import { registerNotificationsRoutes } from "./routes/notifications";
 import { registerSeedanceRoutes } from "./routes/seedance";
 import { createRetryCloneHandler, createVoiceWithClone, createRenameVoiceHandler, startVoiceClone } from "./routes/custom-voices-clone";
 
@@ -723,6 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Boards (Luma-style generation workspace)
   registerBoardsRoutes(app);
   registerBoardsChatRoutes(app);
+  registerNotificationsRoutes(app);
   registerSeedanceRoutes(app, requireAuth);
 
   // Helper function to ensure S3 URLs are properly formatted

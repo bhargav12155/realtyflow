@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video } from "lucide-react";
 import { BoardsSidebar } from "@/components/boards/BoardsSidebar";
 import { BoardCard, NewBoardCard, type BoardSummary } from "@/components/boards/BoardCard";
+import { NotificationsBell } from "@/components/boards/NotificationsBell";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
@@ -175,7 +176,8 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
     >
       {!hideSidebar && <BoardsSidebar active="boards" />}
       <main className="flex-1 flex flex-col">
-        <header className="flex items-center justify-end px-6 pt-4">
+        <header className="flex items-center justify-end gap-1 px-6 pt-4">
+          <NotificationsBell />
           <button className="w-8 h-8 rounded-full hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-more" data-overlay-keep>
             <MoreVertical className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
           </button>

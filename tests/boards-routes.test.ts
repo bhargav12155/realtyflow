@@ -8,7 +8,8 @@ import {
   V2V_PROVIDERS,
 } from "../server/routes/boards";
 import { registerBoardsChatRoutes } from "../server/routes/boards-chat";
-import type { Board, BoardAsset, BoardShare, InsertBoard, User } from "@shared/schema";
+import { registerNotificationsRoutes } from "../server/routes/notifications";
+import type { Board, BoardAsset, BoardShare, InsertBoard, InsertNotification, Notification, User } from "@shared/schema";
 import type {
   IStorage,
   AccessibleBoard,
@@ -31,7 +32,46 @@ class FakeBoardsStorage {
   }
 
   private shares = new Map<string, BoardShare>();
+  notifications = new Map<string, Notification>();
   users: User[] = [];
+
+  async getUser(id: string): Promise<User | undefined> {
+    return this.users.find((u) => u.id === id);
+  }
+  async createNotification(n: InsertNotification): Promise<Notification> {
+    const created: Notification = {
+      id: this.nextId("ntf"),
+      userId: n.userId,
+      type: n.type,
+      data: (n.data ?? {}) as Notification["data"],
+      isRead: false,
+      createdAt: new Date(),
+    };
+    this.notifications.set(created.id, created);
+    return created;
+  }
+  async getNotificationsForUser(userId: string): Promise<Notification[]> {
+    return Array.from(this.notifications.values())
+      .filter((n) => n.userId === userId)
+      .sort((a, b) => (b.createdAt!.getTime() - a.createdAt!.getTime()));
+  }
+  async markNotificationRead(id: string, userId: string): Promise<Notification | undefined> {
+    const n = this.notifications.get(id);
+    if (!n || n.userId !== userId) return undefined;
+    const updated = { ...n, isRead: true };
+    this.notifications.set(id, updated);
+    return updated;
+  }
+  async markAllNotificationsRead(userId: string): Promise<number> {
+    let count = 0;
+    for (const [id, n] of this.notifications) {
+      if (n.userId === userId && !n.isRead) {
+        this.notifications.set(id, { ...n, isRead: true });
+        count += 1;
+      }
+    }
+    return count;
+  }
 
   async getBoardsByUserId(userId: string): Promise<Board[]> {
     return Array.from(this.boards.values())
@@ -220,6 +260,7 @@ function buildApp(userId = "user-1"): { app: Express; storage: FakeBoardsStorage
   const storageAsInterface = storage as unknown as IStorage;
   registerBoardsRoutes(app, { storage: storageAsInterface });
   registerBoardsChatRoutes(app, { storage: storageAsInterface });
+  registerNotificationsRoutes(app, { storage: storageAsInterface });
   return { app, storage };
 }
 
@@ -396,6 +437,103 @@ describe("/api/boards sharing", () => {
     assert.equal(removed.status, 200);
     const afterRemove = await callJson(app, "GET", `/api/boards/${boardId}/shares`);
     assert.deepEqual(afterRemove.body, []);
+  });
+
+  it("creates a notification for the recipient when a board is shared", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push({
+      id: "owner-1",
+      username: "own",
+      password: "x",
+      name: "Owner Person",
+      email: "owner@example.com",
+      role: "agent",
+      isDemo: false,
+      createdAt: new Date(),
+    });
+    storage.users.push({
+      id: "recipient-2",
+      username: "rec",
+      password: "x",
+      name: "Recipient",
+      email: "rec@example.com",
+      role: "agent",
+      isDemo: false,
+      createdAt: new Date(),
+    });
+    const created = await callJson(app, "POST", "/api/boards", { title: "Shared Board" });
+    const boardId = created.body!.id as string;
+
+    const shared = await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "recipient-2" });
+    assert.equal(shared.status, 200);
+
+    // The recipient should now have one unread "board_shared" notification.
+    const list = Array.from(storage.notifications.values()).filter((n) => n.userId === "recipient-2");
+    assert.equal(list.length, 1);
+    assert.equal(list[0].type, "board_shared");
+    assert.equal(list[0].isRead, false);
+    const data = list[0].data as { boardId: string; boardTitle: string; sharedByName: string | null };
+    assert.equal(data.boardId, boardId);
+    assert.equal(data.boardTitle, "Shared Board");
+    assert.equal(data.sharedByName, "Owner Person");
+
+    // Re-sharing the same person is idempotent on the share table but still
+    // produces a fresh notification (recipient may have dismissed the prior).
+    await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "recipient-2" });
+    const after = Array.from(storage.notifications.values()).filter((n) => n.userId === "recipient-2");
+    assert.equal(after.length, 2);
+  });
+
+  it("lists, dismisses, and bulk-marks notifications via /api/notifications", async () => {
+    const { app, storage } = buildApp("user-1");
+    // Seed two notifications for user-1.
+    await storage.createNotification({ userId: "user-1", type: "board_shared", data: { boardId: "b1", boardTitle: "B1" } });
+    await storage.createNotification({ userId: "user-1", type: "board_shared", data: { boardId: "b2", boardTitle: "B2" } });
+    // And one for someone else, which must never leak.
+    await storage.createNotification({ userId: "other", type: "board_shared", data: { boardId: "b3" } });
+
+    const list = await callJson(app, "GET", "/api/notifications");
+    assert.equal(list.status, 200);
+    const items = list.body as Array<{ id: string; isRead: boolean; userId: string }>;
+    assert.equal(items.length, 2);
+    assert.ok(items.every((n) => n.userId === "user-1"));
+
+    // Dismiss the first.
+    const firstId = items[0].id;
+    const dismiss = await callJson(app, "POST", `/api/notifications/${firstId}/read`);
+    assert.equal(dismiss.status, 200);
+    assert.equal((dismiss.body as { isRead: boolean }).isRead, true);
+
+    // Mark all read clears the remaining unread one.
+    const all = await callJson(app, "POST", `/api/notifications/read-all`);
+    assert.equal(all.status, 200);
+    assert.equal((all.body as { updated: number }).updated, 1);
+
+    // Cannot mark another user's notification as read.
+    const otherId = Array.from(storage.notifications.values()).find((n) => n.userId === "other")!.id;
+    const stranger = await callJson(app, "POST", `/api/notifications/${otherId}/read`);
+    assert.equal(stranger.status, 404);
+  });
+
+  it("dismissed/read notifications disappear from the bell's unread feed", async () => {
+    const { app, storage } = buildApp("user-1");
+    await storage.createNotification({ userId: "user-1", type: "board_shared", data: { boardId: "b1", boardTitle: "B1" } });
+    await storage.createNotification({ userId: "user-1", type: "board_shared", data: { boardId: "b2", boardTitle: "B2" } });
+
+    // Bell sources from /api/notifications and filters to unread on the client.
+    const initial = (await callJson(app, "GET", "/api/notifications")).body as Array<{ id: string; isRead: boolean }>;
+    const initialUnread = initial.filter((n) => !n.isRead);
+    assert.equal(initialUnread.length, 2);
+
+    // Dismiss one.
+    await callJson(app, "POST", `/api/notifications/${initialUnread[0].id}/read`);
+    const afterOne = (await callJson(app, "GET", "/api/notifications")).body as Array<{ isRead: boolean }>;
+    assert.equal(afterOne.filter((n) => !n.isRead).length, 1);
+
+    // Mark all read clears the rest from the bell.
+    await callJson(app, "POST", `/api/notifications/read-all`);
+    const afterAll = (await callJson(app, "GET", "/api/notifications")).body as Array<{ isRead: boolean }>;
+    assert.equal(afterAll.filter((n) => !n.isRead).length, 0);
   });
 
   it("rejects sharing with yourself and returns 404 when sharing a board you don't own", async () => {

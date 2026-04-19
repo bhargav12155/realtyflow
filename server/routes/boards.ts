@@ -287,8 +287,39 @@ export function registerBoardsRoutes(
       if (parsed.userId === userId) {
         return res.status(400).json({ error: "Cannot share a board with yourself" });
       }
+      const board = await storage.getBoardByIdForUser(req.params.id, userId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
       const share = await storage.shareBoard(req.params.id, userId, parsed.userId);
       if (!share) return res.status(404).json({ error: "Board not found" });
+      // Notify the recipient (best-effort — never block the share itself).
+      try {
+        const sharer = await storage.getUser(userId);
+        await storage.createNotification({
+          userId: parsed.userId,
+          type: "board_shared",
+          data: {
+            boardId: board.id,
+            boardTitle: board.title,
+            sharedByUserId: userId,
+            sharedByName: sharer?.name ?? sharer?.email ?? null,
+          },
+        });
+      } catch (notifyError) {
+        // Best-effort: never let a notification failure roll back a successful
+        // share. Log loudly with structured context so prod outages (e.g.
+        // missing notifications table) are visible in monitoring.
+        console.error(
+          "[boards] notify share recipient failed",
+          JSON.stringify({
+            event: "notification.create.failed",
+            type: "board_shared",
+            boardId: board.id,
+            recipientUserId: parsed.userId,
+            sharedByUserId: userId,
+            error: (notifyError as Error)?.message ?? String(notifyError),
+          }),
+        );
+      }
       res.json(share);
     } catch (error: unknown) {
       if ((error as { issues?: unknown })?.issues) {

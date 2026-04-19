@@ -1890,3 +1890,28 @@ export const insertBoardShareSchema = createInsertSchema(boardShares).omit({
 });
 export type InsertBoardShare = z.infer<typeof insertBoardShareSchema>;
 export type BoardShare = typeof boardShares.$inferSelect;
+
+// In-app notifications. Currently only used for "board shared with you" but
+// kept generic (type + jsonb data) so future notification kinds can reuse the
+// same table without another migration.
+export const notifications = pgTable("notifications", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  type: varchar("type").notNull(),
+  data: jsonb("data").notNull().default(sql`'{}'::jsonb`),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("IDX_notifications_user").on(table.userId),
+  index("IDX_notifications_user_unread").on(table.userId, table.isRead),
+]);
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  isRead: true,
+});
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;

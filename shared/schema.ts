@@ -1853,3 +1853,27 @@ export const insertBoardAssetSchema = createInsertSchema(boardAssets).omit({
 });
 export type InsertBoardAsset = z.infer<typeof insertBoardAssetSchema>;
 export type BoardAsset = typeof boardAssets.$inferSelect;
+
+// Tracks which users a board owner has shared a board with. The owner stays
+// the row in `boards.userId`; recipients get read access via this junction
+// table. (boardId, sharedWithUserId) is unique so re-sharing is idempotent.
+export const boardShares = pgTable("board_shares", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id").notNull().references(() => boards.id, { onDelete: "cascade" }),
+  sharedWithUserId: varchar("shared_with_user_id").notNull(),
+  sharedByUserId: varchar("shared_by_user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("IDX_board_shares_user").on(table.sharedWithUserId),
+  index("IDX_board_shares_board").on(table.boardId),
+  unique("UQ_board_shares_board_user").on(table.boardId, table.sharedWithUserId),
+]);
+
+export const insertBoardShareSchema = createInsertSchema(boardShares).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBoardShare = z.infer<typeof insertBoardShareSchema>;
+export type BoardShare = typeof boardShares.$inferSelect;

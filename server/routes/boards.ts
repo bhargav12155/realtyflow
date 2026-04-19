@@ -126,15 +126,19 @@ export function registerBoardsRoutes(
         }
       : requireAuth);
 
-  // List all boards for the current user, with up to 4 most recent asset thumbnails per board
+  // List all boards the current user owns OR has been shared with. Each board
+  // carries an `isOwner` flag so the home tabs ("All", "Shared", "Mine") can
+  // filter without another round trip.
   app.get("/api/boards", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
-      const boards = await storage.getBoardsByUserId(userId);
+      const boards = await storage.getAccessibleBoardsForUser(userId);
 
       const enriched = await Promise.all(
         boards.map(async (board) => {
-          const assets = await storage.getBoardAssetsForUser(board.id, userId);
+          // Owner-scoped read so shared assets travel with the board view.
+          const ownerId = board.isOwner ? userId : board.userId;
+          const assets = await storage.getBoardAssetsForUser(board.id, ownerId);
           const thumbnails = assets
             .filter((a) => a.thumbnailUrl || a.assetUrl)
             .slice(0, 4)
@@ -155,6 +159,22 @@ export function registerBoardsRoutes(
     } catch (error: unknown) {
       console.error("[boards] list error:", error);
       res.status(500).json({ error: "Failed to list boards" });
+    }
+  });
+
+  // List candidate users to share a board with (everyone except the current
+  // user). The dialog renders this so the owner can pick recipients.
+  app.get("/api/boards/share-candidates", auth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const all = await storage.getAllUsers();
+      const candidates = all
+        .filter((u) => u.id !== userId)
+        .map((u) => ({ id: u.id, name: u.name, email: u.email, username: u.username }));
+      res.json(candidates);
+    } catch (error: unknown) {
+      console.error("[boards] share candidates error:", error);
+      res.status(500).json({ error: "Failed to list share candidates" });
     }
   });
 
@@ -187,13 +207,15 @@ export function registerBoardsRoutes(
     }
   });
 
-  // Get a board with all assets grouped by batchId
+  // Get a board with all assets grouped by batchId. Accessible to the owner
+  // and any user the board has been shared with. Assets are read with the
+  // owner's userId so shared viewers see the same canvas.
   app.get("/api/boards/:id", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
-      const board = await storage.getBoardByIdForUser(req.params.id, userId);
+      const board = await storage.getAccessibleBoardForUser(req.params.id, userId);
       if (!board) return res.status(404).json({ error: "Board not found" });
-      const assets = await storage.getBoardAssetsForUser(board.id, userId);
+      const assets = await storage.getBoardAssetsForUser(board.id, board.userId);
       const batchMap = new Map<string, { batchId: string; batchLabel: string | null; assets: typeof assets }>();
       for (const a of assets) {
         const entry = batchMap.get(a.batchId) ?? {
@@ -212,6 +234,53 @@ export function registerBoardsRoutes(
     } catch (error: unknown) {
       console.error("[boards] get error:", error);
       res.status(500).json({ error: "Failed to get board" });
+    }
+  });
+
+  // List who a board is shared with (owner only).
+  app.get("/api/boards/:id/shares", auth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const board = await storage.getBoardByIdForUser(req.params.id, userId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+      const shares = await storage.getBoardShares(board.id, userId);
+      res.json(shares);
+    } catch (error: unknown) {
+      console.error("[boards] list shares error:", error);
+      res.status(500).json({ error: "Failed to list shares" });
+    }
+  });
+
+  // Share a board with another user (owner only). Idempotent.
+  app.post("/api/boards/:id/shares", auth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const parsed = z.object({ userId: z.string().min(1) }).parse(req.body ?? {});
+      if (parsed.userId === userId) {
+        return res.status(400).json({ error: "Cannot share a board with yourself" });
+      }
+      const share = await storage.shareBoard(req.params.id, userId, parsed.userId);
+      if (!share) return res.status(404).json({ error: "Board not found" });
+      res.json(share);
+    } catch (error: unknown) {
+      if ((error as { issues?: unknown })?.issues) {
+        return res.status(400).json({ error: "Invalid body", issues: (error as { issues: unknown }).issues });
+      }
+      console.error("[boards] share error:", error);
+      res.status(500).json({ error: "Failed to share board" });
+    }
+  });
+
+  // Remove a share (owner only).
+  app.delete("/api/boards/:id/shares/:userId", auth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const ok = await storage.unshareBoard(req.params.id, userId, req.params.userId);
+      if (!ok) return res.status(404).json({ error: "Share not found" });
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error("[boards] unshare error:", error);
+      res.status(500).json({ error: "Failed to remove share" });
     }
   });
 

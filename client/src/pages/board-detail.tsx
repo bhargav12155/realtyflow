@@ -10,6 +10,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { BoardCanvas, type CanvasBatch } from "@/components/boards/BoardCanvas";
 import { ChatPanel, type ChatMessage, type ChatMode } from "@/components/boards/ChatPanel";
+import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
 import {
   DEFAULT_SEEDANCE_OPTIONS,
   isGenerationMode,
@@ -23,6 +24,7 @@ interface BoardResponse {
   id: string;
   title: string;
   isShared: boolean;
+  isOwner?: boolean;
   batches: CanvasBatch[];
   assets: Array<CanvasBatch["assets"][number]>;
 }
@@ -52,6 +54,7 @@ export default function BoardDetailPage() {
   const { theme, toggle: toggleTheme } = useBoardsTheme();
 
   const [chatOpen, setChatOpen] = useState(true);
+  const [shareOpen, setShareOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [mode, setMode] = useState<ChatMode>("create");
   const [provider, setProvider] = useState<ProviderId>("luma");
@@ -257,10 +260,17 @@ export default function BoardDetailPage() {
           <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-settings">
             <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white text-[12px] font-medium dark:bg-neutral-100 dark:hover:bg-white dark:text-neutral-900" data-testid="button-share">
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Share</span>
-          </button>
+          {board.isOwner !== false && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white text-[12px] font-medium dark:bg-neutral-100 dark:hover:bg-white dark:text-neutral-900"
+              data-testid="button-share"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Share</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -313,6 +323,7 @@ export default function BoardDetailPage() {
           />
         )}
       </div>
+      <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
     </div>
   );
 }

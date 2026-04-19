@@ -8,9 +8,11 @@ import {
   V2V_PROVIDERS,
 } from "../server/routes/boards";
 import { registerBoardsChatRoutes } from "../server/routes/boards-chat";
-import type { Board, BoardAsset, InsertBoard } from "@shared/schema";
+import type { Board, BoardAsset, BoardShare, InsertBoard, User } from "@shared/schema";
 import type {
   IStorage,
+  AccessibleBoard,
+  BoardShareRecipient,
   BoardUpdate,
   BoardAssetCreate,
   BoardAssetUpdate,
@@ -28,14 +30,89 @@ class FakeBoardsStorage {
     return `${prefix}_${this.idCounter}`;
   }
 
+  private shares = new Map<string, BoardShare>();
+  users: User[] = [];
+
   async getBoardsByUserId(userId: string): Promise<Board[]> {
     return Array.from(this.boards.values())
       .filter((b) => b.userId === userId)
       .sort((a, b) => (b.updatedAt!.getTime() - a.updatedAt!.getTime()));
   }
+  async getAccessibleBoardsForUser(userId: string): Promise<AccessibleBoard[]> {
+    const owned: AccessibleBoard[] = Array.from(this.boards.values())
+      .filter((b) => b.userId === userId)
+      .map((b) => ({ ...b, isOwner: true }));
+    const sharedIds = Array.from(this.shares.values())
+      .filter((s) => s.sharedWithUserId === userId)
+      .map((s) => s.boardId);
+    const ownedIds = new Set(owned.map((b) => b.id));
+    const shared: AccessibleBoard[] = sharedIds
+      .filter((id) => !ownedIds.has(id))
+      .map((id) => this.boards.get(id))
+      .filter((b): b is Board => !!b)
+      .map((b) => ({ ...b, isOwner: false }));
+    return [...owned, ...shared].sort(
+      (a, b) => (b.updatedAt!.getTime() - a.updatedAt!.getTime()),
+    );
+  }
   async getBoardByIdForUser(id: string, userId: string): Promise<Board | undefined> {
     const b = this.boards.get(id);
     return b && b.userId === userId ? b : undefined;
+  }
+  async getAccessibleBoardForUser(id: string, userId: string): Promise<AccessibleBoard | undefined> {
+    const b = this.boards.get(id);
+    if (!b) return undefined;
+    if (b.userId === userId) return { ...b, isOwner: true };
+    const sharedHit = Array.from(this.shares.values()).find(
+      (s) => s.boardId === id && s.sharedWithUserId === userId,
+    );
+    return sharedHit ? { ...b, isOwner: false } : undefined;
+  }
+  async getBoardShares(boardId: string, ownerUserId: string): Promise<BoardShareRecipient[]> {
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return [];
+    return Array.from(this.shares.values())
+      .filter((s) => s.boardId === boardId)
+      .map((s) => {
+        const u = this.users.find((x) => x.id === s.sharedWithUserId);
+        return {
+          userId: s.sharedWithUserId,
+          name: u?.name ?? null,
+          email: u?.email ?? null,
+          sharedAt: s.createdAt ?? null,
+        };
+      });
+  }
+  async shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined> {
+    if (sharedWithUserId === ownerUserId) return undefined;
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return undefined;
+    const existing = Array.from(this.shares.values()).find(
+      (s) => s.boardId === boardId && s.sharedWithUserId === sharedWithUserId,
+    );
+    if (existing) return existing;
+    const created: BoardShare = {
+      id: this.nextId("shr"),
+      boardId,
+      sharedWithUserId,
+      sharedByUserId: ownerUserId,
+      createdAt: new Date(),
+    };
+    this.shares.set(created.id, created);
+    return created;
+  }
+  async unshareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<boolean> {
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return false;
+    const hit = Array.from(this.shares.entries()).find(
+      ([, s]) => s.boardId === boardId && s.sharedWithUserId === sharedWithUserId,
+    );
+    if (!hit) return false;
+    this.shares.delete(hit[0]);
+    return true;
+  }
+  async getAllUsers(): Promise<User[]> {
+    return [...this.users];
   }
   async createBoard(board: InsertBoard): Promise<Board> {
     const now = new Date();
@@ -227,6 +304,101 @@ describe("/api/boards CRUD smoke", () => {
     const b = got.body.batches.find((b: { batchId: string })  => b.batchId === "batch-b");
     assert.equal(a.assets.length, 2);
     assert.equal(b.assets.length, 1);
+  });
+});
+
+describe("/api/boards sharing", () => {
+  it("places shared boards on the recipient's list (not in 'mine'), and only the owner sees them in 'mine'", async () => {
+    const ownerApp = buildApp("owner-1");
+    const recipientApp = buildApp("recipient-2");
+    // Seed owner's board, then share it.
+    const created = await callJson(ownerApp.app, "POST", "/api/boards", { title: "Sharable" });
+    const boardId = created.body!.id as string;
+
+    // Recipient sees nothing yet.
+    const beforeShare = await callJson(recipientApp.app, "GET", "/api/boards");
+    assert.equal(beforeShare.status, 200);
+    assert.equal((beforeShare.body as unknown[]).length, 0);
+
+    // Cross-stub the share so both fakes agree on the share table being mutated.
+    const ok = await ownerApp.storage.shareBoard(boardId, "owner-1", "recipient-2");
+    assert.ok(ok, "owner can share their board");
+    // Mirror the board + share into the recipient's storage so its GET sees it.
+    const boardCopy = (await ownerApp.storage.getBoardByIdForUser(boardId, "owner-1"))!;
+    (recipientApp.storage as unknown as { boards: Map<string, Board> }).boards.set(boardId, boardCopy);
+    await recipientApp.storage.shareBoard(boardId, "owner-1", "recipient-2");
+
+    // Recipient now sees the board, flagged as not owned by them.
+    const afterShare = await callJson(recipientApp.app, "GET", "/api/boards");
+    assert.equal(afterShare.status, 200);
+    const recipList = afterShare.body as Array<{ id: string; isOwner: boolean }>;
+    assert.equal(recipList.length, 1);
+    assert.equal(recipList[0].id, boardId);
+    assert.equal(recipList[0].isOwner, false);
+
+    // Owner still sees it as their own.
+    const ownerList = await callJson(ownerApp.app, "GET", "/api/boards");
+    const ownList = ownerList.body as Array<{ id: string; isOwner: boolean }>;
+    assert.equal(ownList.length, 1);
+    assert.equal(ownList[0].isOwner, true);
+  });
+
+  it("POST /api/boards/:id/shares creates a share and DELETE removes it", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push({
+      id: "recipient-2",
+      username: "rec",
+      password: "x",
+      name: "Recipient",
+      email: "rec@example.com",
+      role: "agent",
+      isDemo: false,
+      createdAt: new Date(),
+    });
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = created.body!.id as string;
+
+    // Initial shares list is empty.
+    const empty = await callJson(app, "GET", `/api/boards/${boardId}/shares`);
+    assert.equal(empty.status, 200);
+    assert.deepEqual(empty.body, []);
+
+    // Share with recipient.
+    const shared = await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "recipient-2" });
+    assert.equal(shared.status, 200);
+    assert.equal((shared.body as { sharedWithUserId: string }).sharedWithUserId, "recipient-2");
+
+    // Listing now returns the recipient.
+    const listed = await callJson(app, "GET", `/api/boards/${boardId}/shares`);
+    const recipients = listed.body as Array<{ userId: string; email: string | null }>;
+    assert.equal(recipients.length, 1);
+    assert.equal(recipients[0].userId, "recipient-2");
+    assert.equal(recipients[0].email, "rec@example.com");
+
+    // Sharing the same person twice is idempotent (still 1 entry).
+    await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "recipient-2" });
+    const stillOne = await callJson(app, "GET", `/api/boards/${boardId}/shares`);
+    assert.equal((stillOne.body as unknown[]).length, 1);
+
+    // DELETE removes the share.
+    const removed = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/recipient-2`);
+    assert.equal(removed.status, 200);
+    const afterRemove = await callJson(app, "GET", `/api/boards/${boardId}/shares`);
+    assert.deepEqual(afterRemove.body, []);
+  });
+
+  it("rejects sharing with yourself and returns 404 when sharing a board you don't own", async () => {
+    const { app } = buildApp("owner-1");
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = created.body!.id as string;
+
+    const self = await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "owner-1" });
+    assert.equal(self.status, 400);
+
+    const other = buildApp("stranger-3");
+    const notMine = await callJson(other.app, "POST", `/api/boards/${boardId}/shares`, { userId: "x" });
+    // Strangers without their own board with that id get 404.
+    assert.equal(notMine.status, 404);
   });
 });
 

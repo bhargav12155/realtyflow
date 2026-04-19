@@ -5,6 +5,8 @@ export interface BoardSummary {
   id: string;
   title: string;
   isShared?: boolean;
+  /** True when the current user is the board's owner; false when only a recipient. */
+  isOwner?: boolean;
   updatedAt?: string | Date | null;
   assetCount?: number;
   thumbnails?: { id: string; thumbnailUrl: string | null; kind: string }[];

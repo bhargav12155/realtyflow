@@ -104,10 +104,13 @@ import {
   businessLocations as businessLocationsTable,
   boards as boardsTable,
   boardAssets as boardAssetsTable,
+  boardShares as boardSharesTable,
   type Board,
   type InsertBoard,
   type BoardAsset,
   type InsertBoardAsset,
+  type BoardShare,
+  users as usersTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
@@ -446,11 +449,20 @@ export interface IStorage {
 
   // Boards
   getBoardsByUserId(userId: string): Promise<Board[]>;
+  /** Returns boards the user owns AND boards shared with them, with `isOwner` flag. */
+  getAccessibleBoardsForUser(userId: string): Promise<AccessibleBoard[]>;
   getBoardByIdForUser(id: string, userId: string): Promise<Board | undefined>;
+  /** Returns the board if the user owns it OR a share row exists for them. */
+  getAccessibleBoardForUser(id: string, userId: string): Promise<AccessibleBoard | undefined>;
   createBoard(board: InsertBoard): Promise<Board>;
   updateBoardForUser(id: string, userId: string, updates: BoardUpdate): Promise<Board | undefined>;
   touchBoardForUser(id: string, userId: string): Promise<void>;
   deleteBoardForUser(id: string, userId: string): Promise<boolean>;
+
+  // Board Shares (owner manages who can access the board)
+  getBoardShares(boardId: string, ownerUserId: string): Promise<BoardShareRecipient[]>;
+  shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined>;
+  unshareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<boolean>;
 
   // Board Assets (always user-scoped via boardId + userId)
   getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]>;
@@ -462,6 +474,13 @@ export interface IStorage {
 
 // Typed mutation DTOs (kept narrow on purpose: only mutable fields)
 export type BoardUpdate = Partial<Pick<Board, "title" | "isShared">>;
+export type AccessibleBoard = Board & { isOwner: boolean };
+export type BoardShareRecipient = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  sharedAt: Date | null;
+};
 export type BoardAssetCreate = Omit<InsertBoardAsset, "boardId">;
 export type BoardAssetUpdate = Partial<Pick<
   BoardAsset,
@@ -2864,12 +2883,108 @@ export class MemStorage implements IStorage {
       .orderBy(desc(boardsTable.updatedAt));
   }
 
+  async getAccessibleBoardsForUser(userId: string): Promise<AccessibleBoard[]> {
+    const owned = await db
+      .select()
+      .from(boardsTable)
+      .where(eq(boardsTable.userId, userId))
+      .orderBy(desc(boardsTable.updatedAt));
+    const sharedRows = await db
+      .select({ board: boardsTable })
+      .from(boardSharesTable)
+      .innerJoin(boardsTable, eq(boardsTable.id, boardSharesTable.boardId))
+      .where(eq(boardSharesTable.sharedWithUserId, userId))
+      .orderBy(desc(boardsTable.updatedAt));
+    const seen = new Set(owned.map((b) => b.id));
+    const merged: AccessibleBoard[] = owned.map((b) => ({ ...b, isOwner: true }));
+    for (const r of sharedRows) {
+      if (seen.has(r.board.id)) continue;
+      seen.add(r.board.id);
+      merged.push({ ...r.board, isOwner: false });
+    }
+    merged.sort((a, b) => {
+      const ta = a.updatedAt ? a.updatedAt.getTime() : 0;
+      const tb = b.updatedAt ? b.updatedAt.getTime() : 0;
+      return tb - ta;
+    });
+    return merged;
+  }
+
   async getBoardByIdForUser(id: string, userId: string): Promise<Board | undefined> {
     const [board] = await db
       .select()
       .from(boardsTable)
       .where(and(eq(boardsTable.id, id), eq(boardsTable.userId, userId)));
     return board;
+  }
+
+  async getAccessibleBoardForUser(id: string, userId: string): Promise<AccessibleBoard | undefined> {
+    const owned = await this.getBoardByIdForUser(id, userId);
+    if (owned) return { ...owned, isOwner: true };
+    const [row] = await db
+      .select({ board: boardsTable })
+      .from(boardSharesTable)
+      .innerJoin(boardsTable, eq(boardsTable.id, boardSharesTable.boardId))
+      .where(and(
+        eq(boardSharesTable.boardId, id),
+        eq(boardSharesTable.sharedWithUserId, userId),
+      ));
+    return row ? { ...row.board, isOwner: false } : undefined;
+  }
+
+  async getBoardShares(boardId: string, ownerUserId: string): Promise<BoardShareRecipient[]> {
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return [];
+    const rows = await db
+      .select({
+        userId: boardSharesTable.sharedWithUserId,
+        sharedAt: boardSharesTable.createdAt,
+        userName: usersTable.name,
+        userEmail: usersTable.email,
+      })
+      .from(boardSharesTable)
+      .leftJoin(usersTable, eq(usersTable.id, boardSharesTable.sharedWithUserId))
+      .where(eq(boardSharesTable.boardId, boardId))
+      .orderBy(desc(boardSharesTable.createdAt));
+    return rows.map((r) => ({
+      userId: r.userId,
+      name: r.userName ?? null,
+      email: r.userEmail ?? null,
+      sharedAt: r.sharedAt ?? null,
+    }));
+  }
+
+  async shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined> {
+    if (sharedWithUserId === ownerUserId) return undefined;
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return undefined;
+    // Idempotent: if a share already exists, return it.
+    const [existing] = await db
+      .select()
+      .from(boardSharesTable)
+      .where(and(
+        eq(boardSharesTable.boardId, boardId),
+        eq(boardSharesTable.sharedWithUserId, sharedWithUserId),
+      ));
+    if (existing) return existing;
+    const [created] = await db
+      .insert(boardSharesTable)
+      .values({ boardId, sharedWithUserId, sharedByUserId: ownerUserId })
+      .returning();
+    return created;
+  }
+
+  async unshareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<boolean> {
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return false;
+    const [deleted] = await db
+      .delete(boardSharesTable)
+      .where(and(
+        eq(boardSharesTable.boardId, boardId),
+        eq(boardSharesTable.sharedWithUserId, sharedWithUserId),
+      ))
+      .returning();
+    return !!deleted;
   }
 
   async createBoard(board: InsertBoard): Promise<Board> {

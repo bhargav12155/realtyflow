@@ -128,8 +128,12 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
   const filtered = useMemo(() => {
     const list = boardsQuery.data ?? [];
     return list.filter((b) => {
-      if (tab === "shared" && !b.isShared) return false;
-      if (tab === "mine" && b.isShared) return false;
+      // "Shared" = boards where someone else is the owner (shared with me).
+      // "Mine" = boards I own. If `isOwner` is missing on legacy responses
+      // we default to true so existing data still appears under Mine.
+      const isOwner = b.isOwner ?? true;
+      if (tab === "shared" && isOwner) return false;
+      if (tab === "mine" && !isOwner) return false;
       if (search.trim() && !b.title.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });

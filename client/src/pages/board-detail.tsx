@@ -106,7 +106,11 @@ export default function BoardDetailPage() {
       return { pendingId: pendingMsg.id };
     },
     onSuccess: (data, _vars, ctx) => {
-      const reply = data?.reply?.content ?? "(no reply)";
+      const replyRaw = data?.reply;
+      const reply =
+        typeof replyRaw === "string"
+          ? replyRaw
+          : replyRaw?.content ?? "(no reply)";
       setMessages((m) =>
         m.map((msg) => (msg.id === ctx?.pendingId ? { ...msg, content: reply, pending: false } : msg)),
       );

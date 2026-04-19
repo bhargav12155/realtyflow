@@ -20,9 +20,50 @@ import {
   type SeedanceDuration,
 } from "../services/seedance";
 import { autoEvaluateBatch } from "../services/boardAutoEval";
+import { openaiService } from "../services/openai";
+import { persistImageBuffer } from "../objectStorage";
+import { realtimeService } from "../websocket";
 
-const PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
+const VIDEO_PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
+const IMAGE_PROVIDERS = ["openai-image", "gemini-image"] as const;
+const PROVIDERS = [...VIDEO_PROVIDERS, ...IMAGE_PROVIDERS] as const;
+type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
+type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
 type Provider = (typeof PROVIDERS)[number];
+
+function isImageProvider(p: Provider): p is ImageProvider {
+  return (IMAGE_PROVIDERS as readonly string[]).includes(p);
+}
+
+function pushAssetStatus(
+  userId: string,
+  boardId: string,
+  asset: BoardAsset,
+  extra?: Record<string, unknown>,
+) {
+  try {
+    realtimeService.sendToUser(userId, {
+      type: "status_update",
+      data: {
+        scope: "board_asset",
+        boardId,
+        batchId: asset.batchId,
+        assetId: asset.id,
+        status: asset.status,
+        kind: asset.kind,
+        provider: asset.provider,
+        modelLabel: asset.modelLabel,
+        assetUrl: asset.assetUrl,
+        thumbnailUrl: asset.thumbnailUrl,
+        rejectionReason: asset.rejectionReason,
+        ...(extra ?? {}),
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("[boards-chat] websocket push failed:", err);
+  }
+}
 
 const SEEDANCE_MODELS: SeedanceModel[] = [
   "seedance-1-0-pro-250528",
@@ -121,7 +162,7 @@ interface DispatchResult {
   poll: () => Promise<PollResult>;
 }
 
-async function dispatchOne(provider: Provider, genMode: GenMode, ctx: DispatchContext): Promise<DispatchResult> {
+async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: DispatchContext): Promise<DispatchResult> {
   const firstImage = ctx.refAssets.find((a) => a.kind === "image")?.assetUrl || undefined;
   const firstVideo = ctx.refAssets.find((a) => a.kind === "video")?.assetUrl || undefined;
 
@@ -257,6 +298,48 @@ async function dispatchOne(provider: Provider, genMode: GenMode, ctx: DispatchCo
   }
 }
 
+interface ImageDispatchResult {
+  modelLabel: string;
+  imageUrl: string;
+}
+
+async function dispatchImage(
+  provider: ImageProvider,
+  ctx: DispatchContext,
+): Promise<ImageDispatchResult> {
+  if (provider === "gemini-image") {
+    // openaiService.generateImage is implemented on top of Gemini's
+    // gemini-2.5-flash-image model and persists to object storage when available.
+    const url = await openaiService.generateImage({ prompt: ctx.prompt });
+    if (!url) throw new Error("Gemini image generation returned no result");
+    return { modelLabel: ctx.forceModel || "gemini-2.5-flash-image", imageUrl: url };
+  }
+  // openai-image
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+  const client = new OpenAI({ apiKey });
+  const model = ctx.forceModel || "gpt-image-1";
+  const resp = await client.images.generate({
+    model,
+    prompt: ctx.prompt,
+    size: "1024x1024",
+    n: 1,
+  });
+  const item = resp.data?.[0];
+  if (!item) throw new Error("OpenAI image generation returned no data");
+  let imageUrl: string | null = null;
+  if (item.b64_json) {
+    const buf = Buffer.from(item.b64_json, "base64");
+    const filename = `board-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+    const stored = await persistImageBuffer(buf, filename, "image/png");
+    imageUrl = stored ?? `data:image/png;base64,${item.b64_json}`;
+  } else if (item.url) {
+    imageUrl = item.url;
+  }
+  if (!imageUrl) throw new Error("OpenAI image generation returned no usable URL");
+  return { modelLabel: model, imageUrl };
+}
+
 async function pollUntilDone(
   poll: DispatchResult["poll"],
   opts: { intervalMs?: number; maxMs?: number } = {},
@@ -295,31 +378,47 @@ async function runBatchInBackground(args: {
   await Promise.all(
     rows.map(async (row) => {
       try {
-        const dispatch = await dispatchOne(provider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
-        await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+        if (isImageProvider(provider)) {
+          const result = await dispatchImage(provider, { prompt, refAssets, forceModel });
+          const updated = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+            status: "ready",
+            modelLabel: result.modelLabel,
+            assetUrl: result.imageUrl,
+            thumbnailUrl: result.imageUrl,
+          });
+          if (updated) pushAssetStatus(userId, boardId, updated);
+          return;
+        }
+        const videoProvider = provider as VideoProvider;
+        const dispatch = await dispatchOne(videoProvider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
+        const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatch.modelLabel,
         });
+        if (labelled) pushAssetStatus(userId, boardId, labelled);
         const result = await pollUntilDone(dispatch.poll);
         if (result.error || !result.videoUrl) {
-          await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+          const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "failed",
             rejectionReason: result.error || "No output URL returned",
           });
+          if (failed) pushAssetStatus(userId, boardId, failed);
           return;
         }
-        await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+        const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           status: "ready",
           assetUrl: result.videoUrl,
           thumbnailUrl: result.videoUrl,
           durationSeconds: result.durationSeconds ?? null,
         });
+        if (ready) pushAssetStatus(userId, boardId, ready);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Generation failed";
         console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
-        await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+        const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           status: "failed",
           rejectionReason: msg,
         });
+        if (failed) pushAssetStatus(userId, boardId, failed);
       }
     }),
   );
@@ -332,12 +431,13 @@ async function runBatchInBackground(args: {
       const evalResult = await autoEvaluateBatch({ prompt, assets: ready });
       console.log(`[boards-chat] auto-eval winner=${evalResult.winnerAssetId} model=${evalResult.modelUsed}`);
       await Promise.all(
-        evalResult.rejected.map((r) =>
-          storage.updateBoardAssetForUser(boardId, r.assetId, userId, {
+        evalResult.rejected.map(async (r) => {
+          const rejected = await storage.updateBoardAssetForUser(boardId, r.assetId, userId, {
             status: "rejected",
             rejectionReason: r.reason,
-          }),
-        ),
+          });
+          if (rejected) pushAssetStatus(userId, boardId, rejected, { autoEval: true });
+        }),
       );
     }
   } catch (err) {
@@ -423,14 +523,17 @@ export function registerBoardsChatRoutes(
         }
       }
       const refKinds = refAssets.map((a) => a.kind);
-      const genMode = inferGenMode(refKinds, body.message);
-      const provider: Provider = body.provider || pickDefaultProvider(genMode, body.message);
+      const inferredGenMode = inferGenMode(refKinds, body.message);
+      const provider: Provider = body.provider || pickDefaultProvider(inferredGenMode, body.message);
+      const isImage = isImageProvider(provider);
+      // Image providers don't have a meaningful generation mode; force a label-only value.
+      const genMode: GenMode = isImage ? "text-to-video" : inferredGenMode;
 
       // Hard rule: v2v only on luma or runway. The Luma integration cannot yet consume
       // a referenced video as input, so we additionally block Luma at the preflight to
       // avoid kicking off a batch that would all asynchronously fail. Runway is the
       // working v2v default until Luma v2v is wired.
-      if (genMode === "video-to-video") {
+      if (!isImage && genMode === "video-to-video") {
         if (provider !== "luma" && provider !== "runway") {
           return res.status(400).json({
             error: "Video-to-video is only supported on Luma or Runway. Please pick one of those providers.",
@@ -447,30 +550,38 @@ export function registerBoardsChatRoutes(
         }
       }
 
-      const variations = body.variations ?? 3;
+      const variations = body.variations ?? (isImage ? 2 : 3);
       const batchId = randomUUID();
-      const batchLabel = `Generate ${variations} ${genMode.replace(/-/g, " ")} variation${variations === 1 ? "" : "s"} (${provider})`;
+      const kind: "image" | "video" = isImage ? "image" : "video";
+      const batchLabel = isImage
+        ? `Generate ${variations} image${variations === 1 ? "" : "s"} (${provider})`
+        : `Generate ${variations} ${genMode.replace(/-/g, " ")} variation${variations === 1 ? "" : "s"} (${provider})`;
 
+      const tileWidth = isImage ? 256 : 320;
+      const tileHeight = isImage ? 256 : 180;
       const rows: BoardAsset[] = [];
       for (let i = 0; i < variations; i++) {
         const payload: BoardAssetCreate = {
           batchId,
           batchLabel,
-          kind: "video",
+          kind,
           provider,
           status: "generating",
           modelLabel: body.forceModel ?? null,
-          positionX: 40 + i * 340,
+          positionX: 40 + i * (tileWidth + 20),
           positionY: 40,
-          width: 320,
-          height: 180,
+          width: tileWidth,
+          height: tileHeight,
           assetUrl: null,
           thumbnailUrl: null,
           durationSeconds: null,
           rejectionReason: null,
         };
         const created = await storage.createBoardAssetForUser(boardId, userId, payload);
-        if (created) rows.push(created);
+        if (created) {
+          rows.push(created);
+          pushAssetStatus(userId, boardId, created);
+        }
       }
 
       runBatchInBackground({

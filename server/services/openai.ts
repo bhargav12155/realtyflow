@@ -9,6 +9,25 @@ function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 }
 
+async function fetchImageAsBase64(
+  url: string,
+): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    if (url.startsWith("data:")) {
+      const match = url.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return null;
+      return { mimeType: match[1], base64: match[2] };
+    }
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const mimeType = res.headers.get("content-type") || "image/png";
+    const buf = Buffer.from(await res.arrayBuffer());
+    return { base64: buf.toString("base64"), mimeType };
+  } catch {
+    return null;
+  }
+}
+
 function extractJSON(raw: string, fallback: any = {}): any {
   try {
     const stripped = raw
@@ -637,6 +656,66 @@ RULES:
       return base64DataUri;
     } catch (error: any) {
       console.error("❌ [ImageGen] Image generation error:", error?.message || error);
+      return null;
+    }
+  }
+
+  async editImage({
+    prompt,
+    referenceImageUrls,
+  }: {
+    prompt: string;
+    referenceImageUrls: string[];
+  }): Promise<string | null> {
+    try {
+      const genAI = getGeminiClient();
+      console.log(
+        `🎨 [ImageEdit] Editing ${referenceImageUrls.length} image(s) with prompt: "${prompt.substring(0, 100)}..."`,
+      );
+
+      const parts: any[] = [{ text: prompt }];
+      for (const url of referenceImageUrls) {
+        const fetched = await fetchImageAsBase64(url);
+        if (!fetched) {
+          console.warn(`⚠️ [ImageEdit] Could not fetch reference image: ${url}`);
+          continue;
+        }
+        parts.push({ inlineData: { mimeType: fetched.mimeType, data: fetched.base64 } });
+      }
+
+      const response = await genAI.models.generateContent({
+        model: "gemini-2.5-flash-image",
+        contents: [{ role: "user", parts }],
+        config: { responseModalities: ["TEXT", "IMAGE"] },
+      });
+
+      const outParts = response.candidates?.[0]?.content?.parts || [];
+      const imgPart = outParts.find((p: any) => p.inlineData);
+      if (!imgPart?.inlineData?.data) {
+        console.warn("⚠️ [ImageEdit] No image returned from Gemini image edit");
+        return null;
+      }
+
+      const imageBase64 = imgPart.inlineData.data;
+      const mimeType = imgPart.inlineData.mimeType || "image/png";
+      const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+      const imageBuffer = Buffer.from(imageBase64, "base64");
+      const filename = `ai-edited-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+      try {
+        const { persistImageBuffer } = await import("../objectStorage");
+        const storedUrl = await persistImageBuffer(imageBuffer, filename, mimeType);
+        if (storedUrl) {
+          console.log(`✅ [ImageEdit] Edited image stored: ${storedUrl}`);
+          return storedUrl;
+        }
+      } catch (storageError: any) {
+        console.warn(`⚠️ [ImageEdit] Object storage failed, using base64 fallback:`, storageError?.message);
+      }
+
+      return `data:${mimeType};base64,${imageBase64}`;
+    } catch (error: any) {
+      console.error("❌ [ImageEdit] Image edit error:", error?.message || error);
       return null;
     }
   }

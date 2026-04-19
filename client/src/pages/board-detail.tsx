@@ -148,6 +148,11 @@ export default function BoardDetailPage() {
   });
 
   const referencedAssetIds = useMemo(() => (selectedAssetId ? [selectedAssetId] : []), [selectedAssetId]);
+  const hasReferencedImage = useMemo(() => {
+    if (!selectedAssetId || !boardQuery.data) return false;
+    const a = boardQuery.data.assets.find((x) => x.id === selectedAssetId);
+    return a?.kind === "image";
+  }, [selectedAssetId, boardQuery.data]);
 
   const sendChat = useMutation({
     mutationFn: async (text: string) => {
@@ -408,6 +413,7 @@ export default function BoardDetailPage() {
             seedanceOptions={seedanceOptions}
             onSeedanceOptionsChange={setSeedanceOptions}
             referencedAssetIds={referencedAssetIds}
+            hasReferencedImage={hasReferencedImage}
             onSend={(text) => sendChat.mutate(text)}
             isSending={sendChat.isPending}
           />

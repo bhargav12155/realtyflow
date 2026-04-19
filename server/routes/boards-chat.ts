@@ -5,7 +5,7 @@ import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
 import type { BoardAsset, BoardAssetEvalHistoryEntry } from "@shared/schema";
 import type { BoardAssetCreate } from "../storage";
-import OpenAI from "openai";
+import OpenAI, { type Uploadable } from "openai";
 import type { LumaModel } from "../services/luma";
 import type {
   SeedanceModel,
@@ -351,25 +351,91 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
 interface ImageDispatchResult {
   modelLabel: string;
   imageUrl: string;
+  edited: boolean;
+}
+
+async function fetchAsUploadable(url: string, fallbackName: string): Promise<Uploadable> {
+  if (url.startsWith("data:")) {
+    const match = url.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) throw new Error("Invalid data URL for referenced image");
+    const mime = match[1];
+    const buf = Buffer.from(match[2], "base64");
+    const ext = mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : "png";
+    return await OpenAI.toFile(buf, `${fallbackName}.${ext}`, { type: mime });
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch referenced image (${res.status})`);
+  const mime = res.headers.get("content-type") || "image/png";
+  const buf = Buffer.from(await res.arrayBuffer());
+  const ext = mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : "png";
+  return await OpenAI.toFile(buf, `${fallbackName}.${ext}`, { type: mime });
 }
 
 async function dispatchImage(
   provider: ImageProvider,
   ctx: DispatchContext,
 ): Promise<ImageDispatchResult> {
+  const refImageUrls = ctx.refAssets
+    .filter((a) => a.kind === "image" && !!a.assetUrl)
+    .map((a) => a.assetUrl as string);
+
   if (provider === "gemini-image") {
+    const { openaiService } = await import("../services/openai");
+    if (refImageUrls.length > 0) {
+      const url = await openaiService.editImage({
+        prompt: ctx.prompt,
+        referenceImageUrls: refImageUrls,
+      });
+      if (!url) throw new Error("Gemini image edit returned no result");
+      return {
+        modelLabel: ctx.forceModel || "gemini-2.5-flash-image (edit)",
+        imageUrl: url,
+        edited: true,
+      };
+    }
     // openaiService.generateImage is implemented on top of Gemini's
     // gemini-2.5-flash-image model and persists to object storage when available.
-    const { openaiService } = await import("../services/openai");
     const url = await openaiService.generateImage({ prompt: ctx.prompt });
     if (!url) throw new Error("Gemini image generation returned no result");
-    return { modelLabel: ctx.forceModel || "gemini-2.5-flash-image", imageUrl: url };
+    return {
+      modelLabel: ctx.forceModel || "gemini-2.5-flash-image",
+      imageUrl: url,
+      edited: false,
+    };
   }
   // openai-image
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
   const client = new OpenAI({ apiKey });
   const model = ctx.forceModel || "gpt-image-1";
+
+  if (refImageUrls.length > 0) {
+    // gpt-image-1 supports image-edit with one or more reference images.
+    const uploads = await Promise.all(
+      refImageUrls.map((u, i) => fetchAsUploadable(u, `ref-${Date.now()}-${i}`)),
+    );
+    const editResp = await client.images.edit({
+      model,
+      prompt: ctx.prompt,
+      image: uploads.length === 1 ? uploads[0] : uploads,
+      size: "1024x1024",
+      n: 1,
+    });
+    const item = editResp.data?.[0];
+    if (!item) throw new Error("OpenAI image edit returned no data");
+    let imageUrl: string | null = null;
+    if (item.b64_json) {
+      const buf = Buffer.from(item.b64_json, "base64");
+      const filename = `board-image-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+      const stored = await persistImageBuffer(buf, filename, "image/png");
+      imageUrl = stored ?? `data:image/png;base64,${item.b64_json}`;
+    } else if (item.url) {
+      imageUrl = item.url;
+    }
+    if (!imageUrl) throw new Error("OpenAI image edit returned no usable URL");
+    return { modelLabel: `${model} (edit)`, imageUrl, edited: true };
+  }
+
   const resp = await client.images.generate({
     model,
     prompt: ctx.prompt,
@@ -388,7 +454,7 @@ async function dispatchImage(
     imageUrl = item.url;
   }
   if (!imageUrl) throw new Error("OpenAI image generation returned no usable URL");
-  return { modelLabel: model, imageUrl };
+  return { modelLabel: model, imageUrl, edited: false };
 }
 
 async function pollUntilDone(
@@ -832,8 +898,12 @@ export function registerBoardsChatRoutes(
       const variations = body.variations ?? (isImage ? 2 : 3);
       const batchId = randomUUID();
       const kind: "image" | "video" = isImage ? "image" : "video";
+      const refImageCount = refAssets.filter((a) => a.kind === "image").length;
+      const isImageEdit = isImage && refImageCount > 0;
       const batchLabel = isImage
-        ? `Generate ${variations} image${variations === 1 ? "" : "s"} (${provider})`
+        ? isImageEdit
+          ? `Edit referenced image${refImageCount === 1 ? "" : "s"} → ${variations} variation${variations === 1 ? "" : "s"} (${provider})`
+          : `Generate ${variations} image${variations === 1 ? "" : "s"} (${provider})`
         : `Generate ${variations} ${genMode.replace(/-/g, " ")} variation${variations === 1 ? "" : "s"} (${provider})`;
 
       const tileWidth = isImage ? 256 : 320;
@@ -888,7 +958,10 @@ export function registerBoardsChatRoutes(
         batchId,
         batchLabel,
         assets: rows,
-        reply: `Started ${batchLabel}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`,
+        isImageEdit,
+        reply: isImageEdit
+          ? `Editing your referenced image${refImageCount === 1 ? "" : "s"} with ${provider}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`
+          : `Started ${batchLabel}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`,
       });
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {

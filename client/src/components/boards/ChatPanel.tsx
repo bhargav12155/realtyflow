@@ -30,6 +30,7 @@ interface ChatPanelProps {
   seedanceOptions?: SeedanceOptions;
   onSeedanceOptionsChange?: (opts: SeedanceOptions) => void;
   referencedAssetIds: string[];
+  hasReferencedImage?: boolean;
   onSend: (text: string) => void;
   isSending?: boolean;
 }
@@ -46,6 +47,7 @@ export function ChatPanel({
   seedanceOptions,
   onSeedanceOptionsChange,
   referencedAssetIds,
+  hasReferencedImage,
   onSend,
   isSending,
 }: ChatPanelProps) {
@@ -95,6 +97,11 @@ export function ChatPanel({
       {referencedAssetIds.length > 0 && (
         <div className="px-3 pb-2 text-[11px] text-neutral-500 dark:text-neutral-400" data-testid="text-referenced">
           Referencing {referencedAssetIds.length} asset{referencedAssetIds.length === 1 ? "" : "s"}
+          {sel.kind === "image" && hasReferencedImage && (
+            <span className="ml-1 text-violet-600 dark:text-violet-300" data-testid="text-edit-referenced-image-hint">
+              · will edit referenced image
+            </span>
+          )}
         </div>
       )}
 

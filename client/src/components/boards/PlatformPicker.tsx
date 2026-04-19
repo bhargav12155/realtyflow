@@ -38,6 +38,7 @@ export interface Platform {
   name: string;
   tagline: string;
   v2v: boolean;
+  kind?: "image" | "video" | "avatar";
   badge?: string;
   accent: string;
   brandIcon?: IconType;
@@ -51,9 +52,9 @@ export const PLATFORMS: Platform[] = [
   { id: "seedance", name: "Seedance", tagline: "ByteDance fast t2v + i2v", v2v: false, accent: "from-rose-500 to-orange-500", monogram: "S" },
   { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", brandIcon: SiGoogle },
   { id: "kling", name: "Kling AI", tagline: "Strong character consistency", v2v: false, accent: "from-amber-500 to-yellow-500", monogram: "K" },
-  { id: "openai-image", name: "OpenAI Image", tagline: "Crisp graphics + thumbnails", v2v: false, badge: "Image", accent: "from-zinc-700 to-zinc-900", brandIcon: SiOpenai },
-  { id: "gemini-image", name: "Gemini Image", tagline: "Photoreal + text rendering", v2v: false, badge: "Image", accent: "from-blue-400 to-cyan-400", brandIcon: SiGoogle },
-  { id: "heygen", name: "HeyGen Avatar", tagline: "Talking-head avatars", v2v: false, badge: "Avatar", accent: "from-pink-500 to-purple-500", monogram: "H" },
+  { id: "openai-image", name: "OpenAI Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-zinc-700 to-zinc-900", brandIcon: SiOpenai },
+  { id: "gemini-image", name: "Gemini Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-blue-400 to-cyan-400", brandIcon: SiGoogle },
+  { id: "heygen", name: "HeyGen Avatar", tagline: "Talking-head avatars", v2v: false, kind: "avatar", badge: "Avatar", accent: "from-pink-500 to-purple-500", monogram: "H" },
 ];
 
 export type SeedanceModel =
@@ -163,7 +164,11 @@ export function PlatformPicker({
         <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mb-2">
           Modes available for <span className="font-semibold text-neutral-700 dark:text-neutral-200">{sel.name}</span>:
         </div>
-        <ModeTabs supportV2V={sel.v2v} selected={selectedMode} onSelect={onSelectMode} />
+        {sel.kind === "image" ? (
+          <ImageModeHint />
+        ) : (
+          <ModeTabs supportV2V={sel.v2v} selected={selectedMode} onSelect={onSelectMode} />
+        )}
       </div>
 
       {sel.id === "seedance" && seedanceOptions && onSeedanceOptionsChange && (
@@ -245,6 +250,26 @@ function SeedanceControls({
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ImageModeHint() {
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="hint-image-modes">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 text-[12px]">
+          <Sparkles className="w-3.5 h-3.5" />
+          Text → Image
+        </span>
+        <span className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 text-[12px]">
+          <ImageIcon className="w-3.5 h-3.5" />
+          Image → Image (edit)
+        </span>
+      </div>
+      <div className="text-[10px] text-neutral-500 dark:text-neutral-400 italic" data-testid="text-image-edit-hint">
+        Reference an image asset to edit it; otherwise it'll generate from your prompt.
       </div>
     </div>
   );

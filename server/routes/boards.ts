@@ -43,6 +43,10 @@ const createBoardSchema = z.object({
   seedGenerationMode: z.enum(["text-to-video", "image-to-video", "video-to-video"]).optional(),
   seedTemplateId: z.string().min(1).max(120).optional(),
   seedIntent: z.enum(BOARD_INTENTS).optional(),
+  // Optional chat-mode hint: "plan" lands in conversational/brainstorm mode,
+  // "build" lands in generation/create mode. Echoed back like the other seed
+  // fields so the board page can pick the right starting mode.
+  seedMode: z.enum(["plan", "build"]).optional(),
 });
 export const ASSET_STATUSES = ["queued", "generating", "ready", "failed", "rejected"] as const;
 
@@ -237,13 +241,14 @@ export function registerBoardsRoutes(
       });
       res.json({
         ...board,
-        seed: parsed.seedPrompt || parsed.seedIntent
+        seed: parsed.seedPrompt || parsed.seedIntent || parsed.seedMode
           ? {
               prompt: parsed.seedPrompt ?? null,
               provider: parsed.seedProvider ?? null,
               generationMode: parsed.seedGenerationMode ?? null,
               templateId: parsed.seedTemplateId ?? null,
               intent: parsed.seedIntent ?? null,
+              chatMode: parsed.seedMode ?? null,
             }
           : null,
       });

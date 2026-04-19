@@ -1,5 +1,5 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { Moon, Sun, X } from "lucide-react";
 import { BoardsHomeView } from "@/components/boards/BoardsHomeView";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 
@@ -9,7 +9,7 @@ export interface BoardsHomeOverlayProps {
 }
 
 export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps) {
-  const { theme } = useBoardsTheme();
+  const { theme, toggle: toggleTheme } = useBoardsTheme();
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -44,6 +44,22 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
           </DialogPrimitive.Description>
 
           <BoardsHomeView onBoardCreated={() => onOpenChange(false)} />
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch Boards to light mode" : "Switch Boards to dark mode"}
+            title={theme === "dark" ? "Light mode" : "Dark mode"}
+            className="fixed right-16 top-4 z-[60] w-9 h-9 rounded-full bg-white/90 hover:bg-white border border-neutral-200 shadow-sm flex items-center justify-center transition focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:bg-neutral-900/90 dark:hover:bg-neutral-900 dark:border-neutral-700"
+            data-overlay-keep
+            data-testid="button-toggle-boards-theme-overlay"
+          >
+            {theme === "dark" ? (
+              <Sun className="w-4 h-4 text-neutral-200" />
+            ) : (
+              <Moon className="w-4 h-4 text-neutral-700" />
+            )}
+          </button>
 
           <DialogPrimitive.Close
             className="fixed right-5 top-4 z-[60] w-9 h-9 rounded-full bg-white/90 hover:bg-white border border-neutral-200 shadow-sm flex items-center justify-center transition focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:bg-neutral-900/90 dark:hover:bg-neutral-900 dark:border-neutral-700"

@@ -13,6 +13,8 @@ type Tab = "all" | "shared" | "mine";
 
 type BoardIntent = "social-post" | "blog-article" | "image" | "video";
 
+type SeedMode = "plan" | "build";
+
 interface QuickAction {
   id: BoardIntent;
   label: string;
@@ -24,6 +26,10 @@ interface QuickAction {
   // valid provider — wiring `openai-image` here would 400 on first send.
   provider?: "veo";
   generationMode?: "text-to-video" | "image-to-video" | "video-to-video";
+  // Whether the new board should land in "plan" (conversational) or "build"
+  // (generation) mode. Plan mode hides the platform picker so the user has a
+  // real planning conversation before any media is generated.
+  seedMode: SeedMode;
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
@@ -31,19 +37,22 @@ const QUICK_ACTIONS: QuickAction[] = [
     id: "social-post",
     label: "Social Post",
     icon: MessageSquare,
-    starterPrompt: "Draft a social media post about ",
+    starterPrompt: "Help me plan a social media post about ",
+    seedMode: "plan",
   },
   {
     id: "blog-article",
     label: "Blog Article",
     icon: FileText,
-    starterPrompt: "Write a blog article about ",
+    starterPrompt: "Help me plan a blog article about ",
+    seedMode: "plan",
   },
   {
     id: "image",
     label: "Image",
     icon: ImageIcon,
     starterPrompt: "Create an image of ",
+    seedMode: "build",
   },
   {
     id: "video",
@@ -52,6 +61,7 @@ const QUICK_ACTIONS: QuickAction[] = [
     starterPrompt: "Create a short video of ",
     provider: "veo",
     generationMode: "text-to-video",
+    seedMode: "build",
   },
 ];
 
@@ -80,6 +90,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
     seedIntent?: BoardIntent;
     seedProvider?: QuickAction["provider"];
     seedGenerationMode?: QuickAction["generationMode"];
+    seedMode?: SeedMode;
   }
 
   const createBoardMutation = useMutation({
@@ -90,6 +101,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
       if (args.seedIntent) body.seedIntent = args.seedIntent;
       if (args.seedProvider) body.seedProvider = args.seedProvider;
       if (args.seedGenerationMode) body.seedGenerationMode = args.seedGenerationMode;
+      if (args.seedMode) body.seedMode = args.seedMode;
       const res = await apiRequest("POST", "/api/boards", body);
       const board = (await res.json()) as BoardSummary;
       return { board, args };
@@ -102,6 +114,9 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
       if (args.seedProvider) params.set("provider", args.seedProvider);
       if (args.seedGenerationMode) params.set("mode", args.seedGenerationMode);
       if (args.seedIntent) params.set("intent", args.seedIntent);
+      // Use a distinct query key (chatMode) to avoid colliding with the
+      // existing `mode` param which carries the video generation mode.
+      if (args.seedMode) params.set("chatMode", args.seedMode);
       const qs = params.toString();
       setLocation(qs ? `/boards/${board.id}?${qs}` : `/boards/${board.id}`);
     },
@@ -147,6 +162,7 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
       seedIntent: action.id,
       seedProvider: action.provider,
       seedGenerationMode: action.generationMode,
+      seedMode: action.seedMode,
     });
   };
 

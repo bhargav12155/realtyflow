@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { BoardsHomeOverlay } from "../BoardsHomeOverlay";
+import { __resetBoardsThemeForTests } from "@/hooks/useBoardsTheme";
 
 const apiRequestMock = vi.fn();
 
@@ -37,8 +38,17 @@ beforeEach(() => {
   apiRequestMock.mockResolvedValue(
     new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
   );
+  try {
+    window.localStorage.removeItem("boards-theme");
+  } catch {
+    // ignore
+  }
+  __resetBoardsThemeForTests();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  __resetBoardsThemeForTests();
+});
 
 describe("BoardsHomeOverlay dismissal", () => {
   it("renders the content as a full-screen (inset-0) surface", async () => {
@@ -73,6 +83,23 @@ describe("BoardsHomeOverlay dismissal", () => {
     const view = await screen.findByTestId("boards-home-view");
     fireEvent.pointerDown(view);
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("renders a theme toggle in the overlay top bar that flips the Boards theme", async () => {
+    renderOverlay(vi.fn());
+    const toggle = await screen.findByTestId("button-toggle-boards-theme-overlay");
+    // Initial state is light, so the button shows the moon (switch-to-dark) affordance.
+    expect(toggle.getAttribute("aria-label") ?? "").toMatch(/dark/i);
+    act(() => {
+      fireEvent.click(toggle);
+    });
+    await waitFor(() => {
+      const next = screen
+        .getByTestId("button-toggle-boards-theme-overlay")
+        .getAttribute("aria-label") ?? "";
+      expect(next).toMatch(/light/i);
+    });
+    expect(window.localStorage.getItem("boards-theme")).toBe("dark");
   });
 
   it("does NOT dismiss when pointer-down lands inside an interactive island (the prompt input)", async () => {

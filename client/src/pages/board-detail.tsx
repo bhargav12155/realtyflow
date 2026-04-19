@@ -37,15 +37,21 @@ export default function BoardDetailPage() {
     if (typeof window === "undefined") return null;
     const sp = new URLSearchParams(window.location.search);
     const seed = sp.get("seed");
-    if (!seed) return null;
+    const chatModeRaw = sp.get("chatMode");
+    const chatMode: "plan" | "build" | null =
+      chatModeRaw === "plan" || chatModeRaw === "build" ? chatModeRaw : null;
+    // Even with no `seed`, a `chatMode=plan|build` should still drive the
+    // initial mode (e.g. opening a board from a plan-mode handoff link).
+    if (!seed && !chatMode) return null;
     const providerRaw = sp.get("provider");
     const modeRaw = sp.get("mode");
     return {
-      seed,
+      seed: seed ?? null,
       provider: isProviderId(providerRaw) ? providerRaw : null,
       mode: isGenerationMode(modeRaw) ? modeRaw : null,
       template: sp.get("template"),
       intent: sp.get("intent"),
+      chatMode,
     };
   }, [location, boardId]);
   const seedAppliedRef = useRef<string | null>(null);
@@ -295,24 +301,28 @@ export default function BoardDetailPage() {
     seedAppliedRef.current = boardId;
     if (seedParams.provider) setProvider(seedParams.provider);
     if (seedParams.mode) setGenerationMode(seedParams.mode);
-    setMode("create");
+    // Plan-mode intents (Social Post / Blog Article) land in conversational
+    // brainstorm mode; build/generation intents land in create mode.
+    setMode(seedParams.chatMode === "plan" ? "brainstorm" : "create");
     const intentLabels: Record<string, string> = {
       "social-post": "Social Post",
       "blog-article": "Blog Article",
       image: "Image",
       video: "Video",
     };
-    const sourceLabel = seedParams.intent
-      ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
-      : `template "${seedParams.template ?? "discover"}"`;
-    setMessages((m) => [
-      ...m,
-      {
-        id: `seed-${boardId}`,
-        role: "assistant",
-        content: `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`,
-      },
-    ]);
+    if (seedParams.seed) {
+      const sourceLabel = seedParams.intent
+        ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
+        : `template "${seedParams.template ?? "discover"}"`;
+      setMessages((m) => [
+        ...m,
+        {
+          id: `seed-${boardId}`,
+          role: "assistant",
+          content: `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`,
+        },
+      ]);
+    }
     // Clean the seed from the URL so a refresh doesn't re-apply it
     if (typeof window !== "undefined") {
       window.history.replaceState({}, "", `/boards/${boardId}`);

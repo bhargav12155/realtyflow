@@ -131,6 +131,50 @@ describe("BoardsHomeView create-from-prompt", () => {
     });
   });
 
+  it("clicking the Social Post chip seeds plan mode (no provider) and routes with chatMode=plan", async () => {
+    const { history } = renderWithProviders(<BoardsHomeView />);
+
+    const chip = await screen.findByTestId("chip-intent-social-post");
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
+      expect(postCalls.length).toBe(1);
+      const body = postCalls[0][2] as Record<string, unknown>;
+      expect(body.seedIntent).toBe("social-post");
+      expect(body.seedMode).toBe("plan");
+      // Plan-mode intents must NOT pre-set provider/generationMode — the
+      // platform picker is hidden in Plan mode and there is nothing to pick.
+      expect(body.seedProvider).toBeUndefined();
+      expect(body.seedGenerationMode).toBeUndefined();
+    });
+
+    await waitFor(() => {
+      const last = history.at(-1) ?? "";
+      expect(last).toContain("intent=social-post");
+      expect(last).toContain("chatMode=plan");
+      expect(last).not.toContain("provider=");
+    });
+  });
+
+  it("clicking the Video chip seeds build mode and routes with chatMode=build", async () => {
+    const { history } = renderWithProviders(<BoardsHomeView />);
+
+    const chip = await screen.findByTestId("chip-intent-video");
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
+      const body = postCalls[0][2] as Record<string, unknown>;
+      expect(body.seedMode).toBe("build");
+      expect(body.seedProvider).toBe("veo");
+    });
+
+    await waitFor(() => {
+      expect(history.at(-1) ?? "").toContain("chatMode=build");
+    });
+  });
+
   it("uses the typed prompt as the chip seed when the input is non-empty", async () => {
     renderWithProviders(<BoardsHomeView />);
 

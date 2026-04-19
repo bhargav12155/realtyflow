@@ -1,5 +1,11 @@
 import { Link } from "wouter";
-import { Plus } from "lucide-react";
+import { MoreVertical, Plus, LogOut } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export interface BoardSummary {
   id: string;
@@ -61,23 +67,67 @@ function ThumbCollage({ thumbs }: { thumbs: { id: string; thumbnailUrl: string |
   );
 }
 
-export function BoardCard({ board }: { board: BoardSummary }) {
+export interface BoardCardProps {
+  board: BoardSummary;
+  /** When provided and the current user is not the owner, a kebab menu with a Leave action is rendered. */
+  onLeave?: (board: BoardSummary) => void;
+  isLeaving?: boolean;
+}
+
+export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
   const tint = pickTint(board.id);
   const [first, ...rest] = (board.title || "Untitled board").split(" ");
   const highlight = rest.join(" ");
+  const showLeave = onLeave && board.isOwner === false;
   return (
-    <Link href={`/boards/${board.id}`}>
-      <a
-        className={`block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
-        data-testid={`card-board-${board.id}`}
-      >
-        <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300">
-          {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
+    <div className="relative">
+      <Link href={`/boards/${board.id}`}>
+        <a
+          className={`block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
+          data-testid={`card-board-${board.id}`}
+        >
+          <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300">
+            {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
+          </div>
+          <div className="text-[10px] text-neutral-500 mb-3 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
+          <ThumbCollage thumbs={board.thumbnails ?? []} />
+        </a>
+      </Link>
+      {showLeave && (
+        <div className="absolute top-2 right-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                className="w-7 h-7 rounded-full bg-white/80 hover:bg-white text-neutral-700 flex items-center justify-center shadow-sm dark:bg-neutral-800/80 dark:hover:bg-neutral-800 dark:text-neutral-200"
+                aria-label="Board actions"
+                data-testid={`button-board-menu-${board.id}`}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem
+                disabled={isLeaving}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onLeave?.(board);
+                }}
+                className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                data-testid={`menu-item-leave-${board.id}`}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Leave board
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-        <div className="text-[10px] text-neutral-500 mb-3 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
-        <ThumbCollage thumbs={board.thumbnails ?? []} />
-      </a>
-    </Link>
+      )}
+    </div>
   );
 }
 

@@ -109,6 +109,35 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
     },
   });
 
+  const leaveBoardMutation = useMutation({
+    mutationFn: async (boardId: string) => {
+      const res = await apiRequest("DELETE", `/api/boards/${boardId}/share/me`);
+      return res.json();
+    },
+    onMutate: async (boardId: string) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/boards"] });
+      const previous = queryClient.getQueryData<BoardSummary[]>(["/api/boards"]);
+      if (previous) {
+        queryClient.setQueryData<BoardSummary[]>(
+          ["/api/boards"],
+          previous.filter((b) => b.id !== boardId),
+        );
+      }
+      return { previous };
+    },
+    onSuccess: () => {
+      toast({ title: "Left board", description: "It has been removed from your Shared tab." });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+    },
+    onError: (e: Error, _boardId, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/boards"], context.previous);
+      }
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't leave board", description: errText, variant: "destructive" });
+    },
+  });
+
   const handleQuickAction = (action: QuickAction) => {
     const seed = (prompt.trim() ? prompt.trim() : action.starterPrompt).trim();
     createBoardMutation.mutate({
@@ -244,7 +273,12 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
             <div className="grid grid-cols-5 gap-4">
               <NewBoardCard onClick={() => createBoardMutation.mutate({})} />
               {filtered.map((b) => (
-                <BoardCard key={b.id} board={b} />
+                <BoardCard
+                  key={b.id}
+                  board={b}
+                  onLeave={(board) => leaveBoardMutation.mutate(board.id)}
+                  isLeaving={leaveBoardMutation.isPending && leaveBoardMutation.variables === b.id}
+                />
               ))}
               {filtered.length === 0 && (boardsQuery.data?.length ?? 0) > 0 && (
                 <div className="col-span-4 flex items-center text-[12px] text-neutral-400 px-4 dark:text-neutral-500">

@@ -8,7 +8,9 @@ import {
   type DispatchResult,
   type Provider,
   type GenMode,
+  type GeminiImageService,
 } from "../server/routes/boards-chat";
+import OpenAI from "openai";
 import type { Board, BoardAsset, InsertBoard } from "@shared/schema";
 import type {
   IStorage,
@@ -134,6 +136,8 @@ interface BuildOpts {
   providers?: Partial<BoardsChatProviders>;
   dispatchOne?: DispatchOne;
   autoEvaluateBatch?: (i: { prompt: string; assets: BoardAsset[] }) => Promise<AutoEvalResult>;
+  openaiClientFactory?: () => OpenAI;
+  geminiImageService?: GeminiImageService;
 }
 
 interface BuildResult {
@@ -172,6 +176,8 @@ function buildApp(opts: BuildOpts = {}): BuildResult {
     autoEvaluateBatch:
       opts.autoEvaluateBatch ??
       (async () => ({ winnerAssetId: "noop", rejected: [], modelUsed: "heuristic" })),
+    openaiClientFactory: opts.openaiClientFactory,
+    geminiImageService: opts.geminiImageService,
     onBatchScheduled: (p) => bgPromises.push(p),
   });
 
@@ -537,5 +543,219 @@ describe("POST /api/boards/:id/chat — auto-eval write-back", () => {
     assert.equal(res.status, 200);
     await Promise.all(bgPromises);
     assert.equal(evalCalls, 0, "auto-eval must be skipped for batches of size < 2");
+  });
+});
+
+// =====================================================
+// Image edit flow — covers gpt-image-1 images.edit and
+// gemini-image openaiService.editImage branches when a
+// referenced image asset is attached.
+// =====================================================
+
+interface OpenAIEditCall {
+  model: string;
+  prompt: string;
+  image: unknown;
+  n?: number;
+  size?: string;
+}
+interface OpenAIGenerateCall {
+  model: string;
+  prompt: string;
+}
+function makeFakeOpenAIClient(opts: { editUrl?: string; generateUrl?: string } = {}) {
+  const editCalls: OpenAIEditCall[] = [];
+  const generateCalls: OpenAIGenerateCall[] = [];
+  // Return `url` instead of `b64_json` so the production dispatcher does not
+  // try to upload the buffer to object storage during tests.
+  const editUrl = opts.editUrl ?? "https://openai.example/edited.png";
+  const generateUrl = opts.generateUrl ?? "https://openai.example/generated.png";
+  const client = {
+    images: {
+      async edit(args: OpenAIEditCall) {
+        editCalls.push(args);
+        return { data: [{ url: editUrl }] };
+      },
+      async generate(args: OpenAIGenerateCall) {
+        generateCalls.push(args);
+        return { data: [{ url: generateUrl }] };
+      },
+    },
+  };
+  return { client: client as unknown as OpenAI, editCalls, generateCalls };
+}
+
+function makeFakeGeminiImageService() {
+  const editCalls: Array<{ prompt: string; referenceImageUrls: string[] }> = [];
+  const generateCalls: Array<{ prompt: string }> = [];
+  const svc: GeminiImageService = {
+    async editImage(input) {
+      editCalls.push(input);
+      return "https://gemini.example/edited.png";
+    },
+    async generateImage(input) {
+      generateCalls.push(input);
+      return "https://gemini.example/generated.png";
+    },
+  };
+  return { svc, editCalls, generateCalls };
+}
+
+// A 1x1 transparent PNG as a data: URL so dispatchImage's fetchAsUploadable
+// resolves synchronously without a network call.
+const SAMPLE_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
+
+describe("POST /api/boards/:id/chat — image edit flow (openai-image)", () => {
+  it("calls images.edit (not images.generate) with the fetched referenced image upload", async () => {
+    const fake = makeFakeOpenAIClient();
+    const { app, storage, bgPromises } = buildApp({
+      openaiClientFactory: () => fake.client,
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const ref = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "openai-image",
+      assetUrl: SAMPLE_DATA_URL,
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "make it look like a watercolour",
+      mode: "create",
+      provider: "openai-image",
+      referencedAssetIds: [ref!.id],
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.provider, "openai-image");
+    assert.equal(res.body.isImageEdit, true);
+    assert.match(String(res.body.batchLabel), /Edit referenced image/);
+
+    await Promise.all(bgPromises);
+    assert.equal(fake.editCalls.length, 1, "images.edit must be called exactly once");
+    assert.equal(fake.generateCalls.length, 0, "images.generate must NOT be called when refs are present");
+    const call = fake.editCalls[0];
+    assert.equal(call.model, "gpt-image-1");
+    assert.equal(call.prompt, "make it look like a watercolour");
+    // The image is forwarded as the fetched upload (a single Uploadable, not the URL string).
+    assert.notEqual(call.image, undefined);
+    assert.notEqual(typeof call.image, "string", "image must be the fetched upload, not the URL");
+  });
+
+  it("falls back to images.generate when no referenced image is attached", async () => {
+    const fake = makeFakeOpenAIClient();
+    const { app, storage, bgPromises } = buildApp({
+      openaiClientFactory: () => fake.client,
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "neon street market at dusk",
+      mode: "create",
+      provider: "openai-image",
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isImageEdit, false);
+    assert.match(String(res.body.batchLabel), /Generate \d+ image/);
+
+    await Promise.all(bgPromises);
+    assert.equal(fake.generateCalls.length, 1);
+    assert.equal(fake.editCalls.length, 0);
+    assert.equal(fake.generateCalls[0].model, "gpt-image-1");
+  });
+});
+
+describe("POST /api/boards/:id/chat — image edit flow (gemini-image)", () => {
+  it("calls openaiService.editImage with the referenced image URL when refs are attached", async () => {
+    const gem = makeFakeGeminiImageService();
+    const { app, storage, bgPromises } = buildApp({ geminiImageService: gem.svc });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const ref = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "gemini-image",
+      assetUrl: "https://example.com/source.png",
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "swap the sky for a sunset",
+      mode: "create",
+      provider: "gemini-image",
+      referencedAssetIds: [ref!.id],
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.provider, "gemini-image");
+    assert.equal(res.body.isImageEdit, true);
+    assert.match(String(res.body.batchLabel), /Edit referenced image/);
+
+    await Promise.all(bgPromises);
+    assert.equal(gem.editCalls.length, 1, "editImage must be called exactly once");
+    assert.equal(gem.generateCalls.length, 0, "generateImage must NOT be called when refs are present");
+    assert.equal(gem.editCalls[0].prompt, "swap the sky for a sunset");
+    assert.deepEqual(gem.editCalls[0].referenceImageUrls, ["https://example.com/source.png"]);
+  });
+
+  it("routes a no-ref request through openaiService.generateImage instead of editImage", async () => {
+    const gem = makeFakeGeminiImageService();
+    const { app, storage, bgPromises } = buildApp({ geminiImageService: gem.svc });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "a cinematic forest at dawn",
+      mode: "create",
+      provider: "gemini-image",
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isImageEdit, false);
+    assert.match(String(res.body.batchLabel), /Generate \d+ image/);
+
+    await Promise.all(bgPromises);
+    assert.equal(gem.generateCalls.length, 1);
+    assert.equal(gem.editCalls.length, 0);
+    assert.equal(gem.generateCalls[0].prompt, "a cinematic forest at dawn");
+  });
+
+  it("forwards every referenced image URL to editImage when multiple refs are attached", async () => {
+    const gem = makeFakeGeminiImageService();
+    const { app, storage, bgPromises } = buildApp({ geminiImageService: gem.svc });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const r1 = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "gemini-image",
+      assetUrl: "https://example.com/a.png",
+      status: "ready",
+    } as BoardAssetCreate);
+    const r2 = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "gemini-image",
+      assetUrl: "https://example.com/b.png",
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "blend these into one composition",
+      mode: "create",
+      provider: "gemini-image",
+      referencedAssetIds: [r1!.id, r2!.id],
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isImageEdit, true);
+    assert.match(String(res.body.batchLabel), /Edit referenced images/);
+
+    await Promise.all(bgPromises);
+    assert.equal(gem.editCalls.length, 1);
+    assert.deepEqual(
+      gem.editCalls[0].referenceImageUrls,
+      ["https://example.com/a.png", "https://example.com/b.png"],
+    );
   });
 });

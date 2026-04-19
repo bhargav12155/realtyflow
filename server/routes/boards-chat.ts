@@ -354,6 +354,16 @@ interface ImageDispatchResult {
   edited: boolean;
 }
 
+export interface GeminiImageService {
+  editImage(input: { prompt: string; referenceImageUrls: string[] }): Promise<string | null>;
+  generateImage(input: { prompt: string }): Promise<string | null>;
+}
+
+export interface ImageDispatchDeps {
+  openaiClientFactory?: () => OpenAI;
+  geminiImageService?: GeminiImageService;
+}
+
 async function fetchAsUploadable(url: string, fallbackName: string): Promise<Uploadable> {
   if (url.startsWith("data:")) {
     const match = url.match(/^data:([^;]+);base64,(.+)$/);
@@ -374,15 +384,17 @@ async function fetchAsUploadable(url: string, fallbackName: string): Promise<Upl
 async function dispatchImage(
   provider: ImageProvider,
   ctx: DispatchContext,
+  deps: ImageDispatchDeps = {},
 ): Promise<ImageDispatchResult> {
   const refImageUrls = ctx.refAssets
     .filter((a) => a.kind === "image" && !!a.assetUrl)
     .map((a) => a.assetUrl as string);
 
   if (provider === "gemini-image") {
-    const { openaiService } = await import("../services/openai");
+    const geminiImageService: GeminiImageService =
+      deps.geminiImageService ?? (await import("../services/openai")).openaiService;
     if (refImageUrls.length > 0) {
-      const url = await openaiService.editImage({
+      const url = await geminiImageService.editImage({
         prompt: ctx.prompt,
         referenceImageUrls: refImageUrls,
       });
@@ -395,7 +407,7 @@ async function dispatchImage(
     }
     // openaiService.generateImage is implemented on top of Gemini's
     // gemini-2.5-flash-image model and persists to object storage when available.
-    const url = await openaiService.generateImage({ prompt: ctx.prompt });
+    const url = await geminiImageService.generateImage({ prompt: ctx.prompt });
     if (!url) throw new Error("Gemini image generation returned no result");
     return {
       modelLabel: ctx.forceModel || "gemini-2.5-flash-image",
@@ -404,9 +416,13 @@ async function dispatchImage(
     };
   }
   // openai-image
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
-  const client = new OpenAI({ apiKey });
+  const client = deps.openaiClientFactory
+    ? deps.openaiClientFactory()
+    : (() => {
+        const apiKey = process.env.OPENAI_API_KEY;
+        if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+        return new OpenAI({ apiKey });
+      })();
   const model = ctx.forceModel || "gpt-image-1";
 
   if (refImageUrls.length > 0) {
@@ -789,6 +805,12 @@ export interface BoardsChatDeps {
   chatProviders?: BoardsChatProviders;
   dispatchOne?: DispatchOne;
   dispatchImage?: DispatchImage;
+  /** Test/extension hook: factory that produces an OpenAI client used by the
+   * default openai-image image dispatch. Defaults to `new OpenAI({ apiKey: env })`. */
+  openaiClientFactory?: () => OpenAI;
+  /** Test/extension hook: overrides the openaiService import used by the
+   * default gemini-image dispatch (editImage / generateImage). */
+  geminiImageService?: GeminiImageService;
   autoEvaluateBatch?: (input: {
     prompt: string;
     assets: BoardAsset[];
@@ -828,7 +850,12 @@ export function registerBoardsChatRoutes(
     openaiBrainstorm: deps.chatProviders?.openaiBrainstorm ?? tryOpenAIBrainstorm,
   };
   const dispatch = deps.dispatchOne ?? dispatchOne;
-  const dispatchImageFn = deps.dispatchImage ?? dispatchImage;
+  const imageDispatchDeps: ImageDispatchDeps = {
+    openaiClientFactory: deps.openaiClientFactory,
+    geminiImageService: deps.geminiImageService,
+  };
+  const dispatchImageFn: DispatchImage =
+    deps.dispatchImage ?? ((provider, ctx) => dispatchImage(provider, ctx, imageDispatchDeps));
   const autoEval =
     deps.autoEvaluateBatch ??
     (async (input) => {

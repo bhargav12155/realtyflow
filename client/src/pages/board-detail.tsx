@@ -372,14 +372,22 @@ export default function BoardDetailPage() {
   }
   if (boardQuery.isError || !boardQuery.data) {
     return (
-      <div className={`${themeClass}h-screen w-full bg-neutral-200/40 dark:bg-neutral-950 flex flex-col items-center justify-center gap-3`}>
-        <div className="text-[13px] text-neutral-500 dark:text-neutral-400">Board not found.</div>
+      <div
+        className={`${themeClass}h-screen w-full bg-neutral-200/40 dark:bg-neutral-950 flex flex-col items-center justify-center gap-4 px-6 text-center`}
+      >
+        <div className="text-[15px] font-medium text-neutral-800 dark:text-neutral-100">
+          We couldn't open that board.
+        </div>
+        <div className="text-[12px] text-neutral-500 dark:text-neutral-400 max-w-sm">
+          It may have been deleted or you don't have access. Head back to your dashboard and start
+          a new plan — describe what you want to create and we'll help you build it.
+        </div>
         <button
           className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-[12px] dark:bg-neutral-100 dark:text-neutral-900"
           onClick={() => setLocation("/boards")}
           data-testid="button-return-boards"
         >
-          Back to boards
+          Plan something new
         </button>
       </div>
     );

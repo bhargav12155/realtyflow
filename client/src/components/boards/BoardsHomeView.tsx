@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video } from "lucide-react";
+import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video, CalendarDays, Share2 } from "lucide-react";
 import { BoardsSidebar } from "@/components/boards/BoardsSidebar";
 import { BoardCard, NewBoardCard, type BoardSummary } from "@/components/boards/BoardCard";
 import { NotificationsBell } from "@/components/boards/NotificationsBell";
@@ -252,28 +252,63 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
               </button>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              onRequestClose?.();
-              setLocation("/dashboard#photo-avatars");
-            }}
-            data-overlay-keep
-            data-testid="link-heygen-photo-avatars"
-            className="mt-4 flex flex-col items-center gap-1 group focus:outline-none"
-            title="Open Photo Avatars (HeyGen)"
-          >
-            <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
-              <img
-                src={heygenLogo}
-                alt="Open Photo Avatars (HeyGen)"
-                className="w-7 h-7 object-contain"
-              />
-            </span>
-            <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
-              Photo Avatars
-            </span>
-          </button>
+          <div className="mt-4 flex items-start justify-center gap-6" data-overlay-keep>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestClose?.();
+                setLocation("/dashboard#photo-avatars");
+              }}
+              data-testid="link-heygen-photo-avatars"
+              className="flex flex-col items-center gap-1 group focus:outline-none"
+              title="Open Photo Avatars (HeyGen)"
+            >
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
+                <img
+                  src={heygenLogo}
+                  alt="Open Photo Avatars (HeyGen)"
+                  className="w-7 h-7 object-contain"
+                />
+              </span>
+              <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+                Photo Avatars
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestClose?.();
+                setLocation("/calendar");
+              }}
+              data-testid="link-content-calendar"
+              className="flex flex-col items-center gap-1 group focus:outline-none"
+              title="Open Content Calendar"
+            >
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
+                <CalendarDays className="w-5 h-5 text-neutral-700 dark:text-neutral-200" />
+              </span>
+              <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+                Content Calendar
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestClose?.();
+                setLocation("/dashboard#social");
+              }}
+              data-testid="link-quick-posts"
+              className="flex flex-col items-center gap-1 group focus:outline-none"
+              title="Open Quick Posts"
+            >
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
+                <Share2 className="w-5 h-5 text-neutral-700 dark:text-neutral-200" />
+              </span>
+              <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+                Quick Posts
+              </span>
+            </button>
+          </div>
         </section>
 
         <div className="flex items-center justify-between px-6 mb-4" data-overlay-keep>

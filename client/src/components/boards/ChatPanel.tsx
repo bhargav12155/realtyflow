@@ -99,11 +99,12 @@ export function ChatPanel({
   const handleBuildThis = (suggested: string) => {
     onModeChange("create");
     setInput(suggested);
-    // Focus input on next tick so the mode-switch render has flushed.
+    // Focus the input on the next tick so the mode-switch render has flushed.
+    // We intentionally do not auto-open the platform picker — the user can
+    // tap it if they want to change provider; otherwise the existing default
+    // provider is used and they can hit send immediately.
     setTimeout(() => {
       inputRef.current?.focus();
-      // Open the platform picker so the user can pick a provider before sending.
-      setPickerOpen(true);
     }, 0);
   };
 

@@ -232,7 +232,7 @@ export default function BoardDetailPage() {
             aria-label={theme === "dark" ? "Switch Boards to light mode" : "Switch Boards to dark mode"}
             title={theme === "dark" ? "Light mode" : "Dark mode"}
             className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
-            data-testid="button-toggle-boards-theme-detail"
+            data-testid="button-toggle-boards-theme"
           >
             {theme === "dark" ? (
               <Sun className="w-4 h-4 text-neutral-300" />

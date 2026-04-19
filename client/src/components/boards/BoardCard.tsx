@@ -18,6 +18,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+export interface BoardCollaborator {
+  userId: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface BoardOwner {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
 export interface BoardSummary {
   id: string;
   title: string;
@@ -27,6 +39,10 @@ export interface BoardSummary {
   updatedAt?: string | Date | null;
   assetCount?: number;
   thumbnails?: { id: string; thumbnailUrl: string | null; kind: string }[];
+  /** Users this board is shared with (only set on boards the current user owns). */
+  collaborators?: BoardCollaborator[];
+  /** The owner of this board (only set on boards shared with the current user). */
+  owner?: BoardOwner | null;
 }
 
 const TINTS = [
@@ -41,10 +57,38 @@ const TINTS = [
   "from-emerald-200 to-emerald-50",
 ];
 
+const AVATAR_TINTS = [
+  "bg-emerald-200 text-emerald-900",
+  "bg-amber-200 text-amber-900",
+  "bg-rose-200 text-rose-900",
+  "bg-sky-200 text-sky-900",
+  "bg-violet-200 text-violet-900",
+  "bg-orange-200 text-orange-900",
+  "bg-teal-200 text-teal-900",
+  "bg-pink-200 text-pink-900",
+];
+
 function pickTint(seed: string) {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   return TINTS[hash % TINTS.length];
+}
+
+function pickAvatarTint(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_TINTS[hash % AVATAR_TINTS.length];
+}
+
+function displayName(person: { name: string | null; email: string | null }): string {
+  return (person.name && person.name.trim()) || (person.email && person.email.trim()) || "Unknown";
+}
+
+function initials(label: string): string {
+  const parts = label.trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function relativeTime(value: string | Date | null | undefined): string {
@@ -78,6 +122,90 @@ function ThumbCollage({ thumbs }: { thumbs: { id: string; thumbnailUrl: string |
   );
 }
 
+function Avatar({
+  seed,
+  label,
+  testId,
+}: {
+  seed: string;
+  label: string;
+  testId?: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-semibold ring-2 ring-white dark:ring-neutral-900 ${pickAvatarTint(seed)}`}
+      data-testid={testId}
+    >
+      {initials(label)}
+    </span>
+  );
+}
+
+function CollaboratorStack({
+  boardId,
+  collaborators,
+}: {
+  boardId: string;
+  collaborators: BoardCollaborator[];
+}) {
+  if (collaborators.length === 0) return null;
+  const visible = collaborators.slice(0, 3);
+  const overflow = collaborators.length - visible.length;
+  const fullList = collaborators.map((c) => displayName(c)).join(", ");
+  const tooltip = `Shared with ${collaborators.length} ${collaborators.length === 1 ? "person" : "people"}: ${fullList}`;
+  return (
+    <div
+      className="mt-3 flex items-center gap-2"
+      title={tooltip}
+      data-testid={`collaborators-${boardId}`}
+    >
+      <div className="flex -space-x-1.5">
+        {visible.map((c) => (
+          <Avatar
+            key={c.userId}
+            seed={c.userId}
+            label={displayName(c)}
+            testId={`avatar-collaborator-${boardId}-${c.userId}`}
+          />
+        ))}
+        {overflow > 0 && (
+          <span
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-semibold bg-neutral-200 text-neutral-700 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-200 dark:ring-neutral-900"
+            data-testid={`avatar-overflow-${boardId}`}
+          >
+            +{overflow}
+          </span>
+        )}
+      </div>
+      <span
+        className="text-[10px] text-neutral-600 dark:text-neutral-400"
+        data-testid={`text-shared-count-${boardId}`}
+      >
+        Shared with {collaborators.length} {collaborators.length === 1 ? "person" : "people"}
+      </span>
+    </div>
+  );
+}
+
+function OwnerBadge({ boardId, owner }: { boardId: string; owner: BoardOwner }) {
+  const label = displayName(owner);
+  return (
+    <div
+      className="mt-3 flex items-center gap-2"
+      title={`Shared by ${label}`}
+      data-testid={`owner-${boardId}`}
+    >
+      <Avatar seed={owner.id} label={label} testId={`avatar-owner-${boardId}`} />
+      <span
+        className="text-[10px] text-neutral-600 truncate dark:text-neutral-400"
+        data-testid={`text-owner-${boardId}`}
+      >
+        Shared by {label}
+      </span>
+    </div>
+  );
+}
+
 export interface BoardCardProps {
   board: BoardSummary;
   /** When provided and the current user is not the owner, a kebab menu with a Leave action is rendered. */
@@ -89,6 +217,8 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
   const tint = pickTint(board.id);
   const [first, ...rest] = (board.title || "Untitled board").split(" ");
   const highlight = rest.join(" ");
+  const isOwner = board.isOwner ?? true;
+  const collaborators = board.collaborators ?? [];
   const showLeave = onLeave && board.isOwner === false;
   const [confirmOpen, setConfirmOpen] = useState(false);
   return (
@@ -103,6 +233,11 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
           </div>
           <div className="text-[10px] text-neutral-500 mb-3 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
           <ThumbCollage thumbs={board.thumbnails ?? []} />
+          {isOwner ? (
+            <CollaboratorStack boardId={board.id} collaborators={collaborators} />
+          ) : board.owner ? (
+            <OwnerBadge boardId={board.id} owner={board.owner} />
+          ) : null}
         </a>
       </Link>
       {showLeave && (

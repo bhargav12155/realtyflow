@@ -147,10 +147,38 @@ export function registerBoardsRoutes(
               thumbnailUrl: a.thumbnailUrl || a.assetUrl,
               kind: a.kind,
             }));
+
+          // Collaborator summary so the board card can render an avatar
+          // stack without an extra round trip. Owners see who they've shared
+          // with; recipients see who owns the board.
+          let collaborators: { userId: string; name: string | null; email: string | null }[] = [];
+          let owner: { id: string; name: string | null; email: string | null } | null = null;
+          if (board.isOwner) {
+            const shares = await storage.getBoardShares(board.id, userId);
+            collaborators = shares.map((s) => ({
+              userId: s.userId,
+              name: s.name,
+              email: s.email,
+            }));
+          } else {
+            const ownerUser = await storage.getUser(board.userId);
+            if (ownerUser) {
+              owner = {
+                id: ownerUser.id,
+                name: ownerUser.name ?? null,
+                email: ownerUser.email ?? null,
+              };
+            } else {
+              owner = { id: board.userId, name: null, email: null };
+            }
+          }
+
           return {
             ...board,
             assetCount: assets.length,
             thumbnails,
+            collaborators,
+            owner,
           };
         })
       );

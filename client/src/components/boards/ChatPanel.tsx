@@ -33,6 +33,8 @@ interface ChatPanelProps {
   hasReferencedImage?: boolean;
   onSend: (text: string) => void;
   isSending?: boolean;
+  pendingInput?: string | null;
+  onPendingInputApplied?: () => void;
 }
 
 /**
@@ -75,12 +77,28 @@ export function ChatPanel({
   hasReferencedImage,
   onSend,
   isSending,
+  pendingInput,
+  onPendingInputApplied,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
   const isPlan = mode === "brainstorm";
+
+  // Apply a parent-provided pre-fill (e.g. the typed idea from the Boards
+  // home in Plan mode) once, then clear it so we don't clobber the user's
+  // own edits on subsequent renders.
+  useEffect(() => {
+    if (pendingInput && pendingInput.length > 0) {
+      setInput(pendingInput);
+      onPendingInputApplied?.();
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingInput]);
 
   // Whenever the panel enters Plan mode, force the platform picker closed —
   // it's not rendered in Plan mode, and leaving open=true would cause it to

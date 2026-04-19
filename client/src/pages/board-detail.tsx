@@ -67,6 +67,7 @@ export default function BoardDetailPage() {
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
   const [seedanceOptions, setSeedanceOptions] = useState<SeedanceOptions>(DEFAULT_SEEDANCE_OPTIONS);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pendingInput, setPendingInput] = useState<string | null>(null);
 
   const boardQuery = useQuery<BoardResponse>({
     queryKey: ["/api/boards", boardId],
@@ -310,7 +311,28 @@ export default function BoardDetailPage() {
       image: "Image",
       video: "Video",
     };
-    if (seedParams.seed) {
+    if (seedParams.chatMode === "plan") {
+      // Plan mode: don't stuff the typed idea into a fake assistant message.
+      // Pre-fill the input so the user can keep typing, and open with one
+      // focused planning question to get the conversation going.
+      if (seedParams.seed) {
+        setPendingInput(seedParams.seed);
+      }
+      const intentLabel = seedParams.intent
+        ? intentLabels[seedParams.intent] ?? seedParams.intent
+        : null;
+      const planningQuestion = intentLabel
+        ? `Let's plan your ${intentLabel.toLowerCase()}. Who's the audience, which channel will it run on, and what tone are you going for?`
+        : `Let's plan this out. Who's the audience, which channel will it run on, and what tone are you going for?`;
+      setMessages((m) => [
+        ...m,
+        {
+          id: `plan-open-${boardId}`,
+          role: "assistant",
+          content: planningQuestion,
+        },
+      ]);
+    } else if (seedParams.seed) {
       const sourceLabel = seedParams.intent
         ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
         : `template "${seedParams.template ?? "discover"}"`;
@@ -491,6 +513,8 @@ export default function BoardDetailPage() {
             hasReferencedImage={hasReferencedImage}
             onSend={(text) => sendChat.mutate(text)}
             isSending={sendChat.isPending}
+            pendingInput={pendingInput}
+            onPendingInputApplied={() => setPendingInput(null)}
           />
         )}
       </div>

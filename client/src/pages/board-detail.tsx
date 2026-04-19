@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
-import { BoardCanvas, type CanvasBatch } from "@/components/boards/BoardCanvas";
+import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/boards/BoardCanvas";
 import { ChatPanel, type ChatMessage, type ChatMode } from "@/components/boards/ChatPanel";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
 import {
@@ -221,6 +221,55 @@ export default function BoardDetailPage() {
     },
   });
 
+  const setWinner = useMutation({
+    mutationFn: async ({ batchId, assetId }: { batchId: string; assetId: string }) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/boards/${boardId}/batches/${batchId}/winner`,
+        { winnerAssetId: assetId },
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Winner updated", description: "Your pick is now the winning variation." });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't override winner", description: errText, variant: "destructive" });
+    },
+  });
+
+  const reEvaluateBatch = useMutation({
+    mutationFn: async ({
+      batchId,
+      modelHint,
+      extraCriteria,
+    }: {
+      batchId: string;
+      modelHint: ReEvalModel;
+      extraCriteria?: string;
+    }) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/boards/${boardId}/batches/${batchId}/re-evaluate`,
+        { modelHint, extraCriteria },
+      );
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Batch re-evaluated",
+        description: `New winner picked using ${data?.modelUsed ?? "model"}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Re-evaluation failed", description: errText, variant: "destructive" });
+    },
+  });
+
   const clearRejection = useMutation({
     mutationFn: async (assetId: string) => {
       const res = await apiRequest("PATCH", `/api/boards/${boardId}/assets/${assetId}`, {
@@ -377,6 +426,16 @@ export default function BoardDetailPage() {
             onSelectAsset={setSelectedAssetId}
             onDeleteAsset={(id) => deleteAsset.mutate(id)}
             onClearRejection={(id) => clearRejection.mutate(id)}
+            onSetWinner={(batchId, assetId) => setWinner.mutate({ batchId, assetId })}
+            onReEvaluate={(batchId, payload) =>
+              reEvaluateBatch.mutate({ batchId, ...payload })
+            }
+            reEvalPendingBatchId={
+              reEvaluateBatch.isPending ? reEvaluateBatch.variables?.batchId ?? null : null
+            }
+            setWinnerPendingAssetId={
+              setWinner.isPending ? setWinner.variables?.assetId ?? null : null
+            }
           />
           {selectedAsset && (
             <AssetToolbar

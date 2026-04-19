@@ -105,6 +105,7 @@ function AssetTile({
   onClearRejection: () => void;
 }) {
   const flagged = asset.status === "rejected";
+  const generating = asset.status === "queued" || asset.status === "generating";
   const src = asset.thumbnailUrl || asset.assetUrl;
   return (
     <div
@@ -121,7 +122,15 @@ function AssetTile({
         <img src={src} alt="" className="w-full h-full object-cover" />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">
-          {asset.status === "queued" || asset.status === "generating" ? "generating…" : "no preview"}
+          {generating ? "generating…" : "no preview"}
+        </div>
+      )}
+      {generating && (
+        <div
+          className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-300/60 dark:bg-neutral-700/60 overflow-hidden"
+          data-testid={`progress-${asset.id}`}
+        >
+          <div className="h-full w-1/3 bg-blue-500 rounded-r-full animate-progress-slide" />
         </div>
       )}
       {asset.durationSeconds != null && (

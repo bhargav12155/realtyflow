@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
-import type { BoardAsset } from "@shared/schema";
+import type { BoardAsset, BoardAssetEvalHistoryEntry } from "@shared/schema";
 import type { BoardAssetCreate } from "../storage";
 import OpenAI from "openai";
 import { anthropicService } from "../services/anthropic";
@@ -19,7 +19,7 @@ import {
   type SeedanceAspectRatio,
   type SeedanceDuration,
 } from "../services/seedance";
-import { autoEvaluateBatch } from "../services/boardAutoEval";
+import { autoEvaluateBatch, type AutoEvalModelHint } from "../services/boardAutoEval";
 import { openaiService } from "../services/openai";
 import { persistImageBuffer } from "../objectStorage";
 import { realtimeService } from "../websocket";
@@ -424,25 +424,178 @@ async function runBatchInBackground(args: {
   );
 
   try {
-    const all = await storage.getBoardAssetsForUser(boardId, userId);
-    const batchAssets = all.filter((a) => a.batchId === batchId);
-    const ready = batchAssets.filter((a) => a.status === "ready");
-    if (ready.length >= 2) {
-      const evalResult = await autoEvaluateBatch({ prompt, assets: ready });
-      console.log(`[boards-chat] auto-eval winner=${evalResult.winnerAssetId} model=${evalResult.modelUsed}`);
-      await Promise.all(
-        evalResult.rejected.map(async (r) => {
-          const rejected = await storage.updateBoardAssetForUser(boardId, r.assetId, userId, {
-            status: "rejected",
-            rejectionReason: r.reason,
-          });
-          if (rejected) pushAssetStatus(userId, boardId, rejected, { autoEval: true });
-        }),
-      );
-    }
+    await runAutoEvalAndApply({ storage, boardId, userId, batchId, prompt });
   } catch (err) {
     console.error("[boards-chat] auto-eval pass failed:", err instanceof Error ? err.message : err);
   }
+}
+
+function appendEvalHistory(
+  asset: BoardAsset,
+  entry: BoardAssetEvalHistoryEntry,
+): BoardAssetEvalHistoryEntry[] {
+  const prev = Array.isArray(asset.evalHistory) ? asset.evalHistory : [];
+  return [...prev, entry];
+}
+
+async function runAutoEvalAndApply(args: {
+  storage: IStorage;
+  boardId: string;
+  userId: string;
+  batchId: string;
+  prompt: string;
+  modelHint?: AutoEvalModelHint;
+  extraCriteria?: string;
+  source?: "auto" | "manual";
+}): Promise<{
+  applied: boolean;
+  winnerAssetId?: string;
+  modelUsed?: string;
+  rejected?: Array<{ assetId: string; reason: string }>;
+  reason?: string;
+}> {
+  const { storage, boardId, userId, batchId, prompt, modelHint, extraCriteria } = args;
+  const source = args.source ?? "auto";
+  const all = await storage.getBoardAssetsForUser(boardId, userId);
+  const batchAssets = all.filter((a) => a.batchId === batchId);
+  // Re-evals consider any asset that ever produced output (ready or previously-rejected
+  // by a prior eval pass), so the user can have the model reconsider losers.
+  const candidates = batchAssets.filter(
+    (a) => (a.status === "ready" || a.status === "rejected") && !!a.assetUrl,
+  );
+  if (candidates.length < 2) {
+    return { applied: false, reason: "Need at least 2 ready/rejected assets to evaluate" };
+  }
+  const evalResult = await autoEvaluateBatch({
+    prompt,
+    assets: candidates,
+    modelHint,
+    extraCriteria,
+  });
+  console.log(
+    `[boards-chat] ${source}-eval winner=${evalResult.winnerAssetId} model=${evalResult.modelUsed}`,
+  );
+  const at = new Date().toISOString();
+  const winner = candidates.find((a) => a.id === evalResult.winnerAssetId);
+  if (winner) {
+    const updated = await storage.updateBoardAssetForUser(boardId, winner.id, userId, {
+      status: "ready",
+      rejectionReason: null,
+      evalHistory: appendEvalHistory(winner, {
+        at,
+        source,
+        outcome: "winner",
+        modelUsed: evalResult.modelUsed,
+        modelHint,
+        extraCriteria,
+        prevStatus: winner.status,
+      }),
+    });
+    if (updated) pushAssetStatus(userId, boardId, updated, { autoEval: true });
+  }
+  await Promise.all(
+    evalResult.rejected.map(async (r) => {
+      const a = candidates.find((c) => c.id === r.assetId);
+      if (!a) return;
+      const updated = await storage.updateBoardAssetForUser(boardId, r.assetId, userId, {
+        status: "rejected",
+        rejectionReason: r.reason,
+        evalHistory: appendEvalHistory(a, {
+          at,
+          source,
+          outcome: "rejected",
+          reason: r.reason,
+          modelUsed: evalResult.modelUsed,
+          modelHint,
+          extraCriteria,
+          prevStatus: a.status,
+        }),
+      });
+      if (updated) pushAssetStatus(userId, boardId, updated, { autoEval: true });
+    }),
+  );
+  return {
+    applied: true,
+    winnerAssetId: evalResult.winnerAssetId,
+    modelUsed: evalResult.modelUsed,
+    rejected: evalResult.rejected,
+  };
+}
+
+async function applyManualWinnerOverride(args: {
+  storage: IStorage;
+  boardId: string;
+  userId: string;
+  batchId: string;
+  newWinnerAssetId: string;
+  reasonForPriorWinner?: string;
+  actorUserId: string;
+}): Promise<{
+  applied: boolean;
+  winner?: BoardAsset;
+  demoted?: BoardAsset[];
+  reason?: string;
+}> {
+  const {
+    storage,
+    boardId,
+    userId,
+    batchId,
+    newWinnerAssetId,
+    reasonForPriorWinner,
+    actorUserId,
+  } = args;
+  const all = await storage.getBoardAssetsForUser(boardId, userId);
+  const batchAssets = all.filter((a) => a.batchId === batchId);
+  if (batchAssets.length === 0) {
+    return { applied: false, reason: "Batch not found" };
+  }
+  const target = batchAssets.find((a) => a.id === newWinnerAssetId);
+  if (!target) {
+    return { applied: false, reason: "Asset is not part of this batch" };
+  }
+  if (!target.assetUrl) {
+    return { applied: false, reason: "Asset has no output to promote" };
+  }
+  const at = new Date().toISOString();
+  const priorWinners = batchAssets.filter(
+    (a) => a.id !== target.id && a.status === "ready" && !!a.assetUrl,
+  );
+  const demoteReason =
+    reasonForPriorWinner?.trim() ||
+    `Demoted by user override in favour of ${target.id}`;
+  const demoted: BoardAsset[] = [];
+  for (const p of priorWinners) {
+    const updated = await storage.updateBoardAssetForUser(boardId, p.id, userId, {
+      status: "rejected",
+      rejectionReason: demoteReason,
+      evalHistory: appendEvalHistory(p, {
+        at,
+        source: "manual",
+        outcome: "demoted",
+        reason: demoteReason,
+        actorUserId,
+        prevStatus: p.status,
+      }),
+    });
+    if (updated) {
+      demoted.push(updated);
+      pushAssetStatus(userId, boardId, updated);
+    }
+  }
+  const promoted = await storage.updateBoardAssetForUser(boardId, target.id, userId, {
+    status: "ready",
+    rejectionReason: null,
+    evalHistory: appendEvalHistory(target, {
+      at,
+      source: "manual",
+      outcome: "promoted",
+      actorUserId,
+      prevStatus: target.status,
+    }),
+  });
+  if (promoted) pushAssetStatus(userId, boardId, promoted);
+  return { applied: true, winner: promoted ?? target, demoted };
 }
 
 async function tryOpenAIBrainstorm(
@@ -616,4 +769,108 @@ export function registerBoardsChatRoutes(
       res.status(500).json({ error: message });
     }
   });
+
+  // ---- Manual winner override ----
+  const overrideWinnerSchema = z.object({
+    winnerAssetId: z.string().min(1),
+    reasonForPriorWinner: z.string().max(280).optional(),
+  });
+  app.post(
+    "/api/boards/:id/batches/:batchId/winner",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = String(req.user!.id);
+        const boardId = req.params.id;
+        const batchId = req.params.batchId;
+        const body = overrideWinnerSchema.parse(req.body ?? {});
+
+        const board = await storage.getBoardByIdForUser(boardId, userId);
+        if (!board) return res.status(404).json({ error: "Board not found" });
+
+        const result = await applyManualWinnerOverride({
+          storage,
+          boardId,
+          userId,
+          batchId,
+          newWinnerAssetId: body.winnerAssetId,
+          reasonForPriorWinner: body.reasonForPriorWinner,
+          actorUserId: userId,
+        });
+        if (!result.applied) {
+          return res.status(400).json({ error: result.reason || "Override failed" });
+        }
+        return res.json({
+          success: true,
+          batchId,
+          winner: result.winner,
+          demoted: result.demoted ?? [],
+        });
+      } catch (error: unknown) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid body", issues: error.issues });
+        }
+        console.error("[boards-chat] override-winner error:", error);
+        const message = error instanceof Error ? error.message : "Override failed";
+        return res.status(500).json({ error: message });
+      }
+    },
+  );
+
+  // ---- Re-trigger auto-eval for a batch ----
+  const reEvalSchema = z.object({
+    modelHint: z.enum(["openai", "gemini", "heuristic"]).optional(),
+    extraCriteria: z.string().max(600).optional(),
+    prompt: z.string().max(4000).optional(),
+  });
+  app.post(
+    "/api/boards/:id/batches/:batchId/re-evaluate",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = String(req.user!.id);
+        const boardId = req.params.id;
+        const batchId = req.params.batchId;
+        const body = reEvalSchema.parse(req.body ?? {});
+
+        const board = await storage.getBoardByIdForUser(boardId, userId);
+        if (!board) return res.status(404).json({ error: "Board not found" });
+
+        // Use the explicit prompt override when provided; otherwise fall back to
+        // the batch label so the evaluator still has context.
+        const all = await storage.getBoardAssetsForUser(boardId, userId);
+        const sample = all.find((a) => a.batchId === batchId);
+        if (!sample) return res.status(404).json({ error: "Batch not found" });
+        const prompt = body.prompt || sample.batchLabel || "Re-evaluate batch variations";
+
+        const result = await runAutoEvalAndApply({
+          storage,
+          boardId,
+          userId,
+          batchId,
+          prompt,
+          modelHint: body.modelHint,
+          extraCriteria: body.extraCriteria,
+          source: "manual",
+        });
+        if (!result.applied) {
+          return res.status(400).json({ error: result.reason || "Re-evaluation skipped" });
+        }
+        return res.json({
+          success: true,
+          batchId,
+          winnerAssetId: result.winnerAssetId,
+          modelUsed: result.modelUsed,
+          rejected: result.rejected ?? [],
+        });
+      } catch (error: unknown) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid body", issues: error.issues });
+        }
+        console.error("[boards-chat] re-evaluate error:", error);
+        const message = error instanceof Error ? error.message : "Re-evaluation failed";
+        return res.status(500).json({ error: message });
+      }
+    },
+  );
 }

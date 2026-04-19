@@ -1841,11 +1841,24 @@ export const boardAssets = pgTable("board_assets", {
   height: real("height").notNull().default(180),
   status: varchar("status", { length: 16 }).notNull().default("queued"), // queued | generating | ready | failed | rejected
   rejectionReason: text("rejection_reason"),
+  evalHistory: jsonb("eval_history").$type<BoardAssetEvalHistoryEntry[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("IDX_board_assets_board").on(table.boardId),
   index("IDX_board_assets_batch").on(table.batchId),
 ]);
+
+export type BoardAssetEvalHistoryEntry = {
+  at: string; // ISO timestamp
+  source: "auto" | "manual";
+  outcome: "winner" | "rejected" | "promoted" | "demoted";
+  reason?: string;
+  modelUsed?: string;
+  modelHint?: string;
+  extraCriteria?: string;
+  actorUserId?: string;
+  prevStatus?: string;
+};
 
 export const insertBoardAssetSchema = createInsertSchema(boardAssets).omit({
   id: true,

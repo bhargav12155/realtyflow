@@ -481,7 +481,7 @@ export type BoardShareRecipient = {
   email: string | null;
   sharedAt: Date | null;
 };
-export type BoardAssetCreate = Omit<InsertBoardAsset, "boardId">;
+export type BoardAssetCreate = Omit<InsertBoardAsset, "boardId" | "evalHistory">;
 export type BoardAssetUpdate = Partial<Pick<
   BoardAsset,
   | "positionX"
@@ -495,6 +495,7 @@ export type BoardAssetUpdate = Partial<Pick<
   | "durationSeconds"
   | "modelLabel"
   | "batchLabel"
+  | "evalHistory"
 >>;
 
 export class MemStorage implements IStorage {

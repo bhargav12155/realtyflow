@@ -3,9 +3,15 @@ import { GoogleGenAI } from "@google/genai";
 import type { BoardAsset } from "@shared/schema";
 import { assertSafePublicUrl, safePublicFetch } from "../utils/safeFetch";
 
+export type AutoEvalModelHint = "openai" | "gemini" | "heuristic";
+
 export interface AutoEvalInput {
   prompt: string;
   assets: BoardAsset[];
+  /** Force a specific evaluator model first; falls back if it fails. */
+  modelHint?: AutoEvalModelHint;
+  /** Extra free-form criteria appended to the system prompt (e.g. "prefer face visible"). */
+  extraCriteria?: string;
 }
 
 export interface AutoEvalResult {
@@ -79,6 +85,12 @@ function pickPreviewUrl(a: BoardAsset): string | null {
   return a.thumbnailUrl || a.assetUrl || null;
 }
 
+function buildSystemPrompt(extraCriteria?: string): string {
+  const trimmed = extraCriteria?.trim();
+  if (!trimmed) return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}\n\nExtra criteria from the user (weigh heavily): ${trimmed.slice(0, 600)}`;
+}
+
 async function tryOpenAiVisionEval(input: AutoEvalInput): Promise<AutoEvalResult | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
@@ -121,7 +133,7 @@ async function tryOpenAiVisionEval(input: AutoEvalInput): Promise<AutoEvalResult
       response_format: { type: "json_object" },
       max_tokens: 800,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: buildSystemPrompt(input.extraCriteria) },
         { role: "user", content: userContent },
       ],
     });
@@ -181,7 +193,7 @@ async function tryGeminiVisionEval(input: AutoEvalInput): Promise<AutoEvalResult
       model: "gemini-2.5-flash",
       contents: [{ role: "user", parts }],
       config: {
-        systemInstruction: SYSTEM_PROMPT,
+        systemInstruction: buildSystemPrompt(input.extraCriteria),
         responseMimeType: "application/json",
         maxOutputTokens: 800,
       },
@@ -212,12 +224,19 @@ export async function autoEvaluateBatch(input: AutoEvalInput): Promise<AutoEvalR
   if (input.assets.length < 2) {
     throw new Error("autoEvaluateBatch requires at least 2 assets");
   }
-  // Primary: GPT-4o vision (per task contract).
-  const primary = await tryOpenAiVisionEval(input);
-  if (primary) return primary;
-  // Fallback: Gemini vision.
-  const secondary = await tryGeminiVisionEval(input);
-  if (secondary) return secondary;
+  const order: AutoEvalModelHint[] =
+    input.modelHint === "gemini"
+      ? ["gemini", "openai"]
+      : input.modelHint === "heuristic"
+        ? []
+        : ["openai", "gemini"];
+  for (const m of order) {
+    const result =
+      m === "openai"
+        ? await tryOpenAiVisionEval(input)
+        : await tryGeminiVisionEval(input);
+    if (result) return result;
+  }
   // Last resort: deterministic heuristic so the batch still resolves.
   console.warn("[boardAutoEval] Falling back to heuristic evaluation");
   return heuristicFallback(input);

@@ -450,6 +450,9 @@ export interface IStorage {
   updateBusinessLocation(id: string, updates: Partial<BusinessLocation>): Promise<BusinessLocation | undefined>;
   deleteBusinessLocation(id: string): Promise<boolean>;
 
+  // Bulk user lookup (used for batch enrichment, e.g. owner avatars on boards list).
+  getUsersByIds(ids: string[]): Promise<User[]>;
+
   // Boards
   getBoardsByUserId(userId: string): Promise<Board[]>;
   /** Returns boards the user owns AND boards shared with them, with `isOwner` flag. */
@@ -464,6 +467,12 @@ export interface IStorage {
 
   // Board Shares (owner manages who can access the board)
   getBoardShares(boardId: string, ownerUserId: string): Promise<BoardShareRecipient[]>;
+  /**
+   * Bulk variant of getBoardShares. Returns shares for many boards in a single
+   * query, keyed by boardId. Caller is responsible for authorization (only
+   * pass board IDs the requesting user is allowed to read shares for).
+   */
+  getBoardSharesForBoards(boardIds: string[]): Promise<Map<string, BoardShareRecipient[]>>;
   shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined>;
   unshareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<boolean>;
   /** Recipient-initiated removal: lets a shared user drop themselves from a board's share list. */
@@ -671,6 +680,31 @@ export class MemStorage implements IStorage {
 
     console.log(`[STORAGE] getUser(${id}) - Not found`);
     return undefined;
+  }
+
+  async getUsersByIds(ids: string[]): Promise<User[]> {
+    if (!ids.length) return [];
+    const unique = Array.from(new Set(ids));
+    const found: User[] = [];
+    const missing: string[] = [];
+    for (const id of unique) {
+      const memUser = this.users.get(id);
+      if (memUser) found.push(memUser);
+      else missing.push(id);
+    }
+    if (missing.length) {
+      try {
+        const { db } = await import("./db");
+        const rows = await db
+          .select()
+          .from(usersTable)
+          .where(inArray(usersTable.id, missing));
+        for (const row of rows) found.push(row as User);
+      } catch (error) {
+        console.error(`[STORAGE] getUsersByIds - Database error:`, error);
+      }
+    }
+    return found;
   }
 
   async getPublicUserById(id: number): Promise<{ id: number; email: string; role?: string | null } | undefined> {
@@ -2964,6 +2998,36 @@ export class MemStorage implements IStorage {
       email: r.userEmail ?? null,
       sharedAt: r.sharedAt ?? null,
     }));
+  }
+
+  async getBoardSharesForBoards(boardIds: string[]): Promise<Map<string, BoardShareRecipient[]>> {
+    const result = new Map<string, BoardShareRecipient[]>();
+    if (!boardIds.length) return result;
+    const unique = Array.from(new Set(boardIds));
+    for (const id of unique) result.set(id, []);
+    const rows = await db
+      .select({
+        boardId: boardSharesTable.boardId,
+        userId: boardSharesTable.sharedWithUserId,
+        sharedAt: boardSharesTable.createdAt,
+        userName: usersTable.name,
+        userEmail: usersTable.email,
+      })
+      .from(boardSharesTable)
+      .leftJoin(usersTable, eq(usersTable.id, boardSharesTable.sharedWithUserId))
+      .where(inArray(boardSharesTable.boardId, unique))
+      .orderBy(desc(boardSharesTable.createdAt));
+    for (const r of rows) {
+      const list = result.get(r.boardId) ?? [];
+      list.push({
+        userId: r.userId,
+        name: r.userName ?? null,
+        email: r.userEmail ?? null,
+        sharedAt: r.sharedAt ?? null,
+      });
+      result.set(r.boardId, list);
+    }
+    return result;
   }
 
   async shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined> {

@@ -165,6 +165,26 @@ class FakeBoardsStorage {
   async getUser(id: string): Promise<User | undefined> {
     return this.users.find((u) => u.id === id);
   }
+  async getUsersByIds(ids: string[]): Promise<User[]> {
+    if (!ids.length) return [];
+    const set = new Set(ids);
+    return this.users.filter((u) => set.has(u.id));
+  }
+  async getBoardSharesForBoards(boardIds: string[]): Promise<Map<string, BoardShareRecipient[]>> {
+    const result = new Map<string, BoardShareRecipient[]>();
+    for (const id of boardIds) result.set(id, []);
+    for (const s of this.shares.values()) {
+      if (!result.has(s.boardId)) continue;
+      const u = this.users.find((x) => x.id === s.sharedWithUserId);
+      result.get(s.boardId)!.push({
+        userId: s.sharedWithUserId,
+        name: u?.name ?? null,
+        email: u?.email ?? null,
+        sharedAt: s.createdAt ?? null,
+      });
+    }
+    return result;
+  }
   async createBoard(board: InsertBoard): Promise<Board> {
     const now = new Date();
     const created: Board = {
@@ -534,6 +554,65 @@ describe("/api/boards sharing", () => {
     await callJson(app, "POST", `/api/notifications/read-all`);
     const afterAll = (await callJson(app, "GET", "/api/notifications")).body as Array<{ isRead: boolean }>;
     assert.equal(afterAll.filter((n) => !n.isRead).length, 0);
+  });
+
+  it("GET /api/boards uses bulk lookups instead of per-board getUser/getBoardShares", async () => {
+    const { app, storage } = buildApp("owner-1");
+    // Seed a few owned boards…
+    for (let i = 0; i < 4; i++) {
+      await callJson(app, "POST", "/api/boards", { title: `Owned ${i}` });
+    }
+    // …and a few shared-in boards from another owner.
+    storage.users.push({
+      id: "other-owner",
+      username: "oth",
+      password: "x",
+      name: "Other Owner",
+      email: "oth@example.com",
+      role: "agent",
+      isDemo: false,
+      createdAt: new Date(),
+    });
+    for (let i = 0; i < 3; i++) {
+      const b = await storage.createBoard({ userId: "other-owner", title: `Foreign ${i}`, isShared: false });
+      await storage.shareBoard(b.id, "other-owner", "owner-1");
+    }
+
+    let perBoardShareCalls = 0;
+    let perUserCalls = 0;
+    let bulkShareCalls = 0;
+    let bulkUserCalls = 0;
+    const origGetBoardShares = storage.getBoardShares.bind(storage);
+    const origGetUser = storage.getUser.bind(storage);
+    const origBulkShares = storage.getBoardSharesForBoards.bind(storage);
+    const origBulkUsers = storage.getUsersByIds.bind(storage);
+    storage.getBoardShares = (...args: Parameters<typeof origGetBoardShares>) => {
+      perBoardShareCalls += 1;
+      return origGetBoardShares(...args);
+    };
+    storage.getUser = (...args: Parameters<typeof origGetUser>) => {
+      perUserCalls += 1;
+      return origGetUser(...args);
+    };
+    storage.getBoardSharesForBoards = (...args: Parameters<typeof origBulkShares>) => {
+      bulkShareCalls += 1;
+      return origBulkShares(...args);
+    };
+    storage.getUsersByIds = (...args: Parameters<typeof origBulkUsers>) => {
+      bulkUserCalls += 1;
+      return origBulkUsers(...args);
+    };
+
+    const listed = await callJson(app, "GET", "/api/boards");
+    assert.equal(listed.status, 200);
+    const items = listed.body as Array<{ id: string; isOwner: boolean }>;
+    assert.equal(items.length, 7);
+
+    // The whole point of the fix: fixed-cost lookups, not per-board ones.
+    assert.equal(bulkShareCalls, 1, "expected one bulk share lookup");
+    assert.equal(bulkUserCalls, 1, "expected one bulk user lookup");
+    assert.equal(perBoardShareCalls, 0, "per-board getBoardShares must not be called from list endpoint");
+    assert.equal(perUserCalls, 0, "per-board getUser must not be called from list endpoint");
   });
 
   it("rejects sharing with yourself and returns 404 when sharing a board you don't own", async () => {

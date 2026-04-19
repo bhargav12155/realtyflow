@@ -135,6 +135,23 @@ export function registerBoardsRoutes(
       const userId = String(req.user!.id);
       const boards = await storage.getAccessibleBoardsForUser(userId);
 
+      // Batch the two N+1 hotspots into fixed-cost lookups: one query for all
+      // share rows on owned boards, one query for all owner records on shared
+      // boards. Per-board asset reads stay parallel — they're a separate
+      // concern not in scope for this change.
+      const ownedBoardIds = boards.filter((b) => b.isOwner).map((b) => b.id);
+      const sharedOwnerIds = boards.filter((b) => !b.isOwner).map((b) => b.userId);
+
+      const [sharesByBoard, ownerUsers] = await Promise.all([
+        ownedBoardIds.length
+          ? storage.getBoardSharesForBoards(ownedBoardIds)
+          : Promise.resolve(new Map<string, Awaited<ReturnType<IStorage["getBoardShares"]>>>()),
+        sharedOwnerIds.length
+          ? storage.getUsersByIds(sharedOwnerIds)
+          : Promise.resolve([] as Awaited<ReturnType<IStorage["getUsersByIds"]>>),
+      ]);
+      const ownersById = new Map(ownerUsers.map((u) => [u.id, u]));
+
       const enriched = await Promise.all(
         boards.map(async (board) => {
           // Owner-scoped read so shared assets travel with the board view.
@@ -155,14 +172,14 @@ export function registerBoardsRoutes(
           let collaborators: { userId: string; name: string | null; email: string | null }[] = [];
           let owner: { id: string; name: string | null; email: string | null } | null = null;
           if (board.isOwner) {
-            const shares = await storage.getBoardShares(board.id, userId);
+            const shares = sharesByBoard.get(board.id) ?? [];
             collaborators = shares.map((s) => ({
               userId: s.userId,
               name: s.name,
               email: s.email,
             }));
           } else {
-            const ownerUser = await storage.getUser(board.userId);
+            const ownerUser = ownersById.get(board.userId);
             if (ownerUser) {
               owner = {
                 id: ownerUser.id,

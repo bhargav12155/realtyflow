@@ -118,9 +118,9 @@ export function PlatformPicker({
   }, [selectedMode, sel.v2v, onSelectMode]);
 
   return (
-    <div className="bg-white rounded-xl border border-neutral-200 p-4 space-y-4" data-testid="picker-platform">
+    <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-4" data-testid="picker-platform">
       <div>
-        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase mb-2">Provider</div>
+        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase mb-2">Provider</div>
         <div className="grid grid-cols-2 gap-2">
           {PLATFORMS.map((p) => {
             const selected = p.id === selectedProvider;
@@ -128,8 +128,10 @@ export function PlatformPicker({
               <button
                 key={p.id}
                 onClick={() => onSelectProvider(p.id)}
-                className={`relative text-left rounded-xl border p-3 bg-white transition-all ${
-                  selected ? "border-neutral-900 shadow-md ring-1 ring-neutral-900" : "border-neutral-200 hover:border-neutral-300 hover:shadow-sm"
+                className={`relative text-left rounded-xl border p-3 bg-white dark:bg-neutral-900 transition-all ${
+                  selected
+                    ? "border-neutral-900 dark:border-neutral-100 shadow-md ring-1 ring-neutral-900 dark:ring-neutral-100"
+                    : "border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm"
                 }`}
                 data-testid={`platform-${p.id}`}
               >
@@ -139,16 +141,16 @@ export function PlatformPicker({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-semibold text-neutral-900 truncate">{p.name}</span>
-                      {p.badge && <span className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500 font-medium">{p.badge}</span>}
+                      <span className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100 truncate">{p.name}</span>
+                      {p.badge && <span className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 font-medium">{p.badge}</span>}
                     </div>
-                    <div className="text-[11px] text-neutral-500 leading-snug mt-0.5">{p.tagline}</div>
-                    {p.v2v && <div className="text-[10px] text-emerald-600 font-medium mt-1">Supports video → video</div>}
+                    <div className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug mt-0.5">{p.tagline}</div>
+                    {p.v2v && <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-1">Supports video → video</div>}
                   </div>
                 </div>
                 {selected && (
-                  <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-neutral-900 flex items-center justify-center">
-                    <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+                  <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-neutral-900 dark:bg-neutral-100 flex items-center justify-center">
+                    <Check className="w-2.5 h-2.5 text-white dark:text-neutral-900" strokeWidth={3} />
                   </div>
                 )}
               </button>
@@ -157,9 +159,9 @@ export function PlatformPicker({
         </div>
       </div>
 
-      <div className="border-t border-neutral-100 pt-3">
-        <div className="text-[11px] text-neutral-500 mb-2">
-          Modes available for <span className="font-semibold text-neutral-700">{sel.name}</span>:
+      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3">
+        <div className="text-[11px] text-neutral-500 dark:text-neutral-400 mb-2">
+          Modes available for <span className="font-semibold text-neutral-700 dark:text-neutral-200">{sel.name}</span>:
         </div>
         <ModeTabs supportV2V={sel.v2v} selected={selectedMode} onSelect={onSelectMode} />
       </div>
@@ -182,13 +184,13 @@ function SeedanceControls({
     onChange({ ...value, [key]: v });
 
   return (
-    <div className="border-t border-neutral-100 pt-3 space-y-3" data-testid="panel-seedance-options">
+    <div className="border-t border-neutral-100 dark:border-neutral-800 pt-3 space-y-3" data-testid="panel-seedance-options">
       <div>
-        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase mb-1.5">Seedance model</div>
+        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase mb-1.5">Seedance model</div>
         <select
           value={value.model}
           onChange={(e) => update("model", e.target.value as SeedanceModel)}
-          className="w-full text-[12px] border border-neutral-200 rounded-md px-2 py-1.5 bg-white"
+          className="w-full text-[12px] border border-neutral-200 dark:border-neutral-700 rounded-md px-2 py-1.5 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
           data-testid="select-seedance-model"
         >
           {(Object.keys(SEEDANCE_MODEL_LABELS) as SeedanceModel[]).map((m) => (
@@ -199,7 +201,7 @@ function SeedanceControls({
         </select>
       </div>
       <div>
-        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase mb-1.5">Aspect ratio</div>
+        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase mb-1.5">Aspect ratio</div>
         <div className="flex flex-wrap gap-1.5">
           {SEEDANCE_ASPECTS.map((a) => {
             const active = value.aspectRatio === a;
@@ -209,7 +211,9 @@ function SeedanceControls({
                 type="button"
                 onClick={() => update("aspectRatio", a)}
                 className={`text-[11px] px-2 py-1 rounded-md border ${
-                  active ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+                  active
+                    ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                    : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 }`}
                 data-testid={`button-seedance-aspect-${a.replace(":", "x")}`}
               >
@@ -220,7 +224,7 @@ function SeedanceControls({
         </div>
       </div>
       <div>
-        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 uppercase mb-1.5">Duration</div>
+        <div className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase mb-1.5">Duration</div>
         <div className="flex gap-1.5">
           {SEEDANCE_DURATIONS.map((d) => {
             const active = value.durationSeconds === d;
@@ -230,7 +234,9 @@ function SeedanceControls({
                 type="button"
                 onClick={() => update("durationSeconds", d)}
                 className={`text-[11px] px-2 py-1 rounded-md border ${
-                  active ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+                  active
+                    ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+                    : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 }`}
                 data-testid={`button-seedance-duration-${d}`}
               >
@@ -260,7 +266,9 @@ function ModeTabs({
       <button
         onClick={() => onSelect(mode)}
         className={`flex items-center gap-1.5 px-3 py-2 rounded-md border text-[12px] ${
-          active ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+          active
+            ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
+            : "border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800"
         }`}
         data-testid={`mode-${mode}`}
       >

@@ -33,10 +33,10 @@ export function BoardCanvas({
   onClearRejection,
 }: BoardCanvasProps) {
   return (
-    <main className="relative flex-1 overflow-hidden bg-[radial-gradient(circle,_rgba(0,0,0,0.06)_1px,_transparent_1px)] [background-size:18px_18px] bg-neutral-100">
+    <main className="relative flex-1 overflow-hidden bg-[radial-gradient(circle,_rgba(0,0,0,0.06)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.06)_1px,_transparent_1px)] [background-size:18px_18px] bg-neutral-100 dark:bg-neutral-950">
       <div className="absolute inset-0 overflow-auto px-8 py-6" onClick={() => onSelectAsset(null)}>
         {batches.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-[12px] text-neutral-400" data-testid="text-empty-canvas">
+          <div className="h-full flex items-center justify-center text-[12px] text-neutral-400 dark:text-neutral-500" data-testid="text-empty-canvas">
             No assets yet — send a prompt in the chat to start a batch.
           </div>
         ) : (
@@ -72,8 +72,8 @@ function BatchGroup({
 }) {
   return (
     <div className="mb-5" data-testid={`batch-${batch.batchId}`}>
-      <div className="text-[11px] text-neutral-500 mb-1.5 ml-1">{batch.batchLabel || "Batch"}</div>
-      <div className="bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5">
+      <div className="text-[11px] text-neutral-500 mb-1.5 ml-1 dark:text-neutral-400">{batch.batchLabel || "Batch"}</div>
+      <div className="bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800">
         <div className="flex flex-wrap gap-2">
           {batch.assets.map((a) => (
             <AssetTile
@@ -108,7 +108,7 @@ function AssetTile({
   const src = asset.thumbnailUrl || asset.assetUrl;
   return (
     <div
-      className={`relative rounded-md overflow-hidden bg-neutral-200 group flex-shrink-0 w-[150px] h-[110px] cursor-pointer ${
+      className={`relative rounded-md overflow-hidden bg-neutral-200 dark:bg-neutral-800 group flex-shrink-0 w-[150px] h-[110px] cursor-pointer ${
         selected ? "ring-2 ring-blue-500" : ""
       }`}
       onClick={(e) => {
@@ -120,7 +120,7 @@ function AssetTile({
       {src ? (
         <img src={src} alt="" className="w-full h-full object-cover" />
       ) : (
-        <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500">
+        <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">
           {asset.status === "queued" || asset.status === "generating" ? "generating…" : "no preview"}
         </div>
       )}
@@ -188,9 +188,9 @@ function RejectionPopup({
 function ZoomControls() {
   const [zoom, setZoom] = useState(100);
   return (
-    <div className="absolute bottom-4 left-4 bg-white rounded-full shadow-sm border border-neutral-200 px-2 py-1 flex items-center gap-1 text-[11px] text-neutral-600">
+    <div className="absolute bottom-4 left-4 bg-white rounded-full shadow-sm border border-neutral-200 px-2 py-1 flex items-center gap-1 text-[11px] text-neutral-600 dark:bg-neutral-900 dark:border-neutral-800 dark:text-neutral-300">
       <button
-        className="w-5 h-5 rounded hover:bg-neutral-100 flex items-center justify-center"
+        className="w-5 h-5 rounded hover:bg-neutral-100 flex items-center justify-center dark:hover:bg-neutral-800"
         onClick={() => setZoom((z) => Math.max(25, z - 10))}
         data-testid="button-zoom-out"
       >
@@ -200,7 +200,7 @@ function ZoomControls() {
         {zoom}%
       </span>
       <button
-        className="w-5 h-5 rounded hover:bg-neutral-100 flex items-center justify-center"
+        className="w-5 h-5 rounded hover:bg-neutral-100 flex items-center justify-center dark:hover:bg-neutral-800"
         onClick={() => setZoom((z) => Math.min(200, z + 10))}
         data-testid="button-zoom-in"
       >

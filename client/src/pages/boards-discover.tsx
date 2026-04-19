@@ -5,6 +5,7 @@ import { ArrowUpRight, MoreVertical, Search } from "lucide-react";
 import { BoardsSidebar } from "@/components/boards/BoardsSidebar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 
 import type { ProviderId, GenerationMode } from "@/components/boards/PlatformPicker";
 
@@ -36,6 +37,7 @@ const TEMPLATES: Template[] = [
 export default function BoardsDiscoverPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { theme } = useBoardsTheme();
   const [search, setSearch] = useState("");
 
   const launchTemplate = useMutation({
@@ -73,21 +75,21 @@ export default function BoardsDiscoverPage() {
   }, [search]);
 
   return (
-    <div className="min-h-screen w-full flex bg-neutral-200/40 font-sans text-[13px] text-neutral-900 overflow-hidden">
+    <div className={`${theme === "dark" ? "dark " : ""}min-h-screen w-full flex bg-neutral-200/40 font-sans text-[13px] text-neutral-900 overflow-hidden dark:bg-neutral-950 dark:text-neutral-100`}>
       <BoardsSidebar active="discover" />
       <main className="flex-1 overflow-auto">
         <header className="flex items-center justify-end px-6 pt-4">
-          <button className="w-8 h-8 rounded-full hover:bg-neutral-200/60 flex items-center justify-center" data-testid="button-more">
-            <MoreVertical className="w-4 h-4 text-neutral-600" />
+          <button className="w-8 h-8 rounded-full hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-more">
+            <MoreVertical className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
           </button>
         </header>
         <div className="px-7 py-4">
           <div className="flex items-center justify-between mb-1">
             <h1 className="text-[22px] font-semibold tracking-tight">Discover</h1>
             <div className="relative w-[280px]">
-              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-2.5 top-1/2 -translate-y-1/2 dark:text-neutral-500" />
               <input
-                className="w-full pl-8 pr-3 py-1.5 text-[12px] rounded-md border border-neutral-200 bg-white outline-none focus:border-neutral-400"
+                className="w-full pl-8 pr-3 py-1.5 text-[12px] rounded-md border border-neutral-200 bg-white outline-none focus:border-neutral-400 dark:bg-neutral-900 dark:border-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-neutral-600"
                 placeholder="Search templates"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -95,7 +97,7 @@ export default function BoardsDiscoverPage() {
               />
             </div>
           </div>
-          <p className="text-[12px] text-neutral-500 mb-5">
+          <p className="text-[12px] text-neutral-500 mb-5 dark:text-neutral-400">
             Pre-built starting points. Click one to launch a board with the prompt already set.
           </p>
 
@@ -105,18 +107,18 @@ export default function BoardsDiscoverPage() {
                 key={t.id}
                 disabled={launchTemplate.isPending}
                 onClick={() => launchTemplate.mutate(t)}
-                className="text-left rounded-xl overflow-hidden bg-white border border-neutral-200/80 hover:shadow-lg hover:border-neutral-300 transition-all cursor-pointer disabled:opacity-50"
+                className="text-left rounded-xl overflow-hidden bg-white border border-neutral-200/80 hover:shadow-lg hover:border-neutral-300 transition-all cursor-pointer disabled:opacity-50 dark:bg-neutral-900 dark:border-neutral-800 dark:hover:border-neutral-700"
                 data-testid={`card-template-${t.id}`}
               >
-                <div className="aspect-[16/10] bg-neutral-100 overflow-hidden relative">
+                <div className="aspect-[16/10] bg-neutral-100 overflow-hidden relative dark:bg-neutral-800">
                   <img src={t.hero} alt={t.title} className="w-full h-full object-cover" />
                 </div>
                 <div className="p-3">
-                  <div className="text-[13px] font-semibold text-neutral-900 mb-0.5 flex items-center justify-between">
+                  <div className="text-[13px] font-semibold text-neutral-900 mb-0.5 flex items-center justify-between dark:text-neutral-100">
                     <span>{t.title}</span>
-                    <ArrowUpRight className="w-3 h-3 text-neutral-300" />
+                    <ArrowUpRight className="w-3 h-3 text-neutral-300 dark:text-neutral-600" />
                   </div>
-                  <div className="text-[11.5px] text-neutral-500 leading-snug line-clamp-2">{t.desc}</div>
+                  <div className="text-[11.5px] text-neutral-500 leading-snug line-clamp-2 dark:text-neutral-400">{t.desc}</div>
                 </div>
               </button>
             ))}

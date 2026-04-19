@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, MessageSquare, Settings as SettingsIcon, Share2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, MessageSquare, Settings as SettingsIcon, Share2, Moon, Sun } from "lucide-react";
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { BoardCanvas, type CanvasBatch } from "@/components/boards/BoardCanvas";
 import { ChatPanel, type ChatMessage, type ChatMode } from "@/components/boards/ChatPanel";
 import {
@@ -47,6 +48,7 @@ export default function BoardDetailPage() {
   const seedAppliedRef = useRef<string | null>(null);
   const { user } = useAuth();
   const { toast } = useToast();
+  const { theme, toggle: toggleTheme } = useBoardsTheme();
 
   const [chatOpen, setChatOpen] = useState(true);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -176,19 +178,21 @@ export default function BoardDetailPage() {
     return boardQuery.data.assets.find((a) => a.id === selectedAssetId) ?? null;
   }, [selectedAssetId, boardQuery.data]);
 
+  const themeClass = theme === "dark" ? "dark " : "";
+
   if (boardQuery.isLoading) {
     return (
-      <div className="h-screen w-full bg-neutral-200/40 flex items-center justify-center text-[13px] text-neutral-500">
+      <div className={`${themeClass}h-screen w-full bg-neutral-200/40 dark:bg-neutral-950 flex items-center justify-center text-[13px] text-neutral-500 dark:text-neutral-400`}>
         Loading board…
       </div>
     );
   }
   if (boardQuery.isError || !boardQuery.data) {
     return (
-      <div className="h-screen w-full bg-neutral-200/40 flex flex-col items-center justify-center gap-3">
-        <div className="text-[13px] text-neutral-500">Board not found.</div>
+      <div className={`${themeClass}h-screen w-full bg-neutral-200/40 dark:bg-neutral-950 flex flex-col items-center justify-center gap-3`}>
+        <div className="text-[13px] text-neutral-500 dark:text-neutral-400">Board not found.</div>
         <button
-          className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-[12px]"
+          className="px-3 py-1.5 rounded-md bg-neutral-900 text-white text-[12px] dark:bg-neutral-100 dark:text-neutral-900"
           onClick={() => setLocation("/boards")}
           data-testid="button-return-boards"
         >
@@ -204,28 +208,42 @@ export default function BoardDetailPage() {
   const titleTail = titleParts.slice(1).join(" ").toUpperCase();
 
   return (
-    <div className="h-screen w-full bg-neutral-200/40 flex flex-col font-sans text-[13px] text-neutral-900 overflow-hidden">
-      <header className="flex items-center justify-between px-4 py-2.5 bg-white/60 backdrop-blur border-b border-neutral-200">
+    <div className={`${themeClass}h-screen w-full bg-neutral-200/40 flex flex-col font-sans text-[13px] text-neutral-900 overflow-hidden dark:bg-neutral-950 dark:text-neutral-100`}>
+      <header className="flex items-center justify-between px-4 py-2.5 bg-white/60 backdrop-blur border-b border-neutral-200 dark:bg-neutral-900/60 dark:border-neutral-800">
         <div className="flex items-center gap-2">
           <button
-            className="w-7 h-7 rounded hover:bg-neutral-200/60 flex items-center justify-center"
+            className="w-7 h-7 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
             onClick={() => setLocation("/boards")}
             data-testid="button-back"
           >
-            <ArrowLeft className="w-4 h-4 text-neutral-600" />
+            <ArrowLeft className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-neutral-200/60" data-testid="button-title">
-            <span className="text-[10px] font-semibold tracking-wider text-neutral-600">
-              {titleHead} {titleTail && <span className="text-neutral-900">{titleTail}</span>}
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60" data-testid="button-title">
+            <span className="text-[10px] font-semibold tracking-wider text-neutral-600 dark:text-neutral-300">
+              {titleHead} {titleTail && <span className="text-neutral-900 dark:text-neutral-100">{titleTail}</span>}
             </span>
-            <ChevronDown className="w-3.5 h-3.5 text-neutral-500" />
+            <ChevronDown className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
           </button>
         </div>
         <div className="flex items-center gap-1">
-          <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center" data-testid="button-settings">
-            <SettingsIcon className="w-4 h-4 text-neutral-600" />
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch Boards to light mode" : "Switch Boards to dark mode"}
+            title={theme === "dark" ? "Light mode" : "Dark mode"}
+            className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
+            data-testid="button-toggle-boards-theme-detail"
+          >
+            {theme === "dark" ? (
+              <Sun className="w-4 h-4 text-neutral-300" />
+            ) : (
+              <Moon className="w-4 h-4 text-neutral-600" />
+            )}
           </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white text-[12px] font-medium" data-testid="button-share">
+          <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-settings">
+            <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
+          </button>
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white text-[12px] font-medium dark:bg-neutral-100 dark:hover:bg-white dark:text-neutral-900" data-testid="button-share">
             <Share2 className="w-3.5 h-3.5" />
             <span>Share</span>
           </button>
@@ -256,7 +274,7 @@ export default function BoardDetailPage() {
           {!chatOpen && (
             <button
               onClick={() => setChatOpen(true)}
-              className="absolute bottom-4 right-4 w-9 h-9 rounded-full bg-white shadow border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-50"
+              className="absolute bottom-4 right-4 w-9 h-9 rounded-full bg-white shadow border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               data-testid="button-open-chat"
             >
               <MessageSquare className="w-4 h-4" />

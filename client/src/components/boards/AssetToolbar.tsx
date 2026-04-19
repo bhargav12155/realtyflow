@@ -16,7 +16,7 @@ export function AssetToolbar({ asset, onClose, onDelete, onClearRejection, onReu
 
   return (
     <div
-      className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1"
+      className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
       data-testid="toolbar-asset"
       role="toolbar"
       aria-label="Selected asset actions"
@@ -40,7 +40,7 @@ export function AssetToolbar({ asset, onClose, onDelete, onClearRejection, onReu
         target="_blank"
         rel="noreferrer"
         className={`w-7 h-7 rounded-full flex items-center justify-center ${
-          canDownload ? "hover:bg-neutral-100 text-neutral-700" : "text-neutral-300 pointer-events-none"
+          canDownload ? "hover:bg-neutral-100 text-neutral-700 dark:hover:bg-neutral-800 dark:text-neutral-200" : "text-neutral-300 pointer-events-none dark:text-neutral-600"
         }`}
         title="Download"
         data-testid="toolbar-download"
@@ -50,9 +50,9 @@ export function AssetToolbar({ asset, onClose, onDelete, onClearRejection, onReu
       {isRejected && (
         <ToolbarButton icon={RotateCcw} label="Clear rejection" onClick={onClearRejection} testId="toolbar-clear-rejection" />
       )}
-      <div className="w-px h-4 bg-neutral-200 mx-0.5" />
+      <div className="w-px h-4 bg-neutral-200 mx-0.5 dark:bg-neutral-700" />
       <ToolbarButton icon={Trash2} label="Delete" onClick={onDelete} danger testId="toolbar-delete" />
-      <div className="w-px h-4 bg-neutral-200 mx-0.5" />
+      <div className="w-px h-4 bg-neutral-200 mx-0.5 dark:bg-neutral-700" />
       <ToolbarButton icon={X} label="Close" onClick={onClose} testId="toolbar-close" />
     </div>
   );
@@ -83,10 +83,10 @@ function ToolbarButton({
       data-testid={testId}
       className={`w-7 h-7 rounded-full flex items-center justify-center ${
         disabled
-          ? "text-neutral-300 cursor-not-allowed"
+          ? "text-neutral-300 cursor-not-allowed dark:text-neutral-600"
           : danger
-          ? "hover:bg-rose-50 text-rose-600"
-          : "hover:bg-neutral-100 text-neutral-700"
+          ? "hover:bg-rose-50 text-rose-600 dark:hover:bg-rose-950/40 dark:text-rose-400"
+          : "hover:bg-neutral-100 text-neutral-700 dark:hover:bg-neutral-800 dark:text-neutral-200"
       }`}
     >
       <Icon className="w-3.5 h-3.5" />

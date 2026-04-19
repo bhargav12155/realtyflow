@@ -40,6 +40,10 @@ export const users = pgTable("users", {
   email: text("email").notNull(),
   role: text("role").notNull().default("agent"),
   isDemo: boolean("is_demo").default(false),
+  // Opt-out switch for transactional emails such as the "board shared with
+  // you" notification. Defaults to true so existing recipients keep getting
+  // emails until they explicitly turn them off.
+  emailNotifications: boolean("email_notifications").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

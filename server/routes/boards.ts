@@ -4,6 +4,7 @@ import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
 import { insertBoardAssetSchema } from "@shared/schema";
 import { realtimeService } from "../websocket";
+import { sendBoardSharedEmail, getAppBaseUrl } from "../services/mailer";
 
 export const ASSET_KINDS = ["image", "video", "audio"] as const;
 export const ASSET_PROVIDERS = [
@@ -310,8 +311,14 @@ export function registerBoardsRoutes(
       const share = await storage.shareBoard(req.params.id, userId, parsed.userId);
       if (!share) return res.status(404).json({ error: "Board not found" });
       // Notify the recipient (best-effort — never block the share itself).
+      // We resolve the sharer + recipient once and then fan out to the
+      // in-app notification and the transactional email in parallel; either
+      // failure is swallowed so the share itself always succeeds.
+      const sharer = await storage.getUser(userId).catch(() => undefined);
+      const recipient = await storage.getUser(parsed.userId).catch(() => undefined);
+      const sharerDisplayName = sharer?.name ?? sharer?.email ?? "A teammate";
+
       try {
-        const sharer = await storage.getUser(userId);
         const notification = await storage.createNotification({
           userId: parsed.userId,
           type: "board_shared",
@@ -356,6 +363,47 @@ export function registerBoardsRoutes(
             recipientUserId: parsed.userId,
             sharedByUserId: userId,
             error: (notifyError as Error)?.message ?? String(notifyError),
+          }),
+        );
+      }
+
+      // Fan out the email after the in-app notification. We honor the
+      // recipient's emailNotifications opt-out (default true), and skip
+      // entirely if we don't have a destination address. Wrapped in
+      // try/catch to keep the same best-effort guarantee as above.
+      try {
+        const recipientEmail = recipient?.email?.trim();
+        const optedOut = recipient && recipient.emailNotifications === false;
+        if (!recipientEmail) {
+          console.warn(
+            "[boards] skipping share email — recipient has no email",
+            JSON.stringify({ event: "share.email.skipped.no_address", boardId: board.id, recipientUserId: parsed.userId }),
+          );
+        } else if (optedOut) {
+          console.log(
+            "[boards] skipping share email — recipient opted out",
+            JSON.stringify({ event: "share.email.skipped.opt_out", boardId: board.id, recipientUserId: parsed.userId }),
+          );
+        } else {
+          const baseUrl = getAppBaseUrl(req.get("host"));
+          const boardUrl = `${baseUrl}/boards/${encodeURIComponent(board.id)}`;
+          await sendBoardSharedEmail({
+            recipientEmail,
+            recipientName: recipient?.name ?? null,
+            sharerName: sharerDisplayName,
+            boardTitle: board.title,
+            boardUrl,
+          });
+        }
+      } catch (emailError) {
+        console.error(
+          "[boards] send share email failed",
+          JSON.stringify({
+            event: "share.email.failed",
+            boardId: board.id,
+            recipientUserId: parsed.userId,
+            sharedByUserId: userId,
+            error: (emailError as Error)?.message ?? String(emailError),
           }),
         );
       }

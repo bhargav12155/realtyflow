@@ -2651,6 +2651,30 @@ export function AvatarStudio() {
                                   )}
                                 </Button>
                               )}
+                              {voice.status === "ready" && voice.sampleAudioUrl && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePlayVoice(`preview_${voice.id}`, voice.sampleAudioUrl ?? undefined);
+                                  }}
+                                  title="Preview cloned voice"
+                                  data-testid={`button-preview-cloned-voice-${voice.id}`}
+                                >
+                                  {playingVoiceId === `preview_${voice.id}` ? (
+                                    <>
+                                      <Pause className="h-4 w-4 mr-1" />
+                                      <span className="text-xs">Preview</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="h-4 w-4 mr-1" />
+                                      <span className="text-xs">Preview</span>
+                                    </>
+                                  )}
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"

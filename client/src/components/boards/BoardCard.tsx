@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { MoreVertical, Plus, LogOut } from "lucide-react";
 import {
@@ -6,6 +7,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export interface BoardSummary {
   id: string;
@@ -79,6 +90,7 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
   const [first, ...rest] = (board.title || "Untitled board").split(" ");
   const highlight = rest.join(" ");
   const showLeave = onLeave && board.isOwner === false;
+  const [confirmOpen, setConfirmOpen] = useState(false);
   return (
     <div className="relative">
       <Link href={`/boards/${board.id}`}>
@@ -115,7 +127,7 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
                 disabled={isLeaving}
                 onSelect={(e) => {
                   e.preventDefault();
-                  onLeave?.(board);
+                  setConfirmOpen(true);
                 }}
                 className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
                 data-testid={`menu-item-leave-${board.id}`}
@@ -125,6 +137,35 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent
+              onClick={(e) => e.stopPropagation()}
+              data-testid={`dialog-leave-board-${board.id}`}
+            >
+              <AlertDialogHeader>
+                <AlertDialogTitle>Leave this board?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  You'll lose access to "{board.title || "Untitled board"}". The owner will need to share it with you again to get back in.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid={`button-cancel-leave-${board.id}`}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isLeaving}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onLeave?.(board);
+                    setConfirmOpen(false);
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  data-testid={`button-confirm-leave-${board.id}`}
+                >
+                  Leave board
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       )}
     </div>

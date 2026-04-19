@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, MessageSquare, Settings as SettingsIcon, Share2, Moon, Sun } from "lucide-react";
+import { ArrowLeft, ChevronDown, LogOut, MessageSquare, Settings as SettingsIcon, Share2, Moon, Sun } from "lucide-react";
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -199,6 +199,22 @@ export default function BoardDetailPage() {
     },
   });
 
+  const leaveBoard = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/boards/${boardId}/share/me`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Left board", description: "It has been removed from your Shared tab." });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+      setLocation("/boards");
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't leave board", description: errText, variant: "destructive" });
+    },
+  });
+
   const clearRejection = useMutation({
     mutationFn: async (assetId: string) => {
       const res = await apiRequest("PATCH", `/api/boards/${boardId}/assets/${assetId}`, {
@@ -318,7 +334,7 @@ export default function BoardDetailPage() {
           <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-settings">
             <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
-          {board.isOwner !== false && (
+          {board.isOwner !== false ? (
             <button
               type="button"
               onClick={() => setShareOpen(true)}
@@ -327,6 +343,21 @@ export default function BoardDetailPage() {
             >
               <Share2 className="w-3.5 h-3.5" />
               <span>Share</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (leaveBoard.isPending) return;
+                if (typeof window !== "undefined" && !window.confirm("Remove this board from your Shared tab? The owner will keep it.")) return;
+                leaveBoard.mutate();
+              }}
+              disabled={leaveBoard.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-100 text-[12px] font-medium disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              data-testid="button-leave-board"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>{leaveBoard.isPending ? "Leaving…" : "Leave board"}</span>
             </button>
           )}
         </div>

@@ -463,6 +463,8 @@ export interface IStorage {
   getBoardShares(boardId: string, ownerUserId: string): Promise<BoardShareRecipient[]>;
   shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined>;
   unshareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<boolean>;
+  /** Recipient-initiated removal: lets a shared user drop themselves from a board's share list. */
+  leaveSharedBoard(boardId: string, userId: string): Promise<boolean>;
 
   // Board Assets (always user-scoped via boardId + userId)
   getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]>;
@@ -2983,6 +2985,17 @@ export class MemStorage implements IStorage {
       .where(and(
         eq(boardSharesTable.boardId, boardId),
         eq(boardSharesTable.sharedWithUserId, sharedWithUserId),
+      ))
+      .returning();
+    return !!deleted;
+  }
+
+  async leaveSharedBoard(boardId: string, userId: string): Promise<boolean> {
+    const [deleted] = await db
+      .delete(boardSharesTable)
+      .where(and(
+        eq(boardSharesTable.boardId, boardId),
+        eq(boardSharesTable.sharedWithUserId, userId),
       ))
       .returning();
     return !!deleted;

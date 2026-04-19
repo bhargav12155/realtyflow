@@ -271,6 +271,21 @@ export function registerBoardsRoutes(
     }
   });
 
+  // Recipient-initiated leave: a non-owner removes themselves from a shared board.
+  // Returns 404 when the user has no share row (e.g. not a recipient, or the
+  // owner calling this endpoint — owners should delete the board instead).
+  app.delete("/api/boards/:id/share/me", auth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const ok = await storage.leaveSharedBoard(req.params.id, userId);
+      if (!ok) return res.status(404).json({ error: "Not a shared recipient of this board" });
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error("[boards] leave share error:", error);
+      res.status(500).json({ error: "Failed to leave board" });
+    }
+  });
+
   // Remove a share (owner only).
   app.delete("/api/boards/:id/shares/:userId", auth, async (req: Request, res: Response) => {
     try {

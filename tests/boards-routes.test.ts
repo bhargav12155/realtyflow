@@ -111,6 +111,14 @@ class FakeBoardsStorage {
     this.shares.delete(hit[0]);
     return true;
   }
+  async leaveSharedBoard(boardId: string, userId: string): Promise<boolean> {
+    const hit = Array.from(this.shares.entries()).find(
+      ([, s]) => s.boardId === boardId && s.sharedWithUserId === userId,
+    );
+    if (!hit) return false;
+    this.shares.delete(hit[0]);
+    return true;
+  }
   async getAllUsers(): Promise<User[]> {
     return [...this.users];
   }

@@ -486,6 +486,15 @@ export interface IStorage {
 
   // Board Assets (always user-scoped via boardId + userId)
   getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]>;
+  /**
+   * Bulk variant for the boards-list enrichment loop. Returns, per board, the
+   * total asset count plus up to 4 thumbnail-eligible asset summaries (newest
+   * first). Caller is responsible for authorization — only pass board IDs the
+   * requesting user is allowed to view.
+   */
+  getBoardAssetSummariesForBoards(
+    boardIds: string[],
+  ): Promise<Map<string, BoardAssetSummaries>>;
   getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined>;
   createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined>;
   updateBoardAssetForUser(boardId: string, assetId: string, userId: string, updates: BoardAssetUpdate): Promise<BoardAsset | undefined>;
@@ -500,6 +509,16 @@ export type BoardShareRecipient = {
   name: string | null;
   email: string | null;
   sharedAt: Date | null;
+};
+export type BoardAssetSummary = {
+  id: string;
+  kind: BoardAsset["kind"];
+  thumbnailUrl: string | null;
+  assetUrl: string | null;
+};
+export type BoardAssetSummaries = {
+  assetCount: number;
+  thumbnails: BoardAssetSummary[];
 };
 export type BoardAssetCreate = Omit<InsertBoardAsset, "boardId" | "evalHistory">;
 export type BoardAssetUpdate = Partial<Pick<
@@ -3159,6 +3178,43 @@ export class MemStorage implements IStorage {
         eq(boardsTable.userId, userId),
       ));
     return row?.asset;
+  }
+
+  async getBoardAssetSummariesForBoards(
+    boardIds: string[],
+  ): Promise<Map<string, BoardAssetSummaries>> {
+    const result = new Map<string, BoardAssetSummaries>();
+    if (!boardIds.length) return result;
+    const unique = Array.from(new Set(boardIds));
+    for (const id of unique) result.set(id, { assetCount: 0, thumbnails: [] });
+    // Single bulk read of just the columns the boards-list card needs.
+    // Newest-first so the first 4 thumbnail-eligible rows per board match the
+    // previous per-board getBoardAssetsForUser ordering.
+    const rows = await db
+      .select({
+        id: boardAssetsTable.id,
+        boardId: boardAssetsTable.boardId,
+        kind: boardAssetsTable.kind,
+        thumbnailUrl: boardAssetsTable.thumbnailUrl,
+        assetUrl: boardAssetsTable.assetUrl,
+      })
+      .from(boardAssetsTable)
+      .where(inArray(boardAssetsTable.boardId, unique))
+      .orderBy(desc(boardAssetsTable.createdAt));
+    for (const r of rows) {
+      const entry = result.get(r.boardId);
+      if (!entry) continue;
+      entry.assetCount += 1;
+      if (entry.thumbnails.length < 4 && (r.thumbnailUrl || r.assetUrl)) {
+        entry.thumbnails.push({
+          id: r.id,
+          kind: r.kind,
+          thumbnailUrl: r.thumbnailUrl,
+          assetUrl: r.assetUrl,
+        });
+      }
+    }
+    return result;
   }
 
   async createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined> {

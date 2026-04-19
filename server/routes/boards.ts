@@ -140,71 +140,73 @@ export function registerBoardsRoutes(
       const userId = String(req.user!.id);
       const boards = await storage.getAccessibleBoardsForUser(userId);
 
-      // Batch the two N+1 hotspots into fixed-cost lookups: one query for all
-      // share rows on owned boards, one query for all owner records on shared
-      // boards. Per-board asset reads stay parallel — they're a separate
-      // concern not in scope for this change.
+      // Batch the three N+1 hotspots into fixed-cost lookups: one query for
+      // all share rows on owned boards, one query for all owner records on
+      // shared boards, and one query for the per-board asset summaries
+      // (count + up to 4 thumbnails) used to render the board cards.
       const ownedBoardIds = boards.filter((b) => b.isOwner).map((b) => b.id);
       const sharedOwnerIds = boards.filter((b) => !b.isOwner).map((b) => b.userId);
+      const allBoardIds = boards.map((b) => b.id);
 
-      const [sharesByBoard, ownerUsers] = await Promise.all([
+      const [sharesByBoard, ownerUsers, assetSummariesByBoard] = await Promise.all([
         ownedBoardIds.length
           ? storage.getBoardSharesForBoards(ownedBoardIds)
           : Promise.resolve(new Map<string, Awaited<ReturnType<IStorage["getBoardShares"]>>>()),
         sharedOwnerIds.length
           ? storage.getUsersByIds(sharedOwnerIds)
           : Promise.resolve([] as Awaited<ReturnType<IStorage["getUsersByIds"]>>),
+        allBoardIds.length
+          ? storage.getBoardAssetSummariesForBoards(allBoardIds)
+          : Promise.resolve(
+              new Map<string, Awaited<ReturnType<IStorage["getBoardAssetSummariesForBoards"]>> extends Map<string, infer V> ? V : never>(),
+            ),
       ]);
       const ownersById = new Map(ownerUsers.map((u) => [u.id, u]));
 
-      const enriched = await Promise.all(
-        boards.map(async (board) => {
-          // Owner-scoped read so shared assets travel with the board view.
-          const ownerId = board.isOwner ? userId : board.userId;
-          const assets = await storage.getBoardAssetsForUser(board.id, ownerId);
-          const thumbnails = assets
-            .filter((a) => a.thumbnailUrl || a.assetUrl)
-            .slice(0, 4)
-            .map((a) => ({
-              id: a.id,
-              thumbnailUrl: a.thumbnailUrl || a.assetUrl,
-              kind: a.kind,
-            }));
+      const enriched = boards.map((board) => {
+        const summary = assetSummariesByBoard.get(board.id) ?? {
+          assetCount: 0,
+          thumbnails: [],
+        };
+        const thumbnails = summary.thumbnails.map((a) => ({
+          id: a.id,
+          thumbnailUrl: a.thumbnailUrl || a.assetUrl,
+          kind: a.kind,
+        }));
 
-          // Collaborator summary so the board card can render an avatar
-          // stack without an extra round trip. Owners see who they've shared
-          // with; recipients see who owns the board.
-          let collaborators: { userId: string; name: string | null; email: string | null }[] = [];
-          let owner: { id: string; name: string | null; email: string | null } | null = null;
-          if (board.isOwner) {
-            const shares = sharesByBoard.get(board.id) ?? [];
-            collaborators = shares.map((s) => ({
-              userId: s.userId,
-              name: s.name,
-              email: s.email,
-            }));
+        // Collaborator summary so the board card can render an avatar
+        // stack without an extra round trip. Owners see who they've shared
+        // with; recipients see who owns the board.
+        let collaborators: { userId: string; name: string | null; email: string | null }[] = [];
+        let owner: { id: string; name: string | null; email: string | null } | null = null;
+        if (board.isOwner) {
+          const shares = sharesByBoard.get(board.id) ?? [];
+          collaborators = shares.map((s) => ({
+            userId: s.userId,
+            name: s.name,
+            email: s.email,
+          }));
+        } else {
+          const ownerUser = ownersById.get(board.userId);
+          if (ownerUser) {
+            owner = {
+              id: ownerUser.id,
+              name: ownerUser.name ?? null,
+              email: ownerUser.email ?? null,
+            };
           } else {
-            const ownerUser = ownersById.get(board.userId);
-            if (ownerUser) {
-              owner = {
-                id: ownerUser.id,
-                name: ownerUser.name ?? null,
-                email: ownerUser.email ?? null,
-              };
-            } else {
-              owner = { id: board.userId, name: null, email: null };
-            }
+            owner = { id: board.userId, name: null, email: null };
           }
+        }
 
-          return {
-            ...board,
-            assetCount: assets.length,
-            thumbnails,
-            collaborators,
-            owner,
-          };
-        })
-      );
+        return {
+          ...board,
+          assetCount: summary.assetCount,
+          thumbnails,
+          collaborators,
+          owner,
+        };
+      });
 
       res.json(enriched);
     } catch (error: unknown) {

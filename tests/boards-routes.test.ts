@@ -13,6 +13,7 @@ import type { Board, BoardAsset, BoardShare, InsertBoard, InsertNotification, No
 import type {
   IStorage,
   AccessibleBoard,
+  BoardAssetSummaries,
   BoardShareRecipient,
   BoardUpdate,
   BoardAssetCreate,
@@ -222,6 +223,31 @@ class FakeBoardsStorage {
     return Array.from(this.assets.values())
       .filter((a) => a.boardId === boardId)
       .sort((a, b2) => b2.createdAt!.getTime() - a.createdAt!.getTime());
+  }
+  async getBoardAssetSummariesForBoards(
+    boardIds: string[],
+  ): Promise<Map<string, BoardAssetSummaries>> {
+    const result = new Map<string, BoardAssetSummaries>();
+    if (!boardIds.length) return result;
+    const unique = Array.from(new Set(boardIds));
+    for (const id of unique) result.set(id, { assetCount: 0, thumbnails: [] });
+    const sorted = Array.from(this.assets.values()).sort(
+      (a, b) => b.createdAt!.getTime() - a.createdAt!.getTime(),
+    );
+    for (const a of sorted) {
+      const entry = result.get(a.boardId);
+      if (!entry) continue;
+      entry.assetCount += 1;
+      if (entry.thumbnails.length < 4 && (a.thumbnailUrl || a.assetUrl)) {
+        entry.thumbnails.push({
+          id: a.id,
+          kind: a.kind,
+          thumbnailUrl: a.thumbnailUrl,
+          assetUrl: a.assetUrl,
+        });
+      }
+    }
+    return result;
   }
   async getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined> {
     const b = await this.getBoardByIdForUser(boardId, userId);

@@ -6,30 +6,58 @@ import { requireAuth as defaultRequireAuth } from "../middleware/auth";
 import type { BoardAsset, BoardAssetEvalHistoryEntry } from "@shared/schema";
 import type { BoardAssetCreate } from "../storage";
 import OpenAI from "openai";
-import { anthropicService } from "../services/anthropic";
-import { geminiService } from "../services/gemini";
-import { lumaService, type LumaModel } from "../services/luma";
-import { runwayService } from "../services/runway";
-import { sora2Service } from "../services/sora2";
-import { veoVideoService } from "../services/veo-video";
-import { generateMotionVideo, checkMotionVideoStatus } from "../services/kling";
-import {
-  seedanceService,
-  type SeedanceModel,
-  type SeedanceAspectRatio,
-  type SeedanceDuration,
+import type { LumaModel } from "../services/luma";
+import type {
+  SeedanceModel,
+  SeedanceAspectRatio,
+  SeedanceDuration,
 } from "../services/seedance";
-import { autoEvaluateBatch, type AutoEvalModelHint } from "../services/boardAutoEval";
+import { autoEvaluateBatch, type AutoEvalModelHint, type AutoEvalResult } from "../services/boardAutoEval";
 import { openaiService } from "../services/openai";
 import { persistImageBuffer } from "../objectStorage";
 import { realtimeService } from "../websocket";
 
+// NOTE: Generation services and chat services are imported lazily (see
+// `dispatchOne`, `dispatchImage`, `registerBoardsChatRoutes`'s defaults).
+// Several of them register module-level `setInterval` cleanup timers
+// (e.g. `services/luma.ts`, `services/runway.ts`) which would otherwise
+// keep the Node test runner alive and break `node --test` exit semantics
+// in tests that inject their own dependencies.
+
 const VIDEO_PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
 const IMAGE_PROVIDERS = ["openai-image", "gemini-image"] as const;
-const PROVIDERS = [...VIDEO_PROVIDERS, ...IMAGE_PROVIDERS] as const;
-type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
-type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
-type Provider = (typeof PROVIDERS)[number];
+export const PROVIDERS = [...VIDEO_PROVIDERS, ...IMAGE_PROVIDERS] as const;
+export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
+export type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
+export type Provider = (typeof PROVIDERS)[number];
+
+export interface BrainstormChatService {
+  chat(
+    message: string,
+    history: { role: "user" | "assistant"; content: string }[] | undefined,
+    systemPrompt: string,
+  ): Promise<{ success: boolean; message?: string; error?: string }>;
+}
+
+export interface BoardsChatProviders {
+  anthropic?: BrainstormChatService;
+  gemini?: BrainstormChatService;
+  openaiBrainstorm?: (
+    message: string,
+    history?: { role: "user" | "assistant"; content: string }[],
+  ) => Promise<{ success: boolean; message?: string; error?: string }>;
+}
+
+export type DispatchOne = (
+  provider: VideoProvider,
+  genMode: GenMode,
+  ctx: DispatchContext,
+) => Promise<DispatchResult>;
+
+export type DispatchImage = (
+  provider: ImageProvider,
+  ctx: DispatchContext,
+) => Promise<ImageDispatchResult>;
 
 function isImageProvider(p: Provider): p is ImageProvider {
   return (IMAGE_PROVIDERS as readonly string[]).includes(p);
@@ -93,8 +121,8 @@ const seedanceOptionsSchema = z.object({
   aspectRatio: z.enum(SEEDANCE_ASPECTS as [SeedanceAspectRatio, ...SeedanceAspectRatio[]]).optional(),
   durationSeconds: z.union([z.literal(5), z.literal(10)]).optional(),
 });
-type GenMode = "text-to-video" | "image-to-video" | "video-to-video";
-type PollStatus = "pending" | "processing" | "completed" | "failed";
+export type GenMode = "text-to-video" | "image-to-video" | "video-to-video";
+export type PollStatus = "pending" | "processing" | "completed" | "failed";
 
 const LUMA_MODELS: ReadonlySet<LumaModel> = new Set<LumaModel>(["ray-2", "ray-flash-2"]);
 function asLumaModel(value: string | undefined): LumaModel {
@@ -154,7 +182,7 @@ function pickDefaultProvider(genMode: GenMode, message: string): Provider {
   return "luma";
 }
 
-interface DispatchContext {
+export interface DispatchContext {
   prompt: string;
   refAssets: BoardAsset[];
   forceModel?: string;
@@ -165,14 +193,14 @@ interface DispatchContext {
   };
 }
 
-interface PollResult {
+export interface PollResult {
   status: PollStatus;
   videoUrl?: string;
   durationSeconds?: number;
   error?: string;
 }
 
-interface DispatchResult {
+export interface DispatchResult {
   taskId: string;
   modelLabel: string;
   poll: () => Promise<PollResult>;
@@ -186,6 +214,7 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
     case "luma": {
       // Note: v2v on Luma is blocked at preflight in the chat route because the current
       // /generations integration cannot consume a referenced video as input.
+      const { lumaService } = await import("../services/luma");
       const model = asLumaModel(ctx.forceModel);
       const task = await lumaService.createVideoTask(ctx.prompt, {
         model,
@@ -201,6 +230,7 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
       };
     }
     case "runway": {
+      const { runwayService } = await import("../services/runway");
       const model = ctx.forceModel || "gen4_aleph";
       let taskId: string;
       if (genMode === "video-to-video") {
@@ -225,6 +255,7 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
       };
     }
     case "sora2": {
+      const { sora2Service } = await import("../services/sora2");
       const task = await sora2Service.createVideoTask(ctx.prompt, {
         imageUrls: firstImage ? [firstImage] : undefined,
       });
@@ -239,6 +270,7 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
     }
     case "veo": {
       if (!firstImage) throw new Error("Veo currently requires a referenced image asset");
+      const { veoVideoService } = await import("../services/veo-video");
       const result = await veoVideoService.generateVideo({ imageUrl: firstImage, prompt: ctx.prompt });
       if (!result.success || !result.operationId) {
         throw new Error(result.error || "Veo failed to start operation");
@@ -256,6 +288,7 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
       };
     }
     case "seedance": {
+      const { seedanceService } = await import("../services/seedance");
       const opts = ctx.seedanceOptions ?? {};
       const aspectRatio = opts.aspectRatio ?? "16:9";
       const durationSeconds = opts.durationSeconds ?? 5;
@@ -294,6 +327,7 @@ async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: Dispa
     }
     case "kling": {
       if (!firstImage) throw new Error("Kling image-to-video requires a referenced image asset");
+      const { generateMotionVideo, checkMotionVideoStatus } = await import("../services/kling");
       const r = await generateMotionVideo(firstImage, ctx.prompt, { duration: "5", mode: "pro" });
       if (!r.success || !r.taskId) throw new Error(r.error || "Kling failed to start task");
       const taskId = r.taskId;
@@ -326,6 +360,7 @@ async function dispatchImage(
   if (provider === "gemini-image") {
     // openaiService.generateImage is implemented on top of Gemini's
     // gemini-2.5-flash-image model and persists to object storage when available.
+    const { openaiService } = await import("../services/openai");
     const url = await openaiService.generateImage({ prompt: ctx.prompt });
     if (!url) throw new Error("Gemini image generation returned no result");
     return { modelLabel: ctx.forceModel || "gemini-2.5-flash-image", imageUrl: url };
@@ -388,30 +423,33 @@ async function runBatchInBackground(args: {
   rows: BoardAsset[];
   forceModel?: string;
   seedanceOptions?: DispatchContext["seedanceOptions"];
+  dispatch: DispatchOne;
+  dispatchImageFn: DispatchImage;
+  autoEval: (input: { prompt: string; assets: BoardAsset[] }) => Promise<AutoEvalResult>;
 }) {
-  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions } = args;
+  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval } = args;
 
   await Promise.all(
     rows.map(async (row) => {
       try {
         if (isImageProvider(provider)) {
-          const result = await dispatchImage(provider, { prompt, refAssets, forceModel });
+          const imageResult = await dispatchImageFn(provider, { prompt, refAssets, forceModel });
           const updated = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "ready",
-            modelLabel: result.modelLabel,
-            assetUrl: result.imageUrl,
-            thumbnailUrl: result.imageUrl,
+            modelLabel: imageResult.modelLabel,
+            assetUrl: imageResult.imageUrl,
+            thumbnailUrl: imageResult.imageUrl,
           });
           if (updated) pushAssetStatus(userId, boardId, updated);
           return;
         }
         const videoProvider = provider as VideoProvider;
-        const dispatch = await dispatchOne(videoProvider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
+        const dispatched = await dispatch(videoProvider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
         const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
-          modelLabel: dispatch.modelLabel,
+          modelLabel: dispatched.modelLabel,
         });
         if (labelled) pushAssetStatus(userId, boardId, labelled);
-        const result = await pollUntilDone(dispatch.poll);
+        const result = await pollUntilDone(dispatched.poll);
         if (result.error || !result.videoUrl) {
           const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "failed",
@@ -440,7 +478,7 @@ async function runBatchInBackground(args: {
   );
 
   try {
-    await runAutoEvalAndApply({ storage, boardId, userId, batchId, prompt });
+    await runAutoEvalAndApply({ storage, boardId, userId, batchId, prompt, autoEvalFn: autoEval });
   } catch (err) {
     console.error("[boards-chat] auto-eval pass failed:", err instanceof Error ? err.message : err);
   }
@@ -463,6 +501,15 @@ async function runAutoEvalAndApply(args: {
   modelHint?: AutoEvalModelHint;
   extraCriteria?: string;
   source?: "auto" | "manual";
+  // Allows the boards-chat route to inject the (lazily-resolved) auto-eval
+  // implementation it received via DI so tests can stub it. Defaults to the
+  // top-level autoEvaluateBatch.
+  autoEvalFn?: (input: {
+    prompt: string;
+    assets: BoardAsset[];
+    modelHint?: AutoEvalModelHint;
+    extraCriteria?: string;
+  }) => Promise<AutoEvalResult>;
 }): Promise<{
   applied: boolean;
   winnerAssetId?: string;
@@ -472,6 +519,7 @@ async function runAutoEvalAndApply(args: {
 }> {
   const { storage, boardId, userId, batchId, prompt, modelHint, extraCriteria } = args;
   const source = args.source ?? "auto";
+  const autoEvalFn = args.autoEvalFn ?? autoEvaluateBatch;
   const all = await storage.getBoardAssetsForUser(boardId, userId);
   const batchAssets = all.filter((a) => a.batchId === batchId);
   // Re-evals consider any asset that ever produced output (ready or previously-rejected
@@ -482,7 +530,7 @@ async function runAutoEvalAndApply(args: {
   if (candidates.length < 2) {
     return { applied: false, reason: "Need at least 2 ready/rejected assets to evaluate" };
   }
-  const evalResult = await autoEvaluateBatch({
+  const evalResult = await autoEvalFn({
     prompt,
     assets: candidates,
     modelHint,
@@ -657,22 +705,70 @@ async function tryOpenAIBrainstorm(
 
 async function brainstormReply(
   message: string,
+  providers: Required<BoardsChatProviders>,
   history?: { role: "user" | "assistant"; content: string }[],
 ): Promise<string> {
-  const a = await anthropicService.chat(message, history, BRAINSTORM_SYSTEM);
+  const a = await providers.anthropic.chat(message, history, BRAINSTORM_SYSTEM);
   if (a.success && a.message) return a.message;
-  const g = await geminiService.chat(message, history, BRAINSTORM_SYSTEM);
+  const g = await providers.gemini.chat(message, history, BRAINSTORM_SYSTEM);
   if (g.success && g.message) return g.message;
-  const o = await tryOpenAIBrainstorm(message, history);
+  const o = await providers.openaiBrainstorm(message, history);
   if (o.success && o.message) return o.message;
   throw new Error(a.error || g.error || o.error || "All chat providers unavailable");
 }
 
+export interface BoardsChatDeps {
+  storage?: IStorage;
+  auth?: RequestHandler;
+  chatProviders?: BoardsChatProviders;
+  dispatchOne?: DispatchOne;
+  dispatchImage?: DispatchImage;
+  autoEvaluateBatch?: (input: {
+    prompt: string;
+    assets: BoardAsset[];
+    modelHint?: AutoEvalModelHint;
+    extraCriteria?: string;
+  }) => Promise<AutoEvalResult>;
+  /**
+   * Test-only hook invoked with the in-flight background-batch promise so tests
+   * can await batch completion (the route otherwise fires-and-forgets).
+   */
+  onBatchScheduled?: (p: Promise<void>) => void;
+}
+
 export function registerBoardsChatRoutes(
   app: Express,
-  deps: { storage?: IStorage; auth?: RequestHandler } = {},
+  deps: BoardsChatDeps = {},
 ) {
   const storage = deps.storage ?? defaultStorage;
+  // Service singletons are lazily resolved on first use so importing this
+  // module never triggers their module-level side effects (e.g. timers in
+  // services/luma.ts and services/runway.ts).
+  const chatProviders: Required<BoardsChatProviders> = {
+    anthropic:
+      deps.chatProviders?.anthropic ?? {
+        async chat(message, history, systemPrompt) {
+          const { anthropicService } = await import("../services/anthropic");
+          return anthropicService.chat(message, history, systemPrompt);
+        },
+      },
+    gemini:
+      deps.chatProviders?.gemini ?? {
+        async chat(message, history, systemPrompt) {
+          const { geminiService } = await import("../services/gemini");
+          return geminiService.chat(message, history, systemPrompt);
+        },
+      },
+    openaiBrainstorm: deps.chatProviders?.openaiBrainstorm ?? tryOpenAIBrainstorm,
+  };
+  const dispatch = deps.dispatchOne ?? dispatchOne;
+  const dispatchImageFn = deps.dispatchImage ?? dispatchImage;
+  const autoEval =
+    deps.autoEvaluateBatch ??
+    (async (input) => {
+      const { autoEvaluateBatch } = await import("../services/boardAutoEval");
+      return autoEvaluateBatch(input);
+    });
   // Allow tests to inject a permissive auth middleware. Defaults to real requireAuth.
   const requireAuth =
     deps.auth ??
@@ -693,7 +789,7 @@ export function registerBoardsChatRoutes(
 
       // ---------- Brainstorm mode ----------
       if (body.mode === "brainstorm") {
-        const reply = await brainstormReply(body.message, body.conversationHistory);
+        const reply = await brainstormReply(body.message, chatProviders, body.conversationHistory);
         return res.json({ mode: "brainstorm", reply });
       }
 
@@ -767,7 +863,7 @@ export function registerBoardsChatRoutes(
         }
       }
 
-      runBatchInBackground({
+      const bgPromise = runBatchInBackground({
         storage,
         boardId,
         userId,
@@ -779,7 +875,11 @@ export function registerBoardsChatRoutes(
         rows,
         forceModel: body.forceModel,
         seedanceOptions: body.seedanceOptions,
+        dispatch,
+        dispatchImageFn,
+        autoEval,
       }).catch((err) => console.error("[boards-chat] background batch error:", err));
+      deps.onBatchScheduled?.(bgPromise);
 
       return res.json({
         mode: "create",

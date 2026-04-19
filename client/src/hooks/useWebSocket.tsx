@@ -23,7 +23,8 @@ interface WebSocketMessage {
     | "voice_clone_complete"
     | "voice_clone_failed"
     | "board_asset_status"
-    | "board_auto_eval";
+    | "board_auto_eval"
+    | "notification_created";
   data: any;
   timestamp: string;
   userId?: number;

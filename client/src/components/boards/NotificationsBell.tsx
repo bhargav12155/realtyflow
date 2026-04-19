@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Bell, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useWebSocket } from "@/hooks/useWebSocket";
 import type { Notification } from "@shared/schema";
 
 interface BoardSharedData {
@@ -26,12 +28,31 @@ function timeAgo(date: Date): string {
 export function NotificationsBell() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
 
   const notificationsQuery = useQuery<Notification[]>({
     queryKey: ["/api/notifications"],
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
+  });
+
+  // Subscribe to the user's real-time channel so a "board_shared" (or any
+  // newly-created) notification refreshes the bell instantly. The 60s poll
+  // and focus refetch above are the fallback when no socket is connected.
+  const handleRealtimeMessage = useCallback(
+    (message: { type: string }) => {
+      if (message.type === "notification_created") {
+        queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      }
+    },
+    [],
+  );
+  useWebSocket({
+    userId: user?.id ? String(user.id) : undefined,
+    autoConnect: Boolean(user?.id),
+    showToast: false,
+    onMessage: handleRealtimeMessage,
   });
 
   // Only show unread notifications — dismissing or marking read should make

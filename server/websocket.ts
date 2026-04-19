@@ -56,7 +56,7 @@ function authenticateRequest(req: IncomingMessage): { userId: string } | null {
 }
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_auto_eval";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_auto_eval" | "notification_created";
   data: any;
   timestamp: string;
   userId?: number;
@@ -468,6 +468,24 @@ export class RealtimeService {
   ) {
     this.sendToUser(userId, {
       type: "board_auto_eval",
+      data: payload,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Notify a recipient that a new in-app notification has been created.
+  // Sent so the bell badge can refresh without waiting for the polling
+  // interval. Falls back gracefully when the recipient has no socket.
+  notifyNotificationCreated(
+    userId: string,
+    payload: {
+      notificationId: string;
+      type: string;
+      data?: unknown;
+    },
+  ) {
+    this.sendToUser(userId, {
+      type: "notification_created",
       data: payload,
       timestamp: new Date().toISOString(),
     });

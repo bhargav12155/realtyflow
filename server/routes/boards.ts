@@ -3,6 +3,7 @@ import { z } from "zod";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
 import { insertBoardAssetSchema } from "@shared/schema";
+import { realtimeService } from "../websocket";
 
 export const ASSET_KINDS = ["image", "video", "audio"] as const;
 export const ASSET_PROVIDERS = [
@@ -294,7 +295,7 @@ export function registerBoardsRoutes(
       // Notify the recipient (best-effort — never block the share itself).
       try {
         const sharer = await storage.getUser(userId);
-        await storage.createNotification({
+        const notification = await storage.createNotification({
           userId: parsed.userId,
           type: "board_shared",
           data: {
@@ -304,6 +305,27 @@ export function registerBoardsRoutes(
             sharedByName: sharer?.name ?? sharer?.email ?? null,
           },
         });
+        // Push a real-time event so the recipient's bell badge updates
+        // instantly. Wrapped in its own try/catch so a socket failure can't
+        // mask the successful share+notification.
+        try {
+          realtimeService.notifyNotificationCreated(parsed.userId, {
+            notificationId: notification.id,
+            type: notification.type,
+            data: notification.data,
+          });
+        } catch (wsError) {
+          console.error(
+            "[boards] notify share recipient via websocket failed",
+            JSON.stringify({
+              event: "notification.ws.failed",
+              type: "board_shared",
+              boardId: board.id,
+              recipientUserId: parsed.userId,
+              error: (wsError as Error)?.message ?? String(wsError),
+            }),
+          );
+        }
       } catch (notifyError) {
         // Best-effort: never let a notification failure roll back a successful
         // share. Log loudly with structured context so prod outages (e.g.

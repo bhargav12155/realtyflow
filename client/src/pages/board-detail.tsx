@@ -74,6 +74,64 @@ export default function BoardDetailPage() {
     showToast: false,
     onMessage: (msg) => {
       const t = msg.type;
+      if (t === "board_asset_status") {
+        const d = msg.data as {
+          boardId: string;
+          batchId: string;
+          assetId: string;
+          status: string;
+          assetUrl?: string | null;
+          thumbnailUrl?: string | null;
+          durationSeconds?: number | null;
+          modelLabel?: string | null;
+          rejectionReason?: string | null;
+        };
+        if (d.boardId !== boardId) return;
+        queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
+          if (!prev) return prev;
+          const patchAsset = <T extends { id: string }>(a: T): T => {
+            if (a.id !== d.assetId) return a;
+            return {
+              ...a,
+              status: d.status,
+              ...(d.assetUrl !== undefined ? { assetUrl: d.assetUrl } : {}),
+              ...(d.thumbnailUrl !== undefined ? { thumbnailUrl: d.thumbnailUrl } : {}),
+              ...(d.durationSeconds !== undefined ? { durationSeconds: d.durationSeconds } : {}),
+              ...(d.modelLabel !== undefined ? { modelLabel: d.modelLabel } : {}),
+              ...(d.rejectionReason !== undefined ? { rejectionReason: d.rejectionReason } : {}),
+            };
+          };
+          return {
+            ...prev,
+            batches: prev.batches.map((b) => ({ ...b, assets: b.assets.map(patchAsset) })),
+            assets: prev.assets.map(patchAsset),
+          };
+        });
+        return;
+      }
+      if (t === "board_auto_eval") {
+        const d = msg.data as {
+          boardId: string;
+          batchId: string;
+          winnerAssetId: string;
+          rejected: Array<{ assetId: string; reason: string }>;
+          modelUsed: string;
+        };
+        if (d.boardId !== boardId) return;
+        const lines = [
+          `Auto-eval picked a winner (${d.modelUsed}).`,
+          ...d.rejected.map((r) => `• Rejected ${r.assetId.slice(0, 8)}: ${r.reason}`),
+        ];
+        setMessages((m) => [
+          ...m,
+          {
+            id: `eval-${d.batchId}`,
+            role: "assistant",
+            content: lines.join("\n"),
+          },
+        ]);
+        return;
+      }
       if (
         t === "video_generation_complete" ||
         t === "video_generation_failed" ||

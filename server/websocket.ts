@@ -1,9 +1,62 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
 import type { IncomingMessage } from "http";
+import jwt from "jsonwebtoken";
+import type { JWTPayload } from "./middleware/auth";
+
+function parseCookieHeader(header: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (!k) continue;
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function authenticateRequest(req: IncomingMessage): { userId: string } | null {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) return null;
+  let token: string | undefined;
+  const auth = req.headers["authorization"];
+  if (typeof auth === "string" && auth.startsWith("Bearer ")) {
+    token = auth.slice("Bearer ".length).trim();
+  }
+  if (!token) {
+    const cookies = parseCookieHeader(
+      Array.isArray(req.headers.cookie) ? req.headers.cookie.join("; ") : req.headers.cookie,
+    );
+    if (cookies.authToken) token = cookies.authToken;
+  }
+  if (!token) {
+    try {
+      const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+      const t = url.searchParams.get("token");
+      if (t) token = t;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!token) return null;
+  try {
+    const decoded = jwt.verify(token, secret) as JWTPayload;
+    if (!decoded || decoded.id === undefined || decoded.id === null) return null;
+    return { userId: String(decoded.id) };
+  } catch {
+    return null;
+  }
+}
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_auto_eval";
   data: any;
   timestamp: string;
   userId?: number;
@@ -15,32 +68,35 @@ export class RealtimeService {
   private clients: Map<string, Set<WebSocket>> = new Map();
 
   initialize(server: Server) {
-    this.wss = new WebSocketServer({ 
-      server, 
+    this.wss = new WebSocketServer({
+      server,
       path: "/ws",
-      verifyClient: (info) => {
-        // For now, allow connections but will validate session in connection handler
-        // In production, verify JWT token or session cookie here
-        return true;
-      }
+      verifyClient: (info, done) => {
+        // SECURITY: authenticate at the upgrade level so unauthenticated
+        // sockets are rejected before the handshake completes. The user
+        // identity is derived only from a verified JWT (cookie / Bearer
+        // token / ?token=). Any client-supplied ?userId= is ignored.
+        const auth = authenticateRequest(info.req);
+        if (!auth) {
+          console.warn("⚠️ WebSocket upgrade rejected: invalid or missing JWT");
+          return done(false, 401, "Unauthorized");
+        }
+        (info.req as any)._wsUserId = auth.userId;
+        return done(true);
+      },
     });
 
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
-      console.log("🔌 WebSocket client connection attempt");
-
-      // Extract and validate user context
-      const url = new URL(req.url!, `http://${req.headers.host}`);
-      const userIdParam = url.searchParams.get("userId");
-      
-      // SECURITY: In production, validate session/JWT token from cookies or headers
-      // For now, require userId to be provided (will be enhanced with proper auth)
-      if (!userIdParam || userIdParam === "guest") {
-        console.warn("⚠️ WebSocket connection rejected: No valid user authentication");
+      // The verified userId was stashed by verifyClient. Re-verify defensively
+      // in case the upgrade happened without it (should not occur in practice).
+      const verified = (req as any)._wsUserId as string | undefined;
+      const fallback = verified ? { userId: verified } : authenticateRequest(req);
+      if (!fallback) {
+        console.warn("⚠️ WebSocket connection rejected: authentication missing post-upgrade");
         ws.close(1008, "Authentication required");
         return;
       }
-      
-      const userId = userIdParam;
+      const userId = fallback.userId;
       console.log(`✅ WebSocket client authenticated: userId=${userId}`);
 
       // Add client to the user's set
@@ -372,6 +428,47 @@ export class RealtimeService {
         error,
         message: `Voice "${voiceName}" clone failed: ${error}`,
       },
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Notify when a board asset's generation status changes
+  notifyBoardAssetStatus(
+    userId: string,
+    payload: {
+      boardId: string;
+      batchId: string;
+      assetId: string;
+      status: string;
+      assetUrl?: string | null;
+      thumbnailUrl?: string | null;
+      durationSeconds?: number | null;
+      modelLabel?: string | null;
+      provider?: string | null;
+      rejectionReason?: string | null;
+    },
+  ) {
+    this.sendToUser(userId, {
+      type: "board_asset_status",
+      data: payload,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Notify when a board batch finishes auto-evaluation
+  notifyBoardAutoEval(
+    userId: string,
+    payload: {
+      boardId: string;
+      batchId: string;
+      winnerAssetId: string;
+      rejected: Array<{ assetId: string; reason: string }>;
+      modelUsed: string;
+    },
+  ) {
+    this.sendToUser(userId, {
+      type: "board_auto_eval",
+      data: payload,
       timestamp: new Date().toISOString(),
     });
   }

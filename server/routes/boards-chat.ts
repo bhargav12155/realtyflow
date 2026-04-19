@@ -63,6 +63,22 @@ function pushAssetStatus(
   } catch (err) {
     console.error("[boards-chat] websocket push failed:", err);
   }
+  try {
+    realtimeService.notifyBoardAssetStatus(userId, {
+      boardId,
+      batchId: asset.batchId,
+      assetId: asset.id,
+      status: asset.status,
+      assetUrl: asset.assetUrl ?? null,
+      thumbnailUrl: asset.thumbnailUrl ?? null,
+      durationSeconds: asset.durationSeconds ?? null,
+      modelLabel: asset.modelLabel ?? null,
+      provider: asset.provider,
+      rejectionReason: asset.rejectionReason ?? null,
+    });
+  } catch (err) {
+    console.warn("[boards-chat] typed ws emit failed:", err instanceof Error ? err.message : err);
+  }
 }
 
 const SEEDANCE_MODELS: SeedanceModel[] = [
@@ -514,6 +530,20 @@ async function runAutoEvalAndApply(args: {
       if (updated) pushAssetStatus(userId, boardId, updated, { autoEval: true });
     }),
   );
+  try {
+    realtimeService.notifyBoardAutoEval(userId, {
+      boardId,
+      batchId,
+      winnerAssetId: evalResult.winnerAssetId,
+      rejected: evalResult.rejected,
+      modelUsed: evalResult.modelUsed,
+    });
+  } catch (err) {
+    console.warn(
+      "[boards-chat] ws auto-eval emit failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
   return {
     applied: true,
     winnerAssetId: evalResult.winnerAssetId,

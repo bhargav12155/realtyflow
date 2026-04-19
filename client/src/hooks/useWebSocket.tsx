@@ -21,7 +21,9 @@ interface WebSocketMessage {
     | "sjinn_video_ready"
     | "sora2_video_ready"
     | "voice_clone_complete"
-    | "voice_clone_failed";
+    | "voice_clone_failed"
+    | "board_asset_status"
+    | "board_auto_eval";
   data: any;
   timestamp: string;
   userId?: number;
@@ -57,7 +59,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     try {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws?userId=${userId}`;
+      // Auth is enforced server-side via the httpOnly authToken cookie.
+      // The userId query param is for diagnostics only — the server ignores it.
+      const wsUrl = `${protocol}//${window.location.host}/ws?userId=${encodeURIComponent(userId)}`;
 
       console.log("🔌 Connecting to WebSocket:", wsUrl);
       const ws = new WebSocket(wsUrl);

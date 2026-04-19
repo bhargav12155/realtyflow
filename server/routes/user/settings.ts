@@ -28,6 +28,7 @@ router.get("/settings", async (req, res) => {
         linkedinUrl: true,
         xUrl: true,
         customWebhook: true,
+        emailNotifications: true,
       },
     });
 
@@ -38,6 +39,7 @@ router.get("/settings", async (req, res) => {
         linkedinUrl: "",
         xUrl: "",
         customWebhook: "",
+        emailNotifications: true,
       }
     );
   } catch (error) {
@@ -56,21 +58,29 @@ router.post("/settings", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { facebookUrl, instagramUrl, linkedinUrl, xUrl, customWebhook } =
-      req.body;
+    const {
+      facebookUrl,
+      instagramUrl,
+      linkedinUrl,
+      xUrl,
+      customWebhook,
+      emailNotifications,
+    } = req.body;
+
+    const updates: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+    if (facebookUrl !== undefined) updates.facebookUrl = facebookUrl;
+    if (instagramUrl !== undefined) updates.instagramUrl = instagramUrl;
+    if (linkedinUrl !== undefined) updates.linkedinUrl = linkedinUrl;
+    if (xUrl !== undefined) updates.xUrl = xUrl;
+    if (customWebhook !== undefined) updates.customWebhook = customWebhook;
+    if (typeof emailNotifications === "boolean") {
+      updates.emailNotifications = emailNotifications;
+    }
 
     // Update user settings in database
-    await db
-      .update(users)
-      .set({
-        facebookUrl,
-        instagramUrl,
-        linkedinUrl,
-        xUrl,
-        customWebhook,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId));
+    await db.update(users).set(updates).where(eq(users.id, userId));
 
     return res.json({
       success: true,

@@ -17,6 +17,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export interface BoardCollaborator {
   userId: string;
@@ -151,58 +156,103 @@ function CollaboratorStack({
   if (collaborators.length === 0) return null;
   const visible = collaborators.slice(0, 3);
   const overflow = collaborators.length - visible.length;
-  const fullList = collaborators.map((c) => displayName(c)).join(", ");
-  const tooltip = `Shared with ${collaborators.length} ${collaborators.length === 1 ? "person" : "people"}: ${fullList}`;
+  const countLabel = `Shared with ${collaborators.length} ${collaborators.length === 1 ? "person" : "people"}`;
   return (
-    <div
-      className="mt-3 flex items-center gap-2"
-      title={tooltip}
-      data-testid={`collaborators-${boardId}`}
-    >
-      <div className="flex -space-x-1.5">
-        {visible.map((c) => (
-          <Avatar
-            key={c.userId}
-            seed={c.userId}
-            label={displayName(c)}
-            testId={`avatar-collaborator-${boardId}-${c.userId}`}
-          />
-        ))}
-        {overflow > 0 && (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="mt-3 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+          tabIndex={0}
+          data-testid={`collaborators-${boardId}`}
+        >
+          <div className="flex -space-x-1.5">
+            {visible.map((c) => (
+              <Avatar
+                key={c.userId}
+                seed={c.userId}
+                label={displayName(c)}
+                testId={`avatar-collaborator-${boardId}-${c.userId}`}
+              />
+            ))}
+            {overflow > 0 && (
+              <span
+                className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-semibold bg-neutral-200 text-neutral-700 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-200 dark:ring-neutral-900"
+                data-testid={`avatar-overflow-${boardId}`}
+              >
+                +{overflow}
+              </span>
+            )}
+          </div>
           <span
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-semibold bg-neutral-200 text-neutral-700 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-200 dark:ring-neutral-900"
-            data-testid={`avatar-overflow-${boardId}`}
+            className="text-[10px] text-neutral-600 dark:text-neutral-400"
+            data-testid={`text-shared-count-${boardId}`}
           >
-            +{overflow}
+            {countLabel}
           </span>
-        )}
-      </div>
-      <span
-        className="text-[10px] text-neutral-600 dark:text-neutral-400"
-        data-testid={`text-shared-count-${boardId}`}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        className="max-w-xs"
+        data-testid={`tooltip-collaborators-${boardId}`}
       >
-        Shared with {collaborators.length} {collaborators.length === 1 ? "person" : "people"}
-      </span>
-    </div>
+        <div className="text-xs font-semibold mb-1">{countLabel}</div>
+        <ul className="space-y-0.5">
+          {collaborators.map((c) => (
+            <li
+              key={c.userId}
+              className="flex items-center gap-2 text-xs"
+              data-testid={`tooltip-collaborator-${boardId}-${c.userId}`}
+            >
+              <Avatar seed={c.userId} label={displayName(c)} />
+              <span className="truncate">{displayName(c)}</span>
+            </li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
 function OwnerBadge({ boardId, owner }: { boardId: string; owner: BoardOwner }) {
   const label = displayName(owner);
+  const ownerName = (owner.name && owner.name.trim()) || null;
+  const ownerEmail = (owner.email && owner.email.trim()) || null;
   return (
-    <div
-      className="mt-3 flex items-center gap-2"
-      title={`Shared by ${label}`}
-      data-testid={`owner-${boardId}`}
-    >
-      <Avatar seed={owner.id} label={label} testId={`avatar-owner-${boardId}`} />
-      <span
-        className="text-[10px] text-neutral-600 truncate dark:text-neutral-400"
-        data-testid={`text-owner-${boardId}`}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="mt-3 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+          tabIndex={0}
+          data-testid={`owner-${boardId}`}
+        >
+          <Avatar seed={owner.id} label={label} testId={`avatar-owner-${boardId}`} />
+          <span
+            className="text-[10px] text-neutral-600 truncate dark:text-neutral-400"
+            data-testid={`text-owner-${boardId}`}
+          >
+            Shared by {label}
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        className="max-w-xs"
+        data-testid={`tooltip-owner-${boardId}`}
       >
-        Shared by {label}
-      </span>
-    </div>
+        <div className="flex items-center gap-2">
+          <Avatar seed={owner.id} label={label} />
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold">{ownerName ?? label}</span>
+            {ownerEmail && (
+              <span className="text-xs text-muted-foreground">{ownerEmail}</span>
+            )}
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

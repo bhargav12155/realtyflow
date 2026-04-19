@@ -334,6 +334,11 @@ export default function BoardDetailPage() {
     return boardQuery.data.assets.find((a) => a.id === selectedAssetId) ?? null;
   }, [selectedAssetId, boardQuery.data]);
 
+  const selectedSourceAsset = useMemo(() => {
+    if (!selectedAsset?.sourceAssetId || !boardQuery.data) return null;
+    return boardQuery.data.assets.find((a) => a.id === selectedAsset.sourceAssetId) ?? null;
+  }, [selectedAsset, boardQuery.data]);
+
   const themeClass = theme === "dark" ? "dark " : "";
 
   if (boardQuery.isLoading) {
@@ -450,6 +455,7 @@ export default function BoardDetailPage() {
           {selectedAsset && (
             <AssetToolbar
               asset={selectedAsset}
+              sourceAsset={selectedSourceAsset}
               onClose={() => setSelectedAssetId(null)}
               onDelete={() => deleteAsset.mutate(selectedAsset.id)}
               onClearRejection={() => clearRejection.mutate(selectedAsset.id)}

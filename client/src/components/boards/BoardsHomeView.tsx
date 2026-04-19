@@ -8,6 +8,7 @@ import { NotificationsBell } from "@/components/boards/NotificationsBell";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
+import heygenLogo from "@assets/image_1776641804301.png";
 
 type Tab = "all" | "shared" | "mine";
 
@@ -66,13 +67,15 @@ const QUICK_ACTIONS: QuickAction[] = [
 ];
 
 export interface BoardsHomeViewProps {
+  /** Called when the view wants to be dismissed (e.g. user clicked a shortcut that navigates away). An overlay host should close itself. */
+  onRequestClose?: () => void;
   /** Called right before navigation to a newly created board, so an overlay host can close itself. */
   onBoardCreated?: (board: BoardSummary) => void;
   /** Hide the sidebar (e.g. when embedded in an overlay where chrome would feel redundant). */
   hideSidebar?: boolean;
 }
 
-export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewProps = {}) {
+export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: BoardsHomeViewProps = {}) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { theme } = useBoardsTheme();
@@ -249,6 +252,28 @@ export function BoardsHomeView({ onBoardCreated, hideSidebar }: BoardsHomeViewPr
               </button>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              onRequestClose?.();
+              setLocation("/dashboard#photo-avatars");
+            }}
+            data-overlay-keep
+            data-testid="link-heygen-photo-avatars"
+            className="mt-4 flex flex-col items-center gap-1 group focus:outline-none"
+            title="Open Photo Avatars (HeyGen)"
+          >
+            <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
+              <img
+                src={heygenLogo}
+                alt="Open Photo Avatars (HeyGen)"
+                className="w-7 h-7 object-contain"
+              />
+            </span>
+            <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+              Photo Avatars
+            </span>
+          </button>
         </section>
 
         <div className="flex items-center justify-between px-6 mb-4" data-overlay-keep>

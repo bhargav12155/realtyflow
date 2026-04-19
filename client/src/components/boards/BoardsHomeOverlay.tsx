@@ -43,7 +43,10 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
             Create a new board or open an existing one.
           </DialogPrimitive.Description>
 
-          <BoardsHomeView onBoardCreated={() => onOpenChange(false)} />
+          <BoardsHomeView
+            onBoardCreated={() => onOpenChange(false)}
+            onRequestClose={() => onOpenChange(false)}
+          />
 
           <button
             type="button"

@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -80,8 +81,11 @@ export const publicUsers = pgTable(
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({
-    // Composite unique constraint: one email per agent
-    uniqueAgentClient: unique("public_users_agent_slug_email_unique").on(table.agentSlug, table.email),
+    // Composite unique index: one email per agent. Using uniqueIndex (not
+    // unique constraint) because drizzle-kit 0.31.x has a known introspection
+    // quirk that re-proposes anonymous/composite unique constraints on every
+    // push; unique indexes are diffed correctly.
+    uniqueAgentClient: uniqueIndex("public_users_agent_slug_email_idx").on(table.agentSlug, table.email),
   })
 );
 

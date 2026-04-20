@@ -37,6 +37,7 @@ Key features include:
 - **Real-time Communication**: WebSockets ensure live updates.
 - **Photo Avatar Privacy**: Photo avatar data is strictly user-scoped.
 - **Auto Image Processing**: `autoProcessImageMiddleware` automatically resizes and compresses image uploads.
+- **Post-merge schema sync**: `scripts/post-merge.sh` runs `db:push` through `scripts/db-push-supervisor.mjs`, which auto-answers drizzle-kit's recurring "no truncate" prompt for the `public_users (agent_slug, email)` composite UNIQUE while keeping real schema errors fail-loud. The historical `engagement_leads` column drift was resolved.
 
 ## External Dependencies
 - **Database**: PostgreSQL (Neon)

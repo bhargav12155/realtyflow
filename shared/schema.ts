@@ -81,7 +81,7 @@ export const publicUsers = pgTable(
   },
   (table) => ({
     // Composite unique constraint: one email per agent
-    uniqueAgentClient: unique().on(table.agentSlug, table.email),
+    uniqueAgentClient: unique("public_users_agent_slug_email_unique").on(table.agentSlug, table.email),
   })
 );
 

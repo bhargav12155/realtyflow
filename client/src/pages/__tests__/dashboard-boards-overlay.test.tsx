@@ -121,11 +121,12 @@ describe("Dashboard → Boards overlay flow", () => {
       expect(apiRequestMock).toHaveBeenCalledWith("POST", "/api/boards", {
         title: "make me a board",
         seedPrompt: "make me a board",
+        seedMode: "plan",
       }),
     );
 
     await waitFor(() =>
-      expect(history[history.length - 1]).toBe(`/boards/board-123?seed=make+me+a+board`),
+      expect(history[history.length - 1]).toBe(`/boards/board-123?seed=make+me+a+board&chatMode=plan`),
     );
     await waitFor(() => expect(screen.queryByTestId("boards-overlay-content")).toBeNull());
   });

@@ -62,7 +62,7 @@ describe("AI Assistant: self-avatar CTA short-circuit", () => {
     fireEvent.click(sendBtn);
 
     const cta = await waitFor(() => screen.getByTestId("button-open-photo-avatars"));
-    expect(cta.getAttribute("href")).toBe("/dashboard#photo-avatars");
+    expect(cta.getAttribute("href")).toBe("/dashboard?action=upload#photo-avatars");
     expect(apiRequestMock).not.toHaveBeenCalledWith(
       "POST",
       "/api/ai-assistant/chat",

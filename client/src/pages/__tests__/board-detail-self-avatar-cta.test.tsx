@@ -110,7 +110,7 @@ describe("Board chat: self-avatar CTA short-circuit", () => {
     const btn = await waitFor(() => screen.getByTestId("stub-send-self-avatar"));
     act(() => btn.click());
     const cta = await waitFor(() => screen.getByTestId("button-open-photo-avatars"));
-    expect(cta.getAttribute("href")).toBe("/dashboard#photo-avatars");
+    expect(cta.getAttribute("href")).toBe("/dashboard?action=upload#photo-avatars");
     expect(apiRequestMock).not.toHaveBeenCalled();
   });
 

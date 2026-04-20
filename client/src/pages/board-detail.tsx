@@ -182,7 +182,7 @@ export default function BoardDetailPage() {
         "Got it — to create a Photo Avatar of yourself, head to Photo Avatars. Upload a clear headshot there and we'll train the avatar so you can use it in any video.",
       cta: {
         label: "Open Photo Avatars",
-        href: "/dashboard#photo-avatars",
+        href: "/dashboard?action=upload#photo-avatars",
         testId: "button-open-photo-avatars",
       },
     };

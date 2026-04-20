@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useLocation } from "wouter";
 import { useBusinessType } from "@/lib/businessContext";
+import { shouldAutoOpenUploadStep, clearUploadIntent } from "@/lib/uploadIntent";
 import {
   Upload,
   Wand2,
@@ -245,12 +246,16 @@ export function AvatarIVStudio() {
   const [, setLocation] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  
+  const step1Ref = useRef<HTMLDivElement>(null);
+
+  const initialAutoUpload = typeof window !== "undefined"
+    && shouldAutoOpenUploadStep(window.location.search);
+
   const [currentStep, setCurrentStep] = useState(1);
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageKey, setImageKey] = useState<string | null>(null);
-  const [showLibrary, setShowLibrary] = useState(true);
+  const [showLibrary, setShowLibrary] = useState(!initialAutoUpload);
   const [isConvertingHeic, setIsConvertingHeic] = useState(false);
   
   const { businessType } = useBusinessType();
@@ -458,6 +463,19 @@ export function AvatarIVStudio() {
       if (pollInterval) clearInterval(pollInterval);
     };
   }, [pollInterval]);
+
+  // Auto-open the upload step when arriving from chat with ?action=upload
+  useEffect(() => {
+    if (!initialAutoUpload) return;
+    setCurrentStep(1);
+    setShowLibrary(false);
+    const t = setTimeout(() => {
+      step1Ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+    clearUploadIntent();
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const playVoicePreview = (previewUrl: string, voiceId: string) => {
     if (audioRef.current) {
@@ -1424,7 +1442,7 @@ export function AvatarIVStudio() {
           />
 
           {currentStep === 1 && (
-            <div className="space-y-6" data-testid="step-1-content">
+            <div ref={step1Ref} className="space-y-6" data-testid="step-1-content">
               <div className="text-center">
                 <h3 className="text-lg font-semibold mb-2">Select Your Photo</h3>
                 <p className="text-gray-500 text-sm mb-4">

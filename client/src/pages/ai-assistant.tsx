@@ -176,7 +176,7 @@ export default function AiAssistantPage() {
         {
           id: `self-avatar-${Date.now()}`,
           content: message,
-          cta: { label: "Open Photo Avatars", href: "/dashboard#photo-avatars" },
+          cta: { label: "Open Photo Avatars", href: "/dashboard?action=upload#photo-avatars" },
         },
       ]);
       setMessage("");

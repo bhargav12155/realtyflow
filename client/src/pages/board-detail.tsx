@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/boards/BoardCanvas";
-import { ChatPanel, type ChatMessage, type ChatMode } from "@/components/boards/ChatPanel";
+import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
 import {
   DEFAULT_SEEDANCE_OPTIONS,
@@ -66,6 +66,7 @@ export default function BoardDetailPage() {
   const [provider, setProvider] = useState<ProviderId>("luma");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
   const [seedanceOptions, setSeedanceOptions] = useState<SeedanceOptions>(DEFAULT_SEEDANCE_OPTIONS);
+  const [chatModel, setChatModel] = useState<ChatModelId>("claude");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
 
@@ -170,6 +171,7 @@ export default function BoardDetailPage() {
         generationMode,
         referencedAssetIds,
         ...(provider === "seedance" ? { seedanceOptions } : {}),
+        ...(mode === "brainstorm" ? { chatModel } : {}),
       });
       return res.json();
     },
@@ -517,6 +519,8 @@ export default function BoardDetailPage() {
             onGenerationModeChange={setGenerationMode}
             seedanceOptions={seedanceOptions}
             onSeedanceOptionsChange={setSeedanceOptions}
+            chatModel={chatModel}
+            onChatModelChange={setChatModel}
             referencedAssetIds={referencedAssetIds}
             hasReferencedImage={hasReferencedImage}
             onSend={(text) => sendChat.mutate(text)}

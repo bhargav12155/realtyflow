@@ -268,6 +268,70 @@ describe("POST /api/boards/:id/chat — brainstorm mode", () => {
     assert.equal(openaiBrainstorm.calls.length, 0);
   });
 
+  it("honors body.chatModel='gemini' by calling Gemini first and not touching Anthropic", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "use gemini please",
+      mode: "brainstorm",
+      chatModel: "gemini",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.chatModel, "gemini");
+    assert.equal(res.body.reply, "gemini: use gemini please");
+    assert.equal(gemini.calls.length, 1);
+    assert.equal(anthropic.calls.length, 0, "Anthropic must not be called when chatModel=gemini succeeds");
+    assert.equal(openaiBrainstorm.calls.length, 0);
+  });
+
+  it("honors body.chatModel='openai' by calling OpenAI first", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm({ reply: "from-openai" });
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "use chatgpt please",
+      mode: "brainstorm",
+      chatModel: "openai",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.reply, "from-openai");
+    assert.equal(openaiBrainstorm.calls.length, 1);
+    assert.equal(anthropic.calls.length, 0);
+    assert.equal(gemini.calls.length, 0);
+  });
+
+  it("falls back from the picked chatModel to the other providers when it fails", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini", { fail: true });
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "gemini will fail",
+      mode: "brainstorm",
+      chatModel: "gemini",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.reply, "anthropic: gemini will fail");
+    assert.equal(gemini.calls.length, 1);
+    assert.equal(anthropic.calls.length, 1);
+    assert.equal(openaiBrainstorm.calls.length, 0);
+  });
+
   it("falls back to OpenAI when Anthropic and Gemini both fail", async () => {
     const anthropic = makeFakeChat("anthropic", { fail: true });
     const gemini = makeFakeChat("gemini", { fail: true });

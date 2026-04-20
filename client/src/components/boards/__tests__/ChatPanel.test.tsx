@@ -29,26 +29,26 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof ChatPanel>> 
   return { ...utils, onModeChange, onProviderChange, onSend };
 }
 
-describe("ChatPanel plan/build modes", () => {
-  it("renames the mode pills to Plan / Build with the new test ids", () => {
+describe("ChatPanel think/build modes", () => {
+  it("renames the mode pills to Think / Build with the new test ids", () => {
     renderPanel();
-    expect(screen.getByTestId("button-mode-plan").textContent).toBe("Plan");
+    expect(screen.getByTestId("button-mode-plan").textContent).toBe("Think");
     expect(screen.getByTestId("button-mode-build").textContent).toBe("Build");
   });
 
-  it("hides the platform picker in Plan mode and shows a planning hint instead", () => {
+  it("hides the platform picker in Think mode and shows the Think model picker instead", () => {
     renderPanel({ mode: "brainstorm" });
     expect(screen.queryByTestId("button-open-platform-picker")).toBeNull();
-    expect(screen.queryByTestId("text-plan-mode-hint")).not.toBeNull();
+    expect(screen.queryByTestId("button-open-think-model-picker")).not.toBeNull();
   });
 
-  it("shows the platform picker in Build mode", () => {
+  it("shows the platform picker in Build mode and hides the Think model picker", () => {
     renderPanel({ mode: "create" });
     expect(screen.queryByTestId("button-open-platform-picker")).not.toBeNull();
-    expect(screen.queryByTestId("text-plan-mode-hint")).toBeNull();
+    expect(screen.queryByTestId("button-open-think-model-picker")).toBeNull();
   });
 
-  it("clicking the Plan pill switches mode to brainstorm; clicking Build switches to create", () => {
+  it("clicking the Think pill switches mode to brainstorm; clicking Build switches to create", () => {
     const { onModeChange } = renderPanel({ mode: "create" });
     fireEvent.click(screen.getByTestId("button-mode-plan"));
     expect(onModeChange).toHaveBeenCalledWith("brainstorm");
@@ -56,7 +56,16 @@ describe("ChatPanel plan/build modes", () => {
     expect(onModeChange).toHaveBeenCalledWith("create");
   });
 
-  it('renders a "Build this" button under a Plan-mode assistant message that contains a quoted suggestion, and clicking it switches to Build', () => {
+  it("Think model picker shows the active model and can switch between Claude/Gemini/ChatGPT", () => {
+    const onChatModelChange = vi.fn();
+    renderPanel({ mode: "brainstorm", chatModel: "gemini", onChatModelChange });
+    expect(screen.getByTestId("text-think-model-name").textContent).toBe("Gemini");
+    fireEvent.click(screen.getByTestId("button-open-think-model-picker"));
+    fireEvent.click(screen.getByTestId("button-think-model-openai"));
+    expect(onChatModelChange).toHaveBeenCalledWith("openai");
+  });
+
+  it('renders a "Build this" button under a Think-mode assistant message that contains a quoted suggestion, and clicking it switches to Build', () => {
     const messages: ChatMessage[] = [
       {
         id: "a1",
@@ -86,7 +95,7 @@ describe("ChatPanel plan/build modes", () => {
     expect(screen.queryByTestId("button-build-this-a1")).toBeNull();
   });
 
-  it("hides the image-edit hint in Plan mode even when a referenced image asset is selected", () => {
+  it("hides the image-edit hint in Think mode even when a referenced image asset is selected", () => {
     renderPanel({
       mode: "brainstorm",
       provider: "openai-image",

@@ -138,10 +138,13 @@ const chatBodySchema = z.object({
   forceModel: z.string().optional(),
   variations: z.number().int().min(1).max(4).optional(),
   seedanceOptions: seedanceOptionsSchema.optional(),
+  chatModel: z.enum(["claude", "gemini", "openai"]).optional(),
   conversationHistory: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
     .optional(),
 });
+
+export type ChatModelId = "claude" | "gemini" | "openai";
 
 const BRAINSTORM_SYSTEM = `You are a creative director assisting on a visual board.
 Help the user brainstorm, refine prompts, and plan generations.
@@ -789,14 +792,30 @@ async function brainstormReply(
   message: string,
   providers: Required<BoardsChatProviders>,
   history?: { role: "user" | "assistant"; content: string }[],
+  preferred: ChatModelId = "claude",
 ): Promise<string> {
-  const a = await providers.anthropic.chat(message, history, BRAINSTORM_SYSTEM);
-  if (a.success && a.message) return a.message;
-  const g = await providers.gemini.chat(message, history, BRAINSTORM_SYSTEM);
-  if (g.success && g.message) return g.message;
-  const o = await providers.openaiBrainstorm(message, history);
-  if (o.success && o.message) return o.message;
-  throw new Error(a.error || g.error || o.error || "All chat providers unavailable");
+  const callers: Record<
+    ChatModelId,
+    () => Promise<{ success: boolean; message?: string; error?: string }>
+  > = {
+    claude: () => providers.anthropic.chat(message, history, BRAINSTORM_SYSTEM),
+    gemini: () => providers.gemini.chat(message, history, BRAINSTORM_SYSTEM),
+    openai: () => providers.openaiBrainstorm(message, history),
+  };
+  // Try the user-picked model first, then fall back to the others in a stable
+  // order so the existing health/availability behavior is preserved.
+  const fallbackOrder: ChatModelId[] = ["claude", "gemini", "openai"];
+  const order: ChatModelId[] = [
+    preferred,
+    ...fallbackOrder.filter((m) => m !== preferred),
+  ];
+  let lastError: string | undefined;
+  for (const id of order) {
+    const r = await callers[id]();
+    if (r.success && r.message) return r.message;
+    lastError = r.error || lastError;
+  }
+  throw new Error(lastError || "All chat providers unavailable");
 }
 
 export interface BoardsChatDeps {
@@ -882,8 +901,13 @@ export function registerBoardsChatRoutes(
 
       // ---------- Brainstorm mode ----------
       if (body.mode === "brainstorm") {
-        const reply = await brainstormReply(body.message, chatProviders, body.conversationHistory);
-        return res.json({ mode: "brainstorm", reply });
+        const reply = await brainstormReply(
+          body.message,
+          chatProviders,
+          body.conversationHistory,
+          body.chatModel ?? "claude",
+        );
+        return res.json({ mode: "brainstorm", reply, chatModel: body.chatModel ?? "claude" });
       }
 
       // ---------- Create mode ----------

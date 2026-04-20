@@ -11,6 +11,14 @@ import {
 
 export type ChatMode = "brainstorm" | "create";
 
+export type ChatModelId = "claude" | "gemini" | "openai";
+
+export const THINK_MODELS: { id: ChatModelId; name: string }[] = [
+  { id: "claude", name: "Claude" },
+  { id: "gemini", name: "Gemini" },
+  { id: "openai", name: "ChatGPT" },
+];
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -29,6 +37,8 @@ interface ChatPanelProps {
   onGenerationModeChange: (m: GenerationMode) => void;
   seedanceOptions?: SeedanceOptions;
   onSeedanceOptionsChange?: (opts: SeedanceOptions) => void;
+  chatModel?: ChatModelId;
+  onChatModelChange?: (m: ChatModelId) => void;
   referencedAssetIds: string[];
   hasReferencedImage?: boolean;
   onSend: (text: string) => void;
@@ -73,6 +83,8 @@ export function ChatPanel({
   onGenerationModeChange,
   seedanceOptions,
   onSeedanceOptionsChange,
+  chatModel = "claude",
+  onChatModelChange,
   referencedAssetIds,
   hasReferencedImage,
   onSend,
@@ -82,9 +94,12 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
   const isPlan = mode === "brainstorm";
+  const selectedThinkModel =
+    THINK_MODELS.find((m) => m.id === chatModel) ?? THINK_MODELS[0];
 
   // Apply a parent-provided pre-fill (e.g. the typed idea from the Boards
   // home in Plan mode) once, then clear it so we don't clobber the user's
@@ -102,9 +117,11 @@ export function ChatPanel({
 
   // Whenever the panel enters Plan mode, force the platform picker closed —
   // it's not rendered in Plan mode, and leaving open=true would cause it to
-  // re-mount in the wrong state on the next Plan→Build flip.
+  // re-mount in the wrong state on the next Plan→Build flip. The reverse is
+  // also true for the Think model picker on the way back to Build mode.
   useEffect(() => {
     if (isPlan) setPickerOpen(false);
+    else setModelPickerOpen(false);
   }, [isPlan]);
 
   const submit = () => {
@@ -214,39 +231,104 @@ export function ChatPanel({
               data-testid="input-chat"
             />
           </div>
-          <div className="flex items-center justify-between px-3 py-2">
-            {isPlan ? (
-              <span
-                className="flex items-center gap-1 text-[11px] text-neutral-400 italic px-2 py-1 dark:text-neutral-500"
-                data-testid="text-plan-mode-hint"
+          <div className="flex items-center justify-between px-3 py-2 gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <div
+                className="inline-flex items-center rounded-full bg-neutral-100 p-0.5 dark:bg-neutral-700"
+                data-testid="group-mode-toggle"
               >
-                <Sparkles className="w-3 h-3 text-violet-400" />
-                Planning — no generation
-              </span>
-            ) : (
-              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
-                    data-testid="button-open-platform-picker"
-                  >
-                    <Sparkles className="w-3 h-3 text-violet-500" />
-                    <span>{sel.name}</span>
-                    <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[420px] p-0">
-                  <PlatformPicker
-                    selectedProvider={provider}
-                    onSelectProvider={onProviderChange}
-                    selectedMode={generationMode}
-                    onSelectMode={onGenerationModeChange}
-                    seedanceOptions={seedanceOptions}
-                    onSeedanceOptionsChange={onSeedanceOptionsChange}
-                  />
-                </PopoverContent>
-              </Popover>
-            )}
+                <button
+                  type="button"
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full transition-colors ${
+                    isPlan
+                      ? "bg-white text-violet-700 shadow-sm dark:bg-neutral-900 dark:text-violet-300"
+                      : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+                  }`}
+                  onClick={() => onModeChange("brainstorm")}
+                  data-testid="button-mode-plan"
+                  aria-pressed={isPlan}
+                >
+                  Think
+                </button>
+                <button
+                  type="button"
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full transition-colors ${
+                    !isPlan
+                      ? "bg-white text-violet-700 shadow-sm dark:bg-neutral-900 dark:text-violet-300"
+                      : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+                  }`}
+                  onClick={() => onModeChange("create")}
+                  data-testid="button-mode-build"
+                  aria-pressed={!isPlan}
+                >
+                  Build
+                </button>
+              </div>
+              {isPlan ? (
+                <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      data-testid="button-open-think-model-picker"
+                    >
+                      <Sparkles className="w-3 h-3 text-violet-500" />
+                      <span data-testid="text-think-model-name">{selectedThinkModel.name}</span>
+                      <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[180px] p-1">
+                    <div data-testid="picker-think-model" className="flex flex-col">
+                      {THINK_MODELS.map((m) => {
+                        const active = m.id === selectedThinkModel.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              onChatModelChange?.(m.id);
+                              setModelPickerOpen(false);
+                            }}
+                            className={`flex items-center justify-between text-[12px] rounded-md px-2 py-1.5 ${
+                              active
+                                ? "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200"
+                                : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                            }`}
+                            data-testid={`button-think-model-${m.id}`}
+                            aria-pressed={active}
+                          >
+                            <span>{m.name}</span>
+                            {active && <Sparkles className="w-3 h-3 text-violet-500" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      data-testid="button-open-platform-picker"
+                    >
+                      <Sparkles className="w-3 h-3 text-violet-500" />
+                      <span>{sel.name}</span>
+                      <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[420px] p-0">
+                    <PlatformPicker
+                      selectedProvider={provider}
+                      onSelectProvider={onProviderChange}
+                      selectedMode={generationMode}
+                      onSelectMode={onGenerationModeChange}
+                      seedanceOptions={seedanceOptions}
+                      onSeedanceOptionsChange={onSeedanceOptionsChange}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-attach"><Paperclip className="w-3.5 h-3.5" /></button>
               <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-mic"><Mic className="w-3.5 h-3.5" /></button>
@@ -260,31 +342,6 @@ export function ChatPanel({
               </button>
             </div>
           </div>
-        </div>
-        <div className="flex items-center justify-center gap-1 mt-2">
-          <button
-            className={`text-[10px] px-2 py-0.5 rounded-full ${
-              isPlan
-                ? "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
-                : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-            }`}
-            onClick={() => onModeChange("brainstorm")}
-            data-testid="button-mode-plan"
-          >
-            Plan
-          </button>
-          <button
-            className={`text-[10px] px-2 py-0.5 rounded-full ${
-              !isPlan
-                ? "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
-                : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-            }`}
-            onClick={() => onModeChange("create")}
-            data-testid="button-mode-build"
-          >
-            Build
-          </button>
-          <span className="text-[10px] text-neutral-400 ml-1 dark:text-neutral-500">Plan = talk it through · Build = generate</span>
         </div>
       </div>
     </aside>

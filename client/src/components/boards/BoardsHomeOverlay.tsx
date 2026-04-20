@@ -37,6 +37,31 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
             // Otherwise the user clicked on the gray backdrop area → dismiss.
             onOpenChange(false);
           }}
+          onPointerDownOutside={(e) => {
+            // Don't dismiss the Boards overlay when the user interacts with a
+            // nested Radix layer (AlertDialog confirms, DropdownMenu items, etc.)
+            // that's portaled to document.body. Without this guard, confirming
+            // "Delete board" inside the overlay would also close the overlay
+            // and bounce the user back to /dashboard.
+            const target = e.target as HTMLElement | null;
+            if (
+              target?.closest(
+                '[role="alertdialog"], [role="dialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]',
+              )
+            ) {
+              e.preventDefault();
+            }
+          }}
+          onInteractOutside={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (
+              target?.closest(
+                '[role="alertdialog"], [role="dialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]',
+              )
+            ) {
+              e.preventDefault();
+            }
+          }}
         >
           <DialogPrimitive.Title className="sr-only">Boards</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">

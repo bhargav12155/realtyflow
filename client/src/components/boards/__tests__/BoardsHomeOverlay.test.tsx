@@ -111,4 +111,47 @@ describe("BoardsHomeOverlay dismissal", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
+
+  it("does NOT dismiss when interaction lands in a portaled nested Radix layer (AlertDialog / DropdownMenu)", async () => {
+    const onOpenChange = vi.fn();
+    renderOverlay(onOpenChange);
+    await screen.findByTestId("boards-overlay-content");
+
+    // Simulate a portaled AlertDialog confirm button (matches the
+    // "Delete board" / "Leave board" pattern from BoardCard).
+    const fakeAlertDialog = document.createElement("div");
+    fakeAlertDialog.setAttribute("role", "alertdialog");
+    const confirmBtn = document.createElement("button");
+    confirmBtn.textContent = "Delete board";
+    fakeAlertDialog.appendChild(confirmBtn);
+    document.body.appendChild(fakeAlertDialog);
+
+    // Radix DismissableLayer fires custom events on document.body. Dispatch
+    // them with the portaled element as the target; the overlay's guards
+    // should call preventDefault() and skip dismissal.
+    const pointerOutside = new CustomEvent("dismissableLayer.pointerDownOutside", {
+      bubbles: true,
+      cancelable: true,
+      detail: { originalEvent: { target: confirmBtn } },
+    });
+    Object.defineProperty(pointerOutside, "target", { value: confirmBtn });
+    document.dispatchEvent(pointerOutside);
+
+    const interactOutside = new CustomEvent("dismissableLayer.interactOutside", {
+      bubbles: true,
+      cancelable: true,
+      detail: { originalEvent: { target: confirmBtn } },
+    });
+    Object.defineProperty(interactOutside, "target", { value: confirmBtn });
+    document.dispatchEvent(interactOutside);
+
+    // Also fire a regular pointerdown on the portaled element to cover the
+    // browser path Radix listens on internally.
+    fireEvent.pointerDown(confirmBtn);
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+    document.body.removeChild(fakeAlertDialog);
+  });
 });

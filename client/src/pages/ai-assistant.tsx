@@ -20,6 +20,13 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { cn } from "@/lib/utils";
+import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
+
+interface LocalAssistantMessage {
+  id: string;
+  content: string;
+  cta: { label: string; href: string };
+}
 
 interface Attachment {
   url: string;
@@ -51,6 +58,7 @@ export default function AiAssistantPage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [isNewChat, setIsNewChat] = useState(false);
+  const [localMessages, setLocalMessages] = useState<LocalAssistantMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -161,6 +169,18 @@ export default function AiAssistantPage() {
 
   const handleSend = () => {
     if (!message.trim() && selectedFiles.length === 0) return;
+    if (selectedFiles.length === 0 && detectCreateSelfAvatarIntent(message)) {
+      setLocalMessages((prev) => [
+        ...prev,
+        {
+          id: `self-avatar-${Date.now()}`,
+          content: message,
+          cta: { label: "Open Photo Avatars", href: "/dashboard#photo-avatars" },
+        },
+      ]);
+      setMessage("");
+      return;
+    }
     chatMutation.mutate({ text: message, files: selectedFiles });
   };
 
@@ -313,7 +333,7 @@ export default function AiAssistantPage() {
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ) : messages.length === 0 ? (
+              ) : messages.length === 0 && localMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
                   <Bot className="h-16 w-16 mb-4 opacity-50" />
                   <h3 className="text-lg font-medium mb-2">
@@ -328,6 +348,38 @@ export default function AiAssistantPage() {
               ) : (
                 <div className="space-y-2">
                   {messages.map(renderMessage)}
+
+                  {localMessages.map((lm) => (
+                    <div key={lm.id} data-testid={`message-self-avatar-${lm.id}`}>
+                      <div className="flex gap-3 mb-4 flex-row-reverse">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                          <User className="h-4 w-4" />
+                        </div>
+                        <div className="max-w-[75%] space-y-2 items-end">
+                          <div className="rounded-2xl px-4 py-2 whitespace-pre-wrap bg-primary text-primary-foreground rounded-tr-sm">
+                            {lm.content}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mb-4">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                          <Bot className="h-4 w-4" />
+                        </div>
+                        <div className="max-w-[75%] space-y-2">
+                          <div className="rounded-2xl rounded-tl-sm px-4 py-2 bg-muted">
+                            To create a Photo Avatar of yourself, head to Photo Avatars. Upload a clear headshot and we'll train your avatar so you can use it in any video.
+                          </div>
+                          <a
+                            href={lm.cta.href}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
+                            data-testid="button-open-photo-avatars"
+                          >
+                            {lm.cta.label}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
 
                   {chatMutation.isPending && (
                     <div className="flex gap-3 mb-4" data-testid="loading-indicator">

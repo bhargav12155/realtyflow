@@ -19,11 +19,18 @@ export const THINK_MODELS: { id: ChatModelId; name: string }[] = [
   { id: "openai", name: "ChatGPT" },
 ];
 
+export interface ChatMessageCta {
+  label: string;
+  href: string;
+  testId?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   pending?: boolean;
+  cta?: ChatMessageCta;
 }
 
 /**
@@ -201,6 +208,17 @@ export function ChatPanel({
                   <span className="text-neutral-400 dark:text-neutral-500">…</span>
                 ) : (
                   <span className="whitespace-pre-wrap">{m.content}</span>
+                )}
+                {m.cta && !m.pending && (
+                  <div className="mt-2">
+                    <a
+                      href={m.cta.href}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-600 hover:bg-violet-500 text-white text-[11px] font-medium"
+                      data-testid={m.cta.testId ?? `button-cta-${m.id}`}
+                    >
+                      {m.cta.label}
+                    </a>
+                  </div>
                 )}
               </div>
               {suggested && (

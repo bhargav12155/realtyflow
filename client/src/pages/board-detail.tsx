@@ -10,6 +10,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/boards/BoardCanvas";
 import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
+import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
 import {
   DEFAULT_SEEDANCE_OPTIONS,
@@ -171,6 +172,22 @@ export default function BoardDetailPage() {
       a.kind === "image" ? a.assetUrl : a.kind === "video" ? a.thumbnailUrl : null;
     return [{ id: a.id, kind: a.kind, previewUrl }];
   }, [selectedAssetId, boardQuery.data]);
+
+  const sendSelfAvatarCta = (text: string) => {
+    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: text };
+    const assistantMsg: ChatMessage = {
+      id: `a-${Date.now()}`,
+      role: "assistant",
+      content:
+        "Got it — to create a Photo Avatar of yourself, head to Photo Avatars. Upload a clear headshot there and we'll train the avatar so you can use it in any video.",
+      cta: {
+        label: "Open Photo Avatars",
+        href: "/dashboard#photo-avatars",
+        testId: "button-open-photo-avatars",
+      },
+    };
+    setMessages((m) => [...m, userMsg, assistantMsg]);
+  };
 
   const sendChat = useMutation({
     mutationFn: async (text: string) => {
@@ -535,7 +552,13 @@ export default function BoardDetailPage() {
             hasReferencedImage={hasReferencedImage}
             referencedAssets={referencedAssets}
             onRemoveReferencedAsset={() => setSelectedAssetId(null)}
-            onSend={(text) => sendChat.mutate(text)}
+            onSend={(text) => {
+              if (detectCreateSelfAvatarIntent(text)) {
+                sendSelfAvatarCta(text);
+                return;
+              }
+              sendChat.mutate(text);
+            }}
             isSending={sendChat.isPending}
             pendingInput={pendingInput}
             onPendingInputApplied={() => setPendingInput(null)}

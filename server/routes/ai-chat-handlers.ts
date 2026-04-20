@@ -82,6 +82,8 @@ WHATSAPP & BULK MESSAGING:
 - Users can upload CSV, PDF, Word, or text files to import phone numbers
 - Supports up to 5,000 recipients per send
 
+NOTE: When a user asks to create a Photo Avatar of THEMSELVES (e.g. "make an avatar of me", "create an avatar from my photo"), the client app intercepts the request locally and sends them straight to the Photo Avatars flow — you do not need to repeat those instructions.
+
 Be helpful, professional, and concise. Always let users know what the platform can do for them.`;
 
 export function createAiChatHandler(deps: AiChatDeps) {

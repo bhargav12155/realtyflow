@@ -30,8 +30,9 @@ vi.mock("@/lib/queryClient", () => {
   };
 });
 
+const toastMock = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
 }));
 
 vi.mock("@/hooks/useAuth", () => ({
@@ -75,6 +76,7 @@ beforeEach(() => {
     Element.prototype.scrollIntoView = () => {};
   }
   apiRequestMock.mockReset();
+  toastMock.mockReset();
   boardsListRef.current = [];
   // Default: GET /api/boards returns []
   apiRequestMock.mockImplementation(async (method: string, url: string, body?: unknown) => {
@@ -326,6 +328,108 @@ describe("BoardsHomeView create-from-prompt", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
     expect(screen.queryByTestId("boards-overlay-content")).not.toBeNull();
+  });
+
+  it("rolls back the optimistic delete and shows an error toast when DELETE /api/boards/:id fails", async () => {
+    const owned = [
+      {
+        id: "brd_owned_2",
+        title: "Coastal listings",
+        isOwner: true,
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    boardsListRef.current = owned;
+    apiRequestMock.mockImplementation(async (method: string, url: string) => {
+      if (method === "DELETE" && url === "/api/boards/brd_owned_2") {
+        throw new Error("500: server exploded");
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+
+    renderWithProviders(<BoardsHomeView />);
+
+    await screen.findByTestId("card-board-brd_owned_2");
+    const trigger = screen.getByTestId("button-board-menu-brd_owned_2");
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(trigger);
+    const deleteItem = await screen.findByTestId("menu-item-delete-brd_owned_2");
+    fireEvent.click(deleteItem);
+    const confirm = await screen.findByTestId("button-confirm-delete-brd_owned_2");
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      const deleteCalls = apiRequestMock.mock.calls.filter(
+        (c) => c[0] === "DELETE" && c[1] === "/api/boards/brd_owned_2",
+      );
+      expect(deleteCalls.length).toBe(1);
+    });
+
+    // Card should reappear after rollback.
+    await waitFor(() => {
+      expect(screen.queryByTestId("card-board-brd_owned_2")).not.toBeNull();
+    });
+
+    // Destructive error toast should have been fired.
+    await waitFor(() => {
+      const errorToasts = toastMock.mock.calls.filter(
+        (c) => (c[0] as { variant?: string } | undefined)?.variant === "destructive",
+      );
+      expect(errorToasts.length).toBeGreaterThan(0);
+      expect((errorToasts[0][0] as { title?: string }).title).toBe("Couldn't delete board");
+    });
+  });
+
+  it("rolls back the optimistic leave and shows an error toast when DELETE /api/boards/:id/share/me fails", async () => {
+    const shared = [
+      {
+        id: "brd_shared_2",
+        title: "Someone else's board",
+        isOwner: false,
+        owner: { id: "u-other", name: "Other", email: "other@example.com" },
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    boardsListRef.current = shared;
+    apiRequestMock.mockImplementation(async (method: string, url: string) => {
+      if (method === "DELETE" && url === "/api/boards/brd_shared_2/share/me") {
+        throw new Error("403: not allowed");
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+
+    renderWithProviders(<BoardsHomeView />);
+
+    await screen.findByTestId("card-board-brd_shared_2");
+    const trigger = screen.getByTestId("button-board-menu-brd_shared_2");
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(trigger);
+    const leaveItem = await screen.findByTestId("menu-item-leave-brd_shared_2");
+    fireEvent.click(leaveItem);
+    const confirm = await screen.findByTestId("button-confirm-leave-brd_shared_2");
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      const leaveCalls = apiRequestMock.mock.calls.filter(
+        (c) => c[0] === "DELETE" && c[1] === "/api/boards/brd_shared_2/share/me",
+      );
+      expect(leaveCalls.length).toBe(1);
+    });
+
+    // Card should reappear after rollback.
+    await waitFor(() => {
+      expect(screen.queryByTestId("card-board-brd_shared_2")).not.toBeNull();
+    });
+
+    await waitFor(() => {
+      const errorToasts = toastMock.mock.calls.filter(
+        (c) => (c[0] as { variant?: string } | undefined)?.variant === "destructive",
+      );
+      expect(errorToasts.length).toBeGreaterThan(0);
+      expect((errorToasts[0][0] as { title?: string }).title).toBe("Couldn't leave board");
+    });
   });
 
   it("non-owner (shared) cards still expose only 'Leave board', never 'Delete board'", async () => {

@@ -5,6 +5,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BoardsHomeView } from "../BoardsHomeView";
+import { BoardsHomeOverlay } from "../BoardsHomeOverlay";
 
 const apiRequestMock = vi.fn();
 const boardsListRef: { current: unknown[] } = { current: [] };
@@ -259,6 +260,72 @@ describe("BoardsHomeView create-from-prompt", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("card-board-brd_owned_1")).toBeNull();
     });
+  });
+
+  it("delete confirm inside the Boards overlay does NOT dismiss the overlay (no bounce-to-dashboard)", async () => {
+    const owned = [
+      {
+        id: "brd_owned_overlay",
+        title: "Coastal listings",
+        isOwner: true,
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    boardsListRef.current = owned;
+    apiRequestMock.mockImplementation(async (method: string, url: string) => {
+      if (method === "GET" && url === "/api/boards") {
+        return new Response(JSON.stringify(boardsListRef.current), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (method === "DELETE" && url === "/api/boards/brd_owned_overlay") {
+        boardsListRef.current = (boardsListRef.current as { id: string }[]).filter(
+          (b) => b.id !== "brd_owned_overlay",
+        );
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+
+    const onOpenChange = vi.fn();
+    renderWithProviders(<BoardsHomeOverlay open onOpenChange={onOpenChange} />);
+
+    await screen.findByTestId("boards-overlay-content");
+    await screen.findByTestId("card-board-brd_owned_overlay");
+
+    const trigger = screen.getByTestId("button-board-menu-brd_owned_overlay");
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(trigger);
+    const deleteItem = await screen.findByTestId("menu-item-delete-brd_owned_overlay");
+    fireEvent.click(deleteItem);
+
+    const confirm = await screen.findByTestId("button-confirm-delete-brd_owned_overlay");
+    // Pointer-down through click — the full interaction sequence Radix
+    // uses to detect dismiss-outside.
+    fireEvent.pointerDown(confirm, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(confirm, { button: 0, pointerType: "mouse" });
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      const deleteCalls = apiRequestMock.mock.calls.filter(
+        (c) => c[0] === "DELETE" && c[1] === "/api/boards/brd_owned_overlay",
+      );
+      expect(deleteCalls.length).toBe(1);
+    });
+
+    // The card is gone, but the overlay must still be open: the user should
+    // stay on the boards grid, not get bounced back to /dashboard.
+    await waitFor(() => {
+      expect(screen.queryByTestId("card-board-brd_owned_overlay")).toBeNull();
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(screen.queryByTestId("boards-overlay-content")).not.toBeNull();
   });
 
   it("non-owner (shared) cards still expose only 'Leave board', never 'Delete board'", async () => {

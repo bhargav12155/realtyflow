@@ -34,33 +34,38 @@ export function BoardsHomeOverlay({ open, onOpenChange }: BoardsHomeOverlayProps
             if (target.closest('[data-testid="button-close-boards-overlay"]')) return;
             // Clicks inside an interactive island stay open.
             if (target.closest("[data-overlay-keep]")) return;
+            // Clicks inside a nested Radix layer (AlertDialog confirm,
+            // DropdownMenu items, etc.) reach this handler via React's
+            // portal-aware event tree even though the DOM target lives
+            // under document.body. Treat them as "inside" so confirming
+            // "Delete board" / "Leave board" doesn't dismiss the overlay.
+            if (
+              target.closest(
+                '[role="alertdialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]',
+              )
+            ) {
+              return;
+            }
             // Otherwise the user clicked on the gray backdrop area → dismiss.
             onOpenChange(false);
           }}
           onPointerDownOutside={(e) => {
-            // Don't dismiss the Boards overlay when the user interacts with a
-            // nested Radix layer (AlertDialog confirms, DropdownMenu items, etc.)
-            // that's portaled to document.body. Without this guard, confirming
-            // "Delete board" inside the overlay would also close the overlay
-            // and bounce the user back to /dashboard.
-            const target = e.target as HTMLElement | null;
-            if (
-              target?.closest(
-                '[role="alertdialog"], [role="dialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]',
-              )
-            ) {
-              e.preventDefault();
-            }
+            // The Content is full-screen and already owns dismissal via the
+            // custom onPointerDown above (gray gutter) and the X close button.
+            // Radix's outside-dismissal would otherwise fire when the user
+            // confirms a nested AlertDialog (e.g. "Delete board" / "Leave
+            // board") whose content is portaled to document.body, bouncing
+            // the user back to /dashboard. Always prevent Radix's outside
+            // dismissal here — our explicit handlers cover the legitimate
+            // close paths.
+            e.preventDefault();
           }}
           onInteractOutside={(e) => {
-            const target = e.target as HTMLElement | null;
-            if (
-              target?.closest(
-                '[role="alertdialog"], [role="dialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="combobox"], [data-radix-popper-content-wrapper]',
-              )
-            ) {
-              e.preventDefault();
-            }
+            // Same reason as onPointerDownOutside: focus restoration from a
+            // closing nested layer (AlertDialog/DropdownMenu) would otherwise
+            // dismiss the overlay because the focused element ends up at
+            // document.body.
+            e.preventDefault();
           }}
         >
           <DialogPrimitive.Title className="sr-only">Boards</DialogPrimitive.Title>

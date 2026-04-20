@@ -203,7 +203,7 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
         </header>
 
         <section className="flex flex-col items-center pt-10 pb-8">
-          <h1 className="text-2xl text-neutral-900 mb-5 tracking-tight dark:text-neutral-100">What do you want to plan for social media this week?</h1>
+          <h1 className="text-2xl text-neutral-900 mb-5 tracking-tight dark:text-neutral-100">What do you want to do today?</h1>
           <div className="flex flex-wrap items-center justify-center gap-2 mb-4 w-[560px] max-w-full" data-overlay-keep>
             {QUICK_ACTIONS.map((action) => {
               const Icon = action.icon;

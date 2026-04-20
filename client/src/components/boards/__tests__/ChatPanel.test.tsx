@@ -106,6 +106,74 @@ describe("ChatPanel think/build modes", () => {
   });
 });
 
+describe("ChatPanel referenced-asset chips", () => {
+  it("renders a thumbnail chip with × button for each referenced asset, and clicking × calls onRemoveReferencedAsset", () => {
+    const onRemoveReferencedAsset = vi.fn();
+    renderPanel({
+      mode: "brainstorm",
+      referencedAssetIds: ["a1"],
+      referencedAssets: [{ id: "a1", kind: "image", previewUrl: "https://x/p.jpg" }],
+      onRemoveReferencedAsset,
+    });
+    expect(screen.getByTestId("chip-referenced-a1")).not.toBeNull();
+    const img = screen.getByTestId("img-referenced-a1") as HTMLImageElement;
+    expect(img.src).toBe("https://x/p.jpg");
+    fireEvent.click(screen.getByTestId("button-remove-referenced-a1"));
+    expect(onRemoveReferencedAsset).toHaveBeenCalledWith("a1");
+  });
+
+  it("shows the eye/vision badge in Think mode and hides it in Build mode", () => {
+    const props = {
+      referencedAssetIds: ["a1"],
+      referencedAssets: [{ id: "a1", kind: "image" as const, previewUrl: "https://x/p.jpg" }],
+    };
+    const { rerender } = renderPanel({ mode: "brainstorm", ...props });
+    expect(screen.queryByTestId("badge-vision-a1")).not.toBeNull();
+    rerender(
+      <ChatPanel
+        boardTitle="My Board"
+        messages={[]}
+        mode="create"
+        onModeChange={vi.fn()}
+        provider="luma"
+        onProviderChange={vi.fn()}
+        generationMode="text-to-video"
+        onGenerationModeChange={vi.fn()}
+        seedanceOptions={DEFAULT_SEEDANCE_OPTIONS}
+        onSeedanceOptionsChange={vi.fn()}
+        onSend={vi.fn()}
+        {...props}
+      />,
+    );
+    expect(screen.queryByTestId("badge-vision-a1")).toBeNull();
+  });
+
+  it("caps the chip row at 3 visible chips and shows a +N more badge", () => {
+    const referencedAssetIds = ["a1", "a2", "a3", "a4", "a5"];
+    const referencedAssets = referencedAssetIds.map((id) => ({
+      id,
+      kind: "image" as const,
+      previewUrl: `https://x/${id}.jpg`,
+    }));
+    renderPanel({ mode: "brainstorm", referencedAssetIds, referencedAssets });
+    expect(screen.queryByTestId("chip-referenced-a1")).not.toBeNull();
+    expect(screen.queryByTestId("chip-referenced-a2")).not.toBeNull();
+    expect(screen.queryByTestId("chip-referenced-a3")).not.toBeNull();
+    expect(screen.queryByTestId("chip-referenced-a4")).toBeNull();
+    expect(screen.getByTestId("text-referenced-overflow").textContent).toContain("+2");
+  });
+
+  it("falls back to a placeholder for video chips when previewUrl is missing", () => {
+    renderPanel({
+      mode: "brainstorm",
+      referencedAssetIds: ["v1"],
+      referencedAssets: [{ id: "v1", kind: "video", previewUrl: null }],
+    });
+    expect(screen.queryByTestId("img-referenced-v1")).toBeNull();
+    expect(screen.getByTestId("chip-referenced-v1")).not.toBeNull();
+  });
+});
+
 describe("extractSuggestedPrompt", () => {
   it("pulls the contents of the first fenced code block", () => {
     expect(extractSuggestedPrompt("Sure!\n```\nA red barn at dawn\n```\nLet me know.")).toBe(

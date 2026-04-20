@@ -31,11 +31,17 @@ export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
 export type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
 export type Provider = (typeof PROVIDERS)[number];
 
+export interface BrainstormChatImage {
+  url: string;
+  mediaType?: string;
+}
+
 export interface BrainstormChatService {
   chat(
     message: string,
     history: { role: "user" | "assistant"; content: string }[] | undefined,
     systemPrompt: string,
+    images?: BrainstormChatImage[],
   ): Promise<{ success: boolean; message?: string; error?: string }>;
 }
 
@@ -45,8 +51,12 @@ export interface BoardsChatProviders {
   openaiBrainstorm?: (
     message: string,
     history?: { role: "user" | "assistant"; content: string }[],
+    images?: BrainstormChatImage[],
   ) => Promise<{ success: boolean; message?: string; error?: string }>;
 }
+
+/** Cap how many images we forward to the chosen vision model. */
+const MAX_BRAINSTORM_IMAGES = 3;
 
 export type DispatchOne = (
   provider: VideoProvider,
@@ -764,19 +774,36 @@ async function applyManualWinnerOverride(args: {
 async function tryOpenAIBrainstorm(
   message: string,
   history?: { role: "user" | "assistant"; content: string }[],
+  images?: BrainstormChatImage[],
 ): Promise<{ success: boolean; message?: string; error?: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { success: false, error: "OPENAI_API_KEY not configured" };
   try {
     const client = new OpenAI({ apiKey });
-    const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-      { role: "system", content: BRAINSTORM_SYSTEM },
-    ];
+    const hasImages = Array.isArray(images) && images.length > 0;
+    type OAIContentPart =
+      | { type: "text"; text: string }
+      | { type: "image_url"; image_url: { url: string } };
+    const messages: Array<
+      | { role: "system" | "assistant"; content: string }
+      | { role: "user"; content: string | OAIContentPart[] }
+    > = [{ role: "system", content: BRAINSTORM_SYSTEM }];
     for (const h of history || []) messages.push({ role: h.role, content: h.content });
-    messages.push({ role: "user", content: message });
+    if (hasImages) {
+      const parts: OAIContentPart[] = images!.map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: img.url },
+      }));
+      parts.push({ type: "text", text: message });
+      messages.push({ role: "user", content: parts });
+    } else {
+      messages.push({ role: "user", content: message });
+    }
     const resp = await client.chat.completions.create({
+      // Vision requests need a multimodal model. gpt-4o supports image_url
+      // parts; gpt-4o-mini also supports vision and is cheaper for chat.
       model: "gpt-4o-mini",
-      messages,
+      messages: messages as Parameters<typeof client.chat.completions.create>[0]["messages"],
       temperature: 0.7,
       max_tokens: 600,
     });
@@ -793,14 +820,17 @@ async function brainstormReply(
   providers: Required<BoardsChatProviders>,
   history?: { role: "user" | "assistant"; content: string }[],
   preferred: ChatModelId = "claude",
+  images?: BrainstormChatImage[],
 ): Promise<string> {
+  const cappedImages =
+    images && images.length > 0 ? images.slice(0, MAX_BRAINSTORM_IMAGES) : undefined;
   const callers: Record<
     ChatModelId,
     () => Promise<{ success: boolean; message?: string; error?: string }>
   > = {
-    claude: () => providers.anthropic.chat(message, history, BRAINSTORM_SYSTEM),
-    gemini: () => providers.gemini.chat(message, history, BRAINSTORM_SYSTEM),
-    openai: () => providers.openaiBrainstorm(message, history),
+    claude: () => providers.anthropic.chat(message, history, BRAINSTORM_SYSTEM, cappedImages),
+    gemini: () => providers.gemini.chat(message, history, BRAINSTORM_SYSTEM, cappedImages),
+    openai: () => providers.openaiBrainstorm(message, history, cappedImages),
   };
   // Try the user-picked model first, then fall back to the others in a stable
   // order so the existing health/availability behavior is preserved.
@@ -901,13 +931,38 @@ export function registerBoardsChatRoutes(
 
       // ---------- Brainstorm mode ----------
       if (body.mode === "brainstorm") {
+        // Resolve any referenced board assets to image URLs so the chosen
+        // vision model can actually look at them. Images use assetUrl;
+        // videos use the still thumbnailUrl (vision models can't watch
+        // video). Anything we can't resolve is silently dropped — we never
+        // block the request on a single missing thumbnail.
+        const visionImages: BrainstormChatImage[] = [];
+        if (body.referencedAssetIds && body.referencedAssetIds.length > 0) {
+          for (const id of body.referencedAssetIds.slice(0, MAX_BRAINSTORM_IMAGES)) {
+            const a = await storage.getBoardAssetByIdForUser(boardId, id, userId);
+            if (!a) continue;
+            const url =
+              a.kind === "image"
+                ? a.assetUrl
+                : a.kind === "video"
+                  ? a.thumbnailUrl
+                  : null;
+            if (url) visionImages.push({ url });
+          }
+        }
         const reply = await brainstormReply(
           body.message,
           chatProviders,
           body.conversationHistory,
           body.chatModel ?? "claude",
+          visionImages.length > 0 ? visionImages : undefined,
         );
-        return res.json({ mode: "brainstorm", reply, chatModel: body.chatModel ?? "claude" });
+        return res.json({
+          mode: "brainstorm",
+          reply,
+          chatModel: body.chatModel ?? "claude",
+          attachedImageCount: visionImages.length,
+        });
       }
 
       // ---------- Create mode ----------

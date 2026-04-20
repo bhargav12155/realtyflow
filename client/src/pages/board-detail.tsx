@@ -161,6 +161,16 @@ export default function BoardDetailPage() {
     const a = boardQuery.data.assets.find((x) => x.id === selectedAssetId);
     return a?.kind === "image";
   }, [selectedAssetId, boardQuery.data]);
+  const referencedAssets = useMemo(() => {
+    if (!selectedAssetId || !boardQuery.data) return [];
+    const a = boardQuery.data.assets.find((x) => x.id === selectedAssetId);
+    if (!a) return [];
+    // Images render their assetUrl directly; videos use the still thumbnail
+    // (since vision models can't watch a moving video).
+    const previewUrl =
+      a.kind === "image" ? a.assetUrl : a.kind === "video" ? a.thumbnailUrl : null;
+    return [{ id: a.id, kind: a.kind, previewUrl }];
+  }, [selectedAssetId, boardQuery.data]);
 
   const sendChat = useMutation({
     mutationFn: async (text: string) => {
@@ -523,6 +533,8 @@ export default function BoardDetailPage() {
             onChatModelChange={setChatModel}
             referencedAssetIds={referencedAssetIds}
             hasReferencedImage={hasReferencedImage}
+            referencedAssets={referencedAssets}
+            onRemoveReferencedAsset={() => setSelectedAssetId(null)}
             onSend={(text) => sendChat.mutate(text)}
             isSending={sendChat.isPending}
             pendingInput={pendingInput}

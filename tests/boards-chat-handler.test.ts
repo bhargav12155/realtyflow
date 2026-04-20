@@ -101,14 +101,23 @@ class FakeStorage {
 // =====================================================
 // Fake chat providers
 // =====================================================
-type ChatCall = { message: string; systemPrompt: string };
+type ChatCall = {
+  message: string;
+  systemPrompt: string;
+  images?: { url: string; mediaType?: string }[];
+};
 
 function makeFakeChat(label: string, opts: { fail?: boolean; empty?: boolean } = {}) {
   const calls: ChatCall[] = [];
   const svc = {
     calls,
-    async chat(message: string, _h: any, systemPrompt: string) {
-      calls.push({ message, systemPrompt });
+    async chat(
+      message: string,
+      _h: any,
+      systemPrompt: string,
+      images?: { url: string; mediaType?: string }[],
+    ) {
+      calls.push({ message, systemPrompt, images });
       if (opts.fail) return { success: false, error: `${label} unavailable` };
       if (opts.empty) return { success: true, message: "" };
       return { success: true, message: `${label}: ${message}` };
@@ -118,11 +127,15 @@ function makeFakeChat(label: string, opts: { fail?: boolean; empty?: boolean } =
 }
 
 function makeFakeOpenAIBrainstorm(opts: { reply?: string; fail?: boolean } = {}) {
-  const calls: { message: string }[] = [];
+  const calls: { message: string; images?: { url: string; mediaType?: string }[] }[] = [];
   return {
     calls,
-    fn: async (message: string) => {
-      calls.push({ message });
+    fn: async (
+      message: string,
+      _h?: { role: "user" | "assistant"; content: string }[],
+      images?: { url: string; mediaType?: string }[],
+    ) => {
+      calls.push({ message, images });
       if (opts.fail) return { success: false, error: "openai unavailable" };
       return { success: true, message: opts.reply ?? `openai: ${message}` };
     },
@@ -330,6 +343,128 @@ describe("POST /api/boards/:id/chat — brainstorm mode", () => {
     assert.equal(gemini.calls.length, 1);
     assert.equal(anthropic.calls.length, 1);
     assert.equal(openaiBrainstorm.calls.length, 0);
+  });
+
+  it("forwards referencedAssetIds to the picked vision model as image URLs", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const img = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "openai-image",
+      assetUrl: "https://example.com/photo.jpg",
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "what's in this photo?",
+      mode: "brainstorm",
+      referencedAssetIds: [img!.id],
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.attachedImageCount, 1);
+    assert.equal(anthropic.calls.length, 1);
+    assert.deepEqual(anthropic.calls[0].images, [{ url: "https://example.com/photo.jpg" }]);
+    assert.equal(gemini.calls.length, 0);
+    assert.equal(openaiBrainstorm.calls.length, 0);
+  });
+
+  it("uses thumbnailUrl for video references and forwards to OpenAI when picked", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm({ reply: "I see a beach" });
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const vid = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "video",
+      provider: "luma",
+      assetUrl: "https://example.com/clip.mp4",
+      thumbnailUrl: "https://example.com/clip-thumb.jpg",
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "describe this clip",
+      mode: "brainstorm",
+      chatModel: "openai",
+      referencedAssetIds: [vid!.id],
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.attachedImageCount, 1);
+    assert.equal(openaiBrainstorm.calls.length, 1);
+    assert.deepEqual(openaiBrainstorm.calls[0].images, [
+      { url: "https://example.com/clip-thumb.jpg" },
+    ]);
+  });
+
+  it("drops unresolvable references (e.g. video with no thumbnail) without failing the request", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const vid = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "video",
+      provider: "luma",
+      assetUrl: "https://example.com/clip.mp4",
+      // No thumbnailUrl on purpose.
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "anything?",
+      mode: "brainstorm",
+      referencedAssetIds: [vid!.id],
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.attachedImageCount, 0);
+    assert.equal(anthropic.calls.length, 1);
+    assert.equal(anthropic.calls[0].images, undefined);
+  });
+
+  it("falls back from the picked vision model to others with the SAME images", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const gemini = makeFakeChat("gemini", { fail: true });
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const img = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "openai-image",
+      assetUrl: "https://example.com/p.jpg",
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "look at this",
+      mode: "brainstorm",
+      chatModel: "gemini",
+      referencedAssetIds: [img!.id],
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(gemini.calls.length, 1);
+    assert.deepEqual(gemini.calls[0].images, [{ url: "https://example.com/p.jpg" }]);
+    // Anthropic fallback also receives the same images.
+    assert.equal(anthropic.calls.length, 1);
+    assert.deepEqual(anthropic.calls[0].images, [{ url: "https://example.com/p.jpg" }]);
   });
 
   it("falls back to OpenAI when Anthropic and Gemini both fail", async () => {

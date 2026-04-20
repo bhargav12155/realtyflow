@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Wand2 } from "lucide-react";
+import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Wand2, X, Eye, Film } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   PlatformPicker,
@@ -26,6 +26,20 @@ export interface ChatMessage {
   pending?: boolean;
 }
 
+/**
+ * A thumbnail chip rendered above the chat input. The previewUrl should be a
+ * still image (image asset URL or video thumbnail) so the chip is always
+ * visually meaningful even for video assets.
+ */
+export interface ReferencedAssetChip {
+  id: string;
+  kind: "image" | "video" | "audio" | string;
+  previewUrl: string | null | undefined;
+}
+
+/** Cap how many chips we render inline before collapsing into a "+N" badge. */
+const MAX_CHIPS_VISIBLE = 3;
+
 interface ChatPanelProps {
   boardTitle: string;
   messages: ChatMessage[];
@@ -41,6 +55,11 @@ interface ChatPanelProps {
   onChatModelChange?: (m: ChatModelId) => void;
   referencedAssetIds: string[];
   hasReferencedImage?: boolean;
+  /** Per-asset detail used to render thumbnail chips. Optional for callers that
+   *  haven't migrated yet — falls back to the legacy "Referencing N" text. */
+  referencedAssets?: ReferencedAssetChip[];
+  /** Detach a single referenced asset (× on a chip). */
+  onRemoveReferencedAsset?: (id: string) => void;
   onSend: (text: string) => void;
   isSending?: boolean;
   pendingInput?: string | null;
@@ -87,6 +106,8 @@ export function ChatPanel({
   onChatModelChange,
   referencedAssetIds,
   hasReferencedImage,
+  referencedAssets,
+  onRemoveReferencedAsset,
   onSend,
   isSending,
   pendingInput,
@@ -201,16 +222,86 @@ export function ChatPanel({
         })}
       </div>
 
-      {referencedAssetIds.length > 0 && (
-        <div className="px-3 pb-2 text-[11px] text-neutral-500 dark:text-neutral-400" data-testid="text-referenced">
-          Referencing {referencedAssetIds.length} asset{referencedAssetIds.length === 1 ? "" : "s"}
-          {!isPlan && sel.kind === "image" && hasReferencedImage && (
-            <span className="ml-1 text-violet-600 dark:text-violet-300" data-testid="text-edit-referenced-image-hint">
-              · will edit referenced image
-            </span>
-          )}
-        </div>
-      )}
+      {referencedAssetIds.length > 0 && (() => {
+        // Prefer the rich chip list when the parent provides it; fall back to
+        // the id list so older callers keep rendering at least a count chip.
+        const chipSource: ReferencedAssetChip[] =
+          referencedAssets && referencedAssets.length > 0
+            ? referencedAssets
+            : referencedAssetIds.map((id) => ({ id, kind: "image", previewUrl: null }));
+        const visible = chipSource.slice(0, MAX_CHIPS_VISIBLE);
+        const overflow = chipSource.length - visible.length;
+        return (
+          <div
+            className="px-3 pb-2 flex items-center gap-1.5 flex-wrap"
+            data-testid="row-referenced-chips"
+          >
+            {visible.map((a) => {
+              const isVideo = a.kind === "video";
+              return (
+                <div
+                  key={a.id}
+                  className="group relative inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg bg-neutral-100 border border-neutral-200 text-[11px] text-neutral-700 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-200"
+                  data-testid={`chip-referenced-${a.id}`}
+                  title={isVideo ? "Video reference (still frame sent to model)" : "Image reference"}
+                >
+                  <div className="relative w-7 h-7 rounded-md overflow-hidden bg-neutral-200 dark:bg-neutral-700 flex-shrink-0">
+                    {a.previewUrl ? (
+                      <img
+                        src={a.previewUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        data-testid={`img-referenced-${a.id}`}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-neutral-400">
+                        <Film className="w-3 h-3" />
+                      </div>
+                    )}
+                    {isPlan && (
+                      <span
+                        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-violet-600 text-white flex items-center justify-center"
+                        data-testid={`badge-vision-${a.id}`}
+                        aria-label="Sent to vision model"
+                        title="Sent to the picked vision model"
+                      >
+                        <Eye className="w-2 h-2" />
+                      </span>
+                    )}
+                  </div>
+                  {onRemoveReferencedAsset && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveReferencedAsset(a.id)}
+                      className="w-3.5 h-3.5 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+                      data-testid={`button-remove-referenced-${a.id}`}
+                      aria-label="Remove reference"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {overflow > 0 && (
+              <span
+                className="text-[11px] text-neutral-500 dark:text-neutral-400 px-1"
+                data-testid="text-referenced-overflow"
+              >
+                +{overflow} more
+              </span>
+            )}
+            {!isPlan && sel.kind === "image" && hasReferencedImage && (
+              <span
+                className="text-[11px] text-violet-600 dark:text-violet-300 ml-1"
+                data-testid="text-edit-referenced-image-hint"
+              >
+                · will edit referenced image
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="px-3 pb-3">
         <div className="border border-neutral-200 rounded-2xl bg-white shadow-sm dark:border-neutral-700 dark:bg-neutral-800">

@@ -29,7 +29,7 @@ Key features include:
 - **Property Tour Studio**: A wizard for creating detailed property tour videos.
 - **Voice Cloning (HeyGen)**: Records or uploads an audio sample once, persists the row with an explicit `cloning → ready | failed` lifecycle, and reuses the resulting `heygenVoiceId` as TTS narration for any avatar video. My Voices supports inline rename (PATCH `/api/custom-voices/:id`), retry-clone (with 409 duplicate guard), and per-row status badges. Both POST `/api/custom-voices` and POST `/api/custom-voices/:id/retry-clone` respond `202` immediately with the `cloning` row and run the HeyGen upload+clone in the background, broadcasting `voice_clone_complete` / `voice_clone_failed` over WebSocket so the My Voices badges flip live without a manual refresh.
 - **WhatsApp Analytics Dashboard**: Provides real-time metrics from Meta Graph API, including messaging, conversation, pricing, and template analytics, along with phone quality rating.
-- **Boards**: A collaborative canvas with chat functionality for generating content and managing assets, supporting various video generation providers with validation logic.
+- **Boards**: A collaborative canvas with chat functionality for generating content and managing assets, supporting various video generation providers with validation logic. Each card on the boards home grid has a kebab menu — owners get a red "Delete board" action (DELETE `/api/boards/:id`, owner-scoped, optimistic removal from the `["/api/boards"]` cache with rollback on error) gated behind an AlertDialog confirmation; non-owners get "Leave board" (DELETE `/api/boards/:id/share/me`).
 
 ### System Design Choices
 - **Database**: PostgreSQL with Drizzle ORM for data persistence and multi-tenancy.

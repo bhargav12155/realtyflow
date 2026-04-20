@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { MoreVertical, Plus, LogOut } from "lucide-react";
+import { MoreVertical, Plus, LogOut, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -261,16 +261,28 @@ export interface BoardCardProps {
   /** When provided and the current user is not the owner, a kebab menu with a Leave action is rendered. */
   onLeave?: (board: BoardSummary) => void;
   isLeaving?: boolean;
+  /** When provided and the current user is the owner, a kebab menu with a Delete action is rendered. */
+  onDelete?: (board: BoardSummary) => void;
+  isDeleting?: boolean;
 }
 
-export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
+export function BoardCard({
+  board,
+  onLeave,
+  isLeaving,
+  onDelete,
+  isDeleting,
+}: BoardCardProps) {
   const tint = pickTint(board.id);
   const [first, ...rest] = (board.title || "Untitled board").split(" ");
   const highlight = rest.join(" ");
   const isOwner = board.isOwner ?? true;
   const collaborators = board.collaborators ?? [];
-  const showLeave = onLeave && board.isOwner === false;
+  const showLeave = !!onLeave && isOwner === false;
+  const showDelete = !!onDelete && isOwner === true;
+  const showMenu = showLeave || showDelete;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const titleForCopy = board.title || "Untitled board";
   return (
     <div className="relative">
       <Link href={`/boards/${board.id}`}>
@@ -290,7 +302,7 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
           ) : null}
         </a>
       </Link>
-      {showLeave && (
+      {showMenu && (
         <div className="absolute top-2 right-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -308,45 +320,82 @@ export function BoardCard({ board, onLeave, isLeaving }: BoardCardProps) {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-              <DropdownMenuItem
-                disabled={isLeaving}
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setConfirmOpen(true);
-                }}
-                className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                data-testid={`menu-item-leave-${board.id}`}
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Leave board
-              </DropdownMenuItem>
+              {showLeave && (
+                <DropdownMenuItem
+                  disabled={isLeaving}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                  data-testid={`menu-item-leave-${board.id}`}
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Leave board
+                </DropdownMenuItem>
+              )}
+              {showDelete && (
+                <DropdownMenuItem
+                  disabled={isDeleting}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                  data-testid={`menu-item-delete-${board.id}`}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete board
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent
               onClick={(e) => e.stopPropagation()}
-              data-testid={`dialog-leave-board-${board.id}`}
+              data-testid={
+                showDelete
+                  ? `dialog-delete-board-${board.id}`
+                  : `dialog-leave-board-${board.id}`
+              }
             >
               <AlertDialogHeader>
-                <AlertDialogTitle>Leave this board?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {showDelete ? "Delete this board?" : "Leave this board?"}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  You'll lose access to "{board.title || "Untitled board"}". The owner will need to share it with you again to get back in.
+                  {showDelete
+                    ? `Delete "${titleForCopy}"? This permanently removes the board and all its assets. This can't be undone.`
+                    : `You'll lose access to "${titleForCopy}". The owner will need to share it with you again to get back in.`}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel data-testid={`button-cancel-leave-${board.id}`}>Cancel</AlertDialogCancel>
+                <AlertDialogCancel
+                  data-testid={
+                    showDelete
+                      ? `button-cancel-delete-${board.id}`
+                      : `button-cancel-leave-${board.id}`
+                  }
+                >
+                  Cancel
+                </AlertDialogCancel>
                 <AlertDialogAction
-                  disabled={isLeaving}
+                  disabled={showDelete ? isDeleting : isLeaving}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    onLeave?.(board);
+                    if (showDelete) onDelete?.(board);
+                    else onLeave?.(board);
                     setConfirmOpen(false);
                   }}
                   className="bg-red-600 hover:bg-red-700 text-white"
-                  data-testid={`button-confirm-leave-${board.id}`}
+                  data-testid={
+                    showDelete
+                      ? `button-confirm-delete-${board.id}`
+                      : `button-confirm-leave-${board.id}`
+                  }
                 >
-                  Leave board
+                  {showDelete ? "Delete board" : "Leave board"}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

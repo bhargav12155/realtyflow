@@ -3,15 +3,31 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { BoardsHomeView } from "../BoardsHomeView";
 
 const apiRequestMock = vi.fn();
+const boardsListRef: { current: unknown[] } = { current: [] };
+const queryClientRef: { current: QueryClient | null } = { current: null };
 
-vi.mock("@/lib/queryClient", () => ({
-  apiRequest: (...args: unknown[]) => apiRequestMock(...args),
-  queryClient: { invalidateQueries: vi.fn() },
-  getQueryFn: () => async () => [],
-}));
+vi.mock("@/lib/queryClient", () => {
+  const proxy = new Proxy(
+    {},
+    {
+      get: (_t, prop) => {
+        const qc = queryClientRef.current;
+        if (!qc) return () => {};
+        const value = (qc as unknown as Record<string, unknown>)[prop as string];
+        return typeof value === "function" ? value.bind(qc) : value;
+      },
+    },
+  );
+  return {
+    apiRequest: (...args: unknown[]) => apiRequestMock(...args),
+    queryClient: proxy,
+    getQueryFn: () => async () => boardsListRef.current,
+  };
+});
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -24,22 +40,41 @@ vi.mock("@/hooks/useAuth", () => ({
 function renderWithProviders(ui: React.ReactElement, initialPath = "/boards") {
   const qc = new QueryClient({
     defaultOptions: {
-      queries: { retry: false, gcTime: 0, staleTime: 0 },
+      queries: {
+        retry: false,
+        gcTime: 0,
+        staleTime: 0,
+        queryFn: async () => boardsListRef.current,
+      },
       mutations: { retry: false },
     },
   });
+  queryClientRef.current = qc;
   const { hook, history } = memoryLocation({ path: initialPath, record: true });
   const tree = (
     <QueryClientProvider client={qc}>
-      <Router hook={hook}>{ui}</Router>
+      <TooltipProvider>
+        <Router hook={hook}>{ui}</Router>
+      </TooltipProvider>
     </QueryClientProvider>
   );
   const utils = render(tree);
   return Object.assign(utils, { history });
 }
 
+// Radix DropdownMenu uses pointer capture APIs that JSDOM doesn't implement.
+// Polyfill them so the menu actually opens in tests.
 beforeEach(() => {
+  if (!(Element.prototype as unknown as { hasPointerCapture?: unknown }).hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  if (!(Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
   apiRequestMock.mockReset();
+  boardsListRef.current = [];
   // Default: GET /api/boards returns []
   apiRequestMock.mockImplementation(async (method: string, url: string, body?: unknown) => {
     if (method === "GET" && url === "/api/boards") {
@@ -173,6 +208,84 @@ describe("BoardsHomeView create-from-prompt", () => {
     await waitFor(() => {
       expect(history.at(-1) ?? "").toContain("chatMode=build");
     });
+  });
+
+  it("owner cards expose a 'Delete board' action that calls DELETE /api/boards/:id and removes the card", async () => {
+    const owned = [
+      {
+        id: "brd_owned_1",
+        title: "Coastal listings",
+        isOwner: true,
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    boardsListRef.current = owned;
+    apiRequestMock.mockImplementation(async (method: string, url: string) => {
+      if (method === "DELETE" && url === "/api/boards/brd_owned_1") {
+        boardsListRef.current = (boardsListRef.current as { id: string }[]).filter(
+          (b) => b.id !== "brd_owned_1",
+        );
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+
+    renderWithProviders(<BoardsHomeView />);
+
+    const card = await screen.findByTestId("card-board-brd_owned_1");
+    expect(card).not.toBeNull();
+    // No "Leave board" item on an owned board.
+    expect(screen.queryByTestId("menu-item-leave-brd_owned_1")).toBeNull();
+
+    const trigger = screen.getByTestId("button-board-menu-brd_owned_1");
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(trigger);
+    const deleteItem = await screen.findByTestId("menu-item-delete-brd_owned_1");
+    fireEvent.click(deleteItem);
+
+    const confirm = await screen.findByTestId("button-confirm-delete-brd_owned_1");
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      const deleteCalls = apiRequestMock.mock.calls.filter(
+        (c) => c[0] === "DELETE" && c[1] === "/api/boards/brd_owned_1",
+      );
+      expect(deleteCalls.length).toBe(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("card-board-brd_owned_1")).toBeNull();
+    });
+  });
+
+  it("non-owner (shared) cards still expose only 'Leave board', never 'Delete board'", async () => {
+    const shared = [
+      {
+        id: "brd_shared_1",
+        title: "Someone else's board",
+        isOwner: false,
+        owner: { id: "u-other", name: "Other", email: "other@example.com" },
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    boardsListRef.current = shared;
+    apiRequestMock.mockImplementation(async (method: string, url: string) => {
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+
+    renderWithProviders(<BoardsHomeView />);
+
+    await screen.findByTestId("card-board-brd_shared_1");
+    const trigger = screen.getByTestId("button-board-menu-brd_shared_1");
+    fireEvent.pointerDown(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.pointerUp(trigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(trigger);
+
+    await screen.findByTestId("menu-item-leave-brd_shared_1");
+    expect(screen.queryByTestId("menu-item-delete-brd_shared_1")).toBeNull();
   });
 
   it("uses the typed prompt as the chip seed when the input is non-empty", async () => {

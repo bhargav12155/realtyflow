@@ -97,7 +97,7 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("BoardsHomeView create-from-prompt", () => {
-  it("submits the prompt with { title, seedPrompt } via Enter, navigates to /boards/:id, and fires onBoardCreated", async () => {
+  it("submits the prompt with { title, seedPrompt, seedMode: 'plan' } via Enter, navigates to /boards/:id?...&chatMode=plan, and fires onBoardCreated", async () => {
     const onBoardCreated = vi.fn();
     const { history } = renderWithProviders(<BoardsHomeView onBoardCreated={onBoardCreated} />);
 
@@ -109,9 +109,12 @@ describe("BoardsHomeView create-from-prompt", () => {
       const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
       expect(postCalls.length).toBe(1);
       expect(postCalls[0][1]).toBe("/api/boards");
+      // Free-form prompts must seed Think mode so the new board opens with
+      // a planning question, not the "press send to start" build seed.
       expect(postCalls[0][2]).toEqual({
         title: "Plan a video for 123 Main St",
         seedPrompt: "Plan a video for 123 Main St",
+        seedMode: "plan",
       });
     });
 
@@ -119,9 +122,15 @@ describe("BoardsHomeView create-from-prompt", () => {
       expect(onBoardCreated).toHaveBeenCalledWith(
         expect.objectContaining({ id: "brd_test_1", title: "Plan a video for 123 Main St" }),
       );
-      expect(history.at(-1)).toBe(
-        `/boards/brd_test_1?seed=${encodeURIComponent("Plan a video for 123 Main St").replace(/%20/g, "+")}`,
+      const last = history.at(-1) ?? "";
+      expect(last.startsWith("/boards/brd_test_1?")).toBe(true);
+      // Prompt is carried through as the seed.
+      expect(last).toContain(
+        `seed=${encodeURIComponent("Plan a video for 123 Main St").replace(/%20/g, "+")}`,
       );
+      // Think mode is propagated via chatMode=plan so board-detail switches
+      // the chat toggle to brainstorm and opens with the planning question.
+      expect(last).toContain("chatMode=plan");
     });
   });
 

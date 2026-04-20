@@ -200,7 +200,12 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
 
   const handlePromptSubmit = () => {
     const trimmed = prompt.trim();
-    createBoardMutation.mutate(trimmed ? { title: trimmed, seedPrompt: trimmed } : {});
+    // Free-form prompts (no quick-action picked) land the user in Think
+    // mode on the new board so the assistant opens with a planning question
+    // instead of the "press send to start" build seed.
+    createBoardMutation.mutate(
+      trimmed ? { title: trimmed, seedPrompt: trimmed, seedMode: "plan" } : {},
+    );
   };
 
   const filtered = useMemo(() => {

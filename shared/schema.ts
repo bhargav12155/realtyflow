@@ -755,7 +755,7 @@ export type InsertLookGenerationJob = typeof lookGenerationJobs.$inferInsert;
 // TUTORIAL VIDEOS TABLE
 // =====================================================
 export const tutorialVideos = pgTable("tutorial_videos", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   category: text("category").notNull(), // e.g., "RealtyFlow Tutorials"
   subcategory: text("subcategory").notNull(), // e.g., "Add Social Keys"
   title: text("title").notNull(),
@@ -982,7 +982,7 @@ export type PlatformScore = z.infer<typeof platformScoreSchema>;
 export const userSessions = pgTable(
   "user_sessions",
   {
-    id: serial("id").primaryKey(),
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
     sessionId: text("session_id").notNull(),
     publicUserId: integer("public_user_id").references(() => publicUsers.id),
     agentSlug: text("agent_slug").notNull(),
@@ -1012,7 +1012,7 @@ export const userSessions = pgTable(
 
 // Property Interactions - Track individual user interactions
 export const propertyInteractions = pgTable("property_interactions", {
-  id: serial("id").primaryKey(),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   publicUserId: integer("public_user_id").references(() => publicUsers.id),
   propertyId: text("property_id"),
   agentSlug: text("agent_slug").notNull(),
@@ -1029,7 +1029,7 @@ export const propertyInteractions = pgTable("property_interactions", {
 
 // Property Likes - Track property favorites
 export const propertyLikes = pgTable("property_likes", {
-  id: serial("id").primaryKey(),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   publicUserId: integer("public_user_id").references(() => publicUsers.id),
   propertyId: text("property_id").notNull(),
   agentSlug: text("agent_slug").notNull(),
@@ -1041,7 +1041,7 @@ export const propertyLikes = pgTable("property_likes", {
 
 // Engagement Leads - Auto-generated leads from high engagement
 export const engagementLeads = pgTable("engagement_leads", {
-  id: serial("id").primaryKey(),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   publicUserId: integer("public_user_id").references(() => publicUsers.id),
   sessionId: text("session_id").references(() => userSessions.sessionId),
   agentId: varchar("agent_id").references(() => users.id),

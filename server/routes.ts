@@ -17658,7 +17658,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       await db
         .update(tutorialVideos)
         .set({ isActive: false })
-        .where(eq(tutorialVideos.id, parseInt(id)));
+        .where(eq(tutorialVideos.id, id));
 
       res.json({ success: true });
     } catch (error) {

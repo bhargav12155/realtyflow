@@ -103,6 +103,7 @@ export default function AiAssistantPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/ai-assistant/history"] });
+      setLocalMessages([]);
       toast({
         title: "Chat cleared",
         description: "Your chat history has been cleared.",
@@ -307,6 +308,7 @@ export default function AiAssistantPage() {
                   setMessage("");
                   setSelectedFiles([]);
                   setPreviewUrls([]);
+                  setLocalMessages([]);
                   toast({ title: "New chat started", description: "Your previous history is preserved." });
                 }}
                 data-testid="button-new-chat"

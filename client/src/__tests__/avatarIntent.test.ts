@@ -26,6 +26,9 @@ describe("detectCreateSelfAvatarIntent", () => {
     "make an avatar that presents this property",
     "write me a property description",
     "schedule a post for tomorrow",
+    "show me avatar options",
+    "help me with my avatar settings",
+    "tell me about avatars on this platform",
   ];
 
   for (const phrase of positives) {

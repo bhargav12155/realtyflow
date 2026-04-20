@@ -19,8 +19,14 @@ export function detectCreateSelfAvatarIntent(message: string): boolean {
   const avatarNoun = /\b(avatar|avatars|photo[- ]?avatar|ai (?:clone|twin)|digital (?:twin|clone))\b/.test(text);
   if (!avatarNoun) return false;
 
+  // Only count strong self-avatar signals. Bare "me" is too broad
+  // ("show me avatar options", "help me with my avatar settings"), so we
+  // only accept "me" inside explicit constructions like "of me" or
+  // "make/build/create/give/want me [an avatar]".
   const firstPerson =
-    /\b(myself|me)\b/.test(text) ||
+    /\bmyself\b/.test(text) ||
+    /\bof me\b/.test(text) ||
+    /\b(?:make|build|create|generate|train|give|get|want)\s+me\b/.test(text) ||
     /\bmy (?:own|photo|photos|picture|pictures|pic|pics|face|headshot|selfie|image|images|portrait)\b/.test(text);
   if (!firstPerson) return false;
 

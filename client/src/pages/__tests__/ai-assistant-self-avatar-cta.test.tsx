@@ -70,6 +70,20 @@ describe("AI Assistant: self-avatar CTA short-circuit", () => {
     );
   });
 
+  it("clears local CTA messages when starting a new chat", async () => {
+    renderPage();
+    const input = (await waitFor(() =>
+      screen.getByTestId("input-message"),
+    )) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "create an avatar of myself" } });
+    fireEvent.click(screen.getByTestId("button-send-message"));
+    await waitFor(() => screen.getByTestId("button-open-photo-avatars"));
+    fireEvent.click(screen.getByTestId("button-new-chat"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("button-open-photo-avatars")).toBeNull();
+    });
+  });
+
   it("normal prompts still POST to /api/ai-assistant/chat", async () => {
     renderPage();
     const input = (await waitFor(() =>

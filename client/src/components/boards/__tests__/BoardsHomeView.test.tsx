@@ -355,6 +355,34 @@ describe("BoardsHomeView create-from-prompt", () => {
     expect(screen.queryByTestId("menu-item-delete-brd_shared_1")).toBeNull();
   });
 
+  it("never shows 'Delete board' when isOwner is missing from the API response", async () => {
+    // Simulate a legacy/partial /api/boards payload that forgot to set
+    // `isOwner`. The destructive Delete action must NOT appear, because we
+    // can't confirm the current user owns the board.
+    const ambiguous = [
+      {
+        id: "brd_ambiguous_1",
+        title: "Mystery board",
+        // intentionally no isOwner
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    boardsListRef.current = ambiguous;
+    apiRequestMock.mockImplementation(async (method: string, url: string) => {
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    });
+
+    renderWithProviders(<BoardsHomeView />);
+
+    await screen.findByTestId("card-board-brd_ambiguous_1");
+    // Even if a kebab menu were rendered, the destructive action must not
+    // be in the DOM. We check both the menu item and the confirm dialog
+    // button so a misconfigured render can't sneak it in.
+    expect(screen.queryByTestId("menu-item-delete-brd_ambiguous_1")).toBeNull();
+    expect(screen.queryByTestId("button-confirm-delete-brd_ambiguous_1")).toBeNull();
+    expect(screen.queryByTestId("dialog-delete-board-brd_ambiguous_1")).toBeNull();
+  });
+
   it("uses the typed prompt as the chip seed when the input is non-empty", async () => {
     renderWithProviders(<BoardsHomeView />);
 

@@ -201,6 +201,10 @@ export function registerBoardsRoutes(
 
         return {
           ...board,
+          // Always send an explicit boolean so the frontend never has to
+          // guess. The destructive "Delete board" action depends on this
+          // flag being unambiguous — see BoardCard's showDelete logic.
+          isOwner: board.isOwner === true,
           assetCount: summary.assetCount,
           thumbnails,
           collaborators,

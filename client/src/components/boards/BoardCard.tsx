@@ -279,7 +279,10 @@ export function BoardCard({
   const isOwner = board.isOwner ?? true;
   const collaborators = board.collaborators ?? [];
   const showLeave = !!onLeave && isOwner === false;
-  const showDelete = !!onDelete && isOwner === true;
+  // Destructive action: never fall back to "owner" when the flag is missing.
+  // If the API ever omits `isOwner`, we must not surface a Delete option that
+  // would confuse the user (and hide their Leave option).
+  const showDelete = !!onDelete && board.isOwner === true;
   const showMenu = showLeave || showDelete;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const titleForCopy = board.title || "Untitled board";

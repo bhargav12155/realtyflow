@@ -1,0 +1,182 @@
+> ## Documentation Index
+> Fetch the complete documentation index at: https://heygen-1fa696a7.mintlify.app/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Quick Start
+
+> Get from zero to a generated video in minutes. 
+
+<Warning>
+  Migrating from v1 or v2? The legacy /v1 and /v2 endpoints will remain fully supported until October 31, 2026, but all new capabilities — including the CLI, MCP, Voice design API, improved error handling, the latest HeyGen models such as lipsync — are available exclusively on v3. We recommend migrating all new and existing integrations to v3. Read more [here](/endpoint-version-comparison).
+</Warning>
+
+<Steps>
+  <Step title="Get your API key">
+    Go to [Settings → API](https://app.heygen.com/home?from=\&nav=API) in the HeyGen dashboard and generate a key. Save it — you can't view it again.
+
+    ```bash theme={null}
+    export HEYGEN_API_KEY="your-api-key-here"
+    ```
+  </Step>
+
+  <Step title="Create a video">
+    Send a prompt to the Video Agent and let it handle the rest:
+
+    <Tabs>
+      <Tab title="curl">
+        ```bash Request theme={null}
+        curl -X POST "https://api.heygen.com/v3/video-agents" \
+          -H "X-Api-Key: $HEYGEN_API_KEY" \
+          -H "Content-Type: application/json" \
+          -d '{"prompt": "A presenter explaining our product launch in 30 seconds"}'
+        ```
+      </Tab>
+
+      <Tab title="Python">
+        ```python Request theme={null}
+        import requests
+
+        resp = requests.post(
+            "https://api.heygen.com/v3/video-agents",
+            headers={"X-Api-Key": HEYGEN_API_KEY},
+            json={"prompt": "A presenter explaining our product launch in 30 seconds"},
+        )
+        data = resp.json()["data"]
+        print(data["video_id"])
+        ```
+      </Tab>
+
+      <Tab title="Node.js">
+        ```javascript Request theme={null}
+        const resp = await fetch("https://api.heygen.com/v3/video-agents", {
+          method: "POST",
+          headers: {
+            "X-Api-Key": process.env.HEYGEN_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: "A presenter explaining our product launch in 30 seconds",
+          }),
+        });
+        const { data } = await resp.json();
+        console.log(data.video_id);
+        ```
+      </Tab>
+    </Tabs>
+
+    ```json Response theme={null}
+    {
+      "data": {
+        "session_id": "sess_abc123",
+        "status": "generating",
+        "video_id": "vid_xyz789",
+        "created_at": 1711382400
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Poll for the result">
+    Video generation is async. Use the `video_id` to check status:
+
+    <Tabs>
+      <Tab title="curl">
+        ```bash Request theme={null}
+        curl -X GET "https://api.heygen.com/v3/videos/vid_xyz789" \
+          -H "X-Api-Key: $HEYGEN_API_KEY"
+        ```
+      </Tab>
+
+      <Tab title="Python">
+        ```python Request theme={null}
+        import time
+
+        video_id = "vid_xyz789"
+        while True:
+            resp = requests.get(
+                f"https://api.heygen.com/v3/videos/{video_id}",
+                headers={"X-Api-Key": HEYGEN_API_KEY},
+            )
+            video = resp.json()["data"]
+            if video["status"] in ("completed", "failed"):
+                break
+            time.sleep(10)
+
+        print(video["video_url"])
+        ```
+      </Tab>
+
+      <Tab title="Node.js">
+        ```javascript Request theme={null}
+        const poll = async (videoId) => {
+          while (true) {
+            const resp = await fetch(
+              `https://api.heygen.com/v3/videos/${videoId}`,
+              { headers: { "X-Api-Key": process.env.HEYGEN_API_KEY } }
+            );
+            const { data } = await resp.json();
+            if (data.status === "completed" || data.status === "failed") return data;
+            await new Promise((r) => setTimeout(r, 10000));
+          }
+        };
+        const video = await poll("vid_xyz789");
+        console.log(video.video_url);
+        ```
+      </Tab>
+    </Tabs>
+
+    ```json Response (completed) theme={null}
+    {
+      "data": {
+        "id": "vid_xyz789",
+        "status": "completed",
+        "video_url": "https://files.heygen.com/video/vid_xyz789.mp4",
+        "thumbnail_url": "https://files.heygen.com/thumb/vid_xyz789.jpg",
+        "duration": 32.5
+      }
+    }
+    ```
+
+    Status moves through `pending` → `processing` → `completed` | `failed`. Once completed, download from `video_url`.
+
+    <Tip>
+      Skip polling by passing a `callback_url` in your creation request to get a webhook notification instead.
+    </Tip>
+  </Step>
+</Steps>
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card title="Video Agent" icon="wand-magic-sparkles" href="/docs/video-agent">
+    Generate videos from a text prompt — the agent handles avatar, script, and production.
+  </Card>
+
+  <Card title="Video Translation" icon="language" href="/docs/video-translate">
+    Translate videos into 30+ languages with natural voice cloning and lip-sync.
+  </Card>
+
+  <Card title="Webhooks" icon="bell" href="/docs/webhooks">
+    Get notified when videos, translations, and avatars finish processing.
+  </Card>
+
+  <Card title="API Limits and Costs" icon="dollar-sign" href="/docs/pricing">
+    Rate limits, usage, and pricing per operation.
+  </Card>
+</CardGroup>
+
+## Tools
+
+<CardGroup cols={3}>
+  <Card title="CLI" icon="terminal" href="/cli">
+    Script video creation and translation from your terminal.
+  </Card>
+
+  <Card title="MCP Server" icon="plug" href="/mcp/overview">
+    Connect HeyGen to AI agents and copilots via Model Context Protocol.
+  </Card>
+
+  <Card title="Authentication" icon="key" href="/docs/api-key">
+    API key setup, OAuth tokens, and request signing.
+  </Card>
+</CardGroup>

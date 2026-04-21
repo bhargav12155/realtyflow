@@ -30,6 +30,7 @@ import path from "path";
 import { execSync } from "child_process";
 import { db } from "./db";
 import { requireAuth, createRequireAdmin, optionalAuth } from "./middleware/auth";
+import { rejectIfRevoked, rejectIfGroupRevokedByHeygenId } from "./lib/consent-guard";
 // S3 is now the primary storage - ObjectStorageService kept only for legacy PDF analysis
 import { ObjectNotFoundError, ObjectStorageService, objectStorageClient } from "./objectStorage";
 import authRoutes from "./routes/auth";
@@ -9453,6 +9454,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             "🎭 Avatar ID is a photo avatar group, treating as photo avatar"
           );
           isPhotoAvatarGroup = true;
+          // Block video generation for revoked photo-avatar groups so a
+          // user can't keep producing videos from a likeness they've
+          // already pulled consent for.
+          if (await rejectIfGroupRevokedByHeygenId(res, String(avatarId))) {
+            return;
+          }
           // Create a temporary avatar object for photo avatar groups
           avatar = {
             id: avatarId,
@@ -11792,6 +11799,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         if (!dbGroup) {
           return res.status(404).json({ error: "Avatar group not found" });
         }
+        if (rejectIfRevoked(res, dbGroup)) return;
         const { numLooks = 3 } = req.body; // Default to 3 professional styles
 
         const photoAvatarService = new HeyGenPhotoAvatarService();
@@ -12108,6 +12116,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                 .status(404)
                 .json({ error: "Avatar not found or access denied" });
             }
+            if (rejectIfRevoked(res, dbGroup)) return;
           }
         } catch (error) {
           console.warn("Could not verify avatar ownership:", error);
@@ -12986,6 +12995,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
           // Still allow the request through since we verified ownership via media asset
         }
       }
+
+      if (rejectIfRevoked(res, dbGroup)) return;
 
       console.log("✏️ Editing look for group:", groupId);
       console.log("✏️ Edit prompt:", prompt);
@@ -14261,6 +14272,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         if (capturedUserId) {
           const existingGroup = await storage.getPhotoAvatarGroupByImageHash(imageHash, capturedUserId);
           if (existingGroup && existingGroup.heygenGroupId) {
+            if (rejectIfRevoked(res, existingGroup)) return;
             console.log(`♻️ [PROXY VIDEO] Reusing existing trained group: ${existingGroup.heygenGroupId}`);
             groupId = existingGroup.heygenGroupId;
             imageKey = existingGroup.heygenImageKey;
@@ -14496,6 +14508,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         const { groupId } = req.params;
         const { prompt, orientation, pose, style, numLooks } = req.body;
         const externalServiceUrl = getExternalServiceUrl();
+
+        if (await rejectIfGroupRevokedByHeygenId(res, groupId)) return;
 
         console.log(`🎨 [PROXY] Generating look for group ${groupId} via external service`);
         console.log(`🎨 [PROXY] Prompt: "${prompt}", orientation: ${orientation}, pose: ${pose}, style: ${style}`);

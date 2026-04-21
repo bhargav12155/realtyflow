@@ -157,6 +157,7 @@ export function V3LooksPanel({
   });
 
   const looks = data?.data ?? [];
+  const isRevoked = consentStatus === "revoked";
 
   return (
     <div
@@ -308,6 +309,16 @@ export function V3LooksPanel({
         </p>
       )}
 
+      {isRevoked && (
+        <Alert variant="destructive" data-testid={`alert-consent-revoked-${heygenGroupId}`}>
+          <AlertDescription className="text-xs">
+            Consent has been revoked for this avatar. Existing looks are read-only and
+            can't be used to create new videos. Re-approve consent to enable video
+            generation again.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {looks.length > 0 && (
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
           {looks.map((look: V3Look, idx: number) => {
@@ -342,9 +353,16 @@ export function V3LooksPanel({
                     className="w-full bg-[#D4AF37] hover:bg-[#C4A030] text-white text-[10px] h-6"
                     disabled={
                       !imageUrl ||
+                      isRevoked ||
                       (useLookMutation.isPending && pendingLookId === lookId)
                     }
+                    title={
+                      isRevoked
+                        ? "Consent revoked — re-approve consent to use this look for video"
+                        : undefined
+                    }
                     onClick={() => {
+                      if (isRevoked) return;
                       setPendingLookId(lookId);
                       useLookMutation.mutate(look);
                     }}
@@ -358,7 +376,7 @@ export function V3LooksPanel({
                     ) : (
                       <>
                         <Video className="h-3 w-3 mr-1" />
-                        Use for Video
+                        {isRevoked ? "Consent Revoked" : "Use for Video"}
                       </>
                     )}
                   </Button>

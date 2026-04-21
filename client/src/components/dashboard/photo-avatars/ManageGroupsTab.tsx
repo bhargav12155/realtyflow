@@ -253,10 +253,12 @@ export function ManageGroupsTab() {
           )}
 
           {Array.isArray(avatarGroups) &&
-            avatarGroups.map((group: AvatarGroup) => (
+            avatarGroups.map((group: AvatarGroup) => {
+              const isConsentRevoked = group.consent_status === "revoked";
+              return (
               <Card
                 key={group.group_id}
-                className="overflow-hidden border border-gray-200"
+                className={`overflow-hidden border border-gray-200 ${isConsentRevoked ? "opacity-75" : ""}`}
                 data-testid={`card-group-${group.group_id}`}
               >
                 <CardContent className="p-3 space-y-2">
@@ -310,6 +312,17 @@ export function ManageGroupsTab() {
                             </span>
                           </div>
                         )}
+                        {isConsentRevoked && (
+                          <div
+                            className="flex items-center gap-1 bg-red-100 text-red-700 px-2 py-0.5 rounded-full"
+                            data-testid={`badge-consent-revoked-${group.group_id}`}
+                          >
+                            <AlertCircle className="w-3 h-3" />
+                            <span className="text-[9px] font-semibold">
+                              Consent Revoked
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <p className="text-[10px] text-gray-400">
                         {new Date(group.created_at).toLocaleDateString("en-US", {
@@ -336,7 +349,9 @@ export function ManageGroupsTab() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
                           <DropdownMenuItem
+                            disabled={isConsentRevoked}
                             onClick={() => {
+                              if (isConsentRevoked) return;
                               setSelectedGroupForEdit(group);
                               setEditDialogOpen(true);
                             }}
@@ -378,6 +393,20 @@ export function ManageGroupsTab() {
                   )}
 
                   <AvatarPhotoGallery groupId={group.group_id} />
+
+                  {isConsentRevoked && (
+                    <div
+                      className="flex items-start gap-1.5 text-red-700 bg-red-50 border border-red-200 px-2 py-1.5 rounded text-[10px]"
+                      data-testid={`notice-consent-revoked-${group.group_id}`}
+                    >
+                      <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      <span>
+                        Consent has been revoked for this avatar. Generating new looks,
+                        outfit changes, motions and videos are disabled until consent is
+                        re-approved.
+                      </span>
+                    </div>
+                  )}
 
                   <div className="flex gap-1.5 pt-1">
                     {group.status === "pending" && (
@@ -424,7 +453,7 @@ export function ManageGroupsTab() {
                                       groupId: group.group_id,
                                     })
                                   }
-                                  disabled={trainGroupMutation.isPending}
+                                  disabled={trainGroupMutation.isPending || isConsentRevoked}
                                   data-testid={`button-train-${group.group_id}`}
                                   className="bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 h-7 text-[10px] px-2"
                                 >
@@ -447,7 +476,8 @@ export function ManageGroupsTab() {
                     )}
 
                     {group.status === "ready" &&
-                      group.train_status === "ready" && (
+                      group.train_status === "ready" &&
+                      !isConsentRevoked && (
                         <>
                           <Button
                             size="sm"
@@ -480,7 +510,7 @@ export function ManageGroupsTab() {
                         </>
                       )}
 
-                    {group.avatar_count && group.avatar_count > 0 && (
+                    {group.avatar_count && group.avatar_count > 0 && !isConsentRevoked && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -543,7 +573,8 @@ export function ManageGroupsTab() {
                     )}
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
         </div>
       )}
     </TabsContent>

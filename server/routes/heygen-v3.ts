@@ -144,6 +144,145 @@ export interface V3UseVoiceStorageLike {
   }): Promise<unknown>;
 }
 
+// Subset of HeyGenV3Service the design-voice handler needs.
+export interface V3DesignVoiceServiceLike {
+  designVoice(opts: {
+    name: string;
+    description: string;
+    language?: string;
+    gender?: string;
+  }): Promise<{ voice_id: string; preview_url?: string }>;
+}
+
+// Subset of `storage` the design-voice handler touches. Same shape as
+// V3UseVoiceStorageLike, but kept distinct so each handler's contract
+// is explicit at the call site.
+export interface V3DesignVoiceStorageLike {
+  createCustomVoice(voice: {
+    userId: string;
+    name: string;
+    audioUrl: string;
+    fileSize: number | null;
+    heygenAudioAssetId: string | null;
+    status: string;
+    heygenVoiceId: string;
+    language: string | null;
+    gender: string | null;
+    sampleAudioUrl: string | null;
+  }): Promise<unknown>;
+}
+
+export interface CreateV3VoicesDesignHandlerDeps {
+  storage: V3DesignVoiceStorageLike;
+  getV3Service: () => V3DesignVoiceServiceLike;
+}
+
+export function createV3VoicesDesignHandler(
+  deps: CreateV3VoicesDesignHandlerDeps,
+): RequestHandler {
+  return async (req: Request, res: Response) => {
+    const userId = (req as Request & { user?: { id?: string } }).user?.id;
+    if (!userId) return res.status(401).json({ error: "unauthorized" });
+
+    const name =
+      typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    const description =
+      typeof req.body?.description === "string"
+        ? req.body.description.trim()
+        : "";
+    const language =
+      typeof req.body?.language === "string" && req.body.language.trim()
+        ? req.body.language.trim()
+        : undefined;
+    const gender =
+      typeof req.body?.gender === "string" && req.body.gender.trim()
+        ? req.body.gender.trim()
+        : undefined;
+
+    // `save` defaults to true so existing callers keep working. Pass
+    // `save: false` to get a preview-only response that does not
+    // persist a custom_voices row — used by the two-step "preview,
+    // then save" flow in the Voice Designer UI.
+    const save = req.body?.save !== false;
+
+    // When saving an already-previewed voice, the client passes back
+    // the preview's heygenVoiceId (and optional previewUrl) so we
+    // persist exactly what the user listened to instead of paying
+    // for a second synthesis that might come back slightly different.
+    const previewVoiceId =
+      typeof req.body?.previewVoiceId === "string" &&
+      req.body.previewVoiceId.trim()
+        ? req.body.previewVoiceId.trim()
+        : undefined;
+    const previewUrl =
+      typeof req.body?.previewUrl === "string" && req.body.previewUrl.trim()
+        ? req.body.previewUrl.trim()
+        : undefined;
+
+    if (save && !name)
+      return res.status(400).json({ error: "name is required" });
+    if (!previewVoiceId && !description)
+      return res.status(400).json({ error: "description is required" });
+
+    try {
+      // Fast path: the user already previewed a voice; just persist
+      // the preview's voice id without calling HeyGen again.
+      if (save && previewVoiceId) {
+        const voice = await deps.storage.createCustomVoice({
+          userId,
+          name,
+          audioUrl: previewUrl ?? "",
+          fileSize: null,
+          heygenAudioAssetId: null,
+          status: "ready",
+          heygenVoiceId: previewVoiceId,
+          language: language ?? null,
+          gender: gender ?? null,
+          sampleAudioUrl: previewUrl ?? null,
+        });
+        return res.status(201).json(voice);
+      }
+
+      const designed = await deps.getV3Service().designVoice({
+        name: name || "Preview",
+        description,
+        language,
+        gender,
+      });
+
+      if (!save) {
+        return res.json({
+          preview: {
+            heygenVoiceId: designed.voice_id,
+            previewUrl: designed.preview_url ?? null,
+            language: language ?? null,
+            gender: gender ?? null,
+          },
+        });
+      }
+
+      const voice = await deps.storage.createCustomVoice({
+        userId,
+        name,
+        audioUrl: designed.preview_url ?? "",
+        fileSize: null,
+        heygenAudioAssetId: null,
+        status: "ready",
+        heygenVoiceId: designed.voice_id,
+        language: language ?? null,
+        gender: gender ?? null,
+        sampleAudioUrl: designed.preview_url ?? null,
+      });
+      return res.status(201).json(voice);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res
+        .status(502)
+        .json({ error: "heygen_v3_voice_design_failed", message });
+    }
+  };
+}
+
 export interface CreateV3PhotoAvatarsHandlerDeps {
   storage: V3CreateAvatarStorageLike;
   getV3Service: () => V3CreateAvatarServiceLike;
@@ -502,105 +641,10 @@ export function registerHeygenV3Routes(app: Express) {
   app.post(
     "/api/v3/voices/design",
     requireAuth,
-    async (req: Request, res: Response) => {
-      const userId = (req as Request & { user?: { id?: string } }).user?.id;
-      if (!userId) return res.status(401).json({ error: "unauthorized" });
-
-      const name =
-        typeof req.body?.name === "string" ? req.body.name.trim() : "";
-      const description =
-        typeof req.body?.description === "string" ? req.body.description.trim() : "";
-      const language =
-        typeof req.body?.language === "string" && req.body.language.trim()
-          ? req.body.language.trim()
-          : undefined;
-      const gender =
-        typeof req.body?.gender === "string" && req.body.gender.trim()
-          ? req.body.gender.trim()
-          : undefined;
-
-      // `save` defaults to true so existing callers keep working. Pass
-      // `save: false` to get a preview-only response that does not
-      // persist a custom_voices row — used by the two-step "preview,
-      // then save" flow in the Voice Designer UI.
-      const save = req.body?.save !== false;
-
-      // When saving an already-previewed voice, the client passes back
-      // the preview's heygenVoiceId (and optional previewUrl) so we
-      // persist exactly what the user listened to instead of paying
-      // for a second synthesis that might come back slightly different.
-      const previewVoiceId =
-        typeof req.body?.previewVoiceId === "string" && req.body.previewVoiceId.trim()
-          ? req.body.previewVoiceId.trim()
-          : undefined;
-      const previewUrl =
-        typeof req.body?.previewUrl === "string" && req.body.previewUrl.trim()
-          ? req.body.previewUrl.trim()
-          : undefined;
-
-      if (save && !name)
-        return res.status(400).json({ error: "name is required" });
-      // Description is only required when we actually need HeyGen to
-      // synthesise a voice — i.e. for previews, or for one-shot saves
-      // without a previously-generated voice id.
-      if (!previewVoiceId && !description)
-        return res.status(400).json({ error: "description is required" });
-
-      try {
-        // Fast path: the user already previewed a voice; just persist
-        // the preview's voice id without calling HeyGen again.
-        if (save && previewVoiceId) {
-          const voice = await defaultStorage.createCustomVoice({
-            userId,
-            name,
-            audioUrl: previewUrl ?? "",
-            fileSize: null,
-            heygenAudioAssetId: null,
-            status: "ready",
-            heygenVoiceId: previewVoiceId,
-            language: language ?? null,
-            gender: gender ?? null,
-            sampleAudioUrl: previewUrl ?? null,
-          });
-          return res.status(201).json(voice);
-        }
-
-        const designed = await defaultGetV3Service().designVoice({
-          name: name || "Preview",
-          description,
-          language,
-          gender,
-        });
-
-        if (!save) {
-          return res.json({
-            preview: {
-              heygenVoiceId: designed.voice_id,
-              previewUrl: designed.preview_url ?? null,
-              language: language ?? null,
-              gender: gender ?? null,
-            },
-          });
-        }
-
-        const voice = await defaultStorage.createCustomVoice({
-          userId,
-          name,
-          audioUrl: designed.preview_url ?? "",
-          fileSize: null,
-          heygenAudioAssetId: null,
-          status: "ready",
-          heygenVoiceId: designed.voice_id,
-          language: language ?? null,
-          gender: gender ?? null,
-          sampleAudioUrl: designed.preview_url ?? null,
-        });
-        return res.status(201).json(voice);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        return res.status(502).json({ error: "heygen_v3_voice_design_failed", message });
-      }
-    },
+    createV3VoicesDesignHandler({
+      storage: defaultStorage as unknown as V3DesignVoiceStorageLike,
+      getV3Service: defaultGetV3Service,
+    }),
   );
 
   // -------------------------------------------------------------------

@@ -7,6 +7,8 @@ export type AvatarGroupStatus =
 
 export type AvatarTrainStatus = "empty" | "processing" | "ready" | "completed" | "failed";
 
+export type ConsentStatus = "pending" | "approved" | "revoked";
+
 export interface AvatarGroup {
   group_id: string;
   name: string;
@@ -18,7 +20,7 @@ export interface AvatarGroup {
   num_looks?: number;
   preview_image?: string;
   api_version?: string;
-  consent_status?: string | null;
+  consent_status?: ConsentStatus | null;
 }
 
 export type AgeOption =
@@ -60,13 +62,19 @@ export type EditPose = "half_body" | "full_body";
 export type AILookOrientation = "square" | "horizontal" | "vertical";
 export type AILookPose = "half_body" | "close_up" | "full_body";
 
+export type AvatarLookProcessingStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed";
+
 export interface AvatarLook {
   id: string;
   groupId: string;
   groupName?: string;
   photoUrl?: string;
   poseType?: string;
-  processingStatus?: string;
+  processingStatus?: AvatarLookProcessingStatus;
 }
 
 export type ActivityLogStep =

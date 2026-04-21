@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import type { ConsentStatus } from "./types";
 import {
   ChevronDown,
   ChevronUp,
@@ -37,7 +38,7 @@ export function V3LooksPanel({
   consentStatus,
 }: {
   heygenGroupId: string;
-  consentStatus: string | null;
+  consentStatus: ConsentStatus | null;
 }) {
   const { toast } = useToast();
   const [cursor, setCursor] = useState<string | undefined>(undefined);

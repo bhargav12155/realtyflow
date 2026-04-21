@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import express, { type Express } from "express";
 import {
   registerBoardsChatRoutes,
+  __resetChatProviderHealthForTests,
   type BoardsChatProviders,
   type DispatchOne,
   type DispatchResult,
@@ -483,6 +484,182 @@ describe("POST /api/boards/:id/chat — brainstorm mode", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.reply, "openai-reply");
     assert.equal(openaiBrainstorm.calls.length, 1);
+  });
+
+  it("returns the friendly all-down message instead of a 500 when every provider fails", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic", { fail: true });
+    const gemini = makeFakeChat("gemini", { fail: true });
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm({ fail: true });
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "everything is down",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.allFailed, true);
+    assert.equal(res.body.chatModel, "claude");
+    assert.match(String(res.body.reply), /trouble reaching its providers/i);
+    // The raw upstream error text must NEVER reach the client.
+    assert.doesNotMatch(String(res.body.reply), /unavailable|401|403|api key/i);
+  });
+
+  it("includes a friendly notice when the picked model fell back to another provider", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic", { fail: true });
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "claude is dead, lean on gemini",
+      mode: "brainstorm",
+      // claude is the default; this exercises the fallback notice path.
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.fallbackUsed, true);
+    assert.equal(res.body.chatModel, "gemini");
+    assert.equal(res.body.requestedModel, "claude");
+    assert.match(String(res.body.notice), /Claude was unavailable/);
+    assert.match(String(res.body.notice), /Gemini/);
+  });
+
+  it("skips a provider on subsequent requests after a permanent (401-style) error", async () => {
+    __resetChatProviderHealthForTests();
+    let anthropicCalls = 0;
+    const anthropic = {
+      async chat() {
+        anthropicCalls += 1;
+        return { success: false, error: "401 Unauthorized: invalid_api_key" };
+      },
+    };
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    // First call: Claude fails permanently → cascade hits Gemini.
+    const r1 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "first",
+      mode: "brainstorm",
+    });
+    assert.equal(r1.status, 200);
+    assert.equal(r1.body.chatModel, "gemini");
+    assert.equal(anthropicCalls, 1);
+
+    // Second call: Claude is now in the down map → it MUST be skipped entirely.
+    const r2 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "second",
+      mode: "brainstorm",
+    });
+    assert.equal(r2.status, 200);
+    assert.equal(r2.body.chatModel, "gemini");
+    assert.equal(
+      anthropicCalls,
+      1,
+      "Claude must not be retried on subsequent requests after a 401",
+    );
+  });
+
+  it("does NOT mark a provider down on transient (429/503) errors", async () => {
+    __resetChatProviderHealthForTests();
+    let geminiCalls = 0;
+    const gemini = {
+      async chat() {
+        geminiCalls += 1;
+        // Transient: gemini is overloaded right now.
+        return { success: false, error: "503 Service Unavailable: model overloaded" };
+      },
+    };
+    const anthropic = makeFakeChat("anthropic");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    // Pick gemini explicitly so we exercise the transient path on it.
+    const r1 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "first",
+      mode: "brainstorm",
+      chatModel: "gemini",
+    });
+    assert.equal(r1.status, 200);
+    assert.equal(r1.body.chatModel, "claude"); // fell back
+    assert.equal(geminiCalls, 1);
+
+    // Second call: gemini must still be tried — transient errors don't poison.
+    const r2 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "second",
+      mode: "brainstorm",
+      chatModel: "gemini",
+    });
+    assert.equal(r2.status, 200);
+    assert.equal(geminiCalls, 2, "Transient errors must not be cached as permanent");
+  });
+});
+
+describe("GET /api/boards/chat/health", () => {
+  it("reports all providers healthy when nothing has been marked down", async () => {
+    __resetChatProviderHealthForTests();
+    const { app } = buildApp();
+    const server = app.listen(0);
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("no addr");
+      const res = await fetch(`http://127.0.0.1:${addr.port}/api/boards/chat/health`);
+      const body = await res.json();
+      assert.equal(res.status, 200);
+      assert.deepEqual(body.healthy, ["claude", "gemini", "openai"]);
+      assert.deepEqual(body.unhealthy, []);
+      assert.equal(body.default, "claude");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
+
+  it("excludes a provider once it has returned a permanent (401) error", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = {
+      async chat() {
+        return { success: false, error: "401 invalid_api_key" };
+      },
+    };
+    const gemini = makeFakeChat("gemini");
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm();
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    // Trigger one chat to mark claude down.
+    await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "trigger",
+      mode: "brainstorm",
+    });
+
+    const server = app.listen(0);
+    try {
+      const addr = server.address();
+      if (!addr || typeof addr === "string") throw new Error("no addr");
+      const res = await fetch(`http://127.0.0.1:${addr.port}/api/boards/chat/health`);
+      const body = await res.json();
+      assert.equal(res.status, 200);
+      assert.ok(!body.healthy.includes("claude"));
+      assert.deepEqual(body.unhealthy, ["claude"]);
+      assert.equal(body.default, "gemini");
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()));
+    }
   });
 });
 

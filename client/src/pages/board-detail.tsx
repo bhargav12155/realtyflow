@@ -68,6 +68,7 @@ export default function BoardDetailPage() {
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
   const [seedanceOptions, setSeedanceOptions] = useState<SeedanceOptions>(DEFAULT_SEEDANCE_OPTIONS);
   const [chatModel, setChatModel] = useState<ChatModelId>("claude");
+  const [chatModelManuallyPicked, setChatModelManuallyPicked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
 
@@ -75,6 +76,33 @@ export default function BoardDetailPage() {
     queryKey: ["/api/boards", boardId],
     enabled: !!boardId,
   });
+
+  // Ask the server which chat providers actually have a working API key, so
+  // we don't default Think mode onto a provider that's known to 401 every
+  // request. The user can still switch to any provider manually — we only
+  // override the default when they haven't picked one yet.
+  const chatHealthQuery = useQuery<{
+    healthy: ChatModelId[];
+    unhealthy: ChatModelId[];
+    default: ChatModelId | null;
+  }>({
+    queryKey: ["/api/boards/chat/health"],
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (chatModelManuallyPicked) return;
+    const data = chatHealthQuery.data;
+    if (!data) return;
+    if (data.default && data.default !== chatModel) {
+      setChatModel(data.default);
+    }
+  }, [chatHealthQuery.data, chatModelManuallyPicked, chatModel]);
+
+  const handleChatModelChange = (m: ChatModelId) => {
+    setChatModelManuallyPicked(true);
+    setChatModel(m);
+  };
 
   // Listen for asset status updates pushed via WebSocket
   useWebSocket({
@@ -210,10 +238,22 @@ export default function BoardDetailPage() {
     },
     onSuccess: (data, _vars, ctx) => {
       const replyRaw = data?.reply;
-      const reply =
+      const baseReply =
         typeof replyRaw === "string"
           ? replyRaw
           : replyRaw?.content ?? "(no reply)";
+      // The server may include a friendly `notice` when a fallback model was
+      // used (e.g. "Claude was unavailable, so I used Gemini instead."). We
+      // surface it as an italic prefix on the same assistant bubble so the
+      // user understands why the answer style might differ — without ever
+      // exposing the raw upstream provider error.
+      const notice = typeof data?.notice === "string" ? data.notice : null;
+      const reply = notice ? `_${notice}_\n\n${baseReply}` : baseReply;
+      // If the server reports every provider was down, also re-check the
+      // health endpoint so the Think model picker reflects the new defaults.
+      if (data?.allFailed || data?.fallbackUsed) {
+        queryClient.invalidateQueries({ queryKey: ["/api/boards/chat/health"] });
+      }
       setMessages((m) =>
         m.map((msg) => (msg.id === ctx?.pendingId ? { ...msg, content: reply, pending: false } : msg)),
       );
@@ -547,7 +587,7 @@ export default function BoardDetailPage() {
             seedanceOptions={seedanceOptions}
             onSeedanceOptionsChange={setSeedanceOptions}
             chatModel={chatModel}
-            onChatModelChange={setChatModel}
+            onChatModelChange={handleChatModelChange}
             referencedAssetIds={referencedAssetIds}
             hasReferencedImage={hasReferencedImage}
             referencedAssets={referencedAssets}

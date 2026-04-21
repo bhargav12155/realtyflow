@@ -429,13 +429,19 @@ async function dispatchImage(
     };
   }
   // openai-image
+  // Graceful fallback: if there's no OPENAI_API_KEY (or the openai client
+  // factory throws), silently re-dispatch through Gemini's image path so the
+  // user still gets a result instead of a hard error. We only fall back when
+  // the client factory isn't user-provided (test injection always wins).
+  if (!deps.openaiClientFactory && !process.env.OPENAI_API_KEY) {
+    console.warn(
+      "[boards-chat] openai-image requested but OPENAI_API_KEY missing — falling back to gemini-image",
+    );
+    return dispatchImage("gemini-image", ctx, deps);
+  }
   const client = deps.openaiClientFactory
     ? deps.openaiClientFactory()
-    : (() => {
-        const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
-        return new OpenAI({ apiKey });
-      })();
+    : new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = ctx.forceModel || "gpt-image-1";
 
   if (refImageUrls.length > 0) {
@@ -815,13 +821,117 @@ async function tryOpenAIBrainstorm(
   }
 }
 
+// =====================================================
+// Chat-provider health tracking
+// =====================================================
+//
+// The board-chat brainstorm path cascades across Claude → Gemini → ChatGPT.
+// In production we have repeatedly observed two failure modes that, together,
+// turn the chat into a brick wall of stacked upstream errors:
+//
+//   1. A provider's API key is invalid (401/403) — every request will fail
+//      forever until the key is rotated. There's no point in re-trying it on
+//      every message, and there's certainly no point in echoing the raw
+//      "Incorrect API key provided" string to the end user.
+//   2. A provider is transiently overloaded (429/503) — we should try the
+//      next provider, but a single bad minute shouldn't poison the whole
+//      session.
+//
+// We therefore keep a tiny in-process map of providers that returned a
+// permanent-looking auth error, and skip them for `PROVIDER_DOWN_TTL_MS`.
+// Transient errors are NOT persisted — we just try the next provider and
+// move on. The original error is logged server-side; the client only ever
+// sees a friendly summary plus which provider actually answered.
+const PROVIDER_DOWN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+type ProviderHealthEntry = { downSince: number; reason: string };
+const providerHealth = new Map<ChatModelId, ProviderHealthEntry>();
+
+function classifyChatError(err: string | undefined): "permanent" | "transient" {
+  if (!err) return "transient";
+  const e = err.toLowerCase();
+  if (
+    e.includes("401") ||
+    e.includes("403") ||
+    e.includes("invalid_api_key") ||
+    e.includes("incorrect api key") ||
+    e.includes("invalid api key") ||
+    e.includes("api key not valid") ||
+    e.includes("authentication") ||
+    e.includes("unauthorized") ||
+    e.includes("not configured") ||
+    e.includes("permission_denied")
+  ) {
+    return "permanent";
+  }
+  return "transient";
+}
+
+function markProviderDown(id: ChatModelId, reason: string) {
+  providerHealth.set(id, { downSince: Date.now(), reason });
+}
+
+function isProviderDown(id: ChatModelId): boolean {
+  const entry = providerHealth.get(id);
+  if (!entry) return false;
+  if (Date.now() - entry.downSince > PROVIDER_DOWN_TTL_MS) {
+    providerHealth.delete(id);
+    return false;
+  }
+  return true;
+}
+
+const CHAT_MODEL_ORDER: ChatModelId[] = ["claude", "gemini", "openai"];
+
+export function getChatProviderHealthSnapshot(): {
+  healthy: ChatModelId[];
+  unhealthy: { id: ChatModelId; reason: string }[];
+  default: ChatModelId | null;
+} {
+  const healthy: ChatModelId[] = [];
+  const unhealthy: { id: ChatModelId; reason: string }[] = [];
+  for (const id of CHAT_MODEL_ORDER) {
+    if (isProviderDown(id)) {
+      const entry = providerHealth.get(id)!;
+      unhealthy.push({ id, reason: entry.reason });
+    } else {
+      healthy.push(id);
+    }
+  }
+  return { healthy, unhealthy, default: healthy[0] ?? null };
+}
+
+/** Test-only: clear the health cache between cases. */
+export function __resetChatProviderHealthForTests() {
+  providerHealth.clear();
+}
+
+const FRIENDLY_ALL_DOWN =
+  "Our AI assistant is having trouble reaching its providers right now. Please try again in a minute — your message wasn't lost.";
+
+const CHAT_MODEL_DISPLAY: Record<ChatModelId, string> = {
+  claude: "Claude",
+  gemini: "Gemini",
+  openai: "ChatGPT",
+};
+
+interface BrainstormReplyResult {
+  message: string;
+  usedModel: ChatModelId | null;
+  /** True when the picked/preferred model was unavailable and a fallback answered. */
+  fallbackUsed: boolean;
+  /** True when every provider failed and `message` is the friendly fallback copy. */
+  allFailed: boolean;
+  /** Human-readable note for the client (e.g. "Claude was unavailable, used Gemini instead."). */
+  notice?: string;
+}
+
 async function brainstormReply(
   message: string,
   providers: Required<BoardsChatProviders>,
   history?: { role: "user" | "assistant"; content: string }[],
   preferred: ChatModelId = "claude",
   images?: BrainstormChatImage[],
-): Promise<string> {
+): Promise<BrainstormReplyResult> {
   const cappedImages =
     images && images.length > 0 ? images.slice(0, MAX_BRAINSTORM_IMAGES) : undefined;
   const callers: Record<
@@ -832,20 +942,64 @@ async function brainstormReply(
     gemini: () => providers.gemini.chat(message, history, BRAINSTORM_SYSTEM, cappedImages),
     openai: () => providers.openaiBrainstorm(message, history, cappedImages),
   };
-  // Try the user-picked model first, then fall back to the others in a stable
-  // order so the existing health/availability behavior is preserved.
-  const fallbackOrder: ChatModelId[] = ["claude", "gemini", "openai"];
+  // Try the user-picked model first, then the others in a stable order so the
+  // cascade is deterministic across requests.
   const order: ChatModelId[] = [
     preferred,
-    ...fallbackOrder.filter((m) => m !== preferred),
+    ...CHAT_MODEL_ORDER.filter((m) => m !== preferred),
   ];
+
+  // Filter out providers we already know are dead. If that wipes the list,
+  // fall through and try them anyway as a last-ditch attempt — keys can be
+  // rotated mid-session and the TTL is conservative.
+  const live = order.filter((id) => !isProviderDown(id));
+  const tryOrder = live.length > 0 ? live : order;
+
   let lastError: string | undefined;
-  for (const id of order) {
-    const r = await callers[id]();
-    if (r.success && r.message) return r.message;
-    lastError = r.error || lastError;
+  let firstAttempted: ChatModelId | null = null;
+
+  for (const id of tryOrder) {
+    if (firstAttempted === null) firstAttempted = id;
+    try {
+      const r = await callers[id]();
+      if (r.success && r.message) {
+        const fallbackUsed = id !== preferred;
+        const notice = fallbackUsed
+          ? `${CHAT_MODEL_DISPLAY[preferred]} was unavailable, so I used ${CHAT_MODEL_DISPLAY[id]} for this reply.`
+          : undefined;
+        return { message: r.message, usedModel: id, fallbackUsed, allFailed: false, notice };
+      }
+      lastError = r.error || lastError;
+      const verdict = classifyChatError(r.error);
+      if (verdict === "permanent") {
+        markProviderDown(id, r.error || "auth/key error");
+        console.warn(`[boards-chat] provider '${id}' marked permanently down: ${r.error}`);
+      } else {
+        console.warn(`[boards-chat] provider '${id}' transient failure: ${r.error}`);
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      lastError = errMsg;
+      const verdict = classifyChatError(errMsg);
+      if (verdict === "permanent") {
+        markProviderDown(id, errMsg);
+        console.warn(`[boards-chat] provider '${id}' threw permanent error: ${errMsg}`);
+      } else {
+        console.warn(`[boards-chat] provider '${id}' threw transient error: ${errMsg}`);
+      }
+    }
   }
-  throw new Error(lastError || "All chat providers unavailable");
+
+  console.error(
+    `[boards-chat] all chat providers unavailable (preferred=${preferred}, lastError=${lastError ?? "n/a"})`,
+  );
+  return {
+    message: FRIENDLY_ALL_DOWN,
+    usedModel: null,
+    fallbackUsed: true,
+    allFailed: true,
+    notice: undefined,
+  };
 }
 
 export interface BoardsChatDeps {
@@ -920,6 +1074,18 @@ export function registerBoardsChatRoutes(
           next();
         }) as RequestHandler
       : defaultRequireAuth);
+  // Lightweight health snapshot the client uses to choose a default Think
+  // model that is actually likely to answer. We never expose raw upstream
+  // error strings to the client; just the IDs.
+  app.get("/api/boards/chat/health", requireAuth, (_req: Request, res: Response) => {
+    const snap = getChatProviderHealthSnapshot();
+    res.json({
+      healthy: snap.healthy,
+      unhealthy: snap.unhealthy.map((u) => u.id),
+      default: snap.default,
+    });
+  });
+
   app.post("/api/boards/:id/chat", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
@@ -950,17 +1116,22 @@ export function registerBoardsChatRoutes(
             if (url) visionImages.push({ url });
           }
         }
-        const reply = await brainstormReply(
+        const requestedModel = body.chatModel ?? "claude";
+        const result = await brainstormReply(
           body.message,
           chatProviders,
           body.conversationHistory,
-          body.chatModel ?? "claude",
+          requestedModel,
           visionImages.length > 0 ? visionImages : undefined,
         );
         return res.json({
           mode: "brainstorm",
-          reply,
-          chatModel: body.chatModel ?? "claude",
+          reply: result.message,
+          chatModel: result.usedModel ?? requestedModel,
+          requestedModel,
+          fallbackUsed: result.fallbackUsed,
+          allFailed: result.allFailed,
+          notice: result.notice,
           attachedImageCount: visionImages.length,
         });
       }

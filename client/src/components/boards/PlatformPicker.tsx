@@ -52,8 +52,12 @@ export const PLATFORMS: Platform[] = [
   { id: "seedance", name: "Seedance", tagline: "ByteDance fast t2v + i2v", v2v: false, accent: "from-rose-500 to-orange-500", monogram: "S" },
   { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", brandIcon: SiGoogle },
   { id: "kling", name: "Kling AI", tagline: "Strong character consistency", v2v: false, accent: "from-amber-500 to-yellow-500", monogram: "K" },
-  { id: "openai-image", name: "OpenAI Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-zinc-700 to-zinc-900", brandIcon: SiOpenai },
+  // Gemini image is listed first so it's the default image provider users
+  // see in the picker. The OpenAI image path requires a valid OPENAI_API_KEY
+  // and historically caused the most user-visible failures, so we lean on
+  // Gemini's image model by default.
   { id: "gemini-image", name: "Gemini Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-blue-400 to-cyan-400", brandIcon: SiGoogle },
+  { id: "openai-image", name: "OpenAI Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-zinc-700 to-zinc-900", brandIcon: SiOpenai },
   { id: "heygen", name: "HeyGen Avatar", tagline: "Talking-head avatars", v2v: false, kind: "avatar", badge: "Avatar", accent: "from-pink-500 to-purple-500", monogram: "H" },
 ];
 

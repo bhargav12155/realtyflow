@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, LogOut, MessageSquare, Settings as SettingsIcon, Share2, Moon, Sun } from "lucide-react";
@@ -9,6 +9,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/boards/BoardCanvas";
+import {
+  BoardBottomToolbar,
+  type BoardBottomToolbarHandle,
+} from "@/components/boards/BoardBottomToolbar";
+import { uploadFilesToBoard } from "@/lib/boardUpload";
 import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
 import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
@@ -434,6 +439,68 @@ export default function BoardDetailPage() {
     setSelectedAssetId(null);
   }, [boardId]);
 
+  const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
+  const handleUploadFiles = useCallback(
+    async (files: FileList | File[]) => {
+      if (!boardId) return;
+      try {
+        const results = await uploadFilesToBoard(boardId, files, (file, err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          toast({
+            title: `Couldn't upload ${file.name}`,
+            description: msg,
+            variant: "destructive",
+          });
+        });
+        if (results.length > 0) {
+          queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+          toast({
+            title: results.length === 1 ? "File uploaded" : "Files uploaded",
+            description: `${results.length} ${
+              results.length === 1 ? "file is" : "files are"
+            } now on the board.`,
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast({ title: "Upload failed", description: msg, variant: "destructive" });
+      }
+    },
+    [boardId, toast],
+  );
+
+  // Ctrl+U / Cmd+U opens the "+" media picker, but only when the user isn't
+  // typing into an input or a modal/dialog is on top of the board.
+  useEffect(() => {
+    if (!boardId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "u" && e.key !== "U") return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (
+        typeof document !== "undefined" &&
+        document.querySelector('[role="dialog"][data-state="open"]')
+      ) {
+        return;
+      }
+      e.preventDefault();
+      bottomToolbarRef.current?.openMediaPicker();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [boardId]);
+
   // Apply seed payload from URL (set by Discover templates) once per board
   useEffect(() => {
     if (!seedParams || !boardId) return;
@@ -643,6 +710,14 @@ export default function BoardDetailPage() {
               <MessageSquare className="w-4 h-4" />
             </button>
           )}
+          <BoardBottomToolbar
+            ref={bottomToolbarRef}
+            cursorActive={selectedAssetId === null}
+            onActivateCursor={() => setSelectedAssetId(null)}
+            onPickImage={(files) => void handleUploadFiles(files)}
+            onPickVideo={(files) => void handleUploadFiles(files)}
+            onPickMedia={(files) => void handleUploadFiles(files)}
+          />
         </div>
         {chatOpen && (
           <ChatPanel

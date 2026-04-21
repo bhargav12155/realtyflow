@@ -17,6 +17,9 @@ export const ASSET_PROVIDERS = [
   "gemini-image",
   "openai-image",
   "heygen",
+  // Direct user upload from the bottom toolbar's image/video/+ buttons.
+  // Not a generation provider — the assetUrl points at the uploaded file.
+  "upload",
 ] as const;
 
 const updateBoardSchema = z.object({
@@ -88,10 +91,17 @@ export const BOARD_CHAT_GENERATION_MODES = [
 ] as const;
 export type BoardChatGenerationMode = (typeof BOARD_CHAT_GENERATION_MODES)[number];
 
+// Providers the chat handler is allowed to dispatch to. "upload" is a board
+// asset provider but never a generation target, so it is intentionally
+// excluded here even though it is part of `ASSET_PROVIDERS`.
+export const CHAT_PROVIDERS = ASSET_PROVIDERS.filter(
+  (p) => p !== "upload",
+) as Exclude<(typeof ASSET_PROVIDERS)[number], "upload">[];
+
 export const boardChatPayloadSchema = z.object({
   message: z.string().min(1).max(8000),
   mode: z.enum(["brainstorm", "create"]).default("create"),
-  provider: z.enum(ASSET_PROVIDERS),
+  provider: z.enum(CHAT_PROVIDERS as [string, ...string[]]),
   generationMode: z.enum(BOARD_CHAT_GENERATION_MODES).optional(),
   referencedAssetIds: z.array(z.string()).optional().default([]),
 });

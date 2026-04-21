@@ -6,7 +6,6 @@
  * routes.ts file.
  */
 import type { Express, Request, Response } from "express";
-import express from "express";
 import { db } from "../db";
 import { heygenWebhookEvents } from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
@@ -18,30 +17,54 @@ function getV3Service(): HeyGenV3Service {
   return new HeyGenV3Service();
 }
 
+// Map a HeyGen webhook status string into the value we store in
+// photo_avatar_groups.training_status. We only update when we get one of
+// the well-known transitions; unknown statuses are left untouched.
+function mapWebhookStatusToTrainingStatus(
+  raw: string | undefined,
+): string | undefined {
+  if (!raw) return undefined;
+  const s = raw.toLowerCase();
+  if (s === "ready" || s === "completed" || s === "succeeded" || s === "success")
+    return "ready";
+  if (s === "failed" || s === "error") return "failed";
+  if (s === "training" || s === "in_progress" || s === "processing")
+    return "training";
+  if (s === "pending" || s === "queued") return "pending";
+  return undefined;
+}
+
 export function registerHeygenV3Routes(app: Express) {
   // -------------------------------------------------------------------
   // Webhook receiver. HeyGen POSTs JSON with an HMAC signature header
-  // (`x-heygen-signature`). We persist every event for audit, then if it
-  // verifies we broadcast a websocket update so the UI reflects status
+  // (`x-heygen-signature`). We persist every event for audit, verify the
+  // signature against the bytes captured by the global json verify hook
+  // in `server/index.ts` (which stashes `req.rawBody` for any
+  // `/api/webhooks/*` URL), then update the related photo_avatar_groups
+  // row and broadcast a websocket event so the UI reflects status
   // changes live.
-  //
-  // We mount express.raw() locally so the global JSON parser doesn't
-  // consume the body before we can re-hash it.
   // -------------------------------------------------------------------
   app.post(
     "/api/webhooks/heygen",
-    express.raw({ type: "application/json", limit: "1mb" }),
     async (req: Request, res: Response) => {
-      const rawBody = (req.body as Buffer | undefined)?.toString("utf8") ?? "";
+      const rawBuf = (req as Request & { rawBody?: Buffer }).rawBody;
+      const rawBody = rawBuf ? rawBuf.toString("utf8") : "";
       const signatureHeader =
         (req.headers["x-heygen-signature"] as string | undefined) ??
         (req.headers["x-signature"] as string | undefined);
 
+      // The global express.json() middleware has already parsed the body
+      // for us, so prefer that — but fall back to parsing rawBody in
+      // case parsing was skipped (e.g. wrong content-type).
       let payload: Record<string, unknown> = {};
-      try {
-        payload = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
-      } catch (err) {
-        console.warn("[heygen-webhook] received non-JSON body");
+      if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+        payload = req.body as Record<string, unknown>;
+      } else if (rawBody) {
+        try {
+          payload = JSON.parse(rawBody) as Record<string, unknown>;
+        } catch {
+          console.warn("[heygen-webhook] received non-JSON body");
+        }
       }
 
       const verified = verifyHeygenWebhookSignature(rawBody, signatureHeader);
@@ -82,23 +105,32 @@ export function registerHeygenV3Routes(app: Express) {
         );
       }
 
-      // Broadcast to the owning user, if we can map the resource back to
-      // one. For groups we look up the photo_avatar_groups row.
+      // Update the related group's training_status (if we can map the
+      // event to a known group) and then broadcast to its owner.
       try {
         const groupId = eventData.group_id as string | undefined;
+        const rawStatus = eventData.status as string | undefined;
         if (groupId) {
           const group = await storage.getPhotoAvatarGroupByHeygenId(groupId);
-          if (group?.userId) {
-            realtimeService.notifyPhotoAvatarStatus(group.userId, {
-              groupId,
-              lookId: eventData.look_id as string | undefined,
-              status: (eventData.status as string | undefined) ?? "updated",
-              eventType,
-            });
+          if (group) {
+            const mapped = mapWebhookStatusToTrainingStatus(rawStatus);
+            if (mapped && mapped !== group.trainingStatus) {
+              await storage.updatePhotoAvatarGroup(group.id, {
+                trainingStatus: mapped,
+              });
+            }
+            if (group.userId) {
+              realtimeService.notifyPhotoAvatarStatus(group.userId, {
+                groupId,
+                lookId: eventData.look_id as string | undefined,
+                status: mapped ?? rawStatus ?? "updated",
+                eventType,
+              });
+            }
           }
         }
       } catch (err) {
-        console.error("[heygen-webhook] broadcast failed", err);
+        console.error("[heygen-webhook] update/broadcast failed", err);
       }
 
       return res.status(200).json({ ok: true, verified });

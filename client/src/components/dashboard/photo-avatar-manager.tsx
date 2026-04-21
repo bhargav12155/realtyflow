@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -77,6 +78,238 @@ import { useLocation } from "wouter";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { AvatarPhotoGallery } from "./avatar-photo-gallery";
 import { VoiceLibraryManager } from "./voice-library-manager";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useAuth } from "@/hooks/useAuth";
+
+// HeyGen v3 Looks browser. Renders inline inside an avatar group's
+// card when the group was created via the v3 API. Uses cursor
+// pagination from /api/v3/photo-avatars/:groupId/looks and exposes a
+// "Use for video" action that mirrors the v2 flow by handing the
+// chosen look's image off to /api/avatar-iv/use-look-image.
+type V3Look = {
+  id?: string;
+  look_id?: string;
+  name?: string;
+  business_type?: string;
+  image_url?: string;
+  preview_image_url?: string;
+  url?: string;
+  photo_url?: string;
+};
+
+type V3LooksPage = {
+  data: V3Look[];
+  nextCursor: string | null;
+};
+
+function pickLookImage(look: V3Look): string | undefined {
+  return look.image_url || look.preview_image_url || look.url || look.photo_url;
+}
+
+function V3LooksPanel({
+  heygenGroupId,
+  consentStatus,
+}: {
+  heygenGroupId: string;
+  consentStatus: string | null;
+}) {
+  const { toast } = useToast();
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [history, setHistory] = useState<string[]>([]);
+  const [pendingLookId, setPendingLookId] = useState<string | null>(null);
+
+  const { data, isLoading, isError, refetch } = useQuery<V3LooksPage>({
+    queryKey: ["/api/v3/photo-avatars", heygenGroupId, "looks", cursor ?? ""],
+    queryFn: async () => {
+      const url = `/api/v3/photo-avatars/${encodeURIComponent(
+        heygenGroupId
+      )}/looks${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`Failed to load looks (${res.status})`);
+      return res.json();
+    },
+  });
+
+  const useLookMutation = useMutation({
+    mutationFn: async (look: V3Look) => {
+      const imageUrl = pickLookImage(look);
+      if (!imageUrl) {
+        throw new Error("This look has no preview image yet — try again once training finishes.");
+      }
+      const lookName = look.name || look.business_type || look.id || "HeyGen v3 Look";
+      const res = await apiRequest("POST", "/api/avatar-iv/use-look-image", {
+        imageUrl,
+        lookName,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setPendingLookId(null);
+      toast({
+        title: "Look Ready for Video!",
+        description: "The selected look is queued for the Video Studio.",
+      });
+      window.location.hash = "photo-avatars";
+    },
+    onError: (err: unknown) => {
+      setPendingLookId(null);
+      const message = err instanceof Error ? err.message : "Please try again.";
+      toast({
+        title: "Could not use this look",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const looks = data?.data ?? [];
+
+  return (
+    <div
+      className="border-t mt-2 pt-3 space-y-2"
+      data-testid={`v3-looks-panel-${heygenGroupId}`}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            HeyGen v3 Looks
+          </p>
+          <p className="text-[10px] text-gray-500">
+            Consent:{" "}
+            <span data-testid={`text-consent-status-${heygenGroupId}`}>
+              {consentStatus || "unknown"}
+            </span>
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => refetch()}
+          className="h-6 text-[10px] px-2"
+          data-testid={`button-refresh-looks-${heygenGroupId}`}
+        >
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Refresh
+        </Button>
+      </div>
+
+      {isLoading && (
+        <div className="text-center py-4 text-xs text-gray-500">
+          <Loader2 className="w-4 h-4 animate-spin inline mr-1" />
+          Loading looks...
+        </div>
+      )}
+      {isError && (
+        <Alert variant="destructive">
+          <AlertDescription className="text-xs">
+            Couldn't load v3 looks. The group may still be training.
+          </AlertDescription>
+        </Alert>
+      )}
+      {!isLoading && !isError && looks.length === 0 && (
+        <p className="text-[11px] text-gray-500 py-2">
+          No looks yet — they'll appear here once HeyGen finishes generating
+          them.
+        </p>
+      )}
+
+      {looks.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {looks.map((look: V3Look, idx: number) => {
+            const lookId = look.id || look.look_id || `look-${idx}`;
+            const imageUrl = pickLookImage(look);
+            return (
+              <div
+                key={lookId}
+                className="relative rounded-lg overflow-hidden border bg-gray-50"
+                data-testid={`card-v3-look-${lookId}`}
+              >
+                <div className="aspect-square bg-gray-100">
+                  {imageUrl ? (
+                    <img
+                      src={imageUrl}
+                      alt={look?.name || "Look"}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[10px] text-gray-400">
+                      No preview
+                    </div>
+                  )}
+                </div>
+                <div className="p-1.5 space-y-1">
+                  <p className="text-[10px] truncate" title={look?.name}>
+                    {look?.name || lookId}
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full bg-[#D4AF37] hover:bg-[#C4A030] text-white text-[10px] h-6"
+                    disabled={
+                      !imageUrl ||
+                      (useLookMutation.isPending && pendingLookId === lookId)
+                    }
+                    onClick={() => {
+                      setPendingLookId(lookId);
+                      useLookMutation.mutate(look);
+                    }}
+                    data-testid={`button-use-v3-look-${lookId}`}
+                  >
+                    {useLookMutation.isPending && pendingLookId === lookId ? (
+                      <>
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        Preparing...
+                      </>
+                    ) : (
+                      <>
+                        <Video className="h-3 w-3 mr-1" />
+                        Use for Video
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={history.length === 0}
+          onClick={() => {
+            const next = [...history];
+            const prev = next.pop();
+            setHistory(next);
+            setCursor(prev ?? undefined);
+          }}
+          className="h-6 text-[10px] px-2"
+          data-testid={`button-looks-prev-${heygenGroupId}`}
+        >
+          <ChevronUp className="w-3 h-3 mr-1 rotate-[-90deg]" />
+          Previous
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!data?.nextCursor}
+          onClick={() => {
+            if (!data?.nextCursor) return;
+            setHistory((h) => [...h, cursor ?? ""]);
+            setCursor(data.nextCursor);
+          }}
+          className="h-6 text-[10px] px-2"
+          data-testid={`button-looks-next-${heygenGroupId}`}
+        >
+          Next
+          <ChevronDown className="w-3 h-3 ml-1 rotate-[-90deg]" />
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 // Large Avatar Card Component for HeyGen-style display
 function LargeAvatarCard({
@@ -296,6 +529,11 @@ export function PhotoAvatarManager() {
   const [motionType, setMotionType] = useState<string>("consistent");
   const [showGroupNameDialog, setShowGroupNameDialog] = useState(false);
   const [groupNameInput, setGroupNameInput] = useState("");
+  // HeyGen v3 consent capture for the Upload tab.
+  const [consentAcknowledged, setConsentAcknowledged] = useState(false);
+  const [consentVideoUrl, setConsentVideoUrl] = useState("");
+  // V3 Looks browser — tracks which group's panel is currently open.
+  const [openLooksGroupId, setOpenLooksGroupId] = useState<string | null>(null);
   const [generationForm, setGenerationForm] = useState<PhotoGenerationRequest>({
     name: "Mike Bjork Professional Avatar",
     age: "Early Middle Age",
@@ -1245,6 +1483,33 @@ export function PhotoAvatarManager() {
   const [, setLocation] = useLocation();
   const [useLookPendingId, setUseLookPendingId] = useState<string | null>(null);
 
+  // -----------------------------------------------------------------
+  // Subscribe to v3 photo-avatar status updates (training, look ready,
+  // consent change). The server broadcasts these from
+  // server/routes/heygen-v3.ts; on receipt we invalidate the affected
+  // queries so the UI refreshes without polling.
+  // -----------------------------------------------------------------
+  const { user } = useAuth();
+  useWebSocket({
+    userId: user?.id ? String(user.id) : undefined,
+    autoConnect: !!user?.id,
+    showToast: false,
+    onMessage: (msg) => {
+      if (msg.type !== "photo_avatar_status_update") return;
+      const groupId = msg.data?.groupId as string | undefined;
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/all-looks"] });
+      if (groupId) {
+        queryClient.invalidateQueries({
+          queryKey: [`/api/photo-avatars/groups/${groupId}/photos`],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["/api/v3/photo-avatars", groupId, "looks"],
+        });
+      }
+    },
+  });
+
   const useLookForVideoMutation = useMutation({
     mutationFn: async (look: any) => {
       setUseLookPendingId(look.id);
@@ -1299,30 +1564,55 @@ export function PhotoAvatarManager() {
       });
       return;
     }
+    if (!consentAcknowledged) {
+      toast({
+        title: "Consent Required",
+        description:
+          "You must confirm you have permission to use this likeness before creating an avatar.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
-      // Upload all photos and collect their keys
-      const uploadedKeys: string[] = [];
+      // Upload all photos and collect their HeyGen image_key + s3 url.
+      // The v3 createAvatar call uses a single image key, so we send the
+      // first one to HeyGen and remember the rest for context (the v2
+      // multi-image flow is preserved for legacy groups via the older
+      // /api/photo-avatars/create-from-uploads endpoint).
+      const uploads: Array<{ imageKey: string; s3Url?: string; imageHash?: string }> = [];
       for (const file of uploadedFiles) {
         const result = await uploadPhotoMutation.mutateAsync(file);
-        uploadedKeys.push(result.imageKey);
+        uploads.push({
+          imageKey: result.imageKey,
+          s3Url: result.s3Url,
+          imageHash: result.imageHash,
+        });
       }
 
-      // Create avatar group with uploaded photos
-      const response = await fetch("/api/photo-avatars/create-from-uploads", {
+      const primary = uploads[0];
+      const response = await fetch("/api/v3/photo-avatars", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           name: groupNameInput.trim(),
-          imageKeys: uploadedKeys,
+          imageKey: primary.imageKey,
+          imageHash: primary.imageHash,
+          s3ImageUrl: primary.s3Url,
+          consentAcknowledged: true,
+          consentVideoUrl: consentVideoUrl.trim() || undefined,
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to create avatar group");
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody?.message || errBody?.error || "Failed to create avatar group");
+      }
 
       toast({
         title: "Avatar Group Created!",
-        description: `Created "${groupNameInput.trim()}" with ${uploadedKeys.length} photos. Training will start automatically.`,
+        description: `Created "${groupNameInput.trim()}" via HeyGen v3. Consent recorded as pending — looks will appear shortly.`,
       });
 
       queryClient.invalidateQueries({
@@ -1330,12 +1620,18 @@ export function PhotoAvatarManager() {
       });
       setUploadedFiles([]);
       setGroupNameInput("");
+      setConsentAcknowledged(false);
+      setConsentVideoUrl("");
       setShowGroupNameDialog(false);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Upload error:", error);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to create avatar group. Please try again.";
       toast({
         title: "Upload Failed",
-        description: "Failed to create avatar group. Please try again.",
+        description: message,
         variant: "destructive",
       });
     }
@@ -2038,9 +2334,58 @@ export function PhotoAvatarManager() {
                   })}
                 </div>
 
+                {/* HeyGen v3 likeness consent — required before any new
+                    avatar group can be created. */}
+                <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-1">
+                  Heads up: new groups are created with HeyGen v3, which uses
+                  your first photo as the primary image. Additional photos are
+                  uploaded for reference and history.
+                </p>
+                <div className="border rounded-lg p-3 space-y-2 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="consent-acknowledged"
+                      checked={consentAcknowledged}
+                      onCheckedChange={(checked) =>
+                        setConsentAcknowledged(checked === true)
+                      }
+                      data-testid="checkbox-consent-acknowledged"
+                    />
+                    <Label
+                      htmlFor="consent-acknowledged"
+                      className="text-xs leading-relaxed cursor-pointer"
+                    >
+                      I confirm I have permission to use this person's likeness
+                      and that the subject consents to being turned into an AI
+                      avatar via HeyGen. <span className="text-red-600">*</span>
+                    </Label>
+                  </div>
+                  <div>
+                    <Label
+                      htmlFor="consent-video-url"
+                      className="text-xs text-gray-600 dark:text-gray-400"
+                    >
+                      Consent video URL (optional)
+                    </Label>
+                    <Input
+                      id="consent-video-url"
+                      type="url"
+                      placeholder="https://..."
+                      value={consentVideoUrl}
+                      onChange={(e) => setConsentVideoUrl(e.target.value)}
+                      className="mt-1 text-xs"
+                      data-testid="input-consent-video-url"
+                    />
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      Link to a short video where the subject acknowledges
+                      consent. Recommended for production likenesses.
+                    </p>
+                  </div>
+                </div>
+
                 <Button
                   onClick={handleUploadFiles}
-                  disabled={uploadPhotoMutation.isPending}
+                  disabled={uploadPhotoMutation.isPending || !consentAcknowledged}
                   className="w-full bg-gradient-to-r from-[#D4AF37] to-[#B8860B] hover:brightness-110 text-white"
                   data-testid="button-upload-files"
                 >
@@ -2828,7 +3173,26 @@ export function PhotoAvatarManager() {
                           )}
 
                           {group.status === "ready" &&
-                            (group as any).train_status === "ready" && <></>}
+                            (group as { train_status?: string }).train_status === "ready" && <></>}
+
+                          {(group as { api_version?: string }).api_version === "v3" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setOpenLooksGroupId(
+                                  openLooksGroupId === group.group_id
+                                    ? null
+                                    : group.group_id
+                                )
+                              }
+                              data-testid={`button-toggle-v3-looks-${group.group_id}`}
+                              className="border-blue-300 text-blue-600 hover:bg-blue-50 h-7 text-[10px] px-2"
+                            >
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              {openLooksGroupId === group.group_id ? "Hide" : "Show"} v3 Looks
+                            </Button>
+                          )}
 
                           <Button
                             size="sm"
@@ -2844,6 +3208,16 @@ export function PhotoAvatarManager() {
                             Delete
                           </Button>
                         </div>
+
+                        {(group as { api_version?: string }).api_version === "v3" &&
+                          openLooksGroupId === group.group_id && (
+                            <V3LooksPanel
+                              heygenGroupId={group.group_id}
+                              consentStatus={
+                                (group as { consent_status?: string | null }).consent_status ?? null
+                              }
+                            />
+                          )}
                       </CardContent>
                     </Card>
                   ))}

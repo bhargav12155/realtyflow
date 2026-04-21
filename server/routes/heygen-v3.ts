@@ -11,7 +11,11 @@ import { heygenWebhookEvents } from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
 import { storage } from "../storage";
 import { realtimeService } from "../websocket";
-import { HeyGenV3Service, verifyHeygenWebhookSignature } from "../services/heygen-v3";
+import {
+  HeyGenV3Service,
+  verifyHeygenWebhookSignature,
+  type ConsentStatus as ConsentStatusValue,
+} from "../services/heygen-v3";
 
 function getV3Service(): HeyGenV3Service {
   return new HeyGenV3Service();
@@ -35,6 +39,121 @@ function mapWebhookStatusToTrainingStatus(
 }
 
 export function registerHeygenV3Routes(app: Express) {
+  // -------------------------------------------------------------------
+  // Create a new v3 photo-avatar group. Used by the modern Upload UI;
+  // any new avatar group goes through this path so it's tagged with
+  // `apiVersion: 'v3'` and starts the consent lifecycle. The legacy
+  // `/api/photo-avatars/create-from-uploads` route remains for any
+  // existing v2 callers.
+  // -------------------------------------------------------------------
+  app.post(
+    "/api/v3/photo-avatars",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      const userId = (req as Request & { user?: { id?: string } }).user?.id;
+      if (!userId) return res.status(401).json({ error: "unauthorized" });
+
+      const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      const imageKey =
+        typeof req.body?.imageKey === "string" ? req.body.imageKey : "";
+      const imageHash =
+        typeof req.body?.imageHash === "string" ? req.body.imageHash : null;
+      const s3ImageUrl =
+        typeof req.body?.s3ImageUrl === "string" ? req.body.s3ImageUrl : null;
+      const consentAcknowledged = req.body?.consentAcknowledged === true;
+      const consentVideoUrl =
+        typeof req.body?.consentVideoUrl === "string" && req.body.consentVideoUrl
+          ? req.body.consentVideoUrl
+          : undefined;
+      const consentSignature =
+        typeof req.body?.consentSignature === "string" && req.body.consentSignature
+          ? req.body.consentSignature
+          : undefined;
+
+      if (!name || !imageKey) {
+        return res
+          .status(400)
+          .json({ error: "name_and_image_key_required" });
+      }
+      if (!consentAcknowledged) {
+        return res
+          .status(400)
+          .json({ error: "consent_required" });
+      }
+
+      const service = getV3Service();
+      let createResult: { group_id: string };
+      try {
+        createResult = await service.createAvatar({ name, imageKey });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return res
+          .status(502)
+          .json({ error: "heygen_v3_create_failed", message });
+      }
+
+      const heygenGroupId = createResult.group_id;
+      let consentStatus: ConsentStatusValue = "pending";
+
+      // If the caller supplied consent details up front, record them
+      // immediately so the group starts life with the right status.
+      if (consentVideoUrl || consentSignature) {
+        try {
+          const consent = await service.createConsent({
+            groupId: heygenGroupId,
+            consentVideoUrl,
+            signature: consentSignature,
+          });
+          consentStatus = consent.status;
+        } catch (err) {
+          console.warn(
+            "[heygen-v3] consent recording failed during create:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+
+      // Persist the group row. If this fails we must surface an error
+      // to the caller — otherwise the HeyGen group is orphaned with no
+      // local row tying it to the user, and the UI would falsely show
+      // success while subsequent listing/lookup calls would not find
+      // the group.
+      try {
+        await storage.createPhotoAvatarGroup({
+          userId,
+          heygenGroupId,
+          groupName: name,
+          imageHash,
+          s3ImageUrl,
+          heygenImageKey: imageKey,
+          trainingStatus: "pending",
+          apiVersion: "v3",
+          consentStatus,
+        });
+      } catch (dbError) {
+        console.error(
+          "[heygen-v3] failed to persist photo_avatar_groups row, returning 500 so the UI can surface the failure (HeyGen group %s may need manual cleanup):",
+          heygenGroupId,
+          dbError,
+        );
+        return res.status(500).json({
+          error: "persistence_failed",
+          message:
+            "Avatar was created in HeyGen but could not be saved locally. Please contact support and reference HeyGen group " +
+            heygenGroupId,
+          heygenGroupId,
+        });
+      }
+
+      return res.json({
+        success: true,
+        groupId: heygenGroupId,
+        apiVersion: "v3",
+        consentStatus,
+      });
+    },
+  );
+
   // -------------------------------------------------------------------
   // Webhook receiver. HeyGen POSTs JSON with an HMAC signature header
   // (`x-heygen-signature`). We persist every event for audit, verify the
@@ -146,8 +265,21 @@ export function registerHeygenV3Routes(app: Express) {
     "/api/v3/photo-avatars/:groupId/looks",
     requireAuth,
     async (req: Request, res: Response) => {
+      const userId = (req as Request & { user?: { id: string } }).user?.id;
+      if (!userId) return res.status(401).json({ error: "unauthorized" });
       const { groupId } = req.params;
       const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+
+      // Per-tenant ownership check: only allow listing looks for a HeyGen
+      // group that belongs to the authenticated user.
+      const owned = await storage.getPhotoAvatarGroupByHeygenIdAndUser(
+        groupId,
+        userId,
+      );
+      if (!owned) {
+        return res.status(404).json({ error: "group_not_found" });
+      }
+
       try {
         const page = await getV3Service().listLooks(groupId, cursor);
         return res.json(page);

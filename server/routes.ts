@@ -11256,6 +11256,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
               avatar_count: looksCount,
               preview_image: previewImage,
               num_looks: looksCount,
+              api_version: dbGroup.apiVersion || "v2",
+              consent_status: dbGroup.consentStatus || null,
             };
           }
 
@@ -11416,6 +11418,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
                 : undefined,
             preview_image: previewImage,
             num_looks: looksCount,
+            api_version: dbGroup.apiVersion || "v2",
+            consent_status: dbGroup.consentStatus || null,
           };
         })
       );

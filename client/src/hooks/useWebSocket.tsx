@@ -24,7 +24,8 @@ interface WebSocketMessage {
     | "voice_clone_failed"
     | "board_asset_status"
     | "board_auto_eval"
-    | "notification_created";
+    | "notification_created"
+    | "photo_avatar_status_update";
   data: any;
   timestamp: string;
   userId?: number;

@@ -178,6 +178,109 @@ export function registerHeygenV3Routes(app: Express) {
   });
 
   // -------------------------------------------------------------------
+  // v3 voice picker — persist a HeyGen catalogue voice into the user's
+  // custom_voices library so it shows up alongside cloned voices.
+  // -------------------------------------------------------------------
+  app.post(
+    "/api/v3/voices/use",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      const userId = (req as Request & { user?: { id?: string } }).user?.id;
+      if (!userId) return res.status(401).json({ error: "unauthorized" });
+
+      const heygenVoiceId =
+        typeof req.body?.heygenVoiceId === "string" ? req.body.heygenVoiceId.trim() : "";
+      const name =
+        typeof req.body?.name === "string" && req.body.name.trim()
+          ? req.body.name.trim()
+          : heygenVoiceId;
+      if (!heygenVoiceId) {
+        return res.status(400).json({ error: "heygenVoiceId is required" });
+      }
+      const language =
+        typeof req.body?.language === "string" ? req.body.language : null;
+      const gender =
+        typeof req.body?.gender === "string" ? req.body.gender : null;
+      const sampleAudioUrl =
+        typeof req.body?.sampleAudioUrl === "string" ? req.body.sampleAudioUrl : null;
+
+      try {
+        const voice = await storage.createCustomVoice({
+          userId,
+          name,
+          audioUrl: sampleAudioUrl ?? "",
+          fileSize: null,
+          heygenAudioAssetId: null,
+          status: "ready",
+          heygenVoiceId,
+          language,
+          gender,
+          sampleAudioUrl,
+        });
+        return res.status(201).json(voice);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return res.status(500).json({ error: "voice_save_failed", message });
+      }
+    },
+  );
+
+  // -------------------------------------------------------------------
+  // v3 voice designer — synthesise a brand-new voice from a text prompt
+  // and persist the resulting HeyGen voice id into custom_voices.
+  // -------------------------------------------------------------------
+  app.post(
+    "/api/v3/voices/design",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      const userId = (req as Request & { user?: { id?: string } }).user?.id;
+      if (!userId) return res.status(401).json({ error: "unauthorized" });
+
+      const name =
+        typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      const description =
+        typeof req.body?.description === "string" ? req.body.description.trim() : "";
+      const language =
+        typeof req.body?.language === "string" && req.body.language.trim()
+          ? req.body.language.trim()
+          : undefined;
+      const gender =
+        typeof req.body?.gender === "string" && req.body.gender.trim()
+          ? req.body.gender.trim()
+          : undefined;
+
+      if (!name) return res.status(400).json({ error: "name is required" });
+      if (!description)
+        return res.status(400).json({ error: "description is required" });
+
+      try {
+        const designed = await getV3Service().designVoice({
+          name,
+          description,
+          language,
+          gender,
+        });
+        const voice = await storage.createCustomVoice({
+          userId,
+          name,
+          audioUrl: designed.preview_url ?? "",
+          fileSize: null,
+          heygenAudioAssetId: null,
+          status: "ready",
+          heygenVoiceId: designed.voice_id,
+          language: language ?? null,
+          gender: gender ?? null,
+          sampleAudioUrl: designed.preview_url ?? null,
+        });
+        return res.status(201).json(voice);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return res.status(502).json({ error: "heygen_v3_voice_design_failed", message });
+      }
+    },
+  );
+
+  // -------------------------------------------------------------------
   // v3 consent — record consent for a group's likeness.
   // -------------------------------------------------------------------
   app.post(

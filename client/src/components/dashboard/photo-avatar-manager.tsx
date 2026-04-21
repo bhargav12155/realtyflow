@@ -106,7 +106,7 @@ function pickLookImage(look: V3Look): string | undefined {
   return look.image_url || look.preview_image_url || look.url || look.photo_url;
 }
 
-function V3LooksPanel({
+export function V3LooksPanel({
   heygenGroupId,
   consentStatus,
 }: {

@@ -324,6 +324,10 @@ export default function BoardDetailPage() {
         m.map((msg) => (msg.id === ctx?.pendingId ? { ...msg, content: reply, pending: false } : msg)),
       );
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+      // The server persisted both the user turn and the assistant reply, so
+      // refresh the cached history. This keeps a second tab (or any other
+      // collaborator on a shared board) in sync without a manual refresh.
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] });
     },
     onError: (e: Error, _vars: unknown, ctx: unknown) => {
       const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);

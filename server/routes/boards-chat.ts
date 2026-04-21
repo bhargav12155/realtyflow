@@ -1087,15 +1087,14 @@ export function registerBoardsChatRoutes(
   });
 
   // ---- Persisted board chat history ----
-  // GET returns the full conversation in chronological order. We gate on
-  // owner-only here to match the existing /chat policy — keeping these two
-  // routes symmetric avoids the situation where collaborators can read or
-  // write history on a board they can't actually chat on.
+  // GET returns the full conversation in chronological order. Gated on
+  // accessible-board (owner OR shared collaborator) to match GET /api/boards/:id
+  // — anyone who can see the board should also see its chat history.
   app.get("/api/boards/:id/messages", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
       const boardId = req.params.id;
-      const board = await storage.getBoardByIdForUser(boardId, userId);
+      const board = await storage.getAccessibleBoardForUser(boardId, userId);
       if (!board) return res.status(404).json({ error: "Board not found" });
       const messages = await storage.getBoardMessagesForUser(boardId, userId);
       return res.json({ messages });
@@ -1150,7 +1149,7 @@ export function registerBoardsChatRoutes(
     try {
       const userId = String(req.user!.id);
       const boardId = req.params.id;
-      const board = await storage.getBoardByIdForUser(boardId, userId);
+      const board = await storage.getAccessibleBoardForUser(boardId, userId);
       if (!board) return res.status(404).json({ error: "Board not found" });
       const parsed = messagesBatchSchema.parse(req.body ?? {});
       const list = "messages" in parsed ? parsed.messages : [parsed];
@@ -1182,7 +1181,9 @@ export function registerBoardsChatRoutes(
       const boardId = req.params.id;
       const body = chatBodySchema.parse(req.body ?? {});
 
-      const board = await storage.getBoardByIdForUser(boardId, userId);
+      // Anyone with access to the board (owner or shared collaborator) can
+      // chat on it; the persisted history is shared too.
+      const board = await storage.getAccessibleBoardForUser(boardId, userId);
       if (!board) return res.status(404).json({ error: "Board not found" });
 
       // ---------- Brainstorm mode ----------

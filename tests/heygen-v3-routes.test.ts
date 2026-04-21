@@ -4,10 +4,12 @@ import express, { type Request, type Response, type NextFunction } from "express
 import {
   createV3PhotoAvatarsHandler,
   createV3PhotoAvatarConsentHandler,
+  createUseV3VoiceHandler,
   type V3CreateAvatarServiceLike,
   type V3CreateAvatarStorageLike,
   type V3ConsentServiceLike,
   type V3ConsentStorageLike,
+  type V3UseVoiceStorageLike,
 } from "../server/routes/heygen-v3";
 
 interface CreatedGroupRow {
@@ -388,6 +390,75 @@ async function callConsent(
   });
 }
 
+// -------------------------------------------------------------------
+// POST /api/v3/voices/use
+// -------------------------------------------------------------------
+
+interface CreatedVoiceRow {
+  userId: string;
+  name: string;
+  audioUrl: string;
+  fileSize: number | null;
+  heygenAudioAssetId: string | null;
+  status: string;
+  heygenVoiceId: string;
+  language: string | null;
+  gender: string | null;
+  sampleAudioUrl: string | null;
+}
+
+class FakeVoiceStorage implements V3UseVoiceStorageLike {
+  created: CreatedVoiceRow[] = [];
+  failNext = false;
+
+  async createCustomVoice(voice: CreatedVoiceRow): Promise<unknown> {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error("db unreachable");
+    }
+    this.created.push(voice);
+    return { id: `voice-${this.created.length}`, ...voice };
+  }
+}
+
+function buildUseVoiceApp(opts: {
+  storage: FakeVoiceStorage;
+  userId?: string | null;
+}) {
+  const app = express();
+  app.use(express.json());
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    if (opts.userId !== null && opts.userId !== undefined)
+      (req as Request & { user: { id: string } }).user = { id: opts.userId };
+    else if (opts.userId === undefined)
+      (req as Request & { user: { id: string } }).user = { id: "user-1" };
+    next();
+  });
+  app.post("/api/v3/voices/use", createUseV3VoiceHandler({ storage: opts.storage }));
+  return app;
+}
+
+async function callUseVoice(app: express.Express, body: Record<string, unknown>) {
+  return await new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+    const server = app.listen(0, async () => {
+      try {
+        const port = (server.address() as { port: number }).port;
+        const r = await fetch(`http://127.0.0.1:${port}/api/v3/voices/use`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const respBody = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+        resolve({ status: r.status, body: respBody });
+      } catch (e) {
+        reject(e);
+      } finally {
+        server.close();
+      }
+    });
+  });
+}
+
 describe("POST /api/v3/photo-avatars/:groupId/consent", () => {
   let storage: FakeConsentStorage;
   beforeEach(() => {
@@ -536,5 +607,82 @@ describe("POST /api/v3/photo-avatars/:groupId/consent", () => {
     assert.equal(body.status, "revoked");
     assert.equal(calls.createConsent.length, 0);
     assert.equal(storage.updates[0].updates.consentStatus, "revoked");
+  });
+});
+
+describe("POST /api/v3/voices/use", () => {
+  let storage: FakeVoiceStorage;
+  beforeEach(() => {
+    storage = new FakeVoiceStorage();
+  });
+
+  it("persists a HeyGen catalogue voice into the user's library and returns 201", async () => {
+    const app = buildUseVoiceApp({ storage });
+    const { status, body } = await callUseVoice(app, {
+      heygenVoiceId: "voice_catalogue_123",
+      name: "  Friendly Narrator  ",
+      language: "English",
+      gender: "Female",
+      sampleAudioUrl: "https://heygen/preview.mp3",
+    });
+
+    assert.equal(status, 201);
+    assert.equal(body.heygenVoiceId, "voice_catalogue_123");
+    assert.equal(body.name, "Friendly Narrator", "name is trimmed");
+    assert.equal(body.status, "ready");
+    assert.equal(body.audioUrl, "https://heygen/preview.mp3");
+    assert.equal(body.sampleAudioUrl, "https://heygen/preview.mp3");
+    assert.equal(body.heygenAudioAssetId, null);
+    assert.equal(body.fileSize, null);
+
+    assert.equal(storage.created.length, 1);
+    const row = storage.created[0];
+    assert.equal(row.userId, "user-1");
+    assert.equal(row.heygenVoiceId, "voice_catalogue_123");
+    assert.equal(row.name, "Friendly Narrator");
+    assert.equal(row.language, "English");
+    assert.equal(row.gender, "Female");
+  });
+
+  it("falls back to the heygenVoiceId when no name is supplied", async () => {
+    const app = buildUseVoiceApp({ storage });
+    const { status, body } = await callUseVoice(app, {
+      heygenVoiceId: "voice_xyz",
+    });
+    assert.equal(status, 201);
+    assert.equal(body.name, "voice_xyz");
+    assert.equal(storage.created[0].name, "voice_xyz");
+  });
+
+  it("returns 400 when heygenVoiceId is missing or blank", async () => {
+    const app = buildUseVoiceApp({ storage });
+    const r1 = await callUseVoice(app, { name: "Whatever" });
+    assert.equal(r1.status, 400);
+    assert.match(String(r1.body.error), /heygenVoiceId is required/);
+    const r2 = await callUseVoice(app, { heygenVoiceId: "   " });
+    assert.equal(r2.status, 400);
+    assert.equal(storage.created.length, 0);
+  });
+
+  it("returns 401 when there is no authenticated user", async () => {
+    const app = buildUseVoiceApp({ storage, userId: null });
+    const { status, body } = await callUseVoice(app, {
+      heygenVoiceId: "voice_xyz",
+    });
+    assert.equal(status, 401);
+    assert.equal(body.error, "unauthorized");
+    assert.equal(storage.created.length, 0);
+  });
+
+  it("returns 500 with voice_save_failed when the storage layer throws", async () => {
+    storage.failNext = true;
+    const app = buildUseVoiceApp({ storage });
+    const { status, body } = await callUseVoice(app, {
+      heygenVoiceId: "voice_xyz",
+      name: "Casey",
+    });
+    assert.equal(status, 500);
+    assert.equal(body.error, "voice_save_failed");
+    assert.match(String(body.message), /db unreachable/);
   });
 });

@@ -128,9 +128,73 @@ export function createV3PhotoAvatarConsentHandler(
   };
 }
 
+// Subset of `storage` the use-voice handler touches.
+export interface V3UseVoiceStorageLike {
+  createCustomVoice(voice: {
+    userId: string;
+    name: string;
+    audioUrl: string;
+    fileSize: number | null;
+    heygenAudioAssetId: string | null;
+    status: string;
+    heygenVoiceId: string;
+    language: string | null;
+    gender: string | null;
+    sampleAudioUrl: string | null;
+  }): Promise<unknown>;
+}
+
 export interface CreateV3PhotoAvatarsHandlerDeps {
   storage: V3CreateAvatarStorageLike;
   getV3Service: () => V3CreateAvatarServiceLike;
+}
+
+export interface CreateUseV3VoiceHandlerDeps {
+  storage: V3UseVoiceStorageLike;
+}
+
+export function createUseV3VoiceHandler(
+  deps: CreateUseV3VoiceHandlerDeps,
+): RequestHandler {
+  return async (req: Request, res: Response) => {
+    const userId = (req as Request & { user?: { id?: string } }).user?.id;
+    if (!userId) return res.status(401).json({ error: "unauthorized" });
+
+    const heygenVoiceId =
+      typeof req.body?.heygenVoiceId === "string" ? req.body.heygenVoiceId.trim() : "";
+    const name =
+      typeof req.body?.name === "string" && req.body.name.trim()
+        ? req.body.name.trim()
+        : heygenVoiceId;
+    if (!heygenVoiceId) {
+      return res.status(400).json({ error: "heygenVoiceId is required" });
+    }
+    const language =
+      typeof req.body?.language === "string" ? req.body.language : null;
+    const gender =
+      typeof req.body?.gender === "string" ? req.body.gender : null;
+    const sampleAudioUrl =
+      typeof req.body?.sampleAudioUrl === "string" ? req.body.sampleAudioUrl : null;
+
+    try {
+      const voice = await deps.storage.createCustomVoice({
+        userId,
+        name,
+        audioUrl: sampleAudioUrl ?? "",
+        fileSize: null,
+        heygenAudioAssetId: null,
+        status: "ready",
+        heygenVoiceId,
+        language,
+        gender,
+        sampleAudioUrl,
+      });
+      return res.status(201).json(voice);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(500).json({ error: "voice_save_failed", message });
+    }
+  };
 }
 
 export function createV3PhotoAvatarsHandler(
@@ -426,45 +490,9 @@ export function registerHeygenV3Routes(app: Express) {
   app.post(
     "/api/v3/voices/use",
     requireAuth,
-    async (req: Request, res: Response) => {
-      const userId = (req as Request & { user?: { id?: string } }).user?.id;
-      if (!userId) return res.status(401).json({ error: "unauthorized" });
-
-      const heygenVoiceId =
-        typeof req.body?.heygenVoiceId === "string" ? req.body.heygenVoiceId.trim() : "";
-      const name =
-        typeof req.body?.name === "string" && req.body.name.trim()
-          ? req.body.name.trim()
-          : heygenVoiceId;
-      if (!heygenVoiceId) {
-        return res.status(400).json({ error: "heygenVoiceId is required" });
-      }
-      const language =
-        typeof req.body?.language === "string" ? req.body.language : null;
-      const gender =
-        typeof req.body?.gender === "string" ? req.body.gender : null;
-      const sampleAudioUrl =
-        typeof req.body?.sampleAudioUrl === "string" ? req.body.sampleAudioUrl : null;
-
-      try {
-        const voice = await defaultStorage.createCustomVoice({
-          userId,
-          name,
-          audioUrl: sampleAudioUrl ?? "",
-          fileSize: null,
-          heygenAudioAssetId: null,
-          status: "ready",
-          heygenVoiceId,
-          language,
-          gender,
-          sampleAudioUrl,
-        });
-        return res.status(201).json(voice);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        return res.status(500).json({ error: "voice_save_failed", message });
-      }
-    },
+    createUseV3VoiceHandler({
+      storage: defaultStorage as unknown as V3UseVoiceStorageLike,
+    }),
   );
 
   // -------------------------------------------------------------------

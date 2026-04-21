@@ -52,6 +52,7 @@ export interface BoardsChatProviders {
     message: string,
     history?: { role: "user" | "assistant"; content: string }[],
     images?: BrainstormChatImage[],
+    systemPrompt?: string,
   ) => Promise<{ success: boolean; message?: string; error?: string }>;
 }
 
@@ -156,9 +157,86 @@ const chatBodySchema = z.object({
 
 export type ChatModelId = "claude" | "gemini" | "openai";
 
-const BRAINSTORM_SYSTEM = `You are a creative director assisting on a visual board.
+const BRAINSTORM_SYSTEM_BASE = `You are a creative director assisting on a visual board.
 Help the user brainstorm, refine prompts, and plan generations.
 Be concise (under 200 words) and propose a concrete next prompt the user could send in "create" mode when appropriate.`;
+
+/** Cap how many assets we describe in the per-asset bullet list to keep the
+ * system prompt bounded. Aggregate counts always include every asset. */
+const BOARD_CONTEXT_ASSET_CAP = 30;
+
+/**
+ * Build a compact, text-only summary of the board's current state for the
+ * Think-mode system prompt. Returns a markdown block listing total counts
+ * by kind and status plus a per-asset bulleted list. Any asset id present
+ * in `referencedAssetIds` is tagged "← currently selected" so the model can
+ * refer to it naturally even though the actual image bytes flow through a
+ * separate vision channel.
+ *
+ * Exported for direct unit testing.
+ */
+export function buildBoardContextSummary(
+  assets: BoardAsset[],
+  referencedAssetIds: string[] = [],
+): string {
+  if (!assets || assets.length === 0) {
+    return "## Current board state\nThe board is empty — no assets have been placed yet.";
+  }
+  const refSet = new Set(referencedAssetIds);
+  const byKind = new Map<string, number>();
+  const byStatus = new Map<string, number>();
+  // Only count selections that actually exist on the board, so a stale id
+  // from the client never inflates "the user has selected N assets" beyond
+  // what's really there.
+  let selectedOnBoard = 0;
+  for (const a of assets) {
+    byKind.set(a.kind, (byKind.get(a.kind) ?? 0) + 1);
+    byStatus.set(a.status, (byStatus.get(a.status) ?? 0) + 1);
+    if (refSet.has(a.id)) selectedOnBoard += 1;
+  }
+  const fmtCounts = (m: Map<string, number>) =>
+    Array.from(m.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
+
+  const shown = assets.slice(0, BOARD_CONTEXT_ASSET_CAP);
+  const truncated = assets.length - shown.length;
+  const lines: string[] = [];
+  lines.push("## Current board state");
+  lines.push(`Total assets: ${assets.length} (${fmtCounts(byKind)})`);
+  lines.push(`Status breakdown: ${fmtCounts(byStatus)}`);
+  if (selectedOnBoard > 0) {
+    lines.push(
+      `The user has currently selected ${selectedOnBoard} asset${selectedOnBoard === 1 ? "" : "s"}; refer to ${selectedOnBoard === 1 ? "it" : "them"} as "the selected ${selectedOnBoard === 1 ? "asset" : "assets"}" when relevant.`,
+    );
+  } else {
+    lines.push("Nothing is currently selected.");
+  }
+  lines.push("Assets:");
+  for (const a of shown) {
+    const idTag = a.id.slice(0, 8);
+    const batchTag = a.batchId ? ` batch ${a.batchId.slice(0, 6)}` : "";
+    const selected = refSet.has(a.id) ? " ← currently selected" : "";
+    lines.push(`- [${idTag}] ${a.kind} · ${a.status}${batchTag}${selected}`);
+  }
+  if (truncated > 0) {
+    lines.push(`- …and ${truncated} more`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Compose the dynamic Think-mode system prompt: the static creative-director
+ * base plus a `## Current board state` block that summarises what the user
+ * has placed and selected. Exported so the handler test can assert the wiring.
+ */
+export function buildBrainstormSystemPrompt(
+  assets: BoardAsset[],
+  referencedAssetIds: string[] = [],
+): string {
+  return `${BRAINSTORM_SYSTEM_BASE}\n\n${buildBoardContextSummary(assets, referencedAssetIds)}`;
+}
 
 function inferGenMode(refKinds: string[], message: string): GenMode {
   const lower = message.toLowerCase();
@@ -781,6 +859,7 @@ async function tryOpenAIBrainstorm(
   message: string,
   history?: { role: "user" | "assistant"; content: string }[],
   images?: BrainstormChatImage[],
+  systemPrompt?: string,
 ): Promise<{ success: boolean; message?: string; error?: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { success: false, error: "OPENAI_API_KEY not configured" };
@@ -793,7 +872,7 @@ async function tryOpenAIBrainstorm(
     const messages: Array<
       | { role: "system" | "assistant"; content: string }
       | { role: "user"; content: string | OAIContentPart[] }
-    > = [{ role: "system", content: BRAINSTORM_SYSTEM }];
+    > = [{ role: "system", content: systemPrompt ?? BRAINSTORM_SYSTEM_BASE }];
     for (const h of history || []) messages.push({ role: h.role, content: h.content });
     if (hasImages) {
       const parts: OAIContentPart[] = images!.map((img) => ({
@@ -931,6 +1010,7 @@ async function brainstormReply(
   history?: { role: "user" | "assistant"; content: string }[],
   preferred: ChatModelId = "claude",
   images?: BrainstormChatImage[],
+  systemPrompt: string = BRAINSTORM_SYSTEM_BASE,
 ): Promise<BrainstormReplyResult> {
   const cappedImages =
     images && images.length > 0 ? images.slice(0, MAX_BRAINSTORM_IMAGES) : undefined;
@@ -938,9 +1018,9 @@ async function brainstormReply(
     ChatModelId,
     () => Promise<{ success: boolean; message?: string; error?: string }>
   > = {
-    claude: () => providers.anthropic.chat(message, history, BRAINSTORM_SYSTEM, cappedImages),
-    gemini: () => providers.gemini.chat(message, history, BRAINSTORM_SYSTEM, cappedImages),
-    openai: () => providers.openaiBrainstorm(message, history, cappedImages),
+    claude: () => providers.anthropic.chat(message, history, systemPrompt, cappedImages),
+    gemini: () => providers.gemini.chat(message, history, systemPrompt, cappedImages),
+    openai: () => providers.openaiBrainstorm(message, history, cappedImages, systemPrompt),
   };
   // Try the user-picked model first, then the others in a stable order so the
   // cascade is deterministic across requests.
@@ -1208,12 +1288,21 @@ export function registerBoardsChatRoutes(
           }
         }
         const requestedModel = body.chatModel ?? "claude";
+        // Build a text-level board context summary so the AI can reason about
+        // what's placed on the board and which asset(s) the user has tagged
+        // as currently selected — the vision channel only carries pixels.
+        const boardAssetsForContext = await storage.getBoardAssetsForUser(boardId, userId);
+        const dynamicSystemPrompt = buildBrainstormSystemPrompt(
+          boardAssetsForContext,
+          body.referencedAssetIds ?? [],
+        );
         const result = await brainstormReply(
           body.message,
           chatProviders,
           body.conversationHistory,
           requestedModel,
           visionImages.length > 0 ? visionImages : undefined,
+          dynamicSystemPrompt,
         );
         // Persist both turns so the conversation survives navigation/refresh.
         // We deliberately store the raw assistant message + the notice as a

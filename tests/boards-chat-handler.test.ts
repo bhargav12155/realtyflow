@@ -715,6 +715,91 @@ describe("POST /api/boards/:id/chat — brainstorm mode", () => {
     assert.equal(r2.status, 200);
     assert.equal(geminiCalls, 2, "Transient errors must not be cached as permanent");
   });
+
+  it("injects a board-state summary into the brainstorm system prompt with counts and a selected marker", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic");
+    const { app, storage } = buildApp({ providers: { anthropic } });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    // Mix of kinds and statuses; one image is the one the user "selected".
+    const img = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seedaaaa",
+      kind: "image",
+      provider: "openai-image",
+      assetUrl: "https://example.com/p.jpg",
+      status: "ready",
+    } as BoardAssetCreate);
+    await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seedbbbb",
+      kind: "video",
+      provider: "luma",
+      status: "queued",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "what's on the board?",
+      mode: "brainstorm",
+      referencedAssetIds: [img!.id],
+    });
+    assert.equal(res.status, 200);
+    assert.equal(anthropic.calls.length, 1);
+    const sys = anthropic.calls[0].systemPrompt;
+    assert.match(sys, /creative director/);
+    assert.match(sys, /## Current board state/);
+    assert.match(sys, /Total assets: 2/);
+    assert.match(sys, /image: 1/);
+    assert.match(sys, /video: 1/);
+    assert.match(sys, /ready: 1/);
+    assert.match(sys, /queued: 1/);
+    // The selected asset is tagged so the model can refer to it naturally.
+    assert.ok(
+      sys.includes(`[${img!.id.slice(0, 8)}]`),
+      "system prompt should list the selected asset by short id",
+    );
+    assert.match(sys, /currently selected/);
+  });
+
+  it("renders an 'empty board' hint when no assets exist yet", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic");
+    const { app, storage } = buildApp({ providers: { anthropic } });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "what should I make first?",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(anthropic.calls.length, 1);
+    const sys = anthropic.calls[0].systemPrompt;
+    assert.match(sys, /## Current board state/);
+    assert.match(sys, /board is empty/i);
+  });
+
+  it("truncates the per-asset list past the cap with a '…and N more' tail", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic");
+    const { app, storage } = buildApp({ providers: { anthropic } });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    // 35 assets — above the 30-item cap.
+    for (let i = 0; i < 35; i += 1) {
+      await storage.createBoardAssetForUser(board.id, "user-1", {
+        batchId: `b${i}`,
+        kind: "image",
+        provider: "openai-image",
+        status: "ready",
+      } as BoardAssetCreate);
+    }
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "summarize",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    const sys = anthropic.calls[0].systemPrompt;
+    assert.match(sys, /Total assets: 35/);
+    assert.match(sys, /…and 5 more/);
+  });
 });
 
 describe("GET /api/boards/chat/health", () => {

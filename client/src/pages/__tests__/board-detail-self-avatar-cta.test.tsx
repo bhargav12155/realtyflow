@@ -105,13 +105,23 @@ function renderBoard() {
 }
 
 describe("Board chat: self-avatar CTA short-circuit", () => {
-  it("shows the Photo Avatars CTA and does not POST to /chat", async () => {
+  it("shows the Photo Avatars CTA and does not POST to /chat (it persists via /messages instead)", async () => {
     renderBoard();
     const btn = await waitFor(() => screen.getByTestId("stub-send-self-avatar"));
     act(() => btn.click());
     const cta = await waitFor(() => screen.getByTestId("button-open-photo-avatars"));
     expect(cta.getAttribute("href")).toBe("/dashboard?action=upload#photo-avatars");
-    expect(apiRequestMock).not.toHaveBeenCalled();
+    // The short-circuit must NOT hit the LLM /chat endpoint, but it SHOULD
+    // persist the user+assistant turn via /messages so the CTA pair survives
+    // a refresh.
+    const calls = apiRequestMock.mock.calls;
+    expect(calls.some(([, url]) => String(url).includes("/chat"))).toBe(false);
+    const messagesCall = calls.find(([, url]) => String(url).includes("/messages"));
+    expect(messagesCall).toBeTruthy();
+    const [, , body] = messagesCall as unknown as [string, string, { messages: Array<{ role: string }> }];
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0].role).toBe("user");
+    expect(body.messages[1].role).toBe("assistant");
   });
 
   it("normal prompts still POST to /chat", async () => {

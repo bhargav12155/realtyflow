@@ -71,11 +71,59 @@ export default function BoardDetailPage() {
   const [chatModelManuallyPicked, setChatModelManuallyPicked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
+  // Hydrate the chat panel from the server exactly once per board so the
+  // user's prior conversation is restored on reload/navigation. We never
+  // re-overwrite local state after the first hydration — the chat handler
+  // continues to be the source of truth for new turns within the session.
+  const hydratedBoardRef = useRef<string | null>(null);
 
   const boardQuery = useQuery<BoardResponse>({
     queryKey: ["/api/boards", boardId],
     enabled: !!boardId,
   });
+
+  type PersistedBoardMessage = {
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    notice: string | null;
+    cta: { label: string; href: string; testId?: string } | null;
+    createdAt: string | null;
+  };
+  const messagesQuery = useQuery<{ messages: PersistedBoardMessage[] }>({
+    queryKey: ["/api/boards", boardId, "messages"],
+    enabled: !!boardId,
+  });
+
+  useEffect(() => {
+    if (!boardId) return;
+    if (hydratedBoardRef.current === boardId) return;
+    const data = messagesQuery.data;
+    if (!data || !Array.isArray(data.messages)) return;
+    const restored: ChatMessage[] = data.messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.notice ? `_${m.notice}_\n\n${m.content}` : m.content,
+      cta: m.cta ?? undefined,
+    }));
+    // Don't clobber an in-flight conversation. If the user already started
+    // typing/sending before the history finished loading, we keep the live
+    // session and treat hydration as "missed this round" — they can refresh
+    // to get the merged view next time. This is the safer trade-off:
+    // overwriting would drop the optimistic message AND the pendingId the
+    // chat mutation needs to swap in the assistant reply.
+    setMessages((current) => (current.length > 0 ? current : restored));
+    hydratedBoardRef.current = boardId;
+  }, [boardId, messagesQuery.data]);
+
+  // Reset hydration when navigating between boards so the next board hydrates
+  // from its own history rather than reusing the previous one.
+  useEffect(() => {
+    if (hydratedBoardRef.current && hydratedBoardRef.current !== boardId) {
+      hydratedBoardRef.current = null;
+      setMessages([]);
+    }
+  }, [boardId]);
 
   // Ask the server which chat providers actually have a working API key, so
   // we don't default Think mode onto a provider that's known to 401 every
@@ -202,19 +250,37 @@ export default function BoardDetailPage() {
   }, [selectedAssetId, boardQuery.data]);
 
   const sendSelfAvatarCta = (text: string) => {
+    const cta = {
+      label: "Open Photo Avatars",
+      href: "/dashboard?action=upload#photo-avatars",
+      testId: "button-open-photo-avatars",
+    };
+    const assistantContent =
+      "Got it — to create a Photo Avatar of yourself, head to Photo Avatars. Upload a clear headshot there and we'll train the avatar so you can use it in any video.";
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: text };
     const assistantMsg: ChatMessage = {
       id: `a-${Date.now()}`,
       role: "assistant",
-      content:
-        "Got it — to create a Photo Avatar of yourself, head to Photo Avatars. Upload a clear headshot there and we'll train the avatar so you can use it in any video.",
-      cta: {
-        label: "Open Photo Avatars",
-        href: "/dashboard?action=upload#photo-avatars",
-        testId: "button-open-photo-avatars",
-      },
+      content: assistantContent,
+      cta,
     };
     setMessages((m) => [...m, userMsg, assistantMsg]);
+    // Persist the CTA pair so it survives reload — without it the
+    // intent-detector branch would lose its message on every refresh.
+    // Failures are silent: the in-memory bubble has already rendered, and
+    // we don't want to surface a toast for a cosmetic write.
+    apiRequest("POST", `/api/boards/${boardId}/messages`, {
+      messages: [
+        { role: "user", content: text, notice: null, cta: null },
+        { role: "assistant", content: assistantContent, notice: null, cta },
+      ],
+    })
+      .then(() =>
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] }),
+      )
+      .catch((err) =>
+        console.warn("[boards] failed to persist self-avatar CTA:", err),
+      );
   };
 
   const sendChat = useMutation({

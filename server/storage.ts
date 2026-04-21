@@ -104,12 +104,15 @@ import {
   businessLocations as businessLocationsTable,
   boards as boardsTable,
   boardAssets as boardAssetsTable,
+  boardMessages as boardMessagesTable,
   boardShares as boardSharesTable,
   notifications as notificationsTable,
   type Board,
   type InsertBoard,
   type BoardAsset,
   type InsertBoardAsset,
+  type BoardMessage,
+  type InsertBoardMessage,
   type BoardShare,
   type Notification,
   type InsertNotification,
@@ -499,6 +502,16 @@ export interface IStorage {
   createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined>;
   updateBoardAssetForUser(boardId: string, assetId: string, userId: string, updates: BoardAssetUpdate): Promise<BoardAsset | undefined>;
   deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean>;
+
+  // Board chat messages — persisted conversation history for the chat panel.
+  // Access is gated to the same set of users who can read the board (owners
+  // and shared collaborators).
+  getBoardMessagesForUser(boardId: string, userId: string): Promise<BoardMessage[]>;
+  createBoardMessageForUser(
+    boardId: string,
+    userId: string,
+    message: BoardMessageCreate,
+  ): Promise<BoardMessage | undefined>;
 }
 
 // Typed mutation DTOs (kept narrow on purpose: only mutable fields)
@@ -536,6 +549,7 @@ export type BoardAssetUpdate = Partial<Pick<
   | "batchLabel"
   | "evalHistory"
 >>;
+export type BoardMessageCreate = Omit<InsertBoardMessage, "boardId">;
 
 export class MemStorage implements IStorage {
   private users: Map<string, User> = new Map();
@@ -3257,6 +3271,34 @@ export class MemStorage implements IStorage {
       .returning();
     if (deleted) await this.touchBoardForUser(boardId, userId);
     return !!deleted;
+  }
+
+  // ----- Board chat messages -----
+  // Read access: any user with access to the board (owner OR shared collaborator).
+  // Write access: same — collaborators on a shared board chat with each other,
+  // mirroring today's in-memory single-thread behavior.
+  async getBoardMessagesForUser(boardId: string, userId: string): Promise<BoardMessage[]> {
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return [];
+    return await db
+      .select()
+      .from(boardMessagesTable)
+      .where(eq(boardMessagesTable.boardId, boardId))
+      .orderBy(boardMessagesTable.createdAt);
+  }
+
+  async createBoardMessageForUser(
+    boardId: string,
+    userId: string,
+    message: BoardMessageCreate,
+  ): Promise<BoardMessage | undefined> {
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
+    const [created] = await db
+      .insert(boardMessagesTable)
+      .values({ ...message, boardId })
+      .returning();
+    return created;
   }
 }
 

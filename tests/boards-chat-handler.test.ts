@@ -97,6 +97,51 @@ class FakeStorage {
     this.assets.set(assetId, merged);
     return merged;
   }
+  // ----- Board chat messages (persisted history) -----
+  messages: Array<{
+    id: string;
+    boardId: string;
+    role: "user" | "assistant";
+    content: string;
+    notice: string | null;
+    cta: { label: string; href: string; testId?: string } | null;
+    createdAt: Date;
+  }> = [];
+  async getAccessibleBoardForUser(id: string, userId: string) {
+    const b = await this.getBoardByIdForUser(id, userId);
+    return b ? { ...b, isOwner: true } : undefined;
+  }
+  async getBoardMessagesForUser(boardId: string, userId: string) {
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return [];
+    return this.messages
+      .filter((m) => m.boardId === boardId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+  async createBoardMessageForUser(
+    boardId: string,
+    userId: string,
+    msg: {
+      role: "user" | "assistant";
+      content: string;
+      notice?: string | null;
+      cta?: { label: string; href: string; testId?: string } | null;
+    },
+  ) {
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
+    const row = {
+      id: this.nextId("msg"),
+      boardId,
+      role: msg.role,
+      content: msg.content,
+      notice: msg.notice ?? null,
+      cta: msg.cta ?? null,
+      createdAt: new Date(Date.now() + this.messages.length),
+    };
+    this.messages.push(row);
+    return row as any;
+  }
 }
 
 // =====================================================
@@ -196,6 +241,21 @@ function buildApp(opts: BuildOpts = {}): BuildResult {
   });
 
   return { app, storage, bgPromises };
+}
+
+async function getJson(app: Express, path: string) {
+  const server = app.listen(0);
+  try {
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no addr");
+    const res = await fetch(`http://127.0.0.1:${addr.port}${path}`);
+    const text = await res.text();
+    let json: any = null;
+    try { json = text ? JSON.parse(text) : null; } catch { /* leave null */ }
+    return { status: res.status, body: json };
+  } finally {
+    server.close();
+  }
 }
 
 async function postJson(app: Express, path: string, body: unknown) {
@@ -484,6 +544,55 @@ describe("POST /api/boards/:id/chat — brainstorm mode", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.reply, "openai-reply");
     assert.equal(openaiBrainstorm.calls.length, 1);
+  });
+
+  it("persists the user turn AND the assistant turn (with notice) so /messages returns them later", async () => {
+    __resetChatProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic", { fail: true });
+    const gemini = makeFakeChat("gemini");
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: makeFakeOpenAIBrainstorm().fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "hello world",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.fallbackUsed, true);
+
+    const list = await getJson(app, `/api/boards/${board.id}/messages`);
+    assert.equal(list.status, 200);
+    assert.equal(list.body.messages.length, 2);
+    assert.equal(list.body.messages[0].role, "user");
+    assert.equal(list.body.messages[0].content, "hello world");
+    assert.equal(list.body.messages[1].role, "assistant");
+    assert.equal(list.body.messages[1].content, "gemini: hello world");
+    // The fallback notice rides along on the assistant row so the UI can re-render the badge after a refresh.
+    assert.match(String(list.body.messages[1].notice), /unavailable/i);
+  });
+
+  it("POST /messages accepts a CTA batch and returns it from GET /messages", async () => {
+    const { app, storage } = buildApp({});
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const post = await postJson(app, `/api/boards/${board.id}/messages`, {
+      messages: [
+        { role: "user", content: "make me a photo avatar of myself" },
+        {
+          role: "assistant",
+          content: "Head to Photo Avatars",
+          cta: { label: "Open Photo Avatars", href: "/dashboard#photo-avatars" },
+        },
+      ],
+    });
+    assert.equal(post.status, 200);
+
+    const list = await getJson(app, `/api/boards/${board.id}/messages`);
+    assert.equal(list.status, 200);
+    assert.equal(list.body.messages.length, 2);
+    assert.equal(list.body.messages[1].cta.label, "Open Photo Avatars");
   });
 
   it("returns the friendly all-down message instead of a 500 when every provider fails", async () => {

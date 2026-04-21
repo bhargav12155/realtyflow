@@ -1879,6 +1879,43 @@ export const insertBoardAssetSchema = createInsertSchema(boardAssets).omit({
 export type InsertBoardAsset = z.infer<typeof insertBoardAssetSchema>;
 export type BoardAsset = typeof boardAssets.$inferSelect;
 
+// Persisted board chat conversation. One row per user/assistant message in
+// the board chat panel, in chronological order. Pending/streaming bubbles
+// are NOT persisted — only completed turns. Cascades on board delete.
+export type BoardMessageCta = {
+  label: string;
+  href: string;
+  testId?: string;
+};
+
+export const boardMessages = pgTable("board_messages", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  boardId: varchar("board_id")
+    .notNull()
+    .references(() => boards.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 16 }).notNull(), // 'user' | 'assistant'
+  content: text("content").notNull(),
+  // Friendly fallback notice ("Claude was unavailable, used Gemini instead.")
+  // surfaced as an italic prefix in the UI. Null for user messages and for
+  // assistant replies that didn't cascade.
+  notice: text("notice"),
+  // Optional CTA bubble payload (e.g. "Open Photo Avatars"). Null for the
+  // common case.
+  cta: jsonb("cta").$type<BoardMessageCta | null>(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("IDX_board_messages_board_created").on(table.boardId, table.createdAt),
+]);
+
+export const insertBoardMessageSchema = createInsertSchema(boardMessages).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBoardMessage = z.infer<typeof insertBoardMessageSchema>;
+export type BoardMessage = typeof boardMessages.$inferSelect;
+
 // Tracks which users a board owner has shared a board with. The owner stays
 // the row in `boards.userId`; recipients get read access via this junction
 // table. (boardId, sharedWithUserId) is unique so re-sharing is idempotent.

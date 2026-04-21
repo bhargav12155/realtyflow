@@ -3,8 +3,8 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
-import type { BoardAsset, BoardAssetEvalHistoryEntry } from "@shared/schema";
-import type { BoardAssetCreate } from "../storage";
+import type { BoardAsset, BoardAssetEvalHistoryEntry, BoardMessageCta } from "@shared/schema";
+import type { BoardAssetCreate, BoardMessageCreate } from "../storage";
 import OpenAI, { type Uploadable } from "openai";
 import type { LumaModel } from "../services/luma";
 import type {
@@ -1086,6 +1086,96 @@ export function registerBoardsChatRoutes(
     });
   });
 
+  // ---- Persisted board chat history ----
+  // GET returns the full conversation in chronological order. We gate on
+  // owner-only here to match the existing /chat policy — keeping these two
+  // routes symmetric avoids the situation where collaborators can read or
+  // write history on a board they can't actually chat on.
+  app.get("/api/boards/:id/messages", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const boardId = req.params.id;
+      const board = await storage.getBoardByIdForUser(boardId, userId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+      const messages = await storage.getBoardMessagesForUser(boardId, userId);
+      return res.json({ messages });
+    } catch (error: unknown) {
+      console.error("[boards-chat] list messages error:", error);
+      const message = error instanceof Error ? error.message : "Failed to load messages";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  // POST is used for client-only chat turns that never hit an LLM (e.g. the
+  // "Open Photo Avatars" CTA pair surfaced by the self-avatar intent
+  // detector). The chat POST already persists its own turns; this is the
+  // escape hatch for everything else the user sees in the chat panel.
+  // CTA links surface in the chat panel as real <a href>s, so we have to
+  // refuse anything that could execute on click. Allowed: in-app paths
+  // ("/dashboard...", "#section") and absolute http(s) URLs only. Everything
+  // else (javascript:, data:, vbscript:, file:, mailto: with payloads, etc.)
+  // is rejected at the schema layer so it can never round-trip through the
+  // DB and back into the DOM.
+  const safeHrefSchema = z
+    .string()
+    .min(1)
+    .max(2000)
+    .refine((raw) => {
+      const v = raw.trim();
+      if (v.length === 0) return false;
+      if (v.startsWith("/") || v.startsWith("#") || v.startsWith("?")) return true;
+      try {
+        const u = new URL(v);
+        return u.protocol === "http:" || u.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "href must be a relative path or an http(s) URL");
+  const ctaSchema = z.object({
+    label: z.string().min(1).max(120),
+    href: safeHrefSchema,
+    testId: z.string().min(1).max(120).optional(),
+  });
+  const messageSchema = z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1).max(20_000),
+    notice: z.string().max(2000).nullable().optional(),
+    cta: ctaSchema.nullable().optional(),
+  });
+  const messagesBatchSchema = z.union([
+    messageSchema,
+    z.object({ messages: z.array(messageSchema).min(1).max(8) }),
+  ]);
+  app.post("/api/boards/:id/messages", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const boardId = req.params.id;
+      const board = await storage.getBoardByIdForUser(boardId, userId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
+      const parsed = messagesBatchSchema.parse(req.body ?? {});
+      const list = "messages" in parsed ? parsed.messages : [parsed];
+      const created: BoardMessageCreate[] = list.map((m) => ({
+        role: m.role,
+        content: m.content,
+        notice: m.notice ?? null,
+        cta: (m.cta ?? null) as BoardMessageCta | null,
+      }));
+      const out: unknown[] = [];
+      for (const m of created) {
+        const row = await storage.createBoardMessageForUser(boardId, userId, m);
+        if (row) out.push(row);
+      }
+      return res.json({ messages: out });
+    } catch (error: unknown) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid body", issues: error.issues });
+      }
+      console.error("[boards-chat] create message error:", error);
+      const message = error instanceof Error ? error.message : "Failed to save message";
+      return res.status(500).json({ error: message });
+    }
+  });
+
   app.post("/api/boards/:id/chat", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
@@ -1124,6 +1214,30 @@ export function registerBoardsChatRoutes(
           requestedModel,
           visionImages.length > 0 ? visionImages : undefined,
         );
+        // Persist both turns so the conversation survives navigation/refresh.
+        // We deliberately store the raw assistant message + the notice as a
+        // separate column so the client can re-render the italic prefix
+        // exactly the same way on reload. Failures here are logged but never
+        // bubble up — a transient DB hiccup must not break the chat reply.
+        try {
+          await storage.createBoardMessageForUser(boardId, userId, {
+            role: "user",
+            content: body.message,
+            notice: null,
+            cta: null,
+          });
+          await storage.createBoardMessageForUser(boardId, userId, {
+            role: "assistant",
+            content: result.message,
+            notice: result.notice ?? null,
+            cta: null,
+          });
+        } catch (persistErr) {
+          console.warn(
+            "[boards-chat] failed to persist brainstorm messages:",
+            persistErr instanceof Error ? persistErr.message : persistErr,
+          );
+        }
         return res.json({
           mode: "brainstorm",
           reply: result.message,
@@ -1236,6 +1350,30 @@ export function registerBoardsChatRoutes(
       }).catch((err) => console.error("[boards-chat] background batch error:", err));
       deps.onBatchScheduled?.(bgPromise);
 
+      const createReply = isImageEdit
+        ? `Editing your referenced image${refImageCount === 1 ? "" : "s"} with ${provider}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`
+        : `Started ${batchLabel}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`;
+      // Persist the chat turn for Build mode too — the conversation that
+      // produced a batch is just as important as the batch's assets.
+      try {
+        await storage.createBoardMessageForUser(boardId, userId, {
+          role: "user",
+          content: body.message,
+          notice: null,
+          cta: null,
+        });
+        await storage.createBoardMessageForUser(boardId, userId, {
+          role: "assistant",
+          content: createReply,
+          notice: null,
+          cta: null,
+        });
+      } catch (persistErr) {
+        console.warn(
+          "[boards-chat] failed to persist create-mode messages:",
+          persistErr instanceof Error ? persistErr.message : persistErr,
+        );
+      }
       return res.json({
         mode: "create",
         provider,
@@ -1244,9 +1382,7 @@ export function registerBoardsChatRoutes(
         batchLabel,
         assets: rows,
         isImageEdit,
-        reply: isImageEdit
-          ? `Editing your referenced image${refImageCount === 1 ? "" : "s"} with ${provider}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`
-          : `Started ${batchLabel}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`,
+        reply: createReply,
       });
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {

@@ -192,6 +192,29 @@ export class RealtimeService {
     });
   }
 
+  // Notify about a HeyGen photo-avatar lifecycle update (training progress,
+  // look generation, consent change, etc). Used by the v3 webhook handler so
+  // the dashboard can react without polling. `userId` may be a string here
+  // because HeyGen events are keyed by app-side user id (uuid).
+  notifyPhotoAvatarStatus(
+    userId: string | number,
+    payload: {
+      groupId?: string;
+      lookId?: string;
+      status: string;
+      eventType: string;
+      message?: string;
+    },
+  ) {
+    this.sendToUser(String(userId), {
+      type: "photo_avatar_status_update",
+      data: payload,
+      timestamp: new Date().toISOString(),
+      userId: typeof userId === "number" ? userId : undefined,
+      link: "photo-avatars",
+    });
+  }
+
   // Notify about video creation
   notifyVideoCreated(userId: number, videoId: string, title: string) {
     this.sendToUser(userId.toString(), {

@@ -66,6 +66,7 @@ import { registerBoardsRoutes } from "./routes/boards";
 import { registerBoardsChatRoutes } from "./routes/boards-chat";
 import { registerNotificationsRoutes } from "./routes/notifications";
 import { registerSeedanceRoutes } from "./routes/seedance";
+import { registerHeygenV3Routes } from "./routes/heygen-v3";
 import { createRetryCloneHandler, createVoiceWithClone, createRenameVoiceHandler, startVoiceClone } from "./routes/custom-voices-clone";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
@@ -726,6 +727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBoardsChatRoutes(app);
   registerNotificationsRoutes(app);
   registerSeedanceRoutes(app, requireAuth);
+  registerHeygenV3Routes(app);
 
   // Helper function to ensure S3 URLs are properly formatted
   const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {

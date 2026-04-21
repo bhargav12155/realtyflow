@@ -188,6 +188,13 @@ export const photoAvatarGroups = pgTable("photo_avatar_groups", {
   imageHash: text("image_hash"),
   heygenImageKey: text("heygen_image_key"),
   s3ImageUrl: text("s3_image_url"),
+  // HeyGen Photo Avatar API generation that created the group. Existing rows
+  // were all created against the legacy v2 endpoints, so we default to "v2".
+  // New groups created through the v3 service should set this to "v3".
+  apiVersion: text("api_version").notNull().default("v2"),
+  // Tracks the HeyGen v3 consent lifecycle for the group's source likeness.
+  // Null on legacy rows. Allowed values: "pending" | "approved" | "revoked".
+  consentStatus: text("consent_status"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -217,8 +224,40 @@ export const photoAvatars = pgTable("photo_avatars", {
   heygenPhotoId: text("heygen_photo_id"),
   poseType: text("pose_type").notNull(),
   processingStatus: text("processing_status").default("pending"),
+  // HeyGen v3 "look_id" — identifies the trained look variant used to render
+  // this image. Null for legacy v2 records and for raw uploaded source photos.
+  lookId: text("look_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// =====================================================
+// HEYGEN WEBHOOK EVENTS TABLE
+// Persists every webhook callback HeyGen delivers so we can audit, replay
+// and de-dupe. Keep the row count bounded by retention/cleanup elsewhere.
+// =====================================================
+export const heygenWebhookEvents = pgTable("heygen_webhook_events", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  // HeyGen event type (e.g. "avatar_video.success", "photo_avatar.train.completed").
+  eventType: text("event_type").notNull(),
+  // Optional resource id extracted from payload for fast lookup.
+  resourceId: text("resource_id"),
+  // Raw payload as delivered, useful for debugging and replay.
+  payload: jsonb("payload").notNull(),
+  // The signature header HeyGen sent (so we can re-verify after the fact).
+  signature: text("signature"),
+  // True when HMAC verification succeeded.
+  verified: boolean("verified").notNull().default(false),
+  receivedAt: timestamp("received_at").defaultNow(),
+});
+
+export const insertHeygenWebhookEventSchema = createInsertSchema(heygenWebhookEvents).omit({
+  id: true,
+  receivedAt: true,
+});
+export type InsertHeygenWebhookEvent = z.infer<typeof insertHeygenWebhookEventSchema>;
+export type HeygenWebhookEvent = typeof heygenWebhookEvents.$inferSelect;
 
 // =====================================================
 // LOOK GENERATION JOBS TABLE (Track pending look generations)

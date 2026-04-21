@@ -369,6 +369,11 @@ export function PhotoAvatarManager() {
     message?: string;
   }>>([]);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  // The Debug Panel is a developer aid only — gate the toggle button itself
+  // behind ?debug=1 so end-users never see it. The full panel renders inside
+  // a {debugEnabled && ...} guard further down.
+  const debugEnabled = typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("debug") === "1";
   
   // Activity log for step-by-step visibility (user-friendly version)
   const [activityLogs, setActivityLogs] = useState<Array<{
@@ -2176,8 +2181,8 @@ export function PhotoAvatarManager() {
                           </Button>
                         </div>
                       </div>
-                      <div className="p-2 bg-white">
-                        <h4 className="text-xs font-medium text-gray-800 truncate">
+                      <div className="p-2 bg-white dark:bg-card">
+                        <h4 className="text-xs font-medium text-gray-800 dark:text-foreground truncate">
                           {group.name}
                         </h4>
                         <p className="text-[10px] text-gray-500 mt-0.5">
@@ -2539,6 +2544,23 @@ export function PhotoAvatarManager() {
                     </div>
                   </div>
                 </div>
+
+                {(!Array.isArray(avatarGroups) || avatarGroups.length === 0) && !isLoading && (
+                  <Card
+                    className="border-2 border-dashed border-gray-200 dark:border-border bg-muted/20"
+                    data-testid="empty-state-no-avatar-groups"
+                  >
+                    <CardContent className="py-12 text-center">
+                      <Users className="h-10 w-10 mx-auto text-muted-foreground mb-3 opacity-60" />
+                      <p className="font-medium text-base mb-1">No avatar groups yet</p>
+                      <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                        Upload a photo on the Upload tab, or generate AI photos
+                        on the Generate tab. Your avatar groups will appear here
+                        once they finish training.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {Array.isArray(avatarGroups) &&
                   avatarGroups.map((group: AvatarGroup) => (
@@ -3313,7 +3335,8 @@ export function PhotoAvatarManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Debug Panel - Collapsible */}
+      {/* Debug Panel - hidden unless ?debug=1 is on the URL */}
+      {debugEnabled && (
       <div className="mt-4 border-t pt-4">
         <Button
           variant="outline"
@@ -3410,6 +3433,7 @@ export function PhotoAvatarManager() {
           </div>
         )}
       </div>
+      )}
     </Card>
 
       {/* Activity Log Panel - Right Side */}

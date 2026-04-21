@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Search, Sparkles, Plus } from "lucide-react";
+import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Search, Sparkles, Plus, Pencil, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -262,6 +262,55 @@ export function VoiceLibraryManager() {
       });
     },
   });
+
+  // Rename voice state + mutation
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+
+  const renameVoiceMutation = useMutation({
+    mutationFn: async (data: { id: string; name: string }) => {
+      return apiRequest("PATCH", `/api/custom-voices/${data.id}`, { name: data.name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({
+        title: "Voice Renamed",
+        description: "The voice name has been updated.",
+      });
+      setRenamingId(null);
+      setRenameDraft("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Rename Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const startRename = (voice: CustomVoice) => {
+    setRenamingId(voice.id);
+    setRenameDraft(voice.name);
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenameDraft("");
+  };
+
+  const submitRename = (voiceId: string) => {
+    const trimmed = renameDraft.trim();
+    if (!trimmed) {
+      toast({ title: "Name Required", description: "Voice name cannot be empty", variant: "destructive" });
+      return;
+    }
+    if (trimmed.length > 100) {
+      toast({ title: "Name Too Long", description: "Voice name must be 100 characters or fewer", variant: "destructive" });
+      return;
+    }
+    renameVoiceMutation.mutate({ id: voiceId, name: trimmed });
+  };
 
   // Delete voice mutation
   const deleteVoiceMutation = useMutation({
@@ -728,10 +777,69 @@ export function VoiceLibraryManager() {
                   >
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <h4 className="font-medium" data-testid={`text-voice-name-${voice.id}`}>
-                          {voice.name}
-                        </h4>
-                        {getStatusBadge(voice.status)}
+                        {renamingId === voice.id ? (
+                          <div className="flex items-center gap-2 flex-1">
+                            <Input
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  submitRename(voice.id);
+                                } else if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelRename();
+                                }
+                              }}
+                              autoFocus
+                              maxLength={100}
+                              className="h-8 max-w-xs"
+                              data-testid={`input-rename-voice-${voice.id}`}
+                            />
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="h-8"
+                              onClick={() => submitRename(voice.id)}
+                              disabled={renameVoiceMutation.isPending}
+                              data-testid={`button-save-rename-${voice.id}`}
+                            >
+                              {renameVoiceMutation.isPending && renameVoiceMutation.variables?.id === voice.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Check className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8"
+                              onClick={cancelRename}
+                              disabled={renameVoiceMutation.isPending}
+                              data-testid={`button-cancel-rename-${voice.id}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <h4 className="font-medium" data-testid={`text-voice-name-${voice.id}`}>
+                              {voice.name}
+                            </h4>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => startRename(voice)}
+                              disabled={renameVoiceMutation.isPending}
+                              data-testid={`button-rename-voice-${voice.id}`}
+                              aria-label="Rename voice"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            {getStatusBadge(voice.status)}
+                          </>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mt-1">
                         {voice.fileSize !== null && voice.fileSize !== undefined && (

@@ -37,7 +37,7 @@ vi.mock("./voice-library-manager", () => ({
 }));
 vi.mock("heic2any", () => ({ default: vi.fn() }));
 
-import { V3LooksPanel } from "@/components/dashboard/photo-avatar-manager";
+import { V3LooksPanel } from "@/components/dashboard/photo-avatars/V3LooksPanel";
 
 type FetchCall = { url: string; init?: RequestInit };
 let fetchCalls: FetchCall[];

@@ -48,6 +48,86 @@ export interface V3CreateAvatarStorageLike {
   }): Promise<unknown>;
 }
 
+// Subset of `storage` the consent handler touches.
+export interface V3ConsentStorageLike {
+  getPhotoAvatarGroupByHeygenIdAndUser(
+    heygenGroupId: string,
+    userId: string,
+  ): Promise<{ id: string } | undefined>;
+  updatePhotoAvatarGroup(
+    id: string,
+    updates: { consentStatus?: ConsentStatusValue },
+  ): Promise<unknown>;
+}
+
+// Subset of HeyGenV3Service the consent handler needs.
+export interface V3ConsentServiceLike {
+  createConsent(params: {
+    groupId: string;
+    consentVideoUrl?: string;
+    signature?: string;
+  }): Promise<{ consent_id: string; status: ConsentStatusValue }>;
+}
+
+export interface CreateV3PhotoAvatarConsentHandlerDeps {
+  storage: V3ConsentStorageLike;
+  getV3Service: () => V3ConsentServiceLike;
+}
+
+export function createV3PhotoAvatarConsentHandler(
+  deps: CreateV3PhotoAvatarConsentHandlerDeps,
+): RequestHandler {
+  return async (req: Request, res: Response) => {
+    const { groupId } = req.params;
+    const userId = (req as Request & { user?: { id?: string } }).user?.id;
+    const action = req.body?.action === "revoke" ? "revoke" : "approve";
+    const consentVideoUrl =
+      typeof req.body?.consentVideoUrl === "string" && req.body.consentVideoUrl
+        ? req.body.consentVideoUrl
+        : undefined;
+    const signature =
+      typeof req.body?.signature === "string" && req.body.signature
+        ? req.body.signature
+        : undefined;
+
+    if (!userId) return res.status(401).json({ error: "unauthorized" });
+
+    const group = await deps.storage.getPhotoAvatarGroupByHeygenIdAndUser(
+      groupId,
+      userId,
+    );
+    if (!group) return res.status(404).json({ error: "group_not_found" });
+
+    if (action === "revoke") {
+      await deps.storage.updatePhotoAvatarGroup(group.id, {
+        consentStatus: "revoked",
+      });
+      return res.json({ status: "revoked" as ConsentStatusValue });
+    }
+
+    if (!consentVideoUrl && !signature) {
+      return res
+        .status(400)
+        .json({ error: "consent_video_url_or_signature_required" });
+    }
+
+    try {
+      const result = await deps.getV3Service().createConsent({
+        groupId,
+        consentVideoUrl,
+        signature,
+      });
+      await deps.storage.updatePhotoAvatarGroup(group.id, {
+        consentStatus: result.status,
+      });
+      return res.json(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return res.status(502).json({ error: "heygen_v3_consent_failed", message });
+    }
+  };
+}
+
 export interface CreateV3PhotoAvatarsHandlerDeps {
   storage: V3CreateAvatarStorageLike;
   getV3Service: () => V3CreateAvatarServiceLike;
@@ -501,58 +581,9 @@ export function registerHeygenV3Routes(app: Express) {
   app.post(
     "/api/v3/photo-avatars/:groupId/consent",
     requireAuth,
-    async (req: Request, res: Response) => {
-      const { groupId } = req.params;
-      const userId = (req as Request & { user?: { id?: string } }).user?.id;
-      const action =
-        req.body?.action === "revoke" ? "revoke" : "approve";
-      const consentVideoUrl =
-        typeof req.body?.consentVideoUrl === "string" && req.body.consentVideoUrl
-          ? req.body.consentVideoUrl
-          : undefined;
-      const signature =
-        typeof req.body?.signature === "string" && req.body.signature
-          ? req.body.signature
-          : undefined;
-
-      if (!userId) return res.status(401).json({ error: "unauthorized" });
-
-      // Make sure the group belongs to the caller.
-      const group = await defaultStorage.getPhotoAvatarGroupByHeygenIdAndUser(groupId, userId);
-      if (!group) return res.status(404).json({ error: "group_not_found" });
-
-      // Revoke is a local-only state change — HeyGen has no public revoke
-      // endpoint, so we simply mark the group as revoked in our DB so the
-      // UI stops treating the likeness as approved for new generations.
-      if (action === "revoke") {
-        await storage.updatePhotoAvatarGroup(group.id, {
-          consentStatus: "revoked",
-        });
-        return res.json({ status: "revoked" as ConsentStatusValue });
-      }
-
-      // Approve flow requires either a consent video URL or a signature so
-      // we have something to send to HeyGen's /consent endpoint.
-      if (!consentVideoUrl && !signature) {
-        return res
-          .status(400)
-          .json({ error: "consent_video_url_or_signature_required" });
-      }
-
-      try {
-        const result = await defaultGetV3Service().createConsent({
-          groupId,
-          consentVideoUrl,
-          signature,
-        });
-        await defaultStorage.updatePhotoAvatarGroup(group.id, {
-          consentStatus: result.status,
-        });
-        return res.json(result);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        return res.status(502).json({ error: "heygen_v3_consent_failed", message });
-      }
-    },
+    createV3PhotoAvatarConsentHandler({
+      storage: defaultStorage as unknown as V3ConsentStorageLike,
+      getV3Service: defaultGetV3Service,
+    }),
   );
 }

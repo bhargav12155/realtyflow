@@ -94,6 +94,12 @@ export function VoiceLibraryManager() {
   const [designDescription, setDesignDescription] = useState("");
   const [designLanguage, setDesignLanguage] = useState("any");
   const [designGender, setDesignGender] = useState("any");
+  const [designPreview, setDesignPreview] = useState<{
+    heygenVoiceId: string;
+    previewUrl: string | null;
+    language: string | null;
+    gender: string | null;
+  } | null>(null);
 
   // Fetch custom voices
   const { data: voices = [], isLoading } = useQuery<CustomVoice[]>({
@@ -233,12 +239,52 @@ export function VoiceLibraryManager() {
     },
   });
 
-  // Design voice mutation
-  const designVoiceMutation = useMutation({
+  // Preview-only design call: synthesises a HeyGen voice but does not
+  // persist it. The resulting preview is stashed in `designPreview` so
+  // the user can listen and decide whether to keep it.
+  const previewDesignMutation = useMutation({
     mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/v3/voices/design", {
+        description: designDescription.trim(),
+        language: designLanguage !== "any" ? designLanguage : undefined,
+        gender: designGender !== "any" ? designGender : undefined,
+        save: false,
+      });
+      return (await res.json()) as {
+        preview: {
+          heygenVoiceId: string;
+          previewUrl: string | null;
+          language: string | null;
+          gender: string | null;
+        };
+      };
+    },
+    onSuccess: (data) => {
+      setDesignPreview(data.preview);
+      toast({
+        title: "Preview Ready",
+        description: "Listen to your designed voice and save it if you like it.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Preview Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Save the previewed voice into the user's library. We pass the
+  // preview's heygenVoiceId back to the server so it persists exactly
+  // the voice the user listened to instead of synthesising a new one.
+  const savePreviewMutation = useMutation({
+    mutationFn: async () => {
+      if (!designPreview) throw new Error("Generate a preview first");
       return apiRequest("POST", "/api/v3/voices/design", {
         name: designName.trim(),
-        description: designDescription.trim(),
+        previewVoiceId: designPreview.heygenVoiceId,
+        previewUrl: designPreview.previewUrl ?? undefined,
         language: designLanguage !== "any" ? designLanguage : undefined,
         gender: designGender !== "any" ? designGender : undefined,
       });
@@ -246,17 +292,18 @@ export function VoiceLibraryManager() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
       toast({
-        title: "Voice Designed",
-        description: "Your new voice was created and saved to your library.",
+        title: "Voice Saved",
+        description: "Your designed voice was added to your library.",
       });
       setDesignName("");
       setDesignDescription("");
       setDesignLanguage("any");
       setDesignGender("any");
+      setDesignPreview(null);
     },
     onError: (error: Error) => {
       toast({
-        title: "Design Failed",
+        title: "Save Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -361,16 +408,24 @@ export function VoiceLibraryManager() {
     uploadVoiceMutation.mutate({ name: voiceName.trim(), file: audioFile });
   };
 
-  const handleDesign = () => {
-    if (!designName.trim()) {
-      toast({ title: "Name Required", description: "Please enter a name for your designed voice", variant: "destructive" });
-      return;
-    }
+  const handlePreviewDesign = () => {
     if (!designDescription.trim()) {
       toast({ title: "Description Required", description: "Describe the voice you want HeyGen to create", variant: "destructive" });
       return;
     }
-    designVoiceMutation.mutate();
+    previewDesignMutation.mutate();
+  };
+
+  const handleSavePreview = () => {
+    if (!designName.trim()) {
+      toast({ title: "Name Required", description: "Please enter a name before saving the voice", variant: "destructive" });
+      return;
+    }
+    savePreviewMutation.mutate();
+  };
+
+  const handleTryAgain = () => {
+    setDesignPreview(null);
   };
 
   const formatFileSize = (bytes: number | null) => {
@@ -724,23 +779,76 @@ export function VoiceLibraryManager() {
                   </Select>
                 </div>
               </div>
-              <Button
-                onClick={handleDesign}
-                disabled={designVoiceMutation.isPending || !designName.trim() || !designDescription.trim()}
-                data-testid="button-design-voice"
-              >
-                {designVoiceMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Designing…
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Design Voice
-                  </>
-                )}
-              </Button>
+              {!designPreview ? (
+                <Button
+                  onClick={handlePreviewDesign}
+                  disabled={previewDesignMutation.isPending || !designDescription.trim()}
+                  data-testid="button-preview-design-voice"
+                >
+                  {previewDesignMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generating preview…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Preview Voice
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div
+                  className="space-y-3 rounded-lg border p-4"
+                  data-testid="card-design-preview"
+                >
+                  <div className="text-sm font-medium">Preview</div>
+                  {designPreview.previewUrl ? (
+                    <audio
+                      controls
+                      className="w-full"
+                      src={designPreview.previewUrl}
+                      data-testid="audio-design-preview"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      HeyGen did not return a preview clip for this voice.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={handleSavePreview}
+                      disabled={savePreviewMutation.isPending || !designName.trim()}
+                      data-testid="button-save-design-voice"
+                    >
+                      {savePreviewMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving…
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4 mr-2" />
+                          Save to library
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={handleTryAgain}
+                      disabled={savePreviewMutation.isPending || previewDesignMutation.isPending}
+                      data-testid="button-try-again-design-voice"
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                  {!designName.trim() && (
+                    <p className="text-xs text-muted-foreground">
+                      Add a name above before saving this voice to your library.
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

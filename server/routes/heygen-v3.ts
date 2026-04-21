@@ -411,17 +411,70 @@ export function registerHeygenV3Routes(app: Express) {
           ? req.body.gender.trim()
           : undefined;
 
-      if (!name) return res.status(400).json({ error: "name is required" });
-      if (!description)
+      // `save` defaults to true so existing callers keep working. Pass
+      // `save: false` to get a preview-only response that does not
+      // persist a custom_voices row — used by the two-step "preview,
+      // then save" flow in the Voice Designer UI.
+      const save = req.body?.save !== false;
+
+      // When saving an already-previewed voice, the client passes back
+      // the preview's heygenVoiceId (and optional previewUrl) so we
+      // persist exactly what the user listened to instead of paying
+      // for a second synthesis that might come back slightly different.
+      const previewVoiceId =
+        typeof req.body?.previewVoiceId === "string" && req.body.previewVoiceId.trim()
+          ? req.body.previewVoiceId.trim()
+          : undefined;
+      const previewUrl =
+        typeof req.body?.previewUrl === "string" && req.body.previewUrl.trim()
+          ? req.body.previewUrl.trim()
+          : undefined;
+
+      if (save && !name)
+        return res.status(400).json({ error: "name is required" });
+      // Description is only required when we actually need HeyGen to
+      // synthesise a voice — i.e. for previews, or for one-shot saves
+      // without a previously-generated voice id.
+      if (!previewVoiceId && !description)
         return res.status(400).json({ error: "description is required" });
 
       try {
+        // Fast path: the user already previewed a voice; just persist
+        // the preview's voice id without calling HeyGen again.
+        if (save && previewVoiceId) {
+          const voice = await defaultStorage.createCustomVoice({
+            userId,
+            name,
+            audioUrl: previewUrl ?? "",
+            fileSize: null,
+            heygenAudioAssetId: null,
+            status: "ready",
+            heygenVoiceId: previewVoiceId,
+            language: language ?? null,
+            gender: gender ?? null,
+            sampleAudioUrl: previewUrl ?? null,
+          });
+          return res.status(201).json(voice);
+        }
+
         const designed = await defaultGetV3Service().designVoice({
-          name,
+          name: name || "Preview",
           description,
           language,
           gender,
         });
+
+        if (!save) {
+          return res.json({
+            preview: {
+              heygenVoiceId: designed.voice_id,
+              previewUrl: designed.preview_url ?? null,
+              language: language ?? null,
+              gender: gender ?? null,
+            },
+          });
+        }
+
         const voice = await defaultStorage.createCustomVoice({
           userId,
           name,

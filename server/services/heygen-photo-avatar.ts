@@ -1,3 +1,9 @@
+import {
+  parseHeygenAvatarGroupListResponse,
+  parseHeygenAvatarGroupLooksResponse,
+  parseHeygenTrainStatusResponse,
+} from "@shared/heygenPhotoAvatarSchemas";
+
 interface PhotoGenerationOptions {
   name: string;
   age:
@@ -235,17 +241,18 @@ export class HeyGenPhotoAvatarService {
       "📋 HeyGen: Raw list response:",
       JSON.stringify(response, null, 2)
     );
+    const parsed = parseHeygenAvatarGroupListResponse(response.data);
     console.log(
       "📋 HeyGen: Avatar group list count:",
-      response.data?.avatar_group_list?.length || 0
+      parsed.avatar_group_list.length
     );
-    if (response.data?.avatar_group_list?.length > 0) {
+    if (parsed.avatar_group_list.length > 0) {
       console.log(
         "📋 HeyGen: First group sample:",
-        JSON.stringify(response.data.avatar_group_list[0], null, 2)
+        JSON.stringify(parsed.avatar_group_list[0], null, 2)
       );
     }
-    return response.data;
+    return parsed;
   }
 
   // Get specific avatar group
@@ -257,7 +264,7 @@ export class HeyGenPhotoAvatarService {
   // Get avatar group looks (trained avatars)
   async getAvatarGroupLooks(groupId: string) {
     const response = await this.makeRequest(`/avatar_group/${groupId}/avatars`);
-    return response.data;
+    return parseHeygenAvatarGroupLooksResponse(response.data, groupId);
   }
 
   // Train avatar group - per HeyGen docs only group_id is required
@@ -377,7 +384,7 @@ export class HeyGenPhotoAvatarService {
     const response = await this.makeRequest(
       `/photo_avatar/train/status/${groupId}`
     );
-    return response.data;
+    return parseHeygenTrainStatusResponse(response.data, groupId);
   }
 
   // Delete avatar group

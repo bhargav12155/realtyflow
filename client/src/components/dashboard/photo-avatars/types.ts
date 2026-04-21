@@ -1,13 +1,19 @@
-export type AvatarGroupStatus =
-  | "pending"
-  | "processing"
-  | "ready"
-  | "failed"
-  | "completed";
+// Re-export the canonical union types from the shared schema module so the
+// client and server agree on the legal HeyGen status values. Server boundary
+// validation uses the same Zod enums (see `shared/heygenPhotoAvatarSchemas.ts`).
+export type {
+  AvatarGroupStatus,
+  AvatarTrainStatus,
+  ConsentStatus,
+  AvatarLookProcessingStatus,
+} from "@shared/heygenPhotoAvatarSchemas";
 
-export type AvatarTrainStatus = "empty" | "processing" | "ready" | "completed" | "failed";
-
-export type ConsentStatus = "pending" | "approved" | "revoked";
+import type {
+  AvatarGroupStatus,
+  AvatarTrainStatus,
+  ConsentStatus,
+  AvatarLookProcessingStatus,
+} from "@shared/heygenPhotoAvatarSchemas";
 
 export interface AvatarGroup {
   group_id: string;
@@ -61,12 +67,6 @@ export type EditPose = "half_body" | "full_body";
 
 export type AILookOrientation = "square" | "horizontal" | "vertical";
 export type AILookPose = "half_body" | "close_up" | "full_body";
-
-export type AvatarLookProcessingStatus =
-  | "pending"
-  | "processing"
-  | "completed"
-  | "failed";
 
 export interface AvatarLook {
   id: string;

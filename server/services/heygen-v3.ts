@@ -10,7 +10,12 @@
  * features over one at a time.
  */
 
-export type ConsentStatus = "pending" | "approved" | "revoked";
+import {
+  parseHeygenV3LooksPageResponse,
+  type ConsentStatus as SharedConsentStatus,
+} from "@shared/heygenPhotoAvatarSchemas";
+
+export type ConsentStatus = SharedConsentStatus;
 
 export interface V3CreateAvatarOptions {
   /** User-facing avatar group name. */
@@ -114,9 +119,10 @@ export class HeyGenV3Service {
 
   async listLooks(groupId: string, cursor?: string): Promise<V3LooksPage> {
     const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-    const data = await this.request<{ items?: unknown[]; next_cursor?: string | null }>(
+    const raw = await this.request<unknown>(
       `/photo_avatars/${encodeURIComponent(groupId)}/looks${qs}`,
     );
+    const data = parseHeygenV3LooksPageResponse(raw, groupId);
     return {
       data: data.items ?? [],
       nextCursor: data.next_cursor ?? null,

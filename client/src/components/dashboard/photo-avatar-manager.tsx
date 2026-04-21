@@ -114,9 +114,54 @@ function V3LooksPanel({
   consentStatus: string | null;
 }) {
   const { toast } = useToast();
+  const confirmRevoke = useConfirm();
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [history, setHistory] = useState<string[]>([]);
   const [pendingLookId, setPendingLookId] = useState<string | null>(null);
+  const [consentDialogOpen, setConsentDialogOpen] = useState(false);
+  const [approveVideoUrl, setApproveVideoUrl] = useState("");
+  const [approveSignature, setApproveSignature] = useState("");
+
+  const consentMutation = useMutation({
+    mutationFn: async (
+      payload:
+        | { action: "approve"; consentVideoUrl?: string; signature?: string }
+        | { action: "revoke" },
+    ) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/v3/photo-avatars/${encodeURIComponent(heygenGroupId)}/consent`,
+        payload,
+      );
+      return res.json();
+    },
+    onSuccess: (data: { status?: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
+      setConsentDialogOpen(false);
+      setApproveVideoUrl("");
+      setApproveSignature("");
+      toast({
+        title: "Consent updated",
+        description: `Status is now ${data?.status ?? "updated"}.`,
+      });
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : "Please try again.";
+      toast({
+        title: "Couldn't update consent",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const status = (consentStatus || "unknown").toLowerCase();
+  const statusBadgeClass =
+    status === "approved"
+      ? "bg-green-100 text-green-700 border-green-200"
+      : status === "revoked"
+      ? "bg-red-100 text-red-700 border-red-200"
+      : "bg-yellow-100 text-yellow-700 border-yellow-200";
 
   const { data, isLoading, isError, refetch } = useQuery<V3LooksPage>({
     queryKey: ["/api/v3/photo-avatars", heygenGroupId, "looks", cursor ?? ""],
@@ -169,29 +214,152 @@ function V3LooksPanel({
       className="border-t mt-2 pt-3 space-y-2"
       data-testid={`v3-looks-panel-${heygenGroupId}`}
     >
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="space-y-1">
           <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
             HeyGen v3 Looks
           </p>
-          <p className="text-[10px] text-gray-500">
-            Consent:{" "}
-            <span data-testid={`text-consent-status-${heygenGroupId}`}>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-gray-500">Consent:</span>
+            <Badge
+              variant="outline"
+              className={`text-[10px] py-0 px-1.5 h-4 ${statusBadgeClass}`}
+              data-testid={`text-consent-status-${heygenGroupId}`}
+            >
               {consentStatus || "unknown"}
-            </span>
-          </p>
+            </Badge>
+          </div>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => refetch()}
-          className="h-6 text-[10px] px-2"
-          data-testid={`button-refresh-looks-${heygenGroupId}`}
-        >
-          <RefreshCw className="w-3 h-3 mr-1" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-1">
+          {status !== "approved" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConsentDialogOpen(true)}
+              disabled={consentMutation.isPending}
+              className="h-6 text-[10px] px-2 border-green-300 text-green-700 hover:bg-green-50"
+              data-testid={`button-approve-consent-${heygenGroupId}`}
+            >
+              <Check className="w-3 h-3 mr-1" />
+              Approve
+            </Button>
+          )}
+          {status !== "revoked" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                const ok = await confirmRevoke({
+                  title: "Revoke consent?",
+                  description:
+                    "The likeness will be marked as revoked and shouldn't be used to generate new content.",
+                  confirmText: "Revoke",
+                  variant: "destructive",
+                });
+                if (ok) consentMutation.mutate({ action: "revoke" });
+              }}
+              disabled={consentMutation.isPending}
+              className="h-6 text-[10px] px-2 border-red-300 text-red-600 hover:bg-red-50"
+              data-testid={`button-revoke-consent-${heygenGroupId}`}
+            >
+              <X className="w-3 h-3 mr-1" />
+              Revoke
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => refetch()}
+            className="h-6 text-[10px] px-2"
+            data-testid={`button-refresh-looks-${heygenGroupId}`}
+          >
+            <RefreshCw className="w-3 h-3 mr-1" />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      <Dialog open={consentDialogOpen} onOpenChange={setConsentDialogOpen}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Approve consent</DialogTitle>
+            <DialogDescription>
+              Provide a consent video URL or a typed signature so HeyGen can
+              record proof of consent for this likeness.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1">
+              <Label
+                htmlFor={`approve-video-url-${heygenGroupId}`}
+                className="text-xs"
+              >
+                Consent video URL
+              </Label>
+              <Input
+                id={`approve-video-url-${heygenGroupId}`}
+                type="url"
+                placeholder="https://..."
+                value={approveVideoUrl}
+                onChange={(e) => setApproveVideoUrl(e.target.value)}
+                data-testid={`input-approve-consent-video-url-${heygenGroupId}`}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label
+                htmlFor={`approve-signature-${heygenGroupId}`}
+                className="text-xs"
+              >
+                Typed signature
+              </Label>
+              <Input
+                id={`approve-signature-${heygenGroupId}`}
+                placeholder="Full name as signature"
+                value={approveSignature}
+                onChange={(e) => setApproveSignature(e.target.value)}
+                data-testid={`input-approve-consent-signature-${heygenGroupId}`}
+              />
+            </div>
+            <p className="text-[10px] text-gray-500">
+              At least one of the two fields is required.
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConsentDialogOpen(false)}
+              data-testid={`button-cancel-approve-consent-${heygenGroupId}`}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() =>
+                consentMutation.mutate({
+                  action: "approve",
+                  consentVideoUrl: approveVideoUrl.trim() || undefined,
+                  signature: approveSignature.trim() || undefined,
+                })
+              }
+              disabled={
+                consentMutation.isPending ||
+                (!approveVideoUrl.trim() && !approveSignature.trim())
+              }
+              data-testid={`button-submit-approve-consent-${heygenGroupId}`}
+            >
+              {consentMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                "Approve"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {isLoading && (
         <div className="text-center py-4 text-xs text-gray-500">

@@ -421,14 +421,40 @@ export function registerHeygenV3Routes(app: Express) {
     async (req: Request, res: Response) => {
       const { groupId } = req.params;
       const userId = (req as Request & { user?: { id?: string } }).user?.id;
-      const consentVideoUrl = typeof req.body?.consentVideoUrl === "string" ? req.body.consentVideoUrl : undefined;
-      const signature = typeof req.body?.signature === "string" ? req.body.signature : undefined;
+      const action =
+        req.body?.action === "revoke" ? "revoke" : "approve";
+      const consentVideoUrl =
+        typeof req.body?.consentVideoUrl === "string" && req.body.consentVideoUrl
+          ? req.body.consentVideoUrl
+          : undefined;
+      const signature =
+        typeof req.body?.signature === "string" && req.body.signature
+          ? req.body.signature
+          : undefined;
 
       if (!userId) return res.status(401).json({ error: "unauthorized" });
 
       // Make sure the group belongs to the caller.
       const group = await storage.getPhotoAvatarGroupByHeygenIdAndUser(groupId, userId);
       if (!group) return res.status(404).json({ error: "group_not_found" });
+
+      // Revoke is a local-only state change — HeyGen has no public revoke
+      // endpoint, so we simply mark the group as revoked in our DB so the
+      // UI stops treating the likeness as approved for new generations.
+      if (action === "revoke") {
+        await storage.updatePhotoAvatarGroup(group.id, {
+          consentStatus: "revoked",
+        });
+        return res.json({ status: "revoked" as ConsentStatusValue });
+      }
+
+      // Approve flow requires either a consent video URL or a signature so
+      // we have something to send to HeyGen's /consent endpoint.
+      if (!consentVideoUrl && !signature) {
+        return res
+          .status(400)
+          .json({ error: "consent_video_url_or_signature_required" });
+      }
 
       try {
         const result = await getV3Service().createConsent({

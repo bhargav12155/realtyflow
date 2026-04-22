@@ -169,6 +169,168 @@ describe("VoiceLibraryManager — Design tab", () => {
     });
   });
 
+  it("rate-limited preview shows a friendly toast + inline retry block; Retry re-fires the request", async () => {
+    // First call fails with a typed 429; second call succeeds.
+    apiRequestMock.mockRejectedValueOnce(
+      new Error(
+        '429: ' +
+          JSON.stringify({
+            error: "voice_design_rate_limited",
+            message: "rate limit exceeded",
+          }),
+      ),
+    );
+    apiRequestMock.mockResolvedValueOnce(
+      jsonResponse({
+        preview: {
+          heygenVoiceId: "voice_after_retry",
+          previewUrl: "https://heygen/after-retry.mp3",
+          language: null,
+          gender: null,
+        },
+      }),
+    );
+
+    renderUnderQueryClient();
+    await switchToDesignTab();
+
+    fillDescription("warm friendly female narrator");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("button-preview-design-voice"));
+    });
+
+    // Inline error block appears with friendly copy + a Retry button.
+    const errCard = await screen.findByTestId("card-design-preview-error");
+    expect(errCard).toBeTruthy();
+    expect(
+      screen.getByTestId("text-design-preview-error-title").textContent,
+    ).toBe("Too many requests");
+    expect(
+      screen.getByTestId("text-design-preview-error-message").textContent,
+    ).toContain("rate-limiting");
+    expect(screen.getByTestId("button-retry-design-preview")).toBeTruthy();
+
+    // Form selections must still be intact (so the retry uses them).
+    expect(
+      (screen.getByTestId("textarea-design-description") as HTMLTextAreaElement)
+        .value,
+    ).toBe("warm friendly female narrator");
+
+    // Toast was fired with the friendly title/description.
+    expect(toastMock).toHaveBeenCalled();
+    const lastToast = toastMock.mock.calls[toastMock.mock.calls.length - 1][0];
+    expect(lastToast.title).toBe("Too many requests");
+    expect(lastToast.variant).toBe("destructive");
+
+    // Click Retry — fires another preview call and the success path
+    // replaces the error block with the audio preview.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("button-retry-design-preview"));
+    });
+    await screen.findByTestId("audio-design-preview");
+    expect(screen.queryByTestId("card-design-preview-error")).toBeNull();
+    expect(apiRequestMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalid-description error maps to 'Description not accepted' copy", async () => {
+    apiRequestMock.mockRejectedValueOnce(
+      new Error(
+        '400: ' +
+          JSON.stringify({
+            error: "voice_design_invalid_description",
+            message: "moderation rejected the description",
+          }),
+      ),
+    );
+
+    renderUnderQueryClient();
+    await switchToDesignTab();
+    fillDescription("anything");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("button-preview-design-voice"));
+    });
+
+    await screen.findByTestId("card-design-preview-error");
+    expect(
+      screen.getByTestId("text-design-preview-error-title").textContent,
+    ).toBe("Description not accepted");
+    expect(
+      screen.getByTestId("text-design-preview-error-message").textContent,
+    ).toMatch(/reword/i);
+    const lastToast = toastMock.mock.calls[toastMock.mock.calls.length - 1][0];
+    expect(lastToast.title).toBe("Description not accepted");
+  });
+
+  it("voice quota exceeded error maps to 'Voice quota reached' copy", async () => {
+    apiRequestMock.mockRejectedValueOnce(
+      new Error(
+        '402: ' +
+          JSON.stringify({
+            error: "voice_design_quota_exceeded",
+            message: "quota exhausted",
+          }),
+      ),
+    );
+
+    renderUnderQueryClient();
+    await switchToDesignTab();
+    fillDescription("anything");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("button-preview-design-voice"));
+    });
+
+    await screen.findByTestId("card-design-preview-error");
+    expect(
+      screen.getByTestId("text-design-preview-error-title").textContent,
+    ).toBe("Voice quota reached");
+    expect(
+      screen.getByTestId("text-design-preview-error-message").textContent,
+    ).toMatch(/quota/i);
+  });
+
+  it("save error surfaces the friendly toast title (not the generic 'Save Failed')", async () => {
+    // 1) preview ok
+    apiRequestMock.mockResolvedValueOnce(
+      jsonResponse({
+        preview: {
+          heygenVoiceId: "voice_p",
+          previewUrl: "https://heygen/p.mp3",
+          language: null,
+          gender: null,
+        },
+      }),
+    );
+    // 2) save fails with a typed quota error
+    apiRequestMock.mockRejectedValueOnce(
+      new Error(
+        '402: ' +
+          JSON.stringify({
+            error: "voice_design_quota_exceeded",
+            message: "quota exhausted",
+          }),
+      ),
+    );
+
+    renderUnderQueryClient();
+    await switchToDesignTab();
+    fillDescription("anything");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("button-preview-design-voice"));
+    });
+    await screen.findByTestId("audio-design-preview");
+
+    fillName("My Voice");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("button-save-design-voice"));
+    });
+
+    await waitFor(() => {
+      const lastToast = toastMock.mock.calls[toastMock.mock.calls.length - 1][0];
+      expect(lastToast.title).toBe("Voice quota reached");
+      expect(lastToast.variant).toBe("destructive");
+    });
+  });
+
   it("Save to library calls the API with a name and the previewed voice id, and refreshes the library", async () => {
     // 1) preview call
     apiRequestMock.mockResolvedValueOnce(

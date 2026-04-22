@@ -13,6 +13,7 @@ import { storage as defaultStorage } from "../storage";
 import { realtimeService } from "../websocket";
 import {
   HeyGenV3Service,
+  HeyGenV3Error,
   verifyHeygenWebhookSignature,
   type ConsentStatus as ConsentStatusValue,
 } from "../services/heygen-v3";
@@ -20,6 +21,86 @@ import {
   HeygenResponseValidationError,
   parseHeygenWebhookEvent,
 } from "@shared/heygenPhotoAvatarSchemas";
+
+/**
+ * Map an error thrown by HeyGen's `/v2/voices/generate` (a.k.a. voice
+ * designer) into a typed code + friendly message the UI can show without
+ * leaking raw upstream strings. Anything we can't classify falls back to
+ * the historical `heygen_v3_voice_design_failed` code so existing
+ * callers/tests keep working.
+ */
+export function classifyVoiceDesignError(err: unknown): {
+  httpStatus: number;
+  code: string;
+  message: string;
+} {
+  if (err instanceof HeyGenV3Error) {
+    let parsed: { message?: string; code?: number } = {};
+    try {
+      parsed = JSON.parse(err.body) as typeof parsed;
+    } catch {
+      /* body wasn't JSON — fall through */
+    }
+    const text = `${parsed.message ?? err.body ?? ""}`.toLowerCase();
+    const status = err.status;
+
+    if (status === 429 || text.includes("rate limit") || text.includes("too many")) {
+      return {
+        httpStatus: 429,
+        code: "voice_design_rate_limited",
+        message:
+          "HeyGen is rate-limiting voice design right now. Wait a moment and try again.",
+      };
+    }
+    if (status === 401 || status === 403) {
+      return {
+        httpStatus: 502,
+        code: "voice_design_unauthorized",
+        message:
+          "HeyGen rejected our API credentials. An operator needs to refresh the HeyGen API key.",
+      };
+    }
+    if (
+      status === 402 ||
+      text.includes("quota") ||
+      text.includes("limit reached") ||
+      text.includes("insufficient") ||
+      text.includes("not enough credits")
+    ) {
+      return {
+        httpStatus: 402,
+        code: "voice_design_quota_exceeded",
+        message:
+          "Your HeyGen voice quota is exhausted. Delete an unused voice or upgrade your HeyGen plan to design more.",
+      };
+    }
+    if (
+      status === 400 ||
+      text.includes("invalid") ||
+      text.includes("description") ||
+      text.includes("moderation") ||
+      text.includes("content policy") ||
+      text.includes("not allowed")
+    ) {
+      return {
+        httpStatus: 400,
+        code: "voice_design_invalid_description",
+        message:
+          "HeyGen could not synthesise a voice from that description. Try rewording it — be more specific about tone, age, and accent, and avoid disallowed content.",
+      };
+    }
+    if (status >= 500) {
+      return {
+        httpStatus: 502,
+        code: "voice_design_unavailable",
+        message:
+          "HeyGen's voice designer is temporarily unavailable. Please try again in a few minutes.",
+      };
+    }
+  }
+  const message = err instanceof Error ? err.message : "Unknown error";
+  return { httpStatus: 502, code: "heygen_v3_voice_design_failed", message };
+}
 
 function defaultGetV3Service(): HeyGenV3Service {
   return new HeyGenV3Service();
@@ -279,10 +360,8 @@ export function createV3VoicesDesignHandler(
       });
       return res.status(201).json(voice);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return res
-        .status(502)
-        .json({ error: "heygen_v3_voice_design_failed", message });
+      const { httpStatus, code, message } = classifyVoiceDesignError(err);
+      return res.status(httpStatus).json({ error: code, message });
     }
   };
 }

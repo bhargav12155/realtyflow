@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Search, Sparkles, Plus, Pencil, X } from "lucide-react";
+import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Search, Sparkles, Plus, Pencil, X, AlertCircle, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -76,6 +76,76 @@ function pickPreview(v: HeygenVoice): string | undefined {
   return v.preview_audio ?? v.preview_url ?? v.sample_audio_url;
 }
 
+// Parse the `${status}: ${body}` string apiRequest throws on a non-2xx
+// response, extracting the typed `error` code and `message` the
+// HeyGen voice-design route returns. Falls back gracefully when the
+// body isn't JSON (e.g. plain HTML 502 from a proxy).
+function parseDesignError(err: unknown): { code: string | null; message: string } {
+  if (!(err instanceof Error)) return { code: null, message: "Unknown error" };
+  const m = err.message.match(/^(\d+):\s*([\s\S]*)$/);
+  const rest = m ? m[2] : err.message;
+  try {
+    const body = JSON.parse(rest) as { error?: unknown; message?: unknown };
+    return {
+      code: typeof body.error === "string" ? body.error : null,
+      message:
+        typeof body.message === "string" && body.message ? body.message : err.message,
+    };
+  } catch {
+    return { code: null, message: rest || err.message };
+  }
+}
+
+// Map a typed HeyGen voice-design error code to friendly toast copy.
+// Anything we don't have a mapping for falls back to the upstream
+// message so we still tell the user *something* useful.
+function friendlyDesignError(err: unknown): { title: string; description: string; code: string | null } {
+  const { code, message } = parseDesignError(err);
+  switch (code) {
+    case "voice_design_rate_limited":
+      return {
+        code,
+        title: "Too many requests",
+        description:
+          "HeyGen is rate-limiting voice design right now. Wait a moment and try again.",
+      };
+    case "voice_design_invalid_description":
+      return {
+        code,
+        title: "Description not accepted",
+        description:
+          "HeyGen couldn't synthesise a voice from that description. Try rewording it — be more specific about tone, age, and accent, and avoid disallowed content.",
+      };
+    case "voice_design_quota_exceeded":
+      return {
+        code,
+        title: "Voice quota reached",
+        description:
+          "You've hit HeyGen's voice quota. Delete an unused voice or upgrade your HeyGen plan to design more.",
+      };
+    case "voice_design_unauthorized":
+      return {
+        code,
+        title: "HeyGen credentials rejected",
+        description:
+          "Our HeyGen API key was rejected. An operator needs to refresh it before voice design will work.",
+      };
+    case "voice_design_unavailable":
+      return {
+        code,
+        title: "Voice designer unavailable",
+        description:
+          "HeyGen's voice designer is temporarily unavailable. Try again in a few minutes.",
+      };
+    default:
+      return {
+        code,
+        title: "Voice design failed",
+        description: message || "Something went wrong while designing your voice.",
+      };
+  }
+}
+
 export function VoiceLibraryManager() {
   const { toast } = useToast();
   const [voiceName, setVoiceName] = useState("");
@@ -100,6 +170,12 @@ export function VoiceLibraryManager() {
     language: string | null;
     gender: string | null;
   } | null>(null);
+  // Inline error shown in the Design tab when the preview call fails.
+  // Surfaced *next to the form* so the user keeps their description /
+  // name / language / gender selections and can retry without re-typing.
+  const [designPreviewError, setDesignPreviewError] = useState<
+    { title: string; description: string; code: string | null } | null
+  >(null);
 
   // Fetch custom voices
   const { data: voices = [], isLoading } = useQuery<CustomVoice[]>({
@@ -261,15 +337,22 @@ export function VoiceLibraryManager() {
     },
     onSuccess: (data) => {
       setDesignPreview(data.preview);
+      setDesignPreviewError(null);
       toast({
         title: "Preview Ready",
         description: "Listen to your designed voice and save it if you like it.",
       });
     },
     onError: (error: Error) => {
+      const friendly = friendlyDesignError(error);
+      // Mirror the friendly copy into both the toast and the inline
+      // retry block. The inline block is what the user keeps looking at
+      // after the toast disappears, and it carries the retry button so
+      // they don't have to re-fill the form.
+      setDesignPreviewError(friendly);
       toast({
-        title: "Preview Failed",
-        description: error.message,
+        title: friendly.title,
+        description: friendly.description,
         variant: "destructive",
       });
     },
@@ -302,9 +385,10 @@ export function VoiceLibraryManager() {
       setDesignPreview(null);
     },
     onError: (error: Error) => {
+      const friendly = friendlyDesignError(error);
       toast({
-        title: "Save Failed",
-        description: error.message,
+        title: friendly.title === "Voice design failed" ? "Save Failed" : friendly.title,
+        description: friendly.description,
         variant: "destructive",
       });
     },
@@ -426,6 +510,12 @@ export function VoiceLibraryManager() {
 
   const handleTryAgain = () => {
     setDesignPreview(null);
+    setDesignPreviewError(null);
+  };
+
+  const handleRetryPreview = () => {
+    setDesignPreviewError(null);
+    previewDesignMutation.mutate();
   };
 
   const formatFileSize = (bytes: number | null) => {
@@ -780,23 +870,69 @@ export function VoiceLibraryManager() {
                 </div>
               </div>
               {!designPreview ? (
-                <Button
-                  onClick={handlePreviewDesign}
-                  disabled={previewDesignMutation.isPending || !designDescription.trim()}
-                  data-testid="button-preview-design-voice"
-                >
-                  {previewDesignMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Generating preview…
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-4 w-4 mr-2" />
-                      Preview Voice
-                    </>
+                <div className="space-y-3">
+                  <Button
+                    onClick={handlePreviewDesign}
+                    disabled={previewDesignMutation.isPending || !designDescription.trim()}
+                    data-testid="button-preview-design-voice"
+                  >
+                    {previewDesignMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Generating preview…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Preview Voice
+                      </>
+                    )}
+                  </Button>
+                  {designPreviewError && (
+                    <div
+                      className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3"
+                      data-testid="card-design-preview-error"
+                      role="alert"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 mt-0.5 text-destructive shrink-0" />
+                        <div className="space-y-1">
+                          <div
+                            className="text-sm font-medium text-destructive"
+                            data-testid="text-design-preview-error-title"
+                          >
+                            {designPreviewError.title}
+                          </div>
+                          <div
+                            className="text-sm text-destructive/90"
+                            data-testid="text-design-preview-error-message"
+                          >
+                            {designPreviewError.description}
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleRetryPreview}
+                        disabled={previewDesignMutation.isPending}
+                        data-testid="button-retry-design-preview"
+                      >
+                        {previewDesignMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Retrying…
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Retry
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   )}
-                </Button>
+                </div>
               ) : (
                 <div
                   className="space-y-3 rounded-lg border p-4"

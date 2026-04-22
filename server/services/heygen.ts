@@ -1,4 +1,9 @@
 import { sanitizeScriptForTTS } from './heygen-avatar-iv';
+import {
+  parseHeygenVideoGenerateResponse,
+  parseHeygenVideoStatusResponse,
+  type HeygenVideoGenerateResponse,
+} from '@shared/heygenPhotoAvatarSchemas';
 
 interface HeyGenAPIResponse {
   code: number;
@@ -18,14 +23,7 @@ interface CreateAvatarResponse extends HeyGenAPIResponse {
   };
 }
 
-interface GenerateVideoResponse extends HeyGenAPIResponse {
-  data?: {
-    video_id: string;
-    status: string;
-    video_url?: string;
-    thumbnail_url?: string;
-  };
-}
+type GenerateVideoResponse = HeygenVideoGenerateResponse;
 
 export class HeyGenService {
   private apiKey: string;
@@ -276,7 +274,8 @@ export class HeyGenService {
       "Generating video with payload:",
       JSON.stringify(payload, null, 2)
     );
-    return await this.makeRequest("/video/generate", "POST", payload);
+    const raw = await this.makeRequest("/video/generate", "POST", payload);
+    return parseHeygenVideoGenerateResponse(raw);
   }
 
   // Get video generation status and download URL
@@ -315,13 +314,20 @@ export class HeyGenService {
     try {
       const raw = await this.getVideo(videoId);
       // v1 API typically returns { code, message, data: { status, video_id, video_url, thumbnail_url } }
-      const data = raw?.data || raw;
+      const parsed = parseHeygenVideoStatusResponse(raw, videoId);
+      const data = parsed.data ?? {};
+      const errVal = data.error;
       return {
-        video_id: data?.video_id || videoId,
-        status: data?.status,
-        video_url: data?.video_url,
-        thumbnail_url: data?.thumbnail_url,
-        error: data?.error,
+        video_id: data.video_id || videoId,
+        status: data.status,
+        video_url: data.video_url ?? undefined,
+        thumbnail_url: data.thumbnail_url ?? undefined,
+        error:
+          typeof errVal === "string"
+            ? errVal
+            : errVal
+              ? JSON.stringify(errVal)
+              : undefined,
       };
     } catch (e: any) {
       // Treat 404 as a transient state (job not yet registered in status service)

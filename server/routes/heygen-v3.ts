@@ -16,6 +16,10 @@ import {
   verifyHeygenWebhookSignature,
   type ConsentStatus as ConsentStatusValue,
 } from "../services/heygen-v3";
+import {
+  HeygenResponseValidationError,
+  parseHeygenWebhookEvent,
+} from "@shared/heygenPhotoAvatarSchemas";
 
 function defaultGetV3Service(): HeyGenV3Service {
   return new HeyGenV3Service();
@@ -488,28 +492,45 @@ export function registerHeygenV3Routes(app: Express) {
       // The global express.json() middleware has already parsed the body
       // for us, so prefer that — but fall back to parsing rawBody in
       // case parsing was skipped (e.g. wrong content-type).
-      let payload: Record<string, unknown> = {};
+      let rawPayload: Record<string, unknown> = {};
       if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
-        payload = req.body as Record<string, unknown>;
+        rawPayload = req.body as Record<string, unknown>;
       } else if (rawBody) {
         try {
-          payload = JSON.parse(rawBody) as Record<string, unknown>;
+          rawPayload = JSON.parse(rawBody) as Record<string, unknown>;
         } catch {
           console.warn("[heygen-webhook] received non-JSON body");
         }
       }
 
+      // Validate the webhook envelope. We still persist the raw payload
+      // (even when validation fails) so operators can inspect what HeyGen
+      // sent, but we skip the downstream side-effects on shape drift.
+      let payload: ReturnType<typeof parseHeygenWebhookEvent> | null = null;
+      let validationError: HeygenResponseValidationError | null = null;
+      try {
+        payload = parseHeygenWebhookEvent(rawPayload);
+      } catch (err) {
+        if (err instanceof HeygenResponseValidationError) {
+          validationError = err;
+          console.warn(
+            "[heygen-webhook] payload failed schema validation:",
+            err.message,
+          );
+        } else {
+          throw err;
+        }
+      }
+
       const verified = verifyHeygenWebhookSignature(rawBody, signatureHeader);
       const eventType =
-        (payload.event_type as string | undefined) ??
-        (payload.type as string | undefined) ??
-        "unknown";
-      const eventData = (payload.data as Record<string, unknown> | undefined) ?? {};
+        payload?.event_type ?? payload?.type ?? "unknown";
+      const eventData = payload?.data ?? {};
       const resourceId =
-        (eventData.group_id as string | undefined) ??
-        (eventData.avatar_id as string | undefined) ??
-        (eventData.video_id as string | undefined) ??
-        (eventData.id as string | undefined) ??
+        eventData.group_id ??
+        eventData.avatar_id ??
+        eventData.video_id ??
+        eventData.id ??
         null;
 
       // Always persist — even unverified events are useful for debugging.
@@ -517,7 +538,7 @@ export function registerHeygenV3Routes(app: Express) {
         await db.insert(heygenWebhookEvents).values({
           eventType,
           resourceId,
-          payload: payload as unknown,
+          payload: rawPayload as unknown,
           signature: signatureHeader ?? null,
           verified,
         });
@@ -537,11 +558,20 @@ export function registerHeygenV3Routes(app: Express) {
         );
       }
 
+      // If the payload didn't pass schema validation we skip the
+      // downstream side-effects (status update + websocket broadcast).
+      // The raw event has already been persisted above for debugging.
+      if (validationError) {
+        return res
+          .status(200)
+          .json({ ok: true, verified, validationError: validationError.message });
+      }
+
       // Update the related group's training_status (if we can map the
       // event to a known group) and then broadcast to its owner.
       try {
-        const groupId = eventData.group_id as string | undefined;
-        const rawStatus = eventData.status as string | undefined;
+        const groupId = eventData.group_id;
+        const rawStatus = eventData.status;
         if (groupId) {
           const group = await defaultStorage.getPhotoAvatarGroupByHeygenId(groupId);
           if (group) {
@@ -554,7 +584,7 @@ export function registerHeygenV3Routes(app: Express) {
             if (group.userId) {
               realtimeService.notifyPhotoAvatarStatus(group.userId, {
                 groupId,
-                lookId: eventData.look_id as string | undefined,
+                lookId: eventData.look_id,
                 status: mapped ?? rawStatus ?? "updated",
                 eventType,
               });

@@ -299,3 +299,206 @@ export function parseHeygenV3LooksPageResponse(
     groupId,
   );
 }
+
+// ---------------------------------------------------------------------------
+// HeyGen v3 — `/v3/consent` response
+// ---------------------------------------------------------------------------
+
+export const heygenConsentResponseSchema = z
+  .object({
+    consent_id: z.string(),
+    status: consentStatusSchema,
+  })
+  .passthrough();
+
+export type HeygenConsentResponse = z.infer<typeof heygenConsentResponseSchema>;
+
+export function parseHeygenConsentResponse(
+  payload: unknown,
+): HeygenConsentResponse {
+  return parseOrThrow(heygenConsentResponseSchema, "/v3/consent", payload);
+}
+
+// ---------------------------------------------------------------------------
+// HeyGen v3 — `/v3/voices` (voice list) response
+// ---------------------------------------------------------------------------
+
+export const heygenV3VoiceSchema = z
+  .object({
+    voice_id: z.string().optional(),
+    id: z.string().optional(),
+    name: z.string().optional(),
+    language: z.string().nullable().optional(),
+    gender: z.string().nullable().optional(),
+    preview_url: z.string().nullable().optional(),
+    preview_audio_url: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const heygenV3VoicesPageResponseSchema = z
+  .object({
+    items: z.array(heygenV3VoiceSchema).optional(),
+    next_cursor: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type HeygenV3Voice = z.infer<typeof heygenV3VoiceSchema>;
+export type HeygenV3VoicesPageResponse = z.infer<
+  typeof heygenV3VoicesPageResponseSchema
+>;
+
+export function parseHeygenV3VoicesPageResponse(
+  payload: unknown,
+): HeygenV3VoicesPageResponse {
+  return parseOrThrow(heygenV3VoicesPageResponseSchema, "/v3/voices", payload);
+}
+
+// ---------------------------------------------------------------------------
+// HeyGen v3 — `/v3/voices/design` response
+// ---------------------------------------------------------------------------
+
+export const heygenV3DesignVoiceResponseSchema = z
+  .object({
+    voice_id: z.string(),
+    preview_url: z.string().optional(),
+  })
+  .passthrough();
+
+export type HeygenV3DesignVoiceResponse = z.infer<
+  typeof heygenV3DesignVoiceResponseSchema
+>;
+
+export function parseHeygenV3DesignVoiceResponse(
+  payload: unknown,
+): HeygenV3DesignVoiceResponse {
+  return parseOrThrow(
+    heygenV3DesignVoiceResponseSchema,
+    "/v3/voices/design",
+    payload,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HeyGen — webhook event payload
+//
+// HeyGen webhooks deliver a JSON envelope with at least an `event_type` and
+// a `data` object. The set of fields inside `data` varies by event (avatar
+// training, video generation, etc.), so we keep the inner schema permissive
+// (passthrough) but require the few fields the webhook handler actually
+// reads to be of the right type when present.
+// ---------------------------------------------------------------------------
+
+export const heygenWebhookEventDataSchema = z
+  .object({
+    group_id: z.string().optional(),
+    avatar_id: z.string().optional(),
+    video_id: z.string().optional(),
+    look_id: z.string().optional(),
+    id: z.string().optional(),
+    status: z.string().optional(),
+  })
+  .passthrough();
+
+export const heygenWebhookEventSchema = z
+  .object({
+    event_type: z.string().optional(),
+    type: z.string().optional(),
+    data: heygenWebhookEventDataSchema.optional(),
+  })
+  .passthrough();
+
+export type HeygenWebhookEventData = z.infer<typeof heygenWebhookEventDataSchema>;
+export type HeygenWebhookEvent = z.infer<typeof heygenWebhookEventSchema>;
+
+export function parseHeygenWebhookEvent(payload: unknown): HeygenWebhookEvent {
+  return parseOrThrow(heygenWebhookEventSchema, "webhook:/api/webhooks/heygen", payload);
+}
+
+// ---------------------------------------------------------------------------
+// HeyGen v1 — `/v1/video_status.get` response
+//
+// The v1 status endpoint wraps its payload in a HeyGen envelope:
+//   { code, message, data: { video_id, status, video_url?, thumbnail_url?, error? } }
+// We validate the inner `data` object since that's what callers consume.
+// ---------------------------------------------------------------------------
+
+// HeyGen returns a wide set of status strings for video generation
+// (pending/processing/waiting/completed/failed plus aliases like
+// success/complete/draft). Rather than risk enum-mismatch breakage on a
+// new alias we accept any string here — the boundary check we care about
+// is that `status` is a string, not whatever shape HeyGen sends.
+export const heygenVideoStatusDataSchema = z
+  .object({
+    video_id: z.string().optional(),
+    status: z.string().optional(),
+    video_url: z.string().nullable().optional(),
+    thumbnail_url: z.string().nullable().optional(),
+    error: z
+      .union([z.string(), z.record(z.unknown())])
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export const heygenVideoStatusEnvelopeSchema = z
+  .object({
+    code: z.number().optional(),
+    message: z.string().optional(),
+    // Required: HeyGen always wraps status payloads in `data`. If it's
+    // missing the response is malformed and downstream code that reads
+    // `data.status` would silently treat the video as still pending.
+    data: heygenVideoStatusDataSchema,
+  })
+  .passthrough();
+
+export type HeygenVideoStatusData = z.infer<typeof heygenVideoStatusDataSchema>;
+export type HeygenVideoStatusEnvelope = z.infer<
+  typeof heygenVideoStatusEnvelopeSchema
+>;
+
+export function parseHeygenVideoStatusResponse(
+  payload: unknown,
+  videoId?: string,
+): HeygenVideoStatusEnvelope {
+  return parseOrThrow(
+    heygenVideoStatusEnvelopeSchema,
+    `/v1/video_status.get?video_id=${videoId ?? ":videoId"}`,
+    payload,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HeyGen v2 — `/v2/video/generate` (submit) response
+// ---------------------------------------------------------------------------
+
+export const heygenVideoGenerateDataSchema = z
+  .object({
+    video_id: z.string(),
+    status: z.string().optional(),
+  })
+  .passthrough();
+
+export const heygenVideoGenerateResponseSchema = z
+  .object({
+    code: z.number().optional(),
+    message: z.string().optional(),
+    // Required: a successful submit must come back with a video_id we
+    // can poll. Missing `data` would mean the caller silently has
+    // nothing to track, so treat that as boundary failure.
+    data: heygenVideoGenerateDataSchema,
+  })
+  .passthrough();
+
+export type HeygenVideoGenerateResponse = z.infer<
+  typeof heygenVideoGenerateResponseSchema
+>;
+
+export function parseHeygenVideoGenerateResponse(
+  payload: unknown,
+): HeygenVideoGenerateResponse {
+  return parseOrThrow(
+    heygenVideoGenerateResponseSchema,
+    "/v2/video/generate",
+    payload,
+  );
+}

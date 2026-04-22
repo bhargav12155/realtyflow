@@ -11,7 +11,10 @@
  */
 
 import {
+  parseHeygenConsentResponse,
+  parseHeygenV3DesignVoiceResponse,
   parseHeygenV3LooksPageResponse,
+  parseHeygenV3VoicesPageResponse,
   type ConsentStatus as SharedConsentStatus,
 } from "@shared/heygenPhotoAvatarSchemas";
 
@@ -142,15 +145,12 @@ export class HeyGenV3Service {
     consentVideoUrl?: string;
     signature?: string;
   }): Promise<{ consent_id: string; status: ConsentStatus }> {
-    return this.request<{ consent_id: string; status: ConsentStatus }>(
-      "/consent",
-      "POST",
-      {
-        group_id: params.groupId,
-        consent_video_url: params.consentVideoUrl,
-        signature: params.signature,
-      },
-    );
+    const raw = await this.request<unknown>("/consent", "POST", {
+      group_id: params.groupId,
+      consent_video_url: params.consentVideoUrl,
+      signature: params.signature,
+    });
+    return parseHeygenConsentResponse(raw);
   }
 
   // ------------------------------------------------------------------
@@ -164,9 +164,8 @@ export class HeyGenV3Service {
     if (query.gender) params.set("gender", query.gender);
     if (query.cursor) params.set("cursor", query.cursor);
     const qs = params.toString() ? `?${params.toString()}` : "";
-    const data = await this.request<{ items?: unknown[]; next_cursor?: string | null }>(
-      `/voices${qs}`,
-    );
+    const raw = await this.request<unknown>(`/voices${qs}`);
+    const data = parseHeygenV3VoicesPageResponse(raw);
     return {
       data: data.items ?? [],
       nextCursor: data.next_cursor ?? null,
@@ -178,16 +177,13 @@ export class HeyGenV3Service {
    * description rather than from a recorded sample.
    */
   async designVoice(opts: V3DesignVoiceOptions): Promise<{ voice_id: string; preview_url?: string }> {
-    return this.request<{ voice_id: string; preview_url?: string }>(
-      "/voices/design",
-      "POST",
-      {
-        name: opts.name,
-        description: opts.description,
-        language: opts.language,
-        gender: opts.gender,
-      },
-    );
+    const raw = await this.request<unknown>("/voices/design", "POST", {
+      name: opts.name,
+      description: opts.description,
+      language: opts.language,
+      gender: opts.gender,
+    });
+    return parseHeygenV3DesignVoiceResponse(raw);
   }
 }
 

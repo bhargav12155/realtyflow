@@ -5,6 +5,12 @@ import {
   parseHeygenAvatarGroupLooksResponse,
   parseHeygenTrainStatusResponse,
   parseHeygenV3LooksPageResponse,
+  parseHeygenConsentResponse,
+  parseHeygenV3VoicesPageResponse,
+  parseHeygenV3DesignVoiceResponse,
+  parseHeygenWebhookEvent,
+  parseHeygenVideoStatusResponse,
+  parseHeygenVideoGenerateResponse,
   HeygenResponseValidationError,
   avatarTrainStatusSchema,
   consentStatusSchema,
@@ -216,6 +222,242 @@ describe("HeyGen response Zod schemas", () => {
       } catch (err) {
         assert.ok(err instanceof HeygenResponseValidationError);
         assert.match(err.endpoint, /grp_1\/looks/);
+      }
+    });
+  });
+
+  describe("parseHeygenConsentResponse", () => {
+    it("parses the documented happy-path response", () => {
+      const parsed = parseHeygenConsentResponse({
+        consent_id: "c_123",
+        status: "approved",
+      });
+      assert.equal(parsed.consent_id, "c_123");
+      assert.equal(parsed.status, "approved");
+    });
+
+    it("rejects an unknown status value (shape drift)", () => {
+      try {
+        parseHeygenConsentResponse({ consent_id: "c_1", status: "granted" });
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /\/v3\/consent/);
+        assert.match(err.message, /status/);
+      }
+    });
+
+    it("rejects when consent_id is missing", () => {
+      assert.throws(
+        () => parseHeygenConsentResponse({ status: "approved" }),
+        HeygenResponseValidationError,
+      );
+    });
+  });
+
+  describe("parseHeygenV3VoicesPageResponse", () => {
+    it("parses an empty page", () => {
+      const parsed = parseHeygenV3VoicesPageResponse({
+        items: [],
+        next_cursor: null,
+      });
+      assert.deepEqual(parsed.items, []);
+      assert.equal(parsed.next_cursor, null);
+    });
+
+    it("parses voice entries with mixed optional fields", () => {
+      const parsed = parseHeygenV3VoicesPageResponse({
+        items: [
+          {
+            voice_id: "v_1",
+            name: "Friendly",
+            language: "English",
+            gender: "Female",
+            preview_url: "https://x/p1.mp3",
+          },
+          { id: "v_2", name: "Bare" },
+        ],
+        next_cursor: "cur",
+      });
+      assert.equal(parsed.items?.length, 2);
+      assert.equal(parsed.next_cursor, "cur");
+    });
+
+    it("rejects when items is not an array (shape drift)", () => {
+      try {
+        parseHeygenV3VoicesPageResponse({ items: "nope" });
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /\/v3\/voices/);
+      }
+    });
+
+    it("rejects when a voice's preview_url is the wrong type", () => {
+      assert.throws(
+        () =>
+          parseHeygenV3VoicesPageResponse({
+            items: [{ voice_id: "v_1", preview_url: 42 }],
+          }),
+        HeygenResponseValidationError,
+      );
+    });
+  });
+
+  describe("parseHeygenV3DesignVoiceResponse", () => {
+    it("parses a voice id + preview url", () => {
+      const parsed = parseHeygenV3DesignVoiceResponse({
+        voice_id: "v_designed",
+        preview_url: "https://x/preview.mp3",
+      });
+      assert.equal(parsed.voice_id, "v_designed");
+      assert.equal(parsed.preview_url, "https://x/preview.mp3");
+    });
+
+    it("accepts the response without an optional preview_url", () => {
+      const parsed = parseHeygenV3DesignVoiceResponse({ voice_id: "v_designed" });
+      assert.equal(parsed.voice_id, "v_designed");
+      assert.equal(parsed.preview_url, undefined);
+    });
+
+    it("throws when voice_id is missing (shape drift)", () => {
+      try {
+        parseHeygenV3DesignVoiceResponse({ preview_url: "https://x.mp3" });
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /\/v3\/voices\/design/);
+      }
+    });
+  });
+
+  describe("parseHeygenWebhookEvent", () => {
+    it("parses a typical training-status webhook envelope", () => {
+      const parsed = parseHeygenWebhookEvent({
+        event_type: "avatar_group.training.completed",
+        data: {
+          group_id: "grp_xyz",
+          status: "ready",
+          extra: 1,
+        },
+      });
+      assert.equal(parsed.event_type, "avatar_group.training.completed");
+      assert.equal(parsed.data?.group_id, "grp_xyz");
+      assert.equal(parsed.data?.status, "ready");
+    });
+
+    it("accepts a payload with no `data` field at all", () => {
+      const parsed = parseHeygenWebhookEvent({ event_type: "ping" });
+      assert.equal(parsed.event_type, "ping");
+      assert.equal(parsed.data, undefined);
+    });
+
+    it("rejects when data.group_id is the wrong type (shape drift)", () => {
+      try {
+        parseHeygenWebhookEvent({
+          event_type: "x",
+          data: { group_id: 42 },
+        });
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /webhook/);
+      }
+    });
+  });
+
+  describe("parseHeygenVideoStatusResponse", () => {
+    it("parses the documented v1 envelope happy path", () => {
+      const parsed = parseHeygenVideoStatusResponse(
+        {
+          code: 100,
+          message: "Success",
+          data: {
+            video_id: "vid_1",
+            status: "completed",
+            video_url: "https://cdn/v.mp4",
+            thumbnail_url: "https://cdn/t.jpg",
+          },
+        },
+        "vid_1",
+      );
+      assert.equal(parsed.data?.video_id, "vid_1");
+      assert.equal(parsed.data?.status, "completed");
+    });
+
+    it("accepts a structured `error` field as an object", () => {
+      const parsed = parseHeygenVideoStatusResponse(
+        {
+          data: {
+            video_id: "vid_2",
+            status: "failed",
+            error: { code: 400, detail: "bad" },
+          },
+        },
+        "vid_2",
+      );
+      assert.equal(parsed.data?.status, "failed");
+      assert.deepEqual(parsed.data?.error, { code: 400, detail: "bad" });
+    });
+
+    it("rejects when the `data` envelope is missing entirely (shape drift)", () => {
+      try {
+        parseHeygenVideoStatusResponse(
+          { code: 100, message: "Success" },
+          "vid_4",
+        );
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /video_status\.get/);
+      }
+    });
+
+    it("rejects when data.video_url is the wrong type (shape drift)", () => {
+      try {
+        parseHeygenVideoStatusResponse(
+          { data: { video_id: "vid_3", video_url: 42 } },
+          "vid_3",
+        );
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /video_status\.get/);
+      }
+    });
+  });
+
+  describe("parseHeygenVideoGenerateResponse", () => {
+    it("parses the documented happy-path envelope", () => {
+      const parsed = parseHeygenVideoGenerateResponse({
+        code: 100,
+        message: "Success",
+        data: { video_id: "vid_new", status: "pending" },
+      });
+      assert.equal(parsed.data?.video_id, "vid_new");
+      assert.equal(parsed.data?.status, "pending");
+    });
+
+    it("rejects when data.video_id is missing (shape drift)", () => {
+      try {
+        parseHeygenVideoGenerateResponse({
+          code: 100,
+          data: { status: "pending" },
+        });
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /\/v2\/video\/generate/);
+      }
+    });
+
+    it("rejects when the `data` envelope is missing entirely (shape drift)", () => {
+      try {
+        parseHeygenVideoGenerateResponse({ code: 100, message: "ok" });
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.match(err.endpoint, /\/v2\/video\/generate/);
       }
     });
   });

@@ -10,8 +10,23 @@ import {
   StickyNote,
   Circle,
   Plus,
+  Loader2,
+  RotateCcw,
+  X,
+  AlertCircle,
   type LucideIcon,
 } from "lucide-react";
+
+/** A single in-flight (or just-failed) board upload, surfaced as a chip
+ * above the bottom toolbar so the user can see progress / retry errors. */
+export interface BoardUploadChip {
+  id: string;
+  fileName: string;
+  /** 0-100 while `status === "uploading"`. */
+  percent: number;
+  status: "uploading" | "error";
+  error?: string;
+}
 
 export interface BoardBottomToolbarProps {
   /** Whether the cursor (default) tool is active. */
@@ -37,6 +52,12 @@ export interface BoardBottomToolbarProps {
   onOpenDraw: () => void;
   /** Open the in-app voice recorder. */
   onOpenRecord: () => void;
+  /** In-flight / failed uploads to render as chips above the toolbar. */
+  uploads?: BoardUploadChip[];
+  /** Retry an errored chip — gets a fresh attempt with the original File. */
+  onRetryUpload?: (id: string) => void;
+  /** Dismiss a chip without retrying (only available for errored chips). */
+  onDismissUpload?: (id: string) => void;
 }
 
 /** Imperative handle the parent uses to open the "+" media picker from
@@ -61,6 +82,9 @@ export const BoardBottomToolbar = forwardRef<
     onCreateFrame,
     onOpenDraw,
     onOpenRecord,
+    uploads = [],
+    onRetryUpload,
+    onDismissUpload,
   },
   ref,
 ) {
@@ -75,11 +99,32 @@ export const BoardBottomToolbar = forwardRef<
 
   return (
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
-      data-testid="toolbar-board-bottom"
-      role="toolbar"
-      aria-label="Board tools"
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2"
+      data-testid="container-board-bottom-toolbar"
     >
+      {uploads.length > 0 && (
+        <div
+          className="flex flex-col items-stretch gap-1.5 max-w-[min(28rem,90vw)] w-max"
+          data-testid="list-board-uploads"
+          role="status"
+          aria-live="polite"
+        >
+          {uploads.map((u) => (
+            <UploadChip
+              key={u.id}
+              upload={u}
+              onRetry={onRetryUpload}
+              onDismiss={onDismissUpload}
+            />
+          ))}
+        </div>
+      )}
+      <div
+        className="bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
+        data-testid="toolbar-board-bottom"
+        role="toolbar"
+        aria-label="Board tools"
+      >
       <ToolButton
         icon={MousePointer2}
         label="Select"
@@ -212,9 +257,89 @@ export const BoardBottomToolbar = forwardRef<
           e.target.value = "";
         }}
       />
+      </div>
     </div>
   );
 });
+
+function UploadChip({
+  upload,
+  onRetry,
+  onDismiss,
+}: {
+  upload: BoardUploadChip;
+  onRetry?: (id: string) => void;
+  onDismiss?: (id: string) => void;
+}) {
+  const isError = upload.status === "error";
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-full pl-3 pr-1.5 py-1.5 shadow-md border text-xs min-w-0 ${
+        isError
+          ? "bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950 dark:border-rose-800 dark:text-rose-100"
+          : "bg-white border-neutral-200 text-neutral-800 dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-100"
+      }`}
+      data-testid={`chip-upload-${upload.id}`}
+    >
+      {isError ? (
+        <AlertCircle
+          className="w-3.5 h-3.5 flex-shrink-0 text-rose-500 dark:text-rose-300"
+          aria-hidden="true"
+        />
+      ) : (
+        <Loader2
+          className="w-3.5 h-3.5 flex-shrink-0 animate-spin text-violet-500 dark:text-violet-300"
+          aria-hidden="true"
+        />
+      )}
+      <span
+        className="truncate max-w-[12rem] font-medium"
+        title={upload.fileName}
+        data-testid={`text-upload-name-${upload.id}`}
+      >
+        {upload.fileName}
+      </span>
+      {isError ? (
+        <span
+          className="truncate text-rose-700/80 dark:text-rose-200/80 max-w-[10rem]"
+          title={upload.error}
+          data-testid={`text-upload-error-${upload.id}`}
+        >
+          {upload.error || "Upload failed"}
+        </span>
+      ) : (
+        <span
+          className="tabular-nums text-neutral-500 dark:text-neutral-400"
+          data-testid={`text-upload-percent-${upload.id}`}
+        >
+          {upload.percent}%
+        </span>
+      )}
+      {isError && onRetry && (
+        <button
+          type="button"
+          onClick={() => onRetry(upload.id)}
+          className="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-rose-600 text-white hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-400"
+          data-testid={`button-upload-retry-${upload.id}`}
+        >
+          <RotateCcw className="w-3 h-3" aria-hidden="true" />
+          Retry
+        </button>
+      )}
+      {isError && onDismiss && (
+        <button
+          type="button"
+          onClick={() => onDismiss(upload.id)}
+          aria-label={`Dismiss ${upload.fileName}`}
+          className="w-5 h-5 inline-flex items-center justify-center rounded-full text-rose-700 hover:bg-rose-100 dark:text-rose-200 dark:hover:bg-rose-900"
+          data-testid={`button-upload-dismiss-${upload.id}`}
+        >
+          <X className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 function ToolButton({
   icon: Icon,

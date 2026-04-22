@@ -12,6 +12,7 @@ import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/bo
 import {
   BoardBottomToolbar,
   type BoardBottomToolbarHandle,
+  type BoardUploadChip,
 } from "@/components/boards/BoardBottomToolbar";
 import { uploadFilesToBoard, uploadFileToBoard } from "@/lib/boardUpload";
 import { DrawingModal } from "@/components/boards/DrawingModal";
@@ -443,8 +444,13 @@ export default function BoardDetailPage() {
     setSelectedAssetId(null);
   }, [boardId]);
 
-  const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
+  // Drop any in-flight / errored upload chips when the user switches boards
+  // so a stale chip from board A doesn't visually attach itself to board B.
+  useEffect(() => {
+    setUploadChips([]);
+  }, [boardId]);
 
+  const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
   const createToolAsset = useCallback(
     async (params: {
       kind: "sticky" | "text" | "frame" | "drawing";
@@ -532,34 +538,89 @@ export default function BoardDetailPage() {
     [boardId, toast],
   );
 
-  const handleUploadFiles = useCallback(
-    async (files: FileList | File[]) => {
+  // In-flight + just-failed uploads, surfaced as chips above the bottom
+  // toolbar. The original `File` is kept on the entry so retries can re-run
+  // the upload without re-prompting the picker.
+  const [uploadChips, setUploadChips] = useState<
+    (BoardUploadChip & { file: File })[]
+  >([]);
+
+  // Clear upload chips when boardId changes so progress from board A doesn't
+  // show up on board B.
+  useEffect(() => {
+    setUploadChips([]);
+  }, [boardId]);
+
+  const startUpload = useCallback(
+    async (file: File, existingId?: string) => {
       if (!boardId) return;
+      const id =
+        existingId ??
+        `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setUploadChips((prev) => {
+        const without = prev.filter((u) => u.id !== id);
+        return [
+          ...without,
+          { id, file, fileName: file.name, percent: 0, status: "uploading" },
+        ];
+      });
       try {
-        const results = await uploadFilesToBoard(boardId, files, (file, err) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          toast({
-            title: `Couldn't upload ${file.name}`,
-            description: msg,
-            variant: "destructive",
-          });
+        const result = await uploadFileToBoard(boardId, file, {
+          onProgress: (percent) => {
+            setUploadChips((prev) =>
+              prev.map((u) => (u.id === id ? { ...u, percent } : u)),
+            );
+          },
         });
-        if (results.length > 0) {
-          queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+        setUploadChips((prev) => prev.filter((u) => u.id !== id));
+        if (result) {
+          queryClient.invalidateQueries({
+            queryKey: ["/api/boards", boardId],
+          });
           toast({
-            title: results.length === 1 ? "File uploaded" : "Files uploaded",
-            description: `${results.length} ${
-              results.length === 1 ? "file is" : "files are"
-            } now on the board.`,
+            title: "File uploaded",
+            description: `${file.name} is now on the board.`,
           });
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        toast({ title: "Upload failed", description: msg, variant: "destructive" });
+        setUploadChips((prev) =>
+          prev.map((u) =>
+            u.id === id ? { ...u, status: "error", error: msg } : u,
+          ),
+        );
+        toast({
+          title: `Couldn't upload ${file.name}`,
+          description: msg,
+          variant: "destructive",
+        });
       }
     },
     [boardId, toast],
   );
+
+  const handleUploadFiles = useCallback(
+    (files: FileList | File[]) => {
+      if (!boardId) return;
+      for (const file of Array.from(files)) {
+        void startUpload(file);
+      }
+    },
+    [boardId, startUpload],
+  );
+
+  const handleRetryUpload = useCallback(
+    (id: string) => {
+      const entry = uploadChips.find((u) => u.id === id);
+      if (!entry) return;
+      void startUpload(entry.file, id);
+    },
+    [uploadChips, startUpload],
+  );
+
+  const handleDismissUpload = useCallback((id: string) => {
+    setUploadChips((prev) => prev.filter((u) => u.id !== id));
+  }, []);
 
   // Ctrl+U / Cmd+U opens the "+" media picker, but only when the user isn't
   // typing into an input or a modal/dialog is on top of the board.
@@ -806,10 +867,10 @@ export default function BoardDetailPage() {
             ref={bottomToolbarRef}
             cursorActive={selectedAssetId === null}
             onActivateCursor={() => setSelectedAssetId(null)}
-            onPickImage={(files) => void handleUploadFiles(files)}
-            onPickVideo={(files) => void handleUploadFiles(files)}
-            onPickMedia={(files) => void handleUploadFiles(files)}
-            onPickAudio={(files) => void handleUploadFiles(files)}
+            onPickImage={(files) => handleUploadFiles(files)}
+            onPickVideo={(files) => handleUploadFiles(files)}
+            onPickMedia={(files) => handleUploadFiles(files)}
+            onPickAudio={(files) => handleUploadFiles(files)}
             onCreateSticky={() =>
               promptCreate("sticky", "What should this sticky note say?")
             }
@@ -819,6 +880,9 @@ export default function BoardDetailPage() {
             }
             onOpenDraw={() => setDrawOpen(true)}
             onOpenRecord={() => setRecordOpen(true)}
+            uploads={uploadChips}
+            onRetryUpload={handleRetryUpload}
+            onDismissUpload={handleDismissUpload}
           />
         </div>
         {chatOpen && (

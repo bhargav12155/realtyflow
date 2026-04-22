@@ -8,11 +8,49 @@ export interface BoardUploadResult {
   kind: BoardUploadKind;
 }
 
+export interface BoardUploadOptions {
+  /** Called as the PUT body uploads; `percent` is 0-100. Only fires when the
+   * browser reports a computable length (which it does for File bodies). */
+  onProgress?: (percent: number) => void;
+}
+
 function detectKind(file: File): BoardUploadKind | null {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
   return null;
+}
+
+/** PUT a File to a signed URL via XHR so we can surface upload progress to
+ * the UI. `fetch()` doesn't expose request-body progress in browsers yet. */
+function putWithProgress(
+  url: string,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader(
+      "Content-Type",
+      file.type || "application/octet-stream",
+    );
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Upload failed: network error"));
+    xhr.onabort = () => reject(new Error("Upload aborted"));
+    xhr.send(file);
+  });
 }
 
 /**
@@ -24,6 +62,7 @@ function detectKind(file: File): BoardUploadKind | null {
 export async function uploadFileToBoard(
   boardId: string,
   file: File,
+  options: BoardUploadOptions = {},
 ): Promise<BoardUploadResult | null> {
   const kind = detectKind(file);
   if (!kind) return null;
@@ -42,14 +81,7 @@ export async function uploadFileToBoard(
     throw new Error("Upload URL was not returned by the server");
   }
 
-  const putRes = await fetch(uploadInfo.uploadURL, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": file.type || "application/octet-stream" },
-  });
-  if (!putRes.ok) {
-    throw new Error(`Upload failed: ${putRes.status} ${putRes.statusText}`);
-  }
+  await putWithProgress(uploadInfo.uploadURL, file, options.onProgress);
 
   const batchId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tileWidth = kind === "image" ? 256 : kind === "video" ? 320 : 240;
@@ -69,6 +101,7 @@ export async function uploadFileToBoard(
     height: tileHeight,
   });
   const created = (await createRes.json()) as { id: string };
+  options.onProgress?.(100);
   return { id: created.id, assetUrl: uploadInfo.fileUrl, kind };
 }
 

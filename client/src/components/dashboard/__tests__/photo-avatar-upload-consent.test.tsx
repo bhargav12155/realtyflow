@@ -225,4 +225,76 @@ describe("PhotoAvatarManager — upload tab consent gate", () => {
     );
     expect(v3Call.init?.credentials).toBe("include");
   });
+
+  it("surfaces a destructive toast with endpoint + issuePaths when /api/v3/photo-avatars returns heygen_shape_drift", async () => {
+    // Replace the default fetch mock with one that returns the
+    // shape-drift envelope from the v3 create endpoint.
+    global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      fetchCalls.push({ url: u, init });
+      if (u.endsWith("/api/photo-avatars/upload")) {
+        return new Response(
+          JSON.stringify({
+            imageKey: "img_key_123",
+            s3Url: "https://s3/img.jpg",
+            imageHash: "hash_xyz",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ) as unknown as Response;
+      }
+      if (u.endsWith("/api/v3/photo-avatars") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            error: "heygen_shape_drift",
+            endpoint: "/v2/photo_avatar/photo/generate",
+            message:
+              "HeyGen returned an unexpected response shape for /v2/photo_avatar/photo/generate. Please retry.",
+            issuePaths: ["data.image_key_list.0"],
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } },
+        ) as unknown as Response;
+      }
+      return new Response("{}", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }) as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const toast = (await import("@/hooks/use-toast")).useToast()
+      .toast as unknown as ReturnType<typeof vi.fn>;
+
+    renderManager();
+    await gotoUploadTabAndAddFile();
+    fireEvent.click(screen.getByTestId("checkbox-consent-acknowledged"));
+
+    const submitBtn = (await waitFor(() =>
+      screen.getByTestId("button-upload-files"),
+    )) as HTMLButtonElement;
+    await waitFor(() => expect(submitBtn.disabled).toBe(false));
+    fireEvent.click(submitBtn);
+
+    const dialog = await waitFor(() => screen.getByTestId("dialog-group-name"));
+    const nameInput = dialog.querySelector(
+      'input[placeholder^="e.g.,"]',
+    ) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Studio Headshots" } });
+    const confirmBtn = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => /create avatar|create/i.test(b.textContent || ""),
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() =>
+      expect(
+        toast.mock.calls.some((args) => {
+          const arg = args[0] as { description?: string; variant?: string };
+          return (
+            arg?.variant === "destructive" &&
+            typeof arg?.description === "string" &&
+            arg.description.includes("/v2/photo_avatar/photo/generate") &&
+            arg.description.includes("data.image_key_list.0")
+          );
+        }),
+      ).toBe(true),
+    );
+  });
 });

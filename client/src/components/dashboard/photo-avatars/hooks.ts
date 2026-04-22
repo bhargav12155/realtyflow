@@ -1,4 +1,9 @@
 import { useToast } from "@/hooks/use-toast";
+import {
+  type HeygenShapeDriftDetails,
+  shapeDriftToast,
+  tryParseShapeDriftBody,
+} from "@/components/dashboard/heygen-shape-drift-alert";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -1105,9 +1110,15 @@ export function usePhotoAvatarManager() {
 
       if (!response.ok) {
         const errBody = await response.json().catch(() => ({}));
-        throw new Error(
-          errBody?.message || errBody?.error || "Failed to create avatar group"
+        // If HeyGen returned an unexpected response shape we attach
+        // the parsed envelope to the thrown Error so the catch below
+        // can surface endpoint + issuePaths in the destructive toast.
+        const drift = tryParseShapeDriftBody(errBody);
+        const e: Error & { shapeDrift?: HeygenShapeDriftDetails } = new Error(
+          errBody?.message || errBody?.error || "Failed to create avatar group",
         );
+        if (drift) e.shapeDrift = drift;
+        throw e;
       }
 
       toast({
@@ -1125,6 +1136,15 @@ export function usePhotoAvatarManager() {
       setShowGroupNameDialog(false);
     } catch (error: unknown) {
       console.error("Upload error:", error);
+      const drift = (error as { shapeDrift?: HeygenShapeDriftDetails })
+        ?.shapeDrift;
+      if (drift) {
+        toast({
+          ...shapeDriftToast(drift),
+          variant: "destructive",
+        });
+        return;
+      }
       const message =
         error instanceof Error
           ? error.message

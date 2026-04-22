@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { HEYGEN_SHAPE_DRIFT_ERROR_CODE } from "@shared/heygenPhotoAvatarSchemas";
+import {
+  HeygenShapeDriftAlert,
+  type HeygenShapeDriftDetails,
+  parseShapeDriftFromApiError,
+  shapeDriftToast,
+  tryParseShapeDriftBody,
+} from "@/components/dashboard/heygen-shape-drift-alert";
 import {
   Dialog,
   DialogContent,
@@ -101,6 +107,14 @@ export function V3LooksPanel({
       queryClient.invalidateQueries({ queryKey: ["/api/photo-avatars/groups"] });
     },
     onError: (err: unknown) => {
+      // Surface HeyGen shape drift with endpoint + issue paths in the
+      // toast (see Voices/Looks panels for the full alert version) so
+      // operators don't lose the upstream context.
+      const drift = parseShapeDriftFromApiError(err);
+      if (drift) {
+        toast({ ...shapeDriftToast(drift), variant: "destructive" });
+        return;
+      }
       const message = err instanceof Error ? err.message : "Please try again.";
       toast({
         title: "Couldn't update consent",
@@ -115,15 +129,9 @@ export function V3LooksPanel({
   // `{ error: "heygen_shape_drift", endpoint, message, issuePaths }`. We
   // capture that body so the dashboard can render a copy-pastable notice
   // instead of the generic "still training" placeholder.
-  type ShapeDriftDetails = {
-    endpoint: string;
-    message: string;
-    issuePaths: string[];
-  };
-
   const { data, isLoading, isError, error, refetch } = useQuery<
     V3LooksPage,
-    Error & { shapeDrift?: ShapeDriftDetails }
+    Error & { shapeDrift?: HeygenShapeDriftDetails }
   >({
     queryKey: ["/api/v3/photo-avatars", heygenGroupId, "looks", cursor ?? ""],
     queryFn: async () => {
@@ -133,22 +141,20 @@ export function V3LooksPanel({
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        let parsed: { error?: string; endpoint?: string; message?: string; issuePaths?: string[] } = {};
+        let parsed: unknown = null;
         try {
-          parsed = JSON.parse(text) as typeof parsed;
+          parsed = JSON.parse(text);
         } catch {
           /* non-JSON body — treat as opaque failure */
         }
-        const e: Error & { shapeDrift?: ShapeDriftDetails } = new Error(
-          parsed.message || `Failed to load looks (${res.status})`,
+        const drift = tryParseShapeDriftBody(parsed);
+        const message =
+          (parsed as { message?: string } | null)?.message ||
+          `Failed to load looks (${res.status})`;
+        const e: Error & { shapeDrift?: HeygenShapeDriftDetails } = new Error(
+          message,
         );
-        if (parsed.error === HEYGEN_SHAPE_DRIFT_ERROR_CODE) {
-          e.shapeDrift = {
-            endpoint: parsed.endpoint ?? "(unknown HeyGen endpoint)",
-            message: parsed.message ?? e.message,
-            issuePaths: Array.isArray(parsed.issuePaths) ? parsed.issuePaths : [],
-          };
-        }
+        if (drift) e.shapeDrift = drift;
         throw e;
       }
       return res.json();
@@ -332,59 +338,13 @@ export function V3LooksPanel({
         </div>
       )}
       {isError && shapeDrift && (
-        <Alert
-          variant="destructive"
-          data-testid={`alert-heygen-shape-drift-${heygenGroupId}`}
-        >
-          <AlertTitle className="text-xs">
-            HeyGen returned an unexpected response shape — please retry
-          </AlertTitle>
-          <AlertDescription className="text-xs space-y-2">
-            <p>
-              We hit a <code>{HEYGEN_SHAPE_DRIFT_ERROR_CODE}</code> error while
-              loading looks. If retrying doesn't help, copy the details below
-              and forward them to support.
-            </p>
-            <pre
-              className="whitespace-pre-wrap break-all rounded bg-red-950/40 text-red-100 p-2 text-[10px] font-mono select-all"
-              data-testid={`text-heygen-shape-drift-details-${heygenGroupId}`}
-            >
-{`error:    ${HEYGEN_SHAPE_DRIFT_ERROR_CODE}
-endpoint: ${shapeDrift.endpoint}
-group:    ${heygenGroupId}
-issues:   ${shapeDrift.issuePaths.join(", ") || "(none)"}
-message:  ${shapeDrift.message}`}
-            </pre>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-[10px] px-2"
-              onClick={() => {
-                const blob = `error: ${HEYGEN_SHAPE_DRIFT_ERROR_CODE}\nendpoint: ${shapeDrift.endpoint}\ngroup: ${heygenGroupId}\nissues: ${shapeDrift.issuePaths.join(", ") || "(none)"}\nmessage: ${shapeDrift.message}`;
-                if (typeof navigator !== "undefined" && navigator.clipboard) {
-                  navigator.clipboard
-                    .writeText(blob)
-                    .then(() =>
-                      toast({
-                        title: "Copied error details",
-                        description: "Paste this into your support ticket.",
-                      }),
-                    )
-                    .catch(() =>
-                      toast({
-                        title: "Couldn't copy automatically",
-                        description: "Select the details above and copy manually.",
-                        variant: "destructive",
-                      }),
-                    );
-                }
-              }}
-              data-testid={`button-copy-heygen-shape-drift-${heygenGroupId}`}
-            >
-              Copy details
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <HeygenShapeDriftAlert
+          details={shapeDrift}
+          scope={heygenGroupId}
+          scopeLabel="group"
+          scopeValue={heygenGroupId}
+          action="loading looks"
+        />
       )}
       {isError && !shapeDrift && (
         <Alert variant="destructive">

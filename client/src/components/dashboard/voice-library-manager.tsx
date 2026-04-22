@@ -11,6 +11,12 @@ import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Searc
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import {
+  HeygenShapeDriftAlert,
+  type HeygenShapeDriftDetails,
+  parseShapeDriftFromApiError,
+  tryParseShapeDriftBody,
+} from "@/components/dashboard/heygen-shape-drift-alert";
 
 interface CustomVoice {
   id: string;
@@ -176,6 +182,12 @@ export function VoiceLibraryManager() {
   const [designPreviewError, setDesignPreviewError] = useState<
     { title: string; description: string; code: string | null } | null
   >(null);
+  // Held separately so the dedicated shape-drift alert (with copy
+  // button + endpoint/issuePaths) can render in place of the friendly
+  // retry block when HeyGen sends back a payload that doesn't match
+  // our zod schema.
+  const [designShapeDrift, setDesignShapeDrift] =
+    useState<HeygenShapeDriftDetails | null>(null);
 
   // Fetch custom voices
   const { data: voices = [], isLoading } = useQuery<CustomVoice[]>({
@@ -230,7 +242,7 @@ export function VoiceLibraryManager() {
     isLoading: isBrowseLoading,
     isError: isBrowseError,
     error: browseError,
-  } = useQuery<HeygenVoicesPage>({
+  } = useQuery<HeygenVoicesPage, Error & { shapeDrift?: HeygenShapeDriftDetails }>({
     queryKey: browseQueryKey,
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -243,12 +255,24 @@ export function VoiceLibraryManager() {
         credentials: "include",
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to load HeyGen voices");
+        const body = await res.json().catch(() => null);
+        const drift = tryParseShapeDriftBody(body);
+        const message =
+          (body as { message?: string } | null)?.message ||
+          "Failed to load HeyGen voices";
+        const err: Error & { shapeDrift?: HeygenShapeDriftDetails } = new Error(
+          message,
+        );
+        if (drift) err.shapeDrift = drift;
+        throw err;
       }
       return res.json();
     },
   });
+  const browseShapeDrift = (browseError as
+    | (Error & { shapeDrift?: HeygenShapeDriftDetails })
+    | null
+    | undefined)?.shapeDrift;
 
   // Upload voice mutation
   const uploadVoiceMutation = useMutation({
@@ -338,18 +362,34 @@ export function VoiceLibraryManager() {
     onSuccess: (data) => {
       setDesignPreview(data.preview);
       setDesignPreviewError(null);
+      setDesignShapeDrift(null);
       toast({
         title: "Preview Ready",
         description: "Listen to your designed voice and save it if you like it.",
       });
     },
     onError: (error: Error) => {
+      // If HeyGen returned a payload that didn't match our schema we
+      // surface the dedicated shape-drift alert (with endpoint +
+      // issuePaths) instead of the friendly retry block.
+      const drift = parseShapeDriftFromApiError(error);
+      if (drift) {
+        setDesignShapeDrift(drift);
+        setDesignPreviewError(null);
+        toast({
+          title: "HeyGen returned an unexpected response shape",
+          description: drift.message,
+          variant: "destructive",
+        });
+        return;
+      }
       const friendly = friendlyDesignError(error);
       // Mirror the friendly copy into both the toast and the inline
       // retry block. The inline block is what the user keeps looking at
       // after the toast disappears, and it carries the retry button so
       // they don't have to re-fill the form.
       setDesignPreviewError(friendly);
+      setDesignShapeDrift(null);
       toast({
         title: friendly.title,
         description: friendly.description,
@@ -722,9 +762,17 @@ export function VoiceLibraryManager() {
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : isBrowseError ? (
-                <div className="text-center py-8 text-destructive text-sm" data-testid="text-browse-error">
-                  {(browseError as Error)?.message ?? "Failed to load HeyGen voices."}
-                </div>
+                browseShapeDrift ? (
+                  <HeygenShapeDriftAlert
+                    details={browseShapeDrift}
+                    scope="voices-browse"
+                    action="loading HeyGen voices"
+                  />
+                ) : (
+                  <div className="text-center py-8 text-destructive text-sm" data-testid="text-browse-error">
+                    {(browseError as Error)?.message ?? "Failed to load HeyGen voices."}
+                  </div>
+                )
               ) : browseVoices.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground" data-testid="text-browse-empty">
                   No voices match those filters.
@@ -888,7 +936,14 @@ export function VoiceLibraryManager() {
                       </>
                     )}
                   </Button>
-                  {designPreviewError && (
+                  {designShapeDrift && (
+                    <HeygenShapeDriftAlert
+                      details={designShapeDrift}
+                      scope="voice-design"
+                      action="designing your voice"
+                    />
+                  )}
+                  {designPreviewError && !designShapeDrift && (
                     <div
                       className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3"
                       data-testid="card-design-preview-error"

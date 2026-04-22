@@ -14,7 +14,11 @@ import {
   type BoardBottomToolbarHandle,
   type BoardUploadChip,
 } from "@/components/boards/BoardBottomToolbar";
-import { uploadFilesToBoard, uploadFileToBoard } from "@/lib/boardUpload";
+import {
+  isBoardUploadCancelled,
+  uploadFilesToBoard,
+  uploadFileToBoard,
+} from "@/lib/boardUpload";
 import { DrawingModal } from "@/components/boards/DrawingModal";
 import { RecordModal } from "@/components/boards/RecordModal";
 import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
@@ -444,12 +448,6 @@ export default function BoardDetailPage() {
     setSelectedAssetId(null);
   }, [boardId]);
 
-  // Drop any in-flight / errored upload chips when the user switches boards
-  // so a stale chip from board A doesn't visually attach itself to board B.
-  useEffect(() => {
-    setUploadChips([]);
-  }, [boardId]);
-
   const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
   const createToolAsset = useCallback(
     async (params: {
@@ -545,9 +543,17 @@ export default function BoardDetailPage() {
     (BoardUploadChip & { file: File })[]
   >([]);
 
+  // Track an AbortController per in-flight upload so the chip's cancel button
+  // can abort the signed PUT mid-stream. Kept in a ref so updates don't
+  // re-render and so we can reach the controller from event handlers.
+  const uploadAbortersRef = useRef<Map<string, AbortController>>(new Map());
+
   // Clear upload chips when boardId changes so progress from board A doesn't
-  // show up on board B.
+  // show up on board B. Also abort any in-flight uploads from the previous
+  // board so they stop streaming and don't create stray asset rows.
   useEffect(() => {
+    uploadAbortersRef.current.forEach((controller) => controller.abort());
+    uploadAbortersRef.current.clear();
     setUploadChips([]);
   }, [boardId]);
 
@@ -557,6 +563,8 @@ export default function BoardDetailPage() {
       const id =
         existingId ??
         `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const controller = new AbortController();
+      uploadAbortersRef.current.set(id, controller);
       setUploadChips((prev) => {
         const without = prev.filter((u) => u.id !== id);
         return [
@@ -566,6 +574,7 @@ export default function BoardDetailPage() {
       });
       try {
         const result = await uploadFileToBoard(boardId, file, {
+          signal: controller.signal,
           onProgress: (percent) => {
             setUploadChips((prev) =>
               prev.map((u) => (u.id === id ? { ...u, percent } : u)),
@@ -583,6 +592,13 @@ export default function BoardDetailPage() {
           });
         }
       } catch (err) {
+        // User-initiated cancels are surfaced separately by handleCancelUpload
+        // — don't show a destructive failure toast and don't leave a chip
+        // behind in the error state.
+        if (isBoardUploadCancelled(err)) {
+          setUploadChips((prev) => prev.filter((u) => u.id !== id));
+          return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         setUploadChips((prev) =>
           prev.map((u) =>
@@ -594,6 +610,8 @@ export default function BoardDetailPage() {
           description: msg,
           variant: "destructive",
         });
+      } finally {
+        uploadAbortersRef.current.delete(id);
       }
     },
     [boardId, toast],
@@ -621,6 +639,24 @@ export default function BoardDetailPage() {
   const handleDismissUpload = useCallback((id: string) => {
     setUploadChips((prev) => prev.filter((u) => u.id !== id));
   }, []);
+
+  const handleCancelUpload = useCallback(
+    (id: string) => {
+      const controller = uploadAbortersRef.current.get(id);
+      if (!controller) return;
+      const entry = uploadChips.find((u) => u.id === id);
+      controller.abort();
+      uploadAbortersRef.current.delete(id);
+      // The startUpload catch will also remove the chip, but do it eagerly so
+      // the UI feels instant even if the abort event takes a tick to fire.
+      setUploadChips((prev) => prev.filter((u) => u.id !== id));
+      toast({
+        title: "Upload cancelled",
+        description: entry ? entry.fileName : undefined,
+      });
+    },
+    [uploadChips, toast],
+  );
 
   // Ctrl+U / Cmd+U opens the "+" media picker, but only when the user isn't
   // typing into an input or a modal/dialog is on top of the board.
@@ -883,6 +919,7 @@ export default function BoardDetailPage() {
             uploads={uploadChips}
             onRetryUpload={handleRetryUpload}
             onDismissUpload={handleDismissUpload}
+            onCancelUpload={handleCancelUpload}
           />
         </div>
         {chatOpen && (

@@ -58,6 +58,8 @@ export interface BoardBottomToolbarProps {
   onRetryUpload?: (id: string) => void;
   /** Dismiss a chip without retrying (only available for errored chips). */
   onDismissUpload?: (id: string) => void;
+  /** Cancel an in-flight upload. Aborts the signed PUT and removes the chip. */
+  onCancelUpload?: (id: string) => void;
 }
 
 /** Imperative handle the parent uses to open the "+" media picker from
@@ -85,6 +87,7 @@ export const BoardBottomToolbar = forwardRef<
     uploads = [],
     onRetryUpload,
     onDismissUpload,
+    onCancelUpload,
   },
   ref,
 ) {
@@ -115,6 +118,7 @@ export const BoardBottomToolbar = forwardRef<
               upload={u}
               onRetry={onRetryUpload}
               onDismiss={onDismissUpload}
+              onCancel={onCancelUpload}
             />
           ))}
         </div>
@@ -266,10 +270,12 @@ function UploadChip({
   upload,
   onRetry,
   onDismiss,
+  onCancel,
 }: {
   upload: BoardUploadChip;
   onRetry?: (id: string) => void;
   onDismiss?: (id: string) => void;
+  onCancel?: (id: string) => void;
 }) {
   const isError = upload.status === "error";
   return (
@@ -314,6 +320,18 @@ function UploadChip({
         >
           {upload.percent}%
         </span>
+      )}
+      {!isError && onCancel && (
+        <button
+          type="button"
+          onClick={() => onCancel(upload.id)}
+          aria-label={`Cancel upload of ${upload.fileName}`}
+          title="Cancel upload"
+          className="w-5 h-5 inline-flex items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+          data-testid={`button-upload-cancel-${upload.id}`}
+        >
+          <X className="w-3 h-3" />
+        </button>
       )}
       {isError && onRetry && (
         <button

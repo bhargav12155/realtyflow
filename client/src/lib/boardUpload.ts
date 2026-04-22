@@ -12,6 +12,24 @@ export interface BoardUploadOptions {
   /** Called as the PUT body uploads; `percent` is 0-100. Only fires when the
    * browser reports a computable length (which it does for File bodies). */
   onProgress?: (percent: number) => void;
+  /** Optional signal to abort the in-flight signed PUT. When aborted, the
+   * upload promise rejects with a `BoardUploadCancelledError` and no board
+   * asset row is created. */
+  signal?: AbortSignal;
+}
+
+/** Sentinel error thrown when a caller aborts an upload via `options.signal`.
+ * Pages can detect this with `isBoardUploadCancelled(err)` to skip the
+ * destructive failure toast for user-initiated cancels. */
+export class BoardUploadCancelledError extends Error {
+  constructor(message = "Upload cancelled") {
+    super(message);
+    this.name = "BoardUploadCancelledError";
+  }
+}
+
+export function isBoardUploadCancelled(err: unknown): boolean {
+  return err instanceof BoardUploadCancelledError;
 }
 
 function detectKind(file: File): BoardUploadKind | null {
@@ -27,28 +45,53 @@ function putWithProgress(
   url: string,
   file: File,
   onProgress?: (percent: number) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new BoardUploadCancelledError());
+      return;
+    }
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.setRequestHeader(
       "Content-Type",
       file.type || "application/octet-stream",
     );
+    let cancelled = false;
+    const onAbortSignal = () => {
+      cancelled = true;
+      xhr.abort();
+    };
+    if (signal) signal.addEventListener("abort", onAbortSignal);
+    const cleanup = () => {
+      if (signal) signal.removeEventListener("abort", onAbortSignal);
+    };
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
         onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
       }
     };
     xhr.onload = () => {
+      cleanup();
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
       } else {
         reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
       }
     };
-    xhr.onerror = () => reject(new Error("Upload failed: network error"));
-    xhr.onabort = () => reject(new Error("Upload aborted"));
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error("Upload failed: network error"));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(
+        cancelled
+          ? new BoardUploadCancelledError()
+          : new Error("Upload aborted"),
+      );
+    };
     xhr.send(file);
   });
 }
@@ -67,6 +110,8 @@ export async function uploadFileToBoard(
   const kind = detectKind(file);
   if (!kind) return null;
 
+  if (options.signal?.aborted) throw new BoardUploadCancelledError();
+
   const fallbackContentType =
     kind === "image" ? "image/jpeg" : kind === "video" ? "video/mp4" : "audio/webm";
   const uploadInfoRes = await apiRequest("POST", "/api/objects/upload", {
@@ -81,7 +126,14 @@ export async function uploadFileToBoard(
     throw new Error("Upload URL was not returned by the server");
   }
 
-  await putWithProgress(uploadInfo.uploadURL, file, options.onProgress);
+  await putWithProgress(
+    uploadInfo.uploadURL,
+    file,
+    options.onProgress,
+    options.signal,
+  );
+
+  if (options.signal?.aborted) throw new BoardUploadCancelledError();
 
   const batchId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tileWidth = kind === "image" ? 256 : kind === "video" ? 320 : 240;

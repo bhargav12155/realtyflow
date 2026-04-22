@@ -1,0 +1,101 @@
+# HeyGen shape-drift alert runbook
+
+This runbook tells the on-call engineer what to do when the HeyGen
+shape-drift alarm fires. It pairs with the alerting wired up in
+`server/services/heygen-validation-reporter.ts`.
+
+## What the alert means
+
+Every server route that talks to HeyGen pipes the response through a Zod
+schema in `shared/heygenPhotoAvatarSchemas.ts`. When HeyGen returns a
+shape we did not expect, the parser throws
+`HeygenResponseValidationError`. The reporter wired up at server start
+turns each failure into:
+
+1. A structured warn log line per failure:
+
+   ```json
+   {"event":"heygen.response.invalid","endpoint":"/v3/voices","groupId":null,"issuePaths":["items.0.voice_id"],"issueCount":1,"message":"..."}
+   ```
+
+2. An admin-only realtime alert (the dashboard notification bell), tagged
+   `source: "heygen"`, `severity: "error"`. Deduped per
+   `endpoint+groupId` for 5 minutes so a polling loop cannot spam the
+   bell.
+
+   The realtime channel only models `info | warning | error` severities.
+   The burst alert (item 3) reuses `severity: "error"` and is
+   distinguished by its title (`HeyGen shape drift burst detected`)
+   and the `count` / `threshold` / `windowMs` fields in `context`.
+
+3. When the rate of failures for one endpoint crosses
+   **3 failures in 5 minutes**, a structured log line + admin alert:
+
+   ```json
+   {"event":"heygen.response.invalid.burst","endpoint":"/v3/photo_avatars/:groupId/looks","windowMs":300000,"threshold":3,"count":3, ...}
+   ```
+
+   This is the line the team's log-based alerting pipeline keys on to
+   route a page (e.g. a Slack `#oncall-alerts` rule matching
+   `event="heygen.response.invalid.burst"`). The endpoint label is
+   normalized so failures across different group / video ids count
+   together (e.g. `/v3/photo_avatars/abc123/looks` and
+   `/v3/photo_avatars/def456/looks` both bucket under
+   `/v3/photo_avatars/:groupId/looks`).
+
+   The burst alarm is deduped per endpoint for 15 minutes so a sustained
+   outage does not page repeatedly.
+
+## When the alert fires
+
+1. **Acknowledge** in the on-call channel so the rest of the team
+   knows you are looking.
+2. **Find the endpoint** — the alert message and the
+   `heygen.response.invalid.burst` log line both include the HeyGen
+   path (e.g. `/v3/voices`, `/v2/avatar_group.list`, `/v3/photo_avatars/:id/looks`).
+3. **Pull a sample raw response.** Search the logs for the matching
+   `heygen.response.invalid` lines from the same window — they include
+   the failing `issuePaths` so you know which fields drifted.
+4. **Check HeyGen status.** If the affected endpoint is broken across
+   the board, check <https://status.heygen.com>. If HeyGen has declared
+   an incident, escalate to the customer-comms owner and stand by — no
+   code change needed.
+5. **If the field really did change shape**, update the matching Zod
+   schema in `shared/heygenPhotoAvatarSchemas.ts`:
+   - For an added optional field: extend the schema with the new field
+     so we capture it.
+   - For a renamed/removed field: update the schema and the consumers
+     that read the old field name. The schemas are passthrough, so old
+     fields don't break parsing — only required fields do.
+   - Add a regression test under `tests/heygen-photo-avatar-schemas.test.ts`
+     covering the new shape.
+6. **Ship the fix** — the burst alarm will auto-resolve once the rate
+   drops below the threshold for one full window. There is no manual
+   "resolve" button.
+
+## Tunables
+
+The thresholds live in `server/services/heygen-validation-reporter.ts`
+under `__HEYGEN_VALIDATION_REPORTER_TUNABLES`:
+
+- `BURST_THRESHOLD` — failures within the window before the burst fires
+  (default 3).
+- `BURST_WINDOW_MS` — sliding window length (default 5 minutes).
+- `BURST_DEDUP_MS` — minimum gap between burst alerts for the same
+  endpoint (default 15 minutes).
+- `BROADCAST_DEDUP_MS` — gap between per-event admin alerts for the same
+  endpoint+groupId (default 5 minutes).
+
+If we start getting paged for one-off blips, raise `BURST_THRESHOLD`. If
+real outages are slipping past the alarm, lower it. Keep the change
+small and add a note to this runbook with the date.
+
+## Related code & tests
+
+- Reporter implementation: `server/services/heygen-validation-reporter.ts`
+- Reporter tests: `tests/heygen-validation-reporter.test.ts`
+- Schema definitions and the `setHeygenValidationReporter` hook:
+  `shared/heygenPhotoAvatarSchemas.ts`
+- The `heygen_shape_drift` error code returned to the dashboard from
+  the routes lives in `server/routes/heygen-v3.ts`
+  (`maybeShapeDriftPayload`).

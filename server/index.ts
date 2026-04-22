@@ -107,6 +107,13 @@ app.use((req, res, next) => {
   // Initialize WebSocket server for real-time updates
   realtimeService.initialize(server);
 
+  // Wire HeyGen response-validation failures into structured logs and the
+  // realtime admin alert channel so operators see HeyGen shape drift fast.
+  const { registerHeygenValidationReporter } = await import(
+    "./services/heygen-validation-reporter"
+  );
+  registerHeygenValidationReporter();
+
   // Initialize automatic post scheduler
   const { PostScheduler } = await import("./services/post-scheduler");
   const { storage } = await import("./storage");

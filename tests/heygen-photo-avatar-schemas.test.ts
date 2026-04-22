@@ -9,6 +9,8 @@ import {
   avatarTrainStatusSchema,
   consentStatusSchema,
   avatarLookProcessingStatusSchema,
+  setHeygenValidationReporter,
+  type HeygenValidationFailureReport,
 } from "../shared/heygenPhotoAvatarSchemas";
 
 describe("HeyGen response Zod schemas", () => {
@@ -228,6 +230,68 @@ describe("HeyGen response Zod schemas", () => {
         assert.match(err.message, /avatar_group\.list/);
         assert.match(err.message, /avatar_group_list/);
         assert.ok(err.issues.length > 0);
+      }
+    });
+
+    it("captures groupId on the error when the helper knows it", () => {
+      try {
+        parseHeygenTrainStatusResponse({ status: "in_progress" }, "grp_42");
+        assert.fail("expected throw");
+      } catch (err) {
+        assert.ok(err instanceof HeygenResponseValidationError);
+        assert.equal(err.groupId, "grp_42");
+      }
+    });
+  });
+
+  describe("validation failure reporter", () => {
+    it("invokes the registered reporter with endpoint, groupId, and issue paths", () => {
+      const calls: HeygenValidationFailureReport[] = [];
+      setHeygenValidationReporter((r) => calls.push(r));
+      try {
+        try {
+          parseHeygenAvatarGroupLooksResponse(
+            { avatar_list: [{ id: "av_1", status: "queued" }] },
+            "grp_99",
+          );
+        } catch {
+          // expected
+        }
+        assert.equal(calls.length, 1);
+        assert.match(calls[0].endpoint, /grp_99\/avatars/);
+        assert.equal(calls[0].groupId, "grp_99");
+        assert.ok(calls[0].issuePaths.length > 0);
+        assert.match(calls[0].message, /grp_99/);
+      } finally {
+        setHeygenValidationReporter(null);
+      }
+    });
+
+    it("swallows reporter errors so they don't break the request flow", () => {
+      setHeygenValidationReporter(() => {
+        throw new Error("reporter blew up");
+      });
+      try {
+        // The original validation error must still surface to the caller.
+        assert.throws(
+          () => parseHeygenTrainStatusResponse({}, "grp_1"),
+          HeygenResponseValidationError,
+        );
+      } finally {
+        setHeygenValidationReporter(null);
+      }
+    });
+
+    it("does not invoke the reporter on a successful parse", () => {
+      let called = 0;
+      setHeygenValidationReporter(() => {
+        called += 1;
+      });
+      try {
+        parseHeygenTrainStatusResponse({ status: "ready" }, "grp_1");
+        assert.equal(called, 0);
+      } finally {
+        setHeygenValidationReporter(null);
       }
     });
   });

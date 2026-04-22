@@ -159,8 +159,14 @@ export class HeygenResponseValidationError extends Error {
   readonly endpoint: string;
   readonly issues: z.ZodIssue[];
   readonly payload: unknown;
+  readonly groupId?: string;
 
-  constructor(endpoint: string, issues: z.ZodIssue[], payload: unknown) {
+  constructor(
+    endpoint: string,
+    issues: z.ZodIssue[],
+    payload: unknown,
+    groupId?: string,
+  ) {
     const summary = issues
       .slice(0, 5)
       .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
@@ -172,6 +178,59 @@ export class HeygenResponseValidationError extends Error {
     this.endpoint = endpoint;
     this.issues = issues;
     this.payload = payload;
+    this.groupId = groupId;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Validation failure reporter
+//
+// HeyGen response shapes drift over time. To shorten the time-to-detect for
+// operators we expose a pluggable reporter that receives every validation
+// failure (endpoint, groupId, the first few Zod issue paths). The server
+// registers a reporter at startup that emits a structured `event:
+// "heygen.response.invalid"` log line and broadcasts an admin notification
+// over the realtime websocket channel. Tests and the client bundle simply
+// see a no-op default.
+// ---------------------------------------------------------------------------
+
+export interface HeygenValidationFailureReport {
+  endpoint: string;
+  groupId?: string;
+  issues: z.ZodIssue[];
+  /** First few `path.join('.')` strings, capped for log/transport size. */
+  issuePaths: string[];
+  /** Message from `HeygenResponseValidationError` (already truncated). */
+  message: string;
+}
+
+export type HeygenValidationReporter = (
+  report: HeygenValidationFailureReport,
+) => void;
+
+let validationReporter: HeygenValidationReporter | null = null;
+
+export function setHeygenValidationReporter(
+  reporter: HeygenValidationReporter | null,
+): void {
+  validationReporter = reporter;
+}
+
+function reportValidationFailure(error: HeygenResponseValidationError): void {
+  if (!validationReporter) return;
+  const issuePaths = error.issues
+    .slice(0, 5)
+    .map((i) => i.path.join(".") || "(root)");
+  try {
+    validationReporter({
+      endpoint: error.endpoint,
+      groupId: error.groupId,
+      issues: error.issues,
+      issuePaths,
+      message: error.message,
+    });
+  } catch {
+    // Never let a misbehaving reporter break the request flow.
   }
 }
 
@@ -179,14 +238,18 @@ function parseOrThrow<T>(
   schema: z.ZodType<T>,
   endpoint: string,
   payload: unknown,
+  groupId?: string,
 ): T {
   const result = schema.safeParse(payload);
   if (!result.success) {
-    throw new HeygenResponseValidationError(
+    const error = new HeygenResponseValidationError(
       endpoint,
       result.error.issues,
       payload,
+      groupId,
     );
+    reportValidationFailure(error);
+    throw error;
   }
   return result.data;
 }
@@ -209,6 +272,7 @@ export function parseHeygenAvatarGroupLooksResponse(
     heygenAvatarGroupLooksResponseSchema,
     `/v2/avatar_group/${groupId ?? ":groupId"}/avatars`,
     payload,
+    groupId,
   );
 }
 
@@ -220,6 +284,7 @@ export function parseHeygenTrainStatusResponse(
     heygenTrainStatusResponseSchema,
     `/v2/photo_avatar/train/status/${groupId ?? ":groupId"}`,
     payload,
+    groupId,
   );
 }
 
@@ -231,5 +296,6 @@ export function parseHeygenV3LooksPageResponse(
     heygenV3LooksPageResponseSchema,
     `/v3/photo_avatars/${groupId ?? ":groupId"}/looks`,
     payload,
+    groupId,
   );
 }

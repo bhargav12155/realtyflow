@@ -56,7 +56,7 @@ function authenticateRequest(req: IncomingMessage): { userId: string } | null {
 }
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_auto_eval" | "notification_created";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_auto_eval" | "notification_created" | "admin_alert";
   data: any;
   timestamp: string;
   userId?: number;
@@ -66,6 +66,11 @@ export interface WebSocketMessage {
 export class RealtimeService {
   private wss: WebSocketServer | null = null;
   private clients: Map<string, Set<WebSocket>> = new Map();
+  // Sockets owned by users whose `role === "admin"`. Populated lazily at
+  // connection time and cleaned up on close. Used by `broadcastAdminAlert`
+  // so internal operational alerts are scoped to operators only and never
+  // leak to ordinary users.
+  private adminClients: Set<WebSocket> = new Set();
 
   initialize(server: Server) {
     this.wss = new WebSocketServer({
@@ -105,6 +110,25 @@ export class RealtimeService {
       }
       this.clients.get(userId)!.add(ws);
 
+      // Lazily resolve the user's role so admin-only broadcasts can target
+      // the right sockets. Done as a dynamic import to avoid a circular
+      // import between websocket and storage. Failures are swallowed so
+      // an unrelated DB hiccup never tears down a websocket connection.
+      void (async () => {
+        try {
+          const { storage } = await import("./storage");
+          const user = await storage.getUser(userId);
+          if (user && (user as { role?: string }).role === "admin") {
+            this.adminClients.add(ws);
+          }
+        } catch (err) {
+          console.warn(
+            "[websocket] failed to resolve admin role for socket",
+            err,
+          );
+        }
+      })();
+
       // Send welcome message
       this.sendToClient(ws, {
         type: "notification",
@@ -128,6 +152,7 @@ export class RealtimeService {
         this.clients.forEach((clientSet) => {
           clientSet.delete(ws);
         });
+        this.adminClients.delete(ws);
       });
 
       ws.on("error", (error) => {
@@ -512,6 +537,35 @@ export class RealtimeService {
       data: payload,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  // Send an admin alert to admin sockets only. The dashboard's notification
+  // bell renders these so operators are paged about infrastructure-level
+  // issues (e.g. HeyGen response shape drift) without waiting for a user
+  // to file a bug report. Non-admin sockets MUST NOT receive these — the
+  // payload's `context` may include internal details (endpoints, ids,
+  // schema-drift summaries) that ordinary users should not see.
+  broadcastAdminAlert(payload: {
+    source: string;
+    severity: "info" | "warning" | "error";
+    title: string;
+    message: string;
+    context?: Record<string, unknown>;
+  }) {
+    const message: WebSocketMessage = {
+      type: "admin_alert",
+      data: payload,
+      timestamp: new Date().toISOString(),
+    };
+    this.adminClients.forEach((client) => {
+      this.sendToClient(client, message);
+    });
+  }
+
+  // Test/diagnostics helper: returns the number of admin sockets currently
+  // tagged. Used in tests to assert admin scoping.
+  getAdminSocketCount(): number {
+    return this.adminClients.size;
   }
 
   notifySjinnVideoReady(userId: string, videoUrl: string, taskId: string) {

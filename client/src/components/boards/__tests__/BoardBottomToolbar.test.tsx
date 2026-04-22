@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import {
   BoardBottomToolbar,
   type BoardBottomToolbarHandle,
+  type BoardUploadChip,
 } from "../BoardBottomToolbar";
 
 afterEach(() => cleanup());
@@ -171,6 +172,104 @@ describe("BoardBottomToolbar", () => {
     fireEvent.click(screen.getByTestId("toolbar-bottom-record"));
     expect(onOpenDraw).toHaveBeenCalledTimes(1);
     expect(onOpenRecord).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BoardBottomToolbar upload chips", () => {
+  it("renders nothing when there are no in-flight uploads", () => {
+    renderToolbar();
+    expect(screen.queryByTestId("list-board-uploads")).toBeNull();
+  });
+
+  it("an uploading chip shows the spinner + percent and no Retry/Dismiss buttons", () => {
+    const onRetry = vi.fn();
+    const onDismiss = vi.fn();
+    const chip: BoardUploadChip = {
+      id: "u1",
+      fileName: "vacation.png",
+      percent: 42,
+      status: "uploading",
+    };
+    renderToolbar({
+      uploads: [chip],
+      onRetryUpload: onRetry,
+      onDismissUpload: onDismiss,
+    });
+
+    const container = screen.getByTestId("list-board-uploads");
+    expect(container.getAttribute("role")).toBe("status");
+    expect(container.getAttribute("aria-live")).toBe("polite");
+
+    expect(screen.getByTestId("chip-upload-u1")).toBeTruthy();
+    expect(screen.getByTestId("text-upload-name-u1").textContent).toBe(
+      "vacation.png",
+    );
+    expect(screen.getByTestId("text-upload-percent-u1").textContent).toBe(
+      "42%",
+    );
+    // Spinner is the Loader2 svg with .animate-spin
+    const spinner = screen
+      .getByTestId("chip-upload-u1")
+      .querySelector(".animate-spin");
+    expect(spinner).toBeTruthy();
+
+    expect(screen.queryByTestId("button-upload-retry-u1")).toBeNull();
+    expect(screen.queryByTestId("button-upload-dismiss-u1")).toBeNull();
+    expect(screen.queryByTestId("text-upload-error-u1")).toBeNull();
+  });
+
+  it("an error chip exposes Retry + Dismiss buttons that fire the right callbacks", () => {
+    const onRetry = vi.fn();
+    const onDismiss = vi.fn();
+    const chip: BoardUploadChip = {
+      id: "u2",
+      fileName: "broken.mp4",
+      percent: 73,
+      status: "error",
+      error: "Upload failed: 500 Server Error",
+    };
+    renderToolbar({
+      uploads: [chip],
+      onRetryUpload: onRetry,
+      onDismissUpload: onDismiss,
+    });
+
+    // No spinner / percent in error state.
+    expect(screen.queryByTestId("text-upload-percent-u2")).toBeNull();
+    expect(
+      screen.getByTestId("chip-upload-u2").querySelector(".animate-spin"),
+    ).toBeNull();
+
+    expect(screen.getByTestId("text-upload-error-u2").textContent).toBe(
+      "Upload failed: 500 Server Error",
+    );
+
+    fireEvent.click(screen.getByTestId("button-upload-retry-u2"));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledWith("u2");
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("button-upload-dismiss-u2"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith("u2");
+  });
+
+  it("falls back to a generic message when the error chip has no error string", () => {
+    renderToolbar({
+      uploads: [
+        {
+          id: "u3",
+          fileName: "x.png",
+          percent: 0,
+          status: "error",
+        },
+      ],
+      onRetryUpload: vi.fn(),
+      onDismissUpload: vi.fn(),
+    });
+    expect(screen.getByTestId("text-upload-error-u3").textContent).toBe(
+      "Upload failed",
+    );
   });
 });
 

@@ -182,6 +182,43 @@ export class HeygenResponseValidationError extends Error {
   }
 }
 
+/**
+ * Distinct error code emitted by every server route that catches a
+ * `HeygenResponseValidationError` so the dashboard can surface a specific,
+ * copy-pastable "HeyGen returned an unexpected response shape" notice
+ * instead of lumping the failure into a generic 502. Kept in shared/ so
+ * the UI and the route handlers reference the same constant.
+ */
+export const HEYGEN_SHAPE_DRIFT_ERROR_CODE = "heygen_shape_drift";
+
+export interface HeygenShapeDriftErrorPayload {
+  error: typeof HEYGEN_SHAPE_DRIFT_ERROR_CODE;
+  endpoint: string;
+  message: string;
+  /** First few `path.join('.')` strings, capped for transport size. */
+  issuePaths: string[];
+}
+
+/**
+ * Build the JSON body a route returns when it catches a
+ * `HeygenResponseValidationError`. The included `endpoint` + `issuePaths`
+ * give operators something concrete to forward to support without leaking
+ * the full upstream payload.
+ */
+export function heygenShapeDriftErrorPayload(
+  err: HeygenResponseValidationError,
+): HeygenShapeDriftErrorPayload {
+  const issuePaths = err.issues
+    .slice(0, 5)
+    .map((i) => i.path.join(".") || "(root)");
+  return {
+    error: HEYGEN_SHAPE_DRIFT_ERROR_CODE,
+    endpoint: err.endpoint,
+    message: `HeyGen returned an unexpected response shape for ${err.endpoint}. Please retry. If this keeps happening, copy this whole message to support: ${err.message}`,
+    issuePaths,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Validation failure reporter
 //

@@ -204,6 +204,47 @@ describe("V3LooksPanel", () => {
     );
   });
 
+  it("renders a copy-pastable shape-drift alert when the looks endpoint returns heygen_shape_drift", async () => {
+    // Override the global fetch stub for this case so we can return a
+    // 502 carrying the shape-drift envelope the server now emits.
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      fetchCalls.push({ url: String(url) });
+      return new Response(
+        JSON.stringify({
+          error: "heygen_shape_drift",
+          endpoint: "/v3/photo_avatars/grp_xyz/looks",
+          message:
+            "HeyGen returned an unexpected response shape for /v3/photo_avatars/grp_xyz/looks. Please retry. If this keeps happening, copy this whole message to support: ...",
+          issuePaths: ["items"],
+        }),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        },
+      ) as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("alert-heygen-shape-drift-grp_xyz")).toBeTruthy(),
+    );
+    const details = screen.getByTestId(
+      "text-heygen-shape-drift-details-grp_xyz",
+    );
+    expect(details.textContent).toContain("heygen_shape_drift");
+    expect(details.textContent).toContain("/v3/photo_avatars/grp_xyz/looks");
+    expect(details.textContent).toContain("grp_xyz");
+    expect(details.textContent).toContain("items");
+    // Generic "still training" fallback must NOT render alongside the
+    // specific shape-drift alert.
+    expect(screen.queryByText(/still be training/i)).toBeNull();
+    // The copy button is wired up so operators can paste into a ticket.
+    expect(
+      screen.getByTestId("button-copy-heygen-shape-drift-grp_xyz"),
+    ).toBeTruthy();
+  });
+
   it("falls back through the available image fields when picking the look's image", async () => {
     fetchResponses.push({
       data: [

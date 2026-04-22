@@ -19,8 +19,25 @@ import {
 } from "../services/heygen-v3";
 import {
   HeygenResponseValidationError,
+  heygenShapeDriftErrorPayload,
   parseHeygenWebhookEvent,
 } from "@shared/heygenPhotoAvatarSchemas";
+
+/**
+ * If `err` is a `HeygenResponseValidationError` return the JSON body the
+ * route should send back so the dashboard can surface a distinct
+ * `heygen_shape_drift` notice (instead of being lumped into a generic
+ * upstream 502). Returns `null` when `err` is something else so the
+ * caller can fall back to its existing handling.
+ */
+function maybeShapeDriftPayload(
+  err: unknown,
+): ReturnType<typeof heygenShapeDriftErrorPayload> | null {
+  if (err instanceof HeygenResponseValidationError) {
+    return heygenShapeDriftErrorPayload(err);
+  }
+  return null;
+}
 
 /**
  * Map an error thrown by HeyGen's `/v2/voices/generate` (a.k.a. voice
@@ -34,6 +51,18 @@ export function classifyVoiceDesignError(err: unknown): {
   code: string;
   message: string;
 } {
+  // HeyGen response shape drift from /v3/voices/design takes priority over
+  // generic upstream classification so the dashboard can surface the
+  // copy-pastable "unexpected response shape" notice instead of one of the
+  // friendly voice-designer error codes.
+  const drift = maybeShapeDriftPayload(err);
+  if (drift) {
+    return {
+      httpStatus: 502,
+      code: drift.error,
+      message: drift.message,
+    };
+  }
   if (err instanceof HeyGenV3Error) {
     let parsed: { message?: string; code?: number } = {};
     try {
@@ -207,6 +236,8 @@ export function createV3PhotoAvatarConsentHandler(
       });
       return res.json(result);
     } catch (err: unknown) {
+      const drift = maybeShapeDriftPayload(err);
+      if (drift) return res.status(502).json(drift);
       const message = err instanceof Error ? err.message : "Unknown error";
       return res.status(502).json({ error: "heygen_v3_consent_failed", message });
     }
@@ -455,6 +486,8 @@ export function createV3PhotoAvatarsHandler(
     try {
       createResult = await service.createAvatar({ name, imageKey });
     } catch (err: unknown) {
+      const drift = maybeShapeDriftPayload(err);
+      if (drift) return res.status(502).json(drift);
       const message = err instanceof Error ? err.message : "Unknown error";
       return res
         .status(502)
@@ -641,9 +674,15 @@ export function registerHeygenV3Routes(app: Express) {
       // downstream side-effects (status update + websocket broadcast).
       // The raw event has already been persisted above for debugging.
       if (validationError) {
-        return res
-          .status(200)
-          .json({ ok: true, verified, validationError: validationError.message });
+        // Surface the same `heygen_shape_drift` code the synchronous
+        // routes use so anything tailing webhook responses (or replaying
+        // events) can join the dots with dashboard notices.
+        return res.status(200).json({
+          ok: true,
+          verified,
+          ...heygenShapeDriftErrorPayload(validationError),
+          validationError: validationError.message,
+        });
       }
 
       // Update the related group's training_status (if we can map the
@@ -706,6 +745,8 @@ export function registerHeygenV3Routes(app: Express) {
         const page = await defaultGetV3Service().listLooks(groupId, cursor);
         return res.json(page);
       } catch (err: unknown) {
+        const drift = maybeShapeDriftPayload(err);
+        if (drift) return res.status(502).json(drift);
         const message = err instanceof Error ? err.message : "Unknown error";
         return res.status(502).json({ error: "heygen_v3_looks_failed", message });
       }
@@ -726,6 +767,8 @@ export function registerHeygenV3Routes(app: Express) {
       const page = await defaultGetV3Service().listVoices(query);
       return res.json(page);
     } catch (err: unknown) {
+      const drift = maybeShapeDriftPayload(err);
+      if (drift) return res.status(502).json(drift);
       const message = err instanceof Error ? err.message : "Unknown error";
       return res.status(502).json({ error: "heygen_v3_voices_failed", message });
     }

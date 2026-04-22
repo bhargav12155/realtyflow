@@ -1,6 +1,6 @@
 import { apiRequest } from "./queryClient";
 
-export type BoardUploadKind = "image" | "video";
+export type BoardUploadKind = "image" | "video" | "audio";
 
 export interface BoardUploadResult {
   id: string;
@@ -11,6 +11,7 @@ export interface BoardUploadResult {
 function detectKind(file: File): BoardUploadKind | null {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
   return null;
 }
 
@@ -27,8 +28,10 @@ export async function uploadFileToBoard(
   const kind = detectKind(file);
   if (!kind) return null;
 
+  const fallbackContentType =
+    kind === "image" ? "image/jpeg" : kind === "video" ? "video/mp4" : "audio/webm";
   const uploadInfoRes = await apiRequest("POST", "/api/objects/upload", {
-    contentType: file.type || (kind === "image" ? "image/jpeg" : "video/mp4"),
+    contentType: file.type || fallbackContentType,
     fileName: file.name,
   });
   const uploadInfo = (await uploadInfoRes.json()) as {
@@ -49,8 +52,8 @@ export async function uploadFileToBoard(
   }
 
   const batchId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const tileWidth = kind === "image" ? 256 : 320;
-  const tileHeight = kind === "image" ? 256 : 180;
+  const tileWidth = kind === "image" ? 256 : kind === "video" ? 320 : 240;
+  const tileHeight = kind === "image" ? 256 : kind === "video" ? 180 : 80;
 
   const createRes = await apiRequest("POST", `/api/boards/${boardId}/assets`, {
     batchId,

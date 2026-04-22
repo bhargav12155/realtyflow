@@ -25,6 +25,18 @@ export interface BoardBottomToolbarProps {
   /** Called with the user-picked file list (image OR video). Same handler the
    * `Ctrl+U` / `Cmd+U` shortcut routes through. */
   onPickMedia: (files: FileList) => void;
+  /** Called with the user-picked file list scoped to audio MIME types. */
+  onPickAudio: (files: FileList) => void;
+  /** Drop a new sticky-note asset on the canvas. */
+  onCreateSticky: () => void;
+  /** Drop a new free-text asset on the canvas. */
+  onCreateText: () => void;
+  /** Drop a new labeled frame asset on the canvas. */
+  onCreateFrame: () => void;
+  /** Open the in-app drawing pad. */
+  onOpenDraw: () => void;
+  /** Open the in-app voice recorder. */
+  onOpenRecord: () => void;
 }
 
 /** Imperative handle the parent uses to open the "+" media picker from
@@ -33,18 +45,29 @@ export interface BoardBottomToolbarHandle {
   openMediaPicker: () => void;
 }
 
-const COMING_SOON_TIP = "Coming soon";
-
 export const BoardBottomToolbar = forwardRef<
   BoardBottomToolbarHandle,
   BoardBottomToolbarProps
 >(function BoardBottomToolbar(
-  { cursorActive, onActivateCursor, onPickImage, onPickVideo, onPickMedia },
+  {
+    cursorActive,
+    onActivateCursor,
+    onPickImage,
+    onPickVideo,
+    onPickMedia,
+    onPickAudio,
+    onCreateSticky,
+    onCreateText,
+    onCreateFrame,
+    onOpenDraw,
+    onOpenRecord,
+  },
   ref,
 ) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   useImperativeHandle(ref, () => ({
     openMediaPicker: () => mediaInputRef.current?.click(),
@@ -78,39 +101,39 @@ export const BoardBottomToolbar = forwardRef<
       />
       <ToolButton
         icon={AudioWaveform}
-        label={COMING_SOON_TIP}
-        disabled
+        label="Upload audio"
+        onClick={() => audioInputRef.current?.click()}
         testId="toolbar-bottom-audio"
       />
       <ToolButton
         icon={Frame}
-        label={COMING_SOON_TIP}
-        disabled
+        label="Add frame"
+        onClick={onCreateFrame}
         testId="toolbar-bottom-frame"
       />
       <ToolButton
         icon={Pencil}
-        label={COMING_SOON_TIP}
-        disabled
+        label="Draw"
+        onClick={onOpenDraw}
         testId="toolbar-bottom-draw"
       />
       <ToolButton
         icon={Type}
-        label={COMING_SOON_TIP}
-        disabled
+        label="Add text"
+        onClick={onCreateText}
         testId="toolbar-bottom-text"
       />
       <ToolButton
         icon={StickyNote}
-        label={COMING_SOON_TIP}
-        disabled
+        label="Add sticky note"
+        onClick={onCreateSticky}
         testId="toolbar-bottom-sticky"
       />
       <ToolButton
         icon={Circle}
         iconClassName="fill-rose-500 text-rose-500"
-        label={COMING_SOON_TIP}
-        disabled
+        label="Record voice note"
+        onClick={onOpenRecord}
         testId="toolbar-bottom-record"
       />
       <div className="w-px h-5 bg-neutral-200 mx-1 dark:bg-neutral-700" />
@@ -160,6 +183,19 @@ export const BoardBottomToolbar = forwardRef<
         onChange={(e) => {
           const files = e.target.files;
           if (files && files.length > 0) onPickVideo(files);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        className="hidden"
+        data-testid="input-toolbar-bottom-audio"
+        onChange={(e) => {
+          const files = e.target.files;
+          if (files && files.length > 0) onPickAudio(files);
           e.target.value = "";
         }}
       />

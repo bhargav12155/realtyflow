@@ -6,7 +6,18 @@ import { insertBoardAssetSchema } from "@shared/schema";
 import { realtimeService } from "../websocket";
 import { sendBoardSharedEmail, getAppBaseUrl } from "../services/mailer";
 
-export const ASSET_KINDS = ["image", "video", "audio"] as const;
+export const ASSET_KINDS = [
+  "image",
+  "video",
+  "audio",
+  // Tool-created kinds added by the bottom toolbar's sticky/text/frame/draw
+  // buttons. They live as board assets so collaborators see them on the
+  // canvas, but they have no provider-generated media URL.
+  "sticky",
+  "text",
+  "frame",
+  "drawing",
+] as const;
 export const ASSET_PROVIDERS = [
   "luma",
   "runway",
@@ -20,6 +31,9 @@ export const ASSET_PROVIDERS = [
   // Direct user upload from the bottom toolbar's image/video/+ buttons.
   // Not a generation provider — the assetUrl points at the uploaded file.
   "upload",
+  // Created on the canvas by a bottom-toolbar tool (sticky note, text,
+  // frame, drawing, in-browser audio recording). Not a generation source.
+  "tool",
 ] as const;
 
 const updateBoardSchema = z.object({
@@ -59,6 +73,7 @@ const createAssetSchema = insertBoardAssetSchema
     kind: z.enum(ASSET_KINDS),
     provider: z.enum(ASSET_PROVIDERS),
     status: z.enum(ASSET_STATUSES).optional(),
+    content: z.string().max(10_000).nullable().optional(),
   });
 
 const updateAssetSchema = z.object({
@@ -73,6 +88,7 @@ const updateAssetSchema = z.object({
   durationSeconds: z.number().nullable().optional(),
   modelLabel: z.string().nullable().optional(),
   batchLabel: z.string().nullable().optional(),
+  content: z.string().max(10_000).nullable().optional(),
 });
 
 // =====================================================
@@ -91,12 +107,13 @@ export const BOARD_CHAT_GENERATION_MODES = [
 ] as const;
 export type BoardChatGenerationMode = (typeof BOARD_CHAT_GENERATION_MODES)[number];
 
-// Providers the chat handler is allowed to dispatch to. "upload" is a board
-// asset provider but never a generation target, so it is intentionally
-// excluded here even though it is part of `ASSET_PROVIDERS`.
+// Providers the chat handler is allowed to dispatch to. "upload" and "tool"
+// are board asset providers (uploaded files / on-board tool kinds like
+// stickies, frames, drawings) but never generation targets, so they are
+// intentionally excluded here even though they are part of `ASSET_PROVIDERS`.
 export const CHAT_PROVIDERS = ASSET_PROVIDERS.filter(
-  (p) => p !== "upload",
-) as Exclude<(typeof ASSET_PROVIDERS)[number], "upload">[];
+  (p) => p !== "upload" && p !== "tool",
+) as Exclude<(typeof ASSET_PROVIDERS)[number], "upload" | "tool">[];
 
 export const boardChatPayloadSchema = z.object({
   message: z.string().min(1).max(8000),

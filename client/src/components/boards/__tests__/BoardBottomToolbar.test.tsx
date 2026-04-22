@@ -15,6 +15,12 @@ function renderToolbar(
   const onPickImage = vi.fn();
   const onPickVideo = vi.fn();
   const onPickMedia = vi.fn();
+  const onPickAudio = vi.fn();
+  const onCreateSticky = vi.fn();
+  const onCreateText = vi.fn();
+  const onCreateFrame = vi.fn();
+  const onOpenDraw = vi.fn();
+  const onOpenRecord = vi.fn();
   const ref = { current: null } as { current: BoardBottomToolbarHandle | null };
   function Wrapper() {
     const localRef = useRef<BoardBottomToolbarHandle>(null);
@@ -29,48 +35,53 @@ function renderToolbar(
         onPickImage={onPickImage}
         onPickVideo={onPickVideo}
         onPickMedia={onPickMedia}
+        onPickAudio={onPickAudio}
+        onCreateSticky={onCreateSticky}
+        onCreateText={onCreateText}
+        onCreateFrame={onCreateFrame}
+        onOpenDraw={onOpenDraw}
+        onOpenRecord={onOpenRecord}
         {...overrides}
       />
     );
   }
   render(<Wrapper />);
-  return { onActivateCursor, onPickImage, onPickVideo, onPickMedia, ref };
+  return {
+    onActivateCursor,
+    onPickImage,
+    onPickVideo,
+    onPickMedia,
+    onPickAudio,
+    onCreateSticky,
+    onCreateText,
+    onCreateFrame,
+    onOpenDraw,
+    onOpenRecord,
+    ref,
+  };
 }
 
-const ENABLED_TIDS = [
+const TOOL_TIDS = [
   "toolbar-bottom-cursor",
   "toolbar-bottom-image",
   "toolbar-bottom-video",
-  "toolbar-bottom-plus",
-];
-const DISABLED_TIDS = [
   "toolbar-bottom-audio",
   "toolbar-bottom-frame",
   "toolbar-bottom-draw",
   "toolbar-bottom-text",
   "toolbar-bottom-sticky",
   "toolbar-bottom-record",
+  "toolbar-bottom-plus",
 ];
 
 describe("BoardBottomToolbar", () => {
-  it("renders all ten tool icons", () => {
+  it("renders all ten tool icons enabled (no more Coming soon placeholders)", () => {
     renderToolbar();
-    for (const id of [...ENABLED_TIDS, ...DISABLED_TIDS]) {
-      expect(screen.getByTestId(id)).toBeTruthy();
-    }
-    expect([...ENABLED_TIDS, ...DISABLED_TIDS]).toHaveLength(10);
-  });
-
-  it("disables placeholder tools and shows the Coming soon tooltip", () => {
-    renderToolbar();
-    for (const id of DISABLED_TIDS) {
+    for (const id of TOOL_TIDS) {
       const btn = screen.getByTestId(id) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
-      expect(btn.getAttribute("title")).toBe("Coming soon");
-    }
-    for (const id of ENABLED_TIDS) {
-      const btn = screen.getByTestId(id) as HTMLButtonElement;
+      expect(btn).toBeTruthy();
       expect(btn.disabled).toBe(false);
+      expect(btn.getAttribute("title")).not.toBe("Coming soon");
     }
   });
 
@@ -99,6 +110,18 @@ describe("BoardBottomToolbar", () => {
       "input-toolbar-bottom-video",
     ) as HTMLInputElement;
     expect(input.accept).toBe("video/*");
+  });
+
+  it("the audio button forwards audio-only files to onPickAudio", () => {
+    const { onPickAudio } = renderToolbar();
+    const input = screen.getByTestId(
+      "input-toolbar-bottom-audio",
+    ) as HTMLInputElement;
+    expect(input.accept).toBe("audio/*");
+    const file = new File(["x"], "tone.mp3", { type: "audio/mpeg" });
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(onPickAudio).toHaveBeenCalledTimes(1);
+    expect(onPickAudio.mock.calls[0][0][0]).toBe(file);
   });
 
   it("plus button picker accepts both images and videos and shows the Ctrl+U hint", () => {
@@ -130,6 +153,24 @@ describe("BoardBottomToolbar", () => {
     const f = new File(["x"], "p.png", { type: "image/png" });
     fireEvent.change(input, { target: { files: [f] } });
     expect(onPickMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("clicking sticky/text/frame triggers their create callbacks", () => {
+    const { onCreateSticky, onCreateText, onCreateFrame } = renderToolbar();
+    fireEvent.click(screen.getByTestId("toolbar-bottom-sticky"));
+    fireEvent.click(screen.getByTestId("toolbar-bottom-text"));
+    fireEvent.click(screen.getByTestId("toolbar-bottom-frame"));
+    expect(onCreateSticky).toHaveBeenCalledTimes(1);
+    expect(onCreateText).toHaveBeenCalledTimes(1);
+    expect(onCreateFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it("clicking draw and record opens their respective tools", () => {
+    const { onOpenDraw, onOpenRecord } = renderToolbar();
+    fireEvent.click(screen.getByTestId("toolbar-bottom-draw"));
+    fireEvent.click(screen.getByTestId("toolbar-bottom-record"));
+    expect(onOpenDraw).toHaveBeenCalledTimes(1);
+    expect(onOpenRecord).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -171,6 +212,12 @@ describe("BoardBottomToolbar Ctrl+U keyboard wiring", () => {
           onPickImage={() => {}}
           onPickVideo={() => {}}
           onPickMedia={() => {}}
+          onPickAudio={() => {}}
+          onCreateSticky={() => {}}
+          onCreateText={() => {}}
+          onCreateFrame={() => {}}
+          onOpenDraw={() => {}}
+          onOpenRecord={() => {}}
         />
       </div>
     );

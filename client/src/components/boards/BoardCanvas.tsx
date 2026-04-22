@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
+import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
 
 export interface CanvasAsset {
   id: string;
@@ -10,6 +11,7 @@ export interface CanvasAsset {
   status: string;
   rejectionReason?: string | null;
   kind: string;
+  content?: string | null;
   evalHistory?: BoardAssetEvalHistoryEntry[] | null;
   sourceAssetId?: string | null;
 }
@@ -273,6 +275,11 @@ function AssetTile({
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
   const src = asset.thumbnailUrl || asset.assetUrl;
+  const isSticky = asset.kind === "sticky";
+  const isText = asset.kind === "text";
+  const isFrame = asset.kind === "frame";
+  const isDrawing = asset.kind === "drawing";
+  const isAudio = asset.kind === "audio";
   const sourceSrc = sourceAsset ? sourceAsset.thumbnailUrl || sourceAsset.assetUrl : null;
   const history = Array.isArray(asset.evalHistory) ? asset.evalHistory : [];
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -293,16 +300,85 @@ function AssetTile({
       }}
     >
       <div
-        className={`relative w-full h-full rounded-md overflow-hidden bg-neutral-200 dark:bg-neutral-800 cursor-pointer ${
-          selected ? "ring-2 ring-blue-500" : ""
-        }`}
+        className={`relative w-full h-full rounded-md overflow-hidden ${
+          isSticky
+            ? "bg-yellow-200 dark:bg-yellow-300"
+            : isFrame
+              ? "bg-transparent border-2 border-dashed border-neutral-400 dark:border-neutral-500"
+              : isText
+                ? "bg-transparent"
+                : "bg-neutral-200 dark:bg-neutral-800"
+        } cursor-pointer ${selected ? "ring-2 ring-blue-500" : ""}`}
         onClick={(e) => {
           e.stopPropagation();
           onSelect();
         }}
         data-testid={`asset-${asset.id}`}
       >
-        {src ? (
+        {isSticky ? (
+          <div
+            className="w-full h-full p-2 text-[11px] leading-snug text-neutral-900 whitespace-pre-wrap break-words overflow-hidden"
+            data-testid={`sticky-content-${asset.id}`}
+          >
+            {asset.content || "Sticky note"}
+          </div>
+        ) : isText ? (
+          <div
+            className="w-full h-full p-1.5 text-[12px] leading-snug text-neutral-900 dark:text-neutral-100 whitespace-pre-wrap break-words overflow-hidden"
+            data-testid={`text-content-${asset.id}`}
+          >
+            {asset.content || "Text"}
+          </div>
+        ) : isFrame ? (
+          <div
+            className="w-full h-full p-1.5 flex items-start justify-start text-[11px] font-medium uppercase tracking-wide text-neutral-600 dark:text-neutral-300"
+            data-testid={`frame-content-${asset.id}`}
+          >
+            {asset.content || "Frame"}
+          </div>
+        ) : isDrawing ? (
+          (() => {
+            const drawing = parseDrawingContent(asset.content);
+            if (!drawing || drawing.strokes.length === 0) {
+              return (
+                <div
+                  className="w-full h-full flex items-center justify-center bg-white dark:bg-neutral-100 text-[10px] text-neutral-500"
+                  data-testid={`drawing-content-${asset.id}`}
+                >
+                  empty drawing
+                </div>
+              );
+            }
+            return (
+              <svg
+                viewBox={`0 0 ${drawing.width} ${drawing.height}`}
+                className="w-full h-full bg-white dark:bg-neutral-100"
+                preserveAspectRatio="xMidYMid meet"
+                data-testid={`drawing-content-${asset.id}`}
+              >
+                {drawing.strokes.map((s, i) => (
+                  <path
+                    key={i}
+                    d={drawingStrokeToPath(s)}
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth={s.width}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </svg>
+            );
+          })()
+        ) : isAudio && asset.assetUrl ? (
+          <div
+            className="w-full h-full p-2 flex items-center justify-center bg-neutral-50 dark:bg-neutral-900"
+            data-testid={`audio-content-${asset.id}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <audio src={asset.assetUrl} controls className="w-full" />
+          </div>
+        ) : src ? (
           <img src={src} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">

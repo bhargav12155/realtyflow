@@ -1888,6 +1888,10 @@ export const boardAssets = pgTable("board_assets", {
   height: real("height").notNull().default(180),
   status: varchar("status", { length: 16 }).notNull().default("queued"), // queued | generating | ready | failed | rejected
   rejectionReason: text("rejection_reason"),
+  // Free-text body for tool-created assets that don't have a media URL
+  // (sticky notes, text labels, frame titles, drawing SVG markup, etc.).
+  // Null for generated/upload assets where the URL is the source of truth.
+  content: text("content"),
   evalHistory: jsonb("eval_history").$type<BoardAssetEvalHistoryEntry[]>().default([]),
   // When this asset was produced by editing/remixing another asset on the
   // board (image edit flow), this points to the source asset id so the UI can

@@ -13,7 +13,9 @@ import {
   BoardBottomToolbar,
   type BoardBottomToolbarHandle,
 } from "@/components/boards/BoardBottomToolbar";
-import { uploadFilesToBoard } from "@/lib/boardUpload";
+import { uploadFilesToBoard, uploadFileToBoard } from "@/lib/boardUpload";
+import { DrawingModal } from "@/components/boards/DrawingModal";
+import { RecordModal } from "@/components/boards/RecordModal";
 import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
 import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
@@ -67,6 +69,8 @@ export default function BoardDetailPage() {
 
   const [chatOpen, setChatOpen] = useState(true);
   const [shareOpen, setShareOpen] = useState(false);
+  const [drawOpen, setDrawOpen] = useState(false);
+  const [recordOpen, setRecordOpen] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [mode, setMode] = useState<ChatMode>("create");
   const [provider, setProvider] = useState<ProviderId>("luma");
@@ -440,6 +444,94 @@ export default function BoardDetailPage() {
   }, [boardId]);
 
   const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
+
+  const createToolAsset = useCallback(
+    async (params: {
+      kind: "sticky" | "text" | "frame" | "drawing";
+      content: string;
+      width?: number;
+      height?: number;
+      label?: string;
+    }) => {
+      if (!boardId) return;
+      const batchId = `tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const tileWidth =
+        params.width ?? (params.kind === "frame" ? 320 : params.kind === "drawing" ? 360 : 200);
+      const tileHeight =
+        params.height ?? (params.kind === "frame" ? 200 : params.kind === "drawing" ? 240 : 150);
+      const labels: Record<string, string> = {
+        sticky: "Sticky note",
+        text: "Text",
+        frame: "Frame",
+        drawing: "Drawing",
+      };
+      try {
+        await apiRequest("POST", `/api/boards/${boardId}/assets`, {
+          batchId,
+          batchLabel: params.label ?? labels[params.kind],
+          kind: params.kind,
+          provider: "tool",
+          status: "ready",
+          content: params.content,
+          positionX: 40,
+          positionY: 40,
+          width: tileWidth,
+          height: tileHeight,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast({
+          title: `Couldn't add ${labels[params.kind].toLowerCase()}`,
+          description: msg,
+          variant: "destructive",
+        });
+      }
+    },
+    [boardId, toast],
+  );
+
+  const promptCreate = useCallback(
+    (kind: "sticky" | "text" | "frame", placeholder: string) => {
+      if (typeof window === "undefined") return;
+      const value = window.prompt(placeholder, "");
+      if (value === null) return;
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      void createToolAsset({ kind, content: trimmed });
+    },
+    [createToolAsset],
+  );
+
+  const handleSaveDrawing = useCallback(
+    (svg: string) => {
+      setDrawOpen(false);
+      void createToolAsset({ kind: "drawing", content: svg });
+    },
+    [createToolAsset],
+  );
+
+  const handleSaveRecording = useCallback(
+    async (file: File) => {
+      setRecordOpen(false);
+      if (!boardId) return;
+      try {
+        const result = await uploadFileToBoard(boardId, file);
+        if (result) {
+          queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+          toast({
+            title: "Voice note added",
+            description: "It's now visible on the board.",
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast({ title: "Recording failed", description: msg, variant: "destructive" });
+      }
+    },
+    [boardId, toast],
+  );
+
   const handleUploadFiles = useCallback(
     async (files: FileList | File[]) => {
       if (!boardId) return;
@@ -717,6 +809,16 @@ export default function BoardDetailPage() {
             onPickImage={(files) => void handleUploadFiles(files)}
             onPickVideo={(files) => void handleUploadFiles(files)}
             onPickMedia={(files) => void handleUploadFiles(files)}
+            onPickAudio={(files) => void handleUploadFiles(files)}
+            onCreateSticky={() =>
+              promptCreate("sticky", "What should this sticky note say?")
+            }
+            onCreateText={() => promptCreate("text", "Text to add to the board:")}
+            onCreateFrame={() =>
+              promptCreate("frame", "Name this frame (e.g. Hero shots):")
+            }
+            onOpenDraw={() => setDrawOpen(true)}
+            onOpenRecord={() => setRecordOpen(true)}
           />
         </div>
         {chatOpen && (
@@ -751,6 +853,8 @@ export default function BoardDetailPage() {
         )}
       </div>
       <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
+      <DrawingModal open={drawOpen} onCancel={() => setDrawOpen(false)} onSave={handleSaveDrawing} />
+      <RecordModal open={recordOpen} onCancel={() => setRecordOpen(false)} onSave={handleSaveRecording} />
     </div>
   );
 }

@@ -548,6 +548,7 @@ export type BoardAssetUpdate = Partial<Pick<
   | "modelLabel"
   | "batchLabel"
   | "evalHistory"
+  | "content"
 >>;
 export type BoardMessageCreate = Omit<InsertBoardMessage, "boardId">;
 

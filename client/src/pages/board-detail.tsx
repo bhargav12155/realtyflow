@@ -6,6 +6,7 @@ import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/boards/BoardCanvas";
@@ -653,9 +654,20 @@ export default function BoardDetailPage() {
       toast({
         title: "Upload cancelled",
         description: entry ? entry.fileName : undefined,
+        action: entry ? (
+          <ToastAction
+            altText={`Undo cancel of ${entry.fileName}`}
+            onClick={() => {
+              void startUpload(entry.file, id);
+            }}
+            data-testid={`button-undo-cancel-upload-${id}`}
+          >
+            Undo
+          </ToastAction>
+        ) : undefined,
       });
     },
-    [uploadChips, toast],
+    [uploadChips, toast, startUpload],
   );
 
   // Ctrl+U / Cmd+U opens the "+" media picker, but only when the user isn't

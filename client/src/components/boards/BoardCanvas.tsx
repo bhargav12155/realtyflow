@@ -23,12 +23,32 @@ export interface CanvasAsset {
   height?: number | null;
 }
 
-const RESIZABLE_KINDS = new Set(["drawing", "audio"]);
+const RESIZABLE_KINDS = new Set([
+  "drawing",
+  "audio",
+  "image",
+  "video",
+  "sticky",
+  "text",
+  "frame",
+]);
 const RESIZE_DEFAULTS: Record<string, { width: number; height: number }> = {
   drawing: { width: 360, height: 240 },
   audio: { width: 320, height: 90 },
+  image: { width: 150, height: 110 },
+  video: { width: 150, height: 110 },
+  sticky: { width: 150, height: 110 },
+  text: { width: 150, height: 110 },
+  frame: { width: 150, height: 110 },
 };
-const RESIZE_MIN = { width: 160, height: 80 };
+const RESIZE_MIN_DEFAULT = { width: 160, height: 80 };
+const RESIZE_MIN_BY_KIND: Record<string, { width: number; height: number }> = {
+  image: { width: 80, height: 60 },
+  video: { width: 80, height: 60 },
+  sticky: { width: 80, height: 60 },
+  text: { width: 80, height: 60 },
+  frame: { width: 80, height: 60 },
+};
 const RESIZE_MAX = { width: 800, height: 600 };
 
 export interface CanvasBatch {
@@ -550,13 +570,14 @@ function AssetTile({
       startH: size.height,
     };
   };
+  const minSize = RESIZE_MIN_BY_KIND[asset.kind] ?? RESIZE_MIN_DEFAULT;
   const handleResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = resizeRef.current;
     if (!r) return;
     const dw = e.clientX - r.startX;
     const dh = e.clientY - r.startY;
-    const w = Math.max(RESIZE_MIN.width, Math.min(RESIZE_MAX.width, r.startW + dw));
-    const h = Math.max(RESIZE_MIN.height, Math.min(RESIZE_MAX.height, r.startH + dh));
+    const w = Math.max(minSize.width, Math.min(RESIZE_MAX.width, r.startW + dw));
+    const h = Math.max(minSize.height, Math.min(RESIZE_MAX.height, r.startH + dh));
     setSize({ width: Math.round(w), height: Math.round(h) });
   };
   const handleResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {

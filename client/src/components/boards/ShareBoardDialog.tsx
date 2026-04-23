@@ -4,6 +4,7 @@ import { Check, Loader2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface ShareCandidate {
   id: string;
@@ -27,6 +28,7 @@ interface ShareBoardDialogProps {
 
 export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDialogProps) {
   const { toast } = useToast();
+  const confirm = useConfirm();
   const [search, setSearch] = useState("");
 
   const sharesQuery = useQuery<ShareRecipient[]>({
@@ -131,7 +133,17 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
                   </div>
                   <button
                     type="button"
-                    onClick={() => unshareMutation.mutate(s.userId)}
+                    onClick={async () => {
+                      const label = s.name || s.email || s.userId;
+                      const ok = await confirm({
+                        title: "Remove access?",
+                        description: `${label} will no longer be able to view this board.`,
+                        confirmText: "Remove",
+                        cancelText: "Cancel",
+                        variant: "destructive",
+                      });
+                      if (ok) unshareMutation.mutate(s.userId);
+                    }}
                     disabled={unshareMutation.isPending}
                     className="ml-2 text-neutral-500 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:text-neutral-100"
                     aria-label="Remove access"

@@ -26,7 +26,7 @@ function renderCanvas(batches: CanvasBatch[]) {
   return render(
     <BoardCanvas
       batches={batches}
-      selectedAssetId={null}
+      selectedAssetIds={new Set()}
       onSelectAsset={() => {}}
       onDeleteAsset={() => {}}
       onClearRejection={() => {}}

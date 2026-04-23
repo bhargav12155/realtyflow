@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
+
+export interface SelectAssetOptions {
+  /** True for shift/cmd/ctrl-click — toggle this id in the existing selection. */
+  additive?: boolean;
+}
 
 export interface CanvasAsset {
   id: string;
@@ -26,8 +31,12 @@ export type ReEvalModel = "openai" | "gemini";
 
 interface BoardCanvasProps {
   batches: CanvasBatch[];
-  selectedAssetId: string | null;
-  onSelectAsset: (id: string | null) => void;
+  selectedAssetIds: Set<string>;
+  onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
+  /** Replace the selection with the given ids (used by marquee drag). */
+  onSelectMany?: (ids: string[]) => void;
+  /** Cmd/Ctrl+A → select every asset on the board. */
+  onSelectAll?: () => void;
   onDeleteAsset: (id: string) => void;
   onClearRejection: (id: string) => void;
   onSetWinner?: (batchId: string, assetId: string) => void;
@@ -39,10 +48,21 @@ interface BoardCanvasProps {
   setWinnerPendingAssetId?: string | null;
 }
 
+interface MarqueeBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const MARQUEE_THRESHOLD_PX = 4;
+
 export function BoardCanvas({
   batches,
-  selectedAssetId,
+  selectedAssetIds,
   onSelectAsset,
+  onSelectMany,
+  onSelectAll,
   onDeleteAsset,
   onClearRejection,
   onSetWinner,
@@ -57,9 +77,125 @@ export function BoardCanvas({
   for (const b of batches) {
     for (const a of b.assets) assetsById.set(a.id, a);
   }
+
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const draggedRef = useRef(false);
+  const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
+
+  // Marquee selection: when the user mouse-downs on the canvas background
+  // (not on a tile or popover), drag a rectangle. On release, replace the
+  // current selection with every tile whose bounding box intersects.
+  useEffect(() => {
+    if (!marquee) return;
+    const onMove = (e: MouseEvent) => {
+      const start = marqueeStartRef.current;
+      if (!start) return;
+      const dx = Math.abs(e.clientX - start.x);
+      const dy = Math.abs(e.clientY - start.y);
+      if (dx > MARQUEE_THRESHOLD_PX || dy > MARQUEE_THRESHOLD_PX) {
+        draggedRef.current = true;
+      }
+      setMarquee({
+        x: Math.min(start.x, e.clientX),
+        y: Math.min(start.y, e.clientY),
+        w: Math.abs(e.clientX - start.x),
+        h: Math.abs(e.clientY - start.y),
+      });
+    };
+    const onUp = (e: MouseEvent) => {
+      const start = marqueeStartRef.current;
+      const wasDrag = draggedRef.current;
+      marqueeStartRef.current = null;
+      draggedRef.current = false;
+      setMarquee(null);
+      if (!start) return;
+      if (!wasDrag) {
+        // Treat as a background click — let the existing onClick handler
+        // clear the selection. (Browsers fire click only when no drag.)
+        return;
+      }
+      const box = {
+        left: Math.min(start.x, e.clientX),
+        right: Math.max(start.x, e.clientX),
+        top: Math.min(start.y, e.clientY),
+        bottom: Math.max(start.y, e.clientY),
+      };
+      const root = scrollerRef.current;
+      if (!root) return;
+      const tiles = root.querySelectorAll<HTMLElement>("[data-asset-id]");
+      const hits: string[] = [];
+      tiles.forEach((el) => {
+        const id = el.getAttribute("data-asset-id");
+        if (!id) return;
+        const r = el.getBoundingClientRect();
+        if (r.right >= box.left && r.left <= box.right && r.bottom >= box.top && r.top <= box.bottom) {
+          hits.push(id);
+        }
+      });
+      onSelectMany?.(hits);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [marquee, onSelectMany]);
+
+  // Esc clears, Cmd/Ctrl+A selects every asset on the board.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "Escape") {
+        if (selectedAssetIds.size > 0) {
+          onSelectAsset(null);
+        }
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A")) {
+        if (!onSelectAll) return;
+        e.preventDefault();
+        onSelectAll();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedAssetIds, onSelectAsset, onSelectAll]);
+
+  const onCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    // Skip when the press lands on (or inside) something interactive — tiles,
+    // buttons, links, form fields, contenteditable surfaces, or popups.
+    // Anything else inside the scroller (batch wrappers, padding, gaps) is
+    // treated as canvas background so the user can start a marquee from there.
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      target.closest(
+        '[data-asset-id], button, a, input, textarea, select, [role="dialog"], [contenteditable="true"]',
+      )
+    ) {
+      return;
+    }
+    marqueeStartRef.current = { x: e.clientX, y: e.clientY };
+    draggedRef.current = false;
+    setMarquee({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+  };
+
   return (
     <main className="relative flex-1 overflow-hidden bg-[radial-gradient(circle,_rgba(0,0,0,0.06)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.06)_1px,_transparent_1px)] [background-size:18px_18px] bg-neutral-100 dark:bg-neutral-950">
-      <div className="absolute inset-0 overflow-auto px-8 py-6" onClick={() => onSelectAsset(null)}>
+      <div
+        ref={scrollerRef}
+        className="absolute inset-0 overflow-auto px-8 py-6"
+        onMouseDown={onCanvasMouseDown}
+        onClick={() => onSelectAsset(null)}
+        data-testid="canvas-scroller"
+      >
         {batches.length === 0 ? (
           <div className="h-full flex items-center justify-center text-[12px] text-neutral-400 dark:text-neutral-500" data-testid="text-empty-canvas">
             No assets yet — send a prompt in the chat to start a batch.
@@ -70,8 +206,8 @@ export function BoardCanvas({
               key={b.batchId}
               batch={b}
               assetsById={assetsById}
-              selectedAssetId={selectedAssetId}
-              onSelectAsset={(id) => onSelectAsset(id)}
+              selectedAssetIds={selectedAssetIds}
+              onSelectAsset={onSelectAsset}
               onDeleteAsset={onDeleteAsset}
               onClearRejection={onClearRejection}
               onSetWinner={onSetWinner}
@@ -82,6 +218,18 @@ export function BoardCanvas({
           ))
         )}
       </div>
+      {marquee && (marquee.w > 0 || marquee.h > 0) && (
+        <div
+          className="fixed pointer-events-none border border-blue-500 bg-blue-500/10 z-30"
+          style={{
+            left: marquee.x,
+            top: marquee.y,
+            width: marquee.w,
+            height: marquee.h,
+          }}
+          data-testid="marquee-rect"
+        />
+      )}
       <ZoomControls />
     </main>
   );
@@ -90,7 +238,7 @@ export function BoardCanvas({
 function BatchGroup({
   batch,
   assetsById,
-  selectedAssetId,
+  selectedAssetIds,
   onSelectAsset,
   onDeleteAsset,
   onClearRejection,
@@ -101,8 +249,8 @@ function BatchGroup({
 }: {
   batch: CanvasBatch;
   assetsById: Map<string, CanvasAsset>;
-  selectedAssetId: string | null;
-  onSelectAsset: (id: string) => void;
+  selectedAssetIds: Set<string>;
+  onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
   onDeleteAsset: (id: string) => void;
   onClearRejection: (id: string) => void;
   onSetWinner?: (batchId: string, assetId: string) => void;
@@ -159,9 +307,9 @@ function BatchGroup({
                 key={a.id}
                 asset={a}
                 sourceAsset={source}
-                selected={a.id === selectedAssetId}
+                selected={selectedAssetIds.has(a.id)}
                 isWinner={a.id === winnerId}
-                onSelect={() => onSelectAsset(a.id)}
+                onSelect={(opts) => onSelectAsset(a.id, opts)}
                 onSelectSource={source ? () => onSelectAsset(source.id) : undefined}
                 onDelete={() => onDeleteAsset(a.id)}
                 onClearRejection={() => onClearRejection(a.id)}
@@ -265,7 +413,7 @@ function AssetTile({
   sourceAsset?: CanvasAsset | null;
   selected: boolean;
   isWinner: boolean;
-  onSelect: () => void;
+  onSelect: (opts?: SelectAssetOptions) => void;
   onSelectSource?: () => void;
   onDelete: () => void;
   onClearRejection: () => void;
@@ -298,6 +446,7 @@ function AssetTile({
         setHistoryOpen(false);
         setBeforeOpen(false);
       }}
+      data-asset-id={asset.id}
     >
       <div
         className={`relative w-full h-full rounded-md overflow-hidden ${
@@ -309,9 +458,15 @@ function AssetTile({
                 ? "bg-transparent"
                 : "bg-neutral-200 dark:bg-neutral-800"
         } cursor-pointer ${selected ? "ring-2 ring-blue-500" : ""}`}
+        onMouseDown={(e) => {
+          // Prevent the canvas-level mousedown from starting a marquee when
+          // the user clicks (or shift-clicks) directly on a tile.
+          e.stopPropagation();
+        }}
         onClick={(e) => {
           e.stopPropagation();
-          onSelect();
+          const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+          onSelect({ additive });
         }}
         data-testid={`asset-${asset.id}`}
       >

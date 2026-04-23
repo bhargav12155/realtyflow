@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ChevronDown, LogOut, MessageSquare, Settings as SettingsIcon, Share2, Moon, Sun } from "lucide-react";
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
+import { GroupAssetToolbar } from "@/components/boards/GroupAssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -77,7 +78,13 @@ export default function BoardDetailPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
-  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  // Multi-select: an array of asset ids (insertion order preserved). For
+  // backwards-compat with the rest of the page, `selectedAssetId` is derived
+  // and only non-null when exactly one asset is selected — that's the case
+  // where the single-asset toolbar (with before/after compare) makes sense.
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  const selectedAssetId = selectedAssetIds.length === 1 ? selectedAssetIds[0] : null;
+  const selectedAssetSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
   const [mode, setMode] = useState<ChatMode>("create");
   const [provider, setProvider] = useState<ProviderId>("luma");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
@@ -247,22 +254,62 @@ export default function BoardDetailPage() {
     },
   });
 
-  const referencedAssetIds = useMemo(() => (selectedAssetId ? [selectedAssetId] : []), [selectedAssetId]);
-  const hasReferencedImage = useMemo(() => {
-    if (!selectedAssetId || !boardQuery.data) return false;
-    const a = boardQuery.data.assets.find((x) => x.id === selectedAssetId);
-    return a?.kind === "image";
-  }, [selectedAssetId, boardQuery.data]);
-  const referencedAssets = useMemo(() => {
-    if (!selectedAssetId || !boardQuery.data) return [];
-    const a = boardQuery.data.assets.find((x) => x.id === selectedAssetId);
-    if (!a) return [];
-    // Images render their assetUrl directly; videos use the still thumbnail
-    // (since vision models can't watch a moving video).
-    const previewUrl =
-      a.kind === "image" ? a.assetUrl : a.kind === "video" ? a.thumbnailUrl : null;
-    return [{ id: a.id, kind: a.kind, previewUrl }];
-  }, [selectedAssetId, boardQuery.data]);
+  const referencedAssetIds = selectedAssetIds;
+  const selectedAssetObjects = useMemo(() => {
+    if (selectedAssetIds.length === 0 || !boardQuery.data) return [];
+    const byId = new Map(boardQuery.data.assets.map((a) => [a.id, a] as const));
+    const out: typeof boardQuery.data.assets = [];
+    for (const id of selectedAssetIds) {
+      const a = byId.get(id);
+      if (a) out.push(a);
+    }
+    return out;
+  }, [selectedAssetIds, boardQuery.data]);
+  const hasReferencedImage = useMemo(
+    () => selectedAssetObjects.some((a) => a.kind === "image"),
+    [selectedAssetObjects],
+  );
+  const referencedAssets = useMemo(
+    () =>
+      selectedAssetObjects.map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        // Images render their assetUrl directly; videos use the still thumbnail
+        // (since vision models can't watch a moving video).
+        previewUrl:
+          a.kind === "image" ? a.assetUrl : a.kind === "video" ? a.thumbnailUrl : null,
+      })),
+    [selectedAssetObjects],
+  );
+
+  // Selection helpers. `additive=true` (shift/cmd/ctrl click) toggles the id
+  // in the existing selection; otherwise we replace it with a single id.
+  const handleSelectAsset = useCallback(
+    (id: string | null, opts?: { additive?: boolean }) => {
+      if (id === null) {
+        setSelectedAssetIds([]);
+        return;
+      }
+      if (opts?.additive) {
+        setSelectedAssetIds((prev) =>
+          prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+        );
+        return;
+      }
+      setSelectedAssetIds([id]);
+    },
+    [],
+  );
+  const handleSelectMany = useCallback((ids: string[]) => {
+    setSelectedAssetIds(ids);
+  }, []);
+  const handleSelectAll = useCallback(() => {
+    if (!boardQuery.data) return;
+    setSelectedAssetIds(boardQuery.data.assets.map((a) => a.id));
+  }, [boardQuery.data]);
+  const handleRemoveReferencedAsset = useCallback((id: string) => {
+    setSelectedAssetIds((prev) => prev.filter((x) => x !== id));
+  }, []);
 
   const sendSelfAvatarCta = (text: string) => {
     const cta = {
@@ -360,9 +407,50 @@ export default function BoardDetailPage() {
       const res = await apiRequest("DELETE", `/api/boards/${boardId}/assets/${assetId}`);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, assetId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
-      setSelectedAssetId(null);
+      setSelectedAssetIds((prev) => prev.filter((id) => id !== assetId));
+    },
+  });
+
+  // Bulk delete the current multi-selection. Errors don't abort the batch —
+  // we report a partial-success toast so the user sees what survived.
+  const bulkDelete = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const results = await Promise.allSettled(
+        ids.map((id) =>
+          apiRequest("DELETE", `/api/boards/${boardId}/assets/${id}`).then((r) => r.json()),
+        ),
+      );
+      return { ids, results };
+    },
+    onSuccess: ({ ids, results }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+      const failed = results.filter((r) => r.status === "rejected").length;
+      const succeeded = results.length - failed;
+      // Drop the successfully-deleted ids from the selection. Failed ones
+      // stay so the user can retry.
+      const failedIds = new Set(
+        results
+          .map((r, i) => (r.status === "rejected" ? ids[i] : null))
+          .filter((x): x is string => !!x),
+      );
+      setSelectedAssetIds((prev) => prev.filter((id) => failedIds.has(id)));
+      if (failed === 0) {
+        toast({
+          title: `Deleted ${succeeded} ${succeeded === 1 ? "asset" : "assets"}`,
+        });
+      } else {
+        toast({
+          title: `Deleted ${succeeded} of ${results.length} assets`,
+          description: `${failed} couldn't be deleted. They're still selected so you can try again.`,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't delete assets", description: errText, variant: "destructive" });
     },
   });
 
@@ -446,7 +534,7 @@ export default function BoardDetailPage() {
 
   // Reset selection when board changes
   useEffect(() => {
-    setSelectedAssetId(null);
+    setSelectedAssetIds([]);
   }, [boardId]);
 
   const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
@@ -874,8 +962,10 @@ export default function BoardDetailPage() {
         <div className="relative flex-1 flex">
           <BoardCanvas
             batches={board.batches}
-            selectedAssetId={selectedAssetId}
-            onSelectAsset={setSelectedAssetId}
+            selectedAssetIds={selectedAssetSet}
+            onSelectAsset={handleSelectAsset}
+            onSelectMany={handleSelectMany}
+            onSelectAll={handleSelectAll}
             onDeleteAsset={(id) => deleteAsset.mutate(id)}
             onClearRejection={(id) => clearRejection.mutate(id)}
             onSetWinner={(batchId, assetId) => setWinner.mutate({ batchId, assetId })}
@@ -889,17 +979,29 @@ export default function BoardDetailPage() {
               setWinner.isPending ? setWinner.variables?.assetId ?? null : null
             }
           />
-          {selectedAsset && (
+          {selectedAssetIds.length === 1 && selectedAsset && (
             <AssetToolbar
               asset={selectedAsset}
               sourceAsset={selectedSourceAsset}
-              onClose={() => setSelectedAssetId(null)}
+              onClose={() => setSelectedAssetIds([])}
               onDelete={() => deleteAsset.mutate(selectedAsset.id)}
               onClearRejection={() => clearRejection.mutate(selectedAsset.id)}
               onReuseInChat={() => {
                 setMode("create");
                 if (!chatOpen) setChatOpen(true);
               }}
+            />
+          )}
+          {selectedAssetIds.length >= 2 && (
+            <GroupAssetToolbar
+              assets={selectedAssetObjects}
+              onClose={() => setSelectedAssetIds([])}
+              onReuseInChat={() => {
+                setMode("create");
+                if (!chatOpen) setChatOpen(true);
+              }}
+              onBulkDelete={() => bulkDelete.mutate(selectedAssetIds)}
+              isDeleting={bulkDelete.isPending}
             />
           )}
           {!chatOpen && (
@@ -913,8 +1015,8 @@ export default function BoardDetailPage() {
           )}
           <BoardBottomToolbar
             ref={bottomToolbarRef}
-            cursorActive={selectedAssetId === null}
-            onActivateCursor={() => setSelectedAssetId(null)}
+            cursorActive={selectedAssetIds.length === 0}
+            onActivateCursor={() => setSelectedAssetIds([])}
             onPickImage={(files) => handleUploadFiles(files)}
             onPickVideo={(files) => handleUploadFiles(files)}
             onPickMedia={(files) => handleUploadFiles(files)}
@@ -951,7 +1053,7 @@ export default function BoardDetailPage() {
             referencedAssetIds={referencedAssetIds}
             hasReferencedImage={hasReferencedImage}
             referencedAssets={referencedAssets}
-            onRemoveReferencedAsset={() => setSelectedAssetId(null)}
+            onRemoveReferencedAsset={handleRemoveReferencedAsset}
             onSend={(text) => {
               if (detectCreateSelfAvatarIntent(text)) {
                 sendSelfAvatarCta(text);

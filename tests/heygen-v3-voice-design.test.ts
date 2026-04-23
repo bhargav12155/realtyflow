@@ -2,10 +2,12 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Request, type Response, type NextFunction } from "express";
 import {
+  classifyVoiceDesignError,
   createV3VoicesDesignHandler,
   type V3DesignVoiceServiceLike,
   type V3DesignVoiceStorageLike,
 } from "../server/routes/heygen-v3";
+import { HeyGenV3Error } from "../server/services/heygen-v3";
 
 interface CreatedVoiceRow {
   userId: string;
@@ -260,6 +262,101 @@ describe("POST /api/v3/voices/design", () => {
     assert.equal(calls.designVoice.length, 0);
   });
 
+  it("returns 429 voice_design_rate_limited when HeyGen rate-limits", async () => {
+    const { service } = makeService({});
+    service.designVoice = async () => {
+      throw new HeyGenV3Error(
+        "rate limited",
+        429,
+        JSON.stringify({ message: "Too many requests" }),
+      );
+    };
+    const app = buildApp({ storage, service });
+    const { status, body } = await call(app, {
+      name: "Narrator",
+      description: "anything",
+    });
+    assert.equal(status, 429);
+    assert.equal(body.error, "voice_design_rate_limited");
+    assert.equal(storage.created.length, 0);
+  });
+
+  it("returns 502 voice_design_unauthorized when HeyGen returns 401", async () => {
+    const { service } = makeService({});
+    service.designVoice = async () => {
+      throw new HeyGenV3Error(
+        "unauthorized",
+        401,
+        JSON.stringify({ message: "Invalid API key" }),
+      );
+    };
+    const app = buildApp({ storage, service });
+    const { status, body } = await call(app, {
+      name: "Narrator",
+      description: "anything",
+    });
+    assert.equal(status, 502);
+    assert.equal(body.error, "voice_design_unauthorized");
+    assert.equal(storage.created.length, 0);
+  });
+
+  it("returns 402 voice_design_quota_exceeded when HeyGen returns 402", async () => {
+    const { service } = makeService({});
+    service.designVoice = async () => {
+      throw new HeyGenV3Error(
+        "payment required",
+        402,
+        JSON.stringify({ message: "quota exhausted" }),
+      );
+    };
+    const app = buildApp({ storage, service });
+    const { status, body } = await call(app, {
+      name: "Narrator",
+      description: "anything",
+    });
+    assert.equal(status, 402);
+    assert.equal(body.error, "voice_design_quota_exceeded");
+    assert.equal(storage.created.length, 0);
+  });
+
+  it("returns 400 voice_design_invalid_description when HeyGen returns 400", async () => {
+    const { service } = makeService({});
+    service.designVoice = async () => {
+      throw new HeyGenV3Error(
+        "bad request",
+        400,
+        JSON.stringify({ message: "invalid description" }),
+      );
+    };
+    const app = buildApp({ storage, service });
+    const { status, body } = await call(app, {
+      name: "Narrator",
+      description: "anything",
+    });
+    assert.equal(status, 400);
+    assert.equal(body.error, "voice_design_invalid_description");
+    assert.equal(storage.created.length, 0);
+  });
+
+  it("returns 502 voice_design_unavailable when HeyGen returns 5xx", async () => {
+    const { service } = makeService({});
+    service.designVoice = async () => {
+      throw new HeyGenV3Error(
+        "server error",
+        503,
+        JSON.stringify({ message: "service unavailable" }),
+      );
+    };
+    const app = buildApp({ storage, service });
+    const { status, body } = await call(app, {
+      name: "Narrator",
+      description: "anything",
+    });
+    assert.equal(status, 502);
+    assert.equal(body.error, "voice_design_unavailable");
+    assert.equal(storage.created.length, 0);
+  });
+
   it("returns 502 when HeyGen designVoice fails (no row persisted)", async () => {
     const { service } = makeService({ designFails: true });
     const app = buildApp({ storage, service });
@@ -270,5 +367,85 @@ describe("POST /api/v3/voices/design", () => {
     assert.equal(status, 502);
     assert.equal(body.error, "heygen_v3_voice_design_failed");
     assert.equal(storage.created.length, 0);
+  });
+});
+
+describe("classifyVoiceDesignError", () => {
+  it("maps 429 to voice_design_rate_limited @ 429", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("rate", 429, JSON.stringify({ message: "Too many requests" })),
+    );
+    assert.equal(r.httpStatus, 429);
+    assert.equal(r.code, "voice_design_rate_limited");
+  });
+
+  it("maps 401 to voice_design_unauthorized @ 502", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("auth", 401, JSON.stringify({ message: "Invalid API key" })),
+    );
+    assert.equal(r.httpStatus, 502);
+    assert.equal(r.code, "voice_design_unauthorized");
+  });
+
+  it("maps 403 to voice_design_unauthorized @ 502", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("forbidden", 403, JSON.stringify({ message: "forbidden" })),
+    );
+    assert.equal(r.httpStatus, 502);
+    assert.equal(r.code, "voice_design_unauthorized");
+  });
+
+  it("maps 402 to voice_design_quota_exceeded @ 402", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("payment", 402, JSON.stringify({ message: "quota exhausted" })),
+    );
+    assert.equal(r.httpStatus, 402);
+    assert.equal(r.code, "voice_design_quota_exceeded");
+  });
+
+  it("maps quota-text 200 body to voice_design_quota_exceeded @ 402", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("biz", 200, JSON.stringify({ message: "not enough credits" })),
+    );
+    assert.equal(r.httpStatus, 402);
+    assert.equal(r.code, "voice_design_quota_exceeded");
+  });
+
+  it("maps 400 to voice_design_invalid_description @ 400", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("bad", 400, JSON.stringify({ message: "invalid description" })),
+    );
+    assert.equal(r.httpStatus, 400);
+    assert.equal(r.code, "voice_design_invalid_description");
+  });
+
+  it("maps moderation text to voice_design_invalid_description @ 400", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("mod", 422, JSON.stringify({ message: "content policy violation" })),
+    );
+    assert.equal(r.httpStatus, 400);
+    assert.equal(r.code, "voice_design_invalid_description");
+  });
+
+  it("maps 500 to voice_design_unavailable @ 502", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("oops", 500, JSON.stringify({ message: "internal" })),
+    );
+    assert.equal(r.httpStatus, 502);
+    assert.equal(r.code, "voice_design_unavailable");
+  });
+
+  it("maps 503 to voice_design_unavailable @ 502", () => {
+    const r = classifyVoiceDesignError(
+      new HeyGenV3Error("oops", 503, JSON.stringify({ message: "unavailable" })),
+    );
+    assert.equal(r.httpStatus, 502);
+    assert.equal(r.code, "voice_design_unavailable");
+  });
+
+  it("falls back to heygen_v3_voice_design_failed @ 502 for unknown errors", () => {
+    const r = classifyVoiceDesignError(new Error("totally unexpected"));
+    assert.equal(r.httpStatus, 502);
+    assert.equal(r.code, "heygen_v3_voice_design_failed");
   });
 });

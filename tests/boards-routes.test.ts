@@ -1,6 +1,7 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { realtimeService } from "../server/websocket";
 import {
   registerBoardsRoutes,
   assertProviderSupportsGenerationMode,
@@ -997,5 +998,79 @@ describe("Drawing asset content sanitization", () => {
     );
     assert.equal(res.status, 200);
     assert.equal((res.body as { content: string }).content, "Updated note text");
+  });
+});
+
+// =====================================================
+// Inline-edit broadcast: PATCH /api/boards/:id/assets/:assetId with a `content`
+// change must fan out a `board_asset_updated` WS event to the owner and every
+// share recipient (Task #158 wired this; Task #183 covers it with a test).
+// =====================================================
+describe("PATCH asset content broadcasts board_asset_updated", () => {
+  it("notifies owner and every share recipient when content changes", async () => {
+    const { app, storage } = buildApp("owner-1");
+    const created = await callJson(app, "POST", "/api/boards", { title: "Shared" });
+    const boardId = (created.body as { id: string }).id;
+    await storage.shareBoard(boardId, "owner-1", "recipient-2");
+    await storage.shareBoard(boardId, "owner-1", "recipient-3");
+    const sticky = await storage.createBoardAssetForUser(boardId, "owner-1", {
+      batchId: "sticky-batch",
+      kind: "sticky",
+      provider: "tool",
+      content: "Hi",
+    } as BoardAssetCreate);
+
+    const spy = mock.method(realtimeService, "notifyBoardAssetUpdated", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "PATCH",
+        `/api/boards/${boardId}/assets/${sticky!.id}`,
+        { content: "Updated copy" },
+      );
+      assert.equal(res.status, 200);
+      assert.equal(spy.mock.calls.length, 1);
+      const [userIds, payload] = spy.mock.calls[0].arguments as [
+        string[],
+        { boardId: string; batchId: string; assetId: string; content?: string | null },
+      ];
+      assert.deepEqual(
+        [...userIds].sort(),
+        ["owner-1", "recipient-2", "recipient-3"],
+      );
+      assert.equal(payload.boardId, boardId);
+      assert.equal(payload.assetId, sticky!.id);
+      assert.equal(payload.batchId, "sticky-batch");
+      assert.equal(payload.content, "Updated copy");
+    } finally {
+      spy.mock.restore();
+    }
+  });
+
+  it("does not broadcast when the PATCH does not include a content change", async () => {
+    const { app, storage } = buildApp("owner-1");
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    await storage.shareBoard(boardId, "owner-1", "recipient-2");
+    const sticky = await storage.createBoardAssetForUser(boardId, "owner-1", {
+      batchId: "sticky-batch",
+      kind: "sticky",
+      provider: "tool",
+      content: "Hi",
+    } as BoardAssetCreate);
+
+    const spy = mock.method(realtimeService, "notifyBoardAssetUpdated", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "PATCH",
+        `/api/boards/${boardId}/assets/${sticky!.id}`,
+        { positionX: 42 },
+      );
+      assert.equal(res.status, 200);
+      assert.equal(spy.mock.calls.length, 0);
+    } finally {
+      spy.mock.restore();
+    }
   });
 });

@@ -284,6 +284,89 @@ describe("RealtimeService.persistAdminAlertForAdmins", () => {
     }
   });
 
+  it("skips notification creation for admins with an active snooze", async () => {
+    // The snooze check inside persistAdminAlertForAdmins reads
+    // `adminAlertSnoozedUntil` directly off the admin user row returned
+    // by `getAllUsers`. Patch the user fixture so admin-1 has a future
+    // snooze and admin-2 does not.
+    storageModule.storage.getAllUsers = async () =>
+      [
+        {
+          id: "admin-1",
+          role: "admin",
+          adminAlertSnoozedUntil: new Date(Date.now() + 60 * 60_000),
+        },
+        { id: "admin-2", role: "admin", adminAlertSnoozedUntil: null },
+        { id: "user-1", role: "user" },
+      ] as Array<{ id: string; role?: string }>;
+
+    const service = new RealtimeService();
+    try {
+      const anyService = service as unknown as {
+        persistAdminAlertForAdmins: (payload: {
+          source: string;
+          severity: "info" | "warning" | "error";
+          title: string;
+          message: string;
+          context?: Record<string, unknown>;
+        }) => Promise<void>;
+      };
+      await anyService.persistAdminAlertForAdmins({
+        source: "heygen",
+        severity: "error",
+        title: "drift while snoozed",
+        message: "schema mismatch",
+      });
+
+      // admin-1 is snoozed → must be skipped. admin-2 is not snoozed →
+      // must still get its notification row. Non-admin users are filtered
+      // out before the snooze check, so they never receive one either.
+      assert.equal(createdNotifications.length, 1);
+      assert.equal(createdNotifications[0].userId, "admin-2");
+      assert.equal(createdNotifications[0].type, "admin_alert");
+    } finally {
+      restore();
+    }
+  });
+
+  it("expired snoozes are ignored and the admin still gets their notification", async () => {
+    storageModule.storage.getAllUsers = async () =>
+      [
+        {
+          id: "admin-1",
+          role: "admin",
+          // Stale value in the past: must be treated as "not snoozed".
+          adminAlertSnoozedUntil: new Date(Date.now() - 60_000),
+        },
+        { id: "admin-2", role: "admin", adminAlertSnoozedUntil: null },
+        { id: "user-1", role: "user" },
+      ] as Array<{ id: string; role?: string }>;
+
+    const service = new RealtimeService();
+    try {
+      const anyService = service as unknown as {
+        persistAdminAlertForAdmins: (payload: {
+          source: string;
+          severity: "info" | "warning" | "error";
+          title: string;
+          message: string;
+        }) => Promise<void>;
+      };
+      await anyService.persistAdminAlertForAdmins({
+        source: "heygen",
+        severity: "warning",
+        title: "no longer snoozed",
+        message: "drift",
+      });
+
+      assert.equal(createdNotifications.length, 2);
+      const adminUserIds = createdNotifications.map((n) => n.userId).sort();
+      assert.deepEqual(adminUserIds, ["admin-1", "admin-2"]);
+    } finally {
+      restore();
+    }
+  });
+
   it("creates zero notifications when no admin users exist", async () => {
     storageModule.storage.getAllUsers = async () => [
       { id: "user-1", role: "user" },

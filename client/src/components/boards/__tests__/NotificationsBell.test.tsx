@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Notification } from "@shared/schema";
 
 const notificationsRef: { current: Notification[] } = { current: [] };
+const snoozeResponseRef: { current: { until: string | null } } = {
+  current: { until: null },
+};
 const queryClientRef: { current: QueryClient | null } = { current: null };
 const apiRequestMock = vi.fn(async () => ({}));
 
@@ -22,7 +25,15 @@ vi.mock("@/lib/queryClient", () => {
   return {
     apiRequest: (...args: unknown[]) => apiRequestMock(...args),
     queryClient: proxy,
-    getQueryFn: () => async () => notificationsRef.current,
+    getQueryFn:
+      () =>
+      async ({ queryKey }: { queryKey: readonly unknown[] }) => {
+        const key = String(queryKey[0]);
+        if (key === "/api/notifications/admin-alert-snooze") {
+          return snoozeResponseRef.current;
+        }
+        return notificationsRef.current;
+      },
   };
 });
 
@@ -47,7 +58,13 @@ function renderBell() {
         retry: false,
         gcTime: 0,
         staleTime: 0,
-        queryFn: async () => notificationsRef.current,
+        queryFn: async ({ queryKey }) => {
+          const key = String(queryKey[0]);
+          if (key === "/api/notifications/admin-alert-snooze") {
+            return snoozeResponseRef.current;
+          }
+          return notificationsRef.current;
+        },
       },
       mutations: { retry: false },
     },
@@ -81,6 +98,7 @@ function makeAdminAlert(overrides: Partial<Notification> = {}): Notification {
 afterEach(() => {
   cleanup();
   notificationsRef.current = [];
+  snoozeResponseRef.current = { until: null };
   queryClientRef.current = null;
   apiRequestMock.mockClear();
 });
@@ -289,5 +307,123 @@ describe("NotificationsBell admin_alert rendering", () => {
       "Admin alert",
     );
     expect(screen.queryByTestId("text-admin-alert-message-n-bare")).toBeNull();
+  });
+});
+
+describe("NotificationsBell admin_alert clear + snooze controls", () => {
+  it("hides the admin alert controls when no admin_alert notifications exist", async () => {
+    notificationsRef.current = [makeUnshare()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    // Panel renders; the admin-only controls bar must not.
+    await screen.findByTestId("panel-notifications");
+    expect(screen.queryByTestId("panel-admin-alert-controls")).toBeNull();
+    expect(screen.queryByTestId("button-clear-admin-alerts")).toBeNull();
+    expect(screen.queryByTestId("button-admin-alert-snooze-1h")).toBeNull();
+    expect(screen.queryByTestId("button-admin-alert-snooze-24h")).toBeNull();
+  });
+
+  it("shows the controls when at least one admin_alert exists, even if it's already read", async () => {
+    notificationsRef.current = [
+      makeAdminAlert({
+        id: "n-read",
+        isRead: true,
+      } as Partial<Notification>),
+    ];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    await screen.findByTestId("panel-admin-alert-controls");
+    // The clear button is rendered but disabled because there are zero
+    // unread admin_alert rows to dismiss.
+    const clearBtn = screen.getByTestId(
+      "button-clear-admin-alerts",
+    ) as HTMLButtonElement;
+    expect(clearBtn.disabled).toBe(true);
+    expect(clearBtn.textContent).toBe("Clear admin alerts");
+    // The two snooze buttons are visible (no active snooze).
+    expect(screen.getByTestId("button-admin-alert-snooze-1h")).toBeTruthy();
+    expect(screen.getByTestId("button-admin-alert-snooze-24h")).toBeTruthy();
+  });
+
+  it("Clear admin alerts POSTs to /api/notifications/clear-by-type with the admin_alert type", async () => {
+    notificationsRef.current = [makeAdminAlert(), makeAdminAlert({ id: "n-2" })];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const clearBtn = await screen.findByTestId("button-clear-admin-alerts");
+    expect(clearBtn.textContent).toBe("Clear admin alerts (2)");
+    fireEvent.click(clearBtn);
+
+    await waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "POST",
+        "/api/notifications/clear-by-type",
+        { type: "admin_alert" },
+      ),
+    );
+  });
+
+  it("clicking 1h posts a 60-minute snooze and clicking 24h posts a 24h snooze", async () => {
+    notificationsRef.current = [makeAdminAlert()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    fireEvent.click(await screen.findByTestId("button-admin-alert-snooze-1h"));
+    await waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "POST",
+        "/api/notifications/admin-alert-snooze",
+        { minutes: 60 },
+      ),
+    );
+
+    apiRequestMock.mockClear();
+    fireEvent.click(screen.getByTestId("button-admin-alert-snooze-24h"));
+    await waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "POST",
+        "/api/notifications/admin-alert-snooze",
+        { minutes: 24 * 60 },
+      ),
+    );
+  });
+
+  it("renders the snoozed-until label and an unsnooze button when the snooze query has a future until (i.e. survives a refresh)", async () => {
+    notificationsRef.current = [makeAdminAlert()];
+    snoozeResponseRef.current = {
+      until: new Date(Date.now() + 60 * 60_000).toISOString(),
+    };
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    // Snoozed UI replaces the 1h/24h buttons.
+    await screen.findByTestId("text-admin-alert-snoozed-until");
+    expect(screen.queryByTestId("button-admin-alert-snooze-1h")).toBeNull();
+    expect(screen.queryByTestId("button-admin-alert-snooze-24h")).toBeNull();
+
+    // Unsnooze posts a null/0 minute value to clear the window.
+    fireEvent.click(screen.getByTestId("button-admin-alert-snooze-clear"));
+    await waitFor(() =>
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "POST",
+        "/api/notifications/admin-alert-snooze",
+        { minutes: null },
+      ),
+    );
+  });
+
+  it("treats a past snooze 'until' as not snoozed and shows the 1h/24h options again", async () => {
+    notificationsRef.current = [makeAdminAlert()];
+    snoozeResponseRef.current = {
+      until: new Date(Date.now() - 60_000).toISOString(),
+    };
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    await screen.findByTestId("button-admin-alert-snooze-1h");
+    expect(screen.queryByTestId("text-admin-alert-snoozed-until")).toBeNull();
+    expect(screen.queryByTestId("button-admin-alert-snooze-clear")).toBeNull();
   });
 });

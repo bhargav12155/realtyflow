@@ -133,6 +133,23 @@ const createAssetSchema = insertBoardAssetSchema
     return data;
   });
 
+// Cap the batch so a buggy/malicious client can't open a long-running
+// transaction by submitting tens of thousands of moves at once. The
+// largest realistic group selection on the canvas is well under this.
+export const BULK_MOVE_MAX = 500;
+const bulkMoveAssetsSchema = z.object({
+  moves: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        positionX: z.number(),
+        positionY: z.number(),
+      }),
+    )
+    .min(1)
+    .max(BULK_MOVE_MAX),
+});
+
 const updateAssetSchema = z.object({
   positionX: z.number().optional(),
   positionY: z.number().optional(),
@@ -804,6 +821,32 @@ export function registerBoardsRoutes(
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
       console.error("[boards] create asset error:", error);
       res.status(500).json({ error: "Failed to create asset" });
+    }
+  });
+
+  // Bulk position update for the group-drag flow. Group drag used to fire
+  // one PATCH per selected tile in parallel, which flooded the server with
+  // round-trips and could leave the group half-moved if any one PATCH
+  // failed. This endpoint takes the entire batch and applies it in a single
+  // transaction so the move is atomic — either every tile lands or none of
+  // them do.
+  app.patch("/api/boards/:id/assets/positions", auth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const parsed = bulkMoveAssetsSchema.parse(req.body ?? {});
+      const updated = await storage.bulkUpdateBoardAssetPositionsForUser(
+        req.params.id,
+        userId,
+        parsed.moves,
+      );
+      if (!updated) return res.status(404).json({ error: "One or more assets not found" });
+      res.json(updated);
+    } catch (error: unknown) {
+      if ((error as { issues?: unknown })?.issues) {
+        return res.status(400).json({ error: "Invalid body", issues: (error as { issues: unknown }).issues });
+      }
+      console.error("[boards] bulk move assets error:", error);
+      res.status(500).json({ error: "Failed to move assets" });
     }
   });
 

@@ -523,6 +523,17 @@ export interface IStorage {
   getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined>;
   createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined>;
   updateBoardAssetForUser(boardId: string, assetId: string, userId: string, updates: BoardAssetUpdate): Promise<BoardAsset | undefined>;
+  /**
+   * Atomic bulk position update for the group-drag flow. All updates are
+   * applied in a single transaction; if any asset id doesn't belong to the
+   * board (or the caller doesn't own it) the whole batch is rejected and
+   * `undefined` is returned. Returns the updated rows on success.
+   */
+  bulkUpdateBoardAssetPositionsForUser(
+    boardId: string,
+    userId: string,
+    updates: Array<{ id: string; positionX: number; positionY: number }>,
+  ): Promise<BoardAsset[] | undefined>;
   deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean>;
 
   // HeyGen shape-drift incidents — operator analytics for the
@@ -3428,6 +3439,53 @@ export class MemStorage implements IStorage {
       .returning();
     if (updated) await this.touchBoardForUser(boardId, userId);
     return updated;
+  }
+
+  async bulkUpdateBoardAssetPositionsForUser(
+    boardId: string,
+    userId: string,
+    updates: Array<{ id: string; positionX: number; positionY: number }>,
+  ): Promise<BoardAsset[] | undefined> {
+    if (updates.length === 0) return [];
+    // De-dupe by id — if a caller sends the same tile twice the last write
+    // wins (matches the previous one-PATCH-per-tile behavior).
+    const byId = new Map<string, { id: string; positionX: number; positionY: number }>();
+    for (const u of updates) byId.set(u.id, u);
+    const ids = Array.from(byId.keys());
+    return await db.transaction(async (tx) => {
+      // Authorize the whole batch up front: every id must belong to a board
+      // owned by the caller. If even one is missing the entire transaction
+      // rolls back so the group never lands half-moved.
+      const owned = await tx
+        .select({ id: boardAssetsTable.id })
+        .from(boardAssetsTable)
+        .innerJoin(boardsTable, eq(boardsTable.id, boardAssetsTable.boardId))
+        .where(and(
+          eq(boardAssetsTable.boardId, boardId),
+          eq(boardsTable.userId, userId),
+          inArray(boardAssetsTable.id, ids),
+        ));
+      if (owned.length !== ids.length) return undefined;
+      const updated: BoardAsset[] = [];
+      for (const u of Array.from(byId.values())) {
+        const [row] = await tx
+          .update(boardAssetsTable)
+          .set({ positionX: u.positionX, positionY: u.positionY })
+          .where(and(
+            eq(boardAssetsTable.id, u.id),
+            eq(boardAssetsTable.boardId, boardId),
+          ))
+          .returning();
+        if (!row) return undefined;
+        updated.push(row);
+      }
+      // Touch the parent board once for the whole batch.
+      await tx
+        .update(boardsTable)
+        .set({ updatedAt: new Date() })
+        .where(and(eq(boardsTable.id, boardId), eq(boardsTable.userId, userId)));
+      return updated;
+    });
   }
 
   async deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean> {

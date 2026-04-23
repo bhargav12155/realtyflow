@@ -969,15 +969,16 @@ export default function BoardDetailPage() {
     mutationFn: async (
       moves: Array<{ id: string; positionX: number; positionY: number }>,
     ) => {
-      const results = await Promise.all(
-        moves.map((m) =>
-          apiRequest("PATCH", `/api/boards/${boardId}/assets/${m.id}`, {
-            positionX: m.positionX,
-            positionY: m.positionY,
-          }).then((r) => r.json()),
-        ),
+      if (moves.length === 0) return [];
+      // Use the bulk endpoint so a group drag is a single atomic round-trip
+      // instead of one PATCH per tile. Server applies the whole batch in a
+      // transaction — the group never lands half-moved.
+      const res = await apiRequest(
+        "PATCH",
+        `/api/boards/${boardId}/assets/positions`,
+        { moves },
       );
-      return results;
+      return res.json();
     },
     onMutate: (moves) => {
       // Optimistic: update cached positions immediately so dropped tiles

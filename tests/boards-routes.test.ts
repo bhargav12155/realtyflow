@@ -301,6 +301,27 @@ class FakeBoardsStorage {
     this.assets.delete(assetId);
     return true;
   }
+  async bulkUpdateBoardAssetPositionsForUser(
+    boardId: string,
+    userId: string,
+    moves: Array<{ id: string; positionX: number; positionY: number }>,
+  ): Promise<BoardAsset[] | undefined> {
+    // Atomic stub: verify ownership of every asset first, then apply.
+    const verified: BoardAsset[] = [];
+    for (const m of moves) {
+      const a = await this.getBoardAssetByIdForUser(boardId, m.id, userId);
+      if (!a) return undefined;
+      verified.push(a);
+    }
+    const updated: BoardAsset[] = [];
+    for (const m of moves) {
+      const a = this.assets.get(m.id)!;
+      const next = { ...a, positionX: m.positionX, positionY: m.positionY };
+      this.assets.set(m.id, next);
+      updated.push(next);
+    }
+    return updated;
+  }
 }
 
 function buildApp(userId = "user-1"): { app: Express; storage: FakeBoardsStorage } {
@@ -781,6 +802,80 @@ describe("Board chat — v2v-only-for-Luma/Runway validation", () => {
       provider: "luma",
     });
     assert.equal(res.status, 404);
+  });
+});
+
+describe("Bulk asset position update", () => {
+  async function seedTwoAssets(app: Express, storage: FakeBoardsStorage, boardId: string) {
+    const a = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "b", kind: "image", provider: "upload",
+      assetUrl: "https://example.com/a.png", thumbnailUrl: null, status: "ready",
+      positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const b = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "b", kind: "image", provider: "upload",
+      assetUrl: "https://example.com/b.png", thumbnailUrl: null, status: "ready",
+      positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    return { a: a!, b: b! };
+  }
+
+  it("PATCH /api/boards/:id/assets/positions atomically updates the batch", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const { a, b } = await seedTwoAssets(app, storage, boardId);
+
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}/assets/positions`, {
+      moves: [
+        { id: a.id, positionX: 10, positionY: 20 },
+        { id: b.id, positionX: 30, positionY: 40 },
+      ],
+    });
+    assert.equal(res.status, 200);
+    assert.equal((res.body as BoardAsset[]).length, 2);
+
+    const refreshed = await callJson(app, "GET", `/api/boards/${boardId}`);
+    const byId = new Map(
+      (refreshed.body as { assets: BoardAsset[] }).assets.map((x) => [x.id, x] as const),
+    );
+    assert.equal(byId.get(a.id)!.positionX, 10);
+    assert.equal(byId.get(a.id)!.positionY, 20);
+    assert.equal(byId.get(b.id)!.positionX, 30);
+    assert.equal(byId.get(b.id)!.positionY, 40);
+  });
+
+  it("rejects the whole batch when any id is missing (404, no partial writes)", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const { a } = await seedTwoAssets(app, storage, boardId);
+
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}/assets/positions`, {
+      moves: [
+        { id: a.id, positionX: 99, positionY: 99 },
+        { id: "missing-asset", positionX: 1, positionY: 1 },
+      ],
+    });
+    assert.equal(res.status, 404);
+
+    // First asset must still be at 0,0 — the batch was rejected as a whole.
+    const refreshed = await callJson(app, "GET", `/api/boards/${boardId}`);
+    const reloadedA = (refreshed.body as { assets: BoardAsset[] }).assets.find(
+      (x) => x.id === a.id,
+    )!;
+    assert.equal(reloadedA.positionX, 0);
+    assert.equal(reloadedA.positionY, 0);
+  });
+
+  it("rejects empty moves arrays with 400", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}/assets/positions`, {
+      moves: [],
+    });
+    assert.equal(res.status, 400);
   });
 });
 

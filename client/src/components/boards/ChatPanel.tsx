@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Wand2, X, Eye, Film } from "lucide-react";
+import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Wand2, X, Eye, Film, Square } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   PlatformPicker,
@@ -69,6 +69,9 @@ interface ChatPanelProps {
   onRemoveReferencedAsset?: (id: string) => void;
   onSend: (text: string) => void;
   isSending?: boolean;
+  /** When provided and isSending is true, a Stop button appears next to the
+   *  thinking indicator. Invoking it should abort the in-flight request. */
+  onStop?: () => void;
   pendingInput?: string | null;
   onPendingInputApplied?: () => void;
 }
@@ -117,6 +120,7 @@ export function ChatPanel({
   onRemoveReferencedAsset,
   onSend,
   isSending,
+  onStop,
   pendingInput,
   onPendingInputApplied,
 }: ChatPanelProps) {
@@ -264,6 +268,19 @@ export function ChatPanel({
               >
                 {thinkingLabel}
               </span>
+              {onStop && (
+                <button
+                  type="button"
+                  onClick={onStop}
+                  className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-neutral-200 bg-white text-[11px] text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                  data-testid="button-stop-chat"
+                  aria-label="Stop reply"
+                  title="Stop reply"
+                >
+                  <Square className="w-2.5 h-2.5 fill-current" />
+                  Stop
+                </button>
+              )}
             </div>
           </div>
         )}

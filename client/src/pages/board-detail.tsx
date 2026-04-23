@@ -350,17 +350,31 @@ export default function BoardDetailPage() {
       );
   };
 
+  // Tracks the AbortController for the in-flight chat request so the user
+  // can cancel a slow reply via the Stop button. Also remembers the pending
+  // assistant message id so onError can distinguish a true failure from a
+  // user-initiated abort (we already cleared the bubble in handleStopChat).
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const chatAbortedPendingIdRef = useRef<string | null>(null);
+
   const sendChat = useMutation({
     mutationFn: async (text: string) => {
-      const res = await apiRequest("POST", `/api/boards/${boardId}/chat`, {
-        message: text,
-        mode,
-        provider,
-        generationMode,
-        referencedAssetIds,
-        ...(provider === "seedance" ? { seedanceOptions } : {}),
-        ...(mode === "brainstorm" ? { chatModel } : {}),
-      });
+      const controller = new AbortController();
+      chatAbortRef.current = controller;
+      const res = await apiRequest(
+        "POST",
+        `/api/boards/${boardId}/chat`,
+        {
+          message: text,
+          mode,
+          provider,
+          generationMode,
+          referencedAssetIds,
+          ...(provider === "seedance" ? { seedanceOptions } : {}),
+          ...(mode === "brainstorm" ? { chatModel } : {}),
+        },
+        { signal: controller.signal },
+      );
       return res.json();
     },
     onMutate: (text) => {
@@ -397,15 +411,47 @@ export default function BoardDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] });
     },
     onError: (e: Error, _vars: unknown, ctx: unknown) => {
+      const pendingId = (ctx as { pendingId?: string } | undefined)?.pendingId;
+      // If this rejection is the result of a user-initiated Stop, the bubble
+      // and toast were already handled by handleStopChat — don't double-up
+      // with a destructive "Chat error" toast or rewrite the bubble.
+      const isAbort =
+        e?.name === "AbortError" ||
+        chatAbortedPendingIdRef.current === pendingId;
+      if (isAbort) {
+        chatAbortedPendingIdRef.current = null;
+        return;
+      }
       const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
       setMessages((m) =>
         m.map((msg) =>
-          msg.id === ctx?.pendingId ? { ...msg, content: `Error: ${errText}`, pending: false } : msg,
+          msg.id === pendingId ? { ...msg, content: `Error: ${errText}`, pending: false } : msg,
         ),
       );
       toast({ title: "Chat error", description: errText, variant: "destructive" });
     },
+    onSettled: () => {
+      chatAbortRef.current = null;
+    },
   });
+
+  // Cancel the in-flight chat request and clear the optimistic pending bubble
+  // so the conversation doesn't show an orphan "…" message. Used by both the
+  // ChatPanel Stop button and the leave-board / unmount paths.
+  const handleStopChat = () => {
+    const controller = chatAbortRef.current;
+    if (!controller) return;
+    // Find and remove the pending bubble; remember its id so onError knows
+    // this rejection came from the user, not the server.
+    setMessages((m) => {
+      const pending = m.find((msg) => msg.role === "assistant" && msg.pending);
+      if (pending) chatAbortedPendingIdRef.current = pending.id;
+      return m.filter((msg) => !(msg.role === "assistant" && msg.pending));
+    });
+    controller.abort();
+    chatAbortRef.current = null;
+    toast({ title: "Reply stopped", description: "We canceled the in-flight reply." });
+  };
 
   const deleteAsset = useMutation({
     mutationFn: async (assetId: string) => {
@@ -1067,6 +1113,7 @@ export default function BoardDetailPage() {
               sendChat.mutate(text);
             }}
             isSending={sendChat.isPending}
+            onStop={handleStopChat}
             pendingInput={pendingInput}
             onPendingInputApplied={() => setPendingInput(null)}
           />

@@ -12,6 +12,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
+  options?: { signal?: AbortSignal },
 ): Promise<Response> {
   const isFormData = data instanceof FormData;
   const authHeaders = getAuthHeaders();
@@ -27,6 +28,7 @@ export async function apiRequest(
     headers,
     body: isFormData ? data as FormData : (data ? JSON.stringify(data) : undefined),
     credentials: "include",
+    signal: options?.signal,
   });
 
   await throwIfResNotOk(res);

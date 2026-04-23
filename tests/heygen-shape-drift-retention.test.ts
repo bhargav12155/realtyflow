@@ -294,6 +294,186 @@ async function getJson(
   });
 }
 
+// End-to-end coverage against the real (test) Postgres database. We do
+// NOT stub any of the storage methods here — instead we let
+// `runShapeDriftRetentionSweep` call into the actual Drizzle-backed
+// `pruneHeygenShapeDriftIncidents` + `recordHeygenShapeDriftRetentionRun`,
+// then make a real HTTP GET against the admin endpoint that reads via
+// `listHeygenShapeDriftRetentionRuns`. This catches schema drift, SQL
+// mapping bugs, and JSON serialization regressions that the per-method
+// spies above cannot.
+import { db } from "../server/db";
+import {
+  heygenShapeDriftIncidents,
+  heygenShapeDriftRetentionRuns,
+} from "@shared/schema";
+import { sql } from "drizzle-orm";
+
+const E2E_RUN_TAG = "e2e-retention-test";
+
+async function clearRetentionTables(): Promise<void> {
+  // Clean any leftover rows from prior test runs so assertions can be
+  // exact. Both tables are admin-only audit tables, so a wholesale wipe
+  // is safe in the test environment.
+  await db.delete(heygenShapeDriftRetentionRuns);
+  await db.delete(heygenShapeDriftIncidents);
+}
+
+async function seedOldIncidents(
+  count: number,
+  ageDays: number,
+): Promise<void> {
+  // Insert `count` incidents with explicit `created_at` values older
+  // than the retention window so the sweep actually deletes them.
+  const cutoff = new Date(Date.now() - (ageDays + 1) * 24 * 60 * 60 * 1000);
+  for (let i = 0; i < count; i++) {
+    await db.insert(heygenShapeDriftIncidents).values({
+      endpoint: `/v3/${E2E_RUN_TAG}/${i}`,
+      issuePaths: [`data.test.${i}`],
+      message: `${E2E_RUN_TAG} seeded incident ${i}`,
+      userId: null,
+      groupId: null,
+      createdAt: cutoff,
+    });
+  }
+}
+
+describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real DB)", () => {
+  let app: express.Express;
+
+  beforeEach(async () => {
+    await clearRetentionTables();
+    app = express();
+    app.use(express.json());
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      (req as Request & { user: { id: string } }).user = { id: "admin-1" };
+      next();
+    });
+    const { registerHeygenV3Routes } = await import(
+      "../server/routes/heygen-v3"
+    );
+    registerHeygenV3Routes(app, {
+      requireAdmin: (_req, _res, next) => next(),
+    });
+  });
+
+  afterEach(async () => {
+    await clearRetentionTables();
+  });
+
+  it("persists an audit row to the DB and the GET endpoint returns it", async () => {
+    process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "5";
+    await seedOldIncidents(4, 5);
+
+    // Sanity: the GET endpoint sees an empty audit log to start.
+    {
+      const { status, body } = await getJson(
+        app,
+        "/api/v3/admin/heygen-shape-drift-retention-runs",
+      );
+      assert.equal(status, 200);
+      assert.deepEqual(body.runs, []);
+    }
+
+    const deleted = await runShapeDriftRetentionSweep();
+    assert.equal(deleted, 4);
+
+    // Confirm the row exists in the DB itself before hitting the API,
+    // so a failure in the GET path is unambiguously a handler bug.
+    const dbRows = await db.select().from(heygenShapeDriftRetentionRuns);
+    assert.equal(dbRows.length, 1);
+    assert.equal(dbRows[0].deletedCount, 4);
+    assert.equal(dbRows[0].retentionDays, 5);
+    assert.ok(typeof dbRows[0].id === "string" && dbRows[0].id.length > 0);
+
+    // Now walk the GET endpoint; the handler must return the same row.
+    const { status, body } = await getJson(
+      app,
+      "/api/v3/admin/heygen-shape-drift-retention-runs",
+    );
+    assert.equal(status, 200);
+    const apiRuns = body.runs as Array<Record<string, unknown>>;
+    assert.equal(apiRuns.length, 1);
+    assert.equal(apiRuns[0].id, dbRows[0].id);
+    assert.equal(apiRuns[0].deletedCount, 4);
+    assert.equal(apiRuns[0].retentionDays, 5);
+    // createdAt is serialized over the wire as an ISO date string.
+    assert.equal(typeof apiRuns[0].createdAt, "string");
+    assert.ok(
+      !Number.isNaN(new Date(apiRuns[0].createdAt as string).getTime()),
+      "createdAt must round-trip as a parseable date",
+    );
+
+    // And the real prune actually removed the seeded rows.
+    const remaining = await db
+      .select({ id: heygenShapeDriftIncidents.id })
+      .from(heygenShapeDriftIncidents);
+    assert.equal(remaining.length, 0);
+  });
+
+  it("orders multiple sweeps newest-first via the real list query", async () => {
+    process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "7";
+    // No seeded incidents — each sweep records an audit row with
+    // `deletedCount: 0`, but with distinct `retention_days` so we can
+    // unambiguously assert sort order.
+    await runShapeDriftRetentionSweep();
+
+    process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "8";
+    await runShapeDriftRetentionSweep();
+
+    process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "9";
+    // Tag the latest row so we can find it with absolute certainty;
+    // `created_at` ties at millisecond precision are possible on fast
+    // machines, so we also disambiguate by retentionDays below.
+    await db.update(heygenShapeDriftRetentionRuns).set({
+      // Backdate every existing row by 1 second so the new row will be
+      // strictly newer than them.
+      createdAt: sql`now() - interval '1 second'`,
+    });
+    await runShapeDriftRetentionSweep();
+
+    const { status, body } = await getJson(
+      app,
+      "/api/v3/admin/heygen-shape-drift-retention-runs",
+    );
+    assert.equal(status, 200);
+    const apiRuns = body.runs as Array<Record<string, unknown>>;
+    assert.equal(apiRuns.length, 3);
+    // Newest (retentionDays=9) must be first.
+    assert.equal(apiRuns[0].retentionDays, 9);
+    // The other two retentionDays values must both be present.
+    const remainingDays = [apiRuns[1].retentionDays, apiRuns[2].retentionDays];
+    assert.deepEqual(
+      [...remainingDays].sort(),
+      [7, 8],
+      "older two rows should contain retentionDays 7 and 8",
+    );
+    for (const r of apiRuns) {
+      assert.equal(r.deletedCount, 0);
+    }
+  });
+
+  it("still persists an audit row when the sweep deleted nothing", async () => {
+    process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "30";
+    // No incidents seeded — sweep deletes 0 rows.
+    await runShapeDriftRetentionSweep();
+
+    const dbRows = await db.select().from(heygenShapeDriftRetentionRuns);
+    assert.equal(dbRows.length, 1);
+    assert.equal(dbRows[0].deletedCount, 0);
+    assert.equal(dbRows[0].retentionDays, 30);
+
+    const { body } = await getJson(
+      app,
+      "/api/v3/admin/heygen-shape-drift-retention-runs",
+    );
+    const apiRuns = body.runs as Array<Record<string, unknown>>;
+    assert.equal(apiRuns.length, 1);
+    assert.equal(apiRuns[0].deletedCount, 0);
+    assert.equal(apiRuns[0].retentionDays, 30);
+  });
+});
+
 describe("GET /api/v3/admin/heygen-shape-drift-retention-runs", () => {
   let app: express.Express;
   const sampleRuns: HeygenShapeDriftRetentionRun[] = [

@@ -10,6 +10,7 @@ import {
 import { registerBoardsChatRoutes } from "../server/routes/boards-chat";
 import { registerNotificationsRoutes } from "../server/routes/notifications";
 import type { Board, BoardAsset, BoardShare, InsertBoard, InsertNotification, Notification, User } from "@shared/schema";
+import { DRAWING_MAX_CONTENT_BYTES } from "@shared/schema";
 import type {
   IStorage,
   AccessibleBoard,
@@ -900,6 +901,63 @@ describe("Drawing asset content sanitization", () => {
     assert.equal(res.status, 200);
     const stored = JSON.parse((res.body as { content: string }).content);
     assert.deepEqual(Object.keys(stored).sort(), ["height", "strokes", "v", "width"]);
+  });
+
+  it("rejects drawing payloads larger than DRAWING_MAX_CONTENT_BYTES on POST", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    // Build a syntactically valid drawing JSON whose serialized size exceeds
+    // the schema-level byte ceiling. We pad with extra points until the JSON
+    // string is over DRAWING_MAX_CONTENT_BYTES.
+    const points = Array.from({ length: 4000 }, (_, i) => ({ x: i, y: i }));
+    const oversized = JSON.stringify({
+      v: 1,
+      width: 480,
+      height: 320,
+      strokes: [{ color: "#111827", width: 3, points }],
+    });
+    assert.ok(
+      oversized.length > DRAWING_MAX_CONTENT_BYTES,
+      "test payload should exceed the schema-level byte ceiling",
+    );
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: oversized,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects drawing payloads larger than DRAWING_MAX_CONTENT_BYTES on PATCH", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const drawing = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: validDrawing,
+    } as BoardAssetCreate);
+    const points = Array.from({ length: 4000 }, (_, i) => ({ x: i, y: i }));
+    const oversized = JSON.stringify({
+      v: 1,
+      width: 480,
+      height: 320,
+      strokes: [{ color: "#111827", width: 3, points }],
+    });
+    assert.ok(
+      oversized.length > DRAWING_MAX_CONTENT_BYTES,
+      "test payload should exceed the schema-level byte ceiling",
+    );
+    const res = await callJson(
+      app,
+      "PATCH",
+      `/api/boards/${boardId}/assets/${drawing!.id}`,
+      { content: oversized },
+    );
+    assert.equal(res.status, 400);
   });
 
   it("rejects oversized free-text content on PATCH for non-drawing assets", async () => {

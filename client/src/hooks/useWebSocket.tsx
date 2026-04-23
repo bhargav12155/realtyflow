@@ -26,7 +26,9 @@ interface WebSocketMessage {
     | "board_asset_updated"
     | "board_auto_eval"
     | "notification_created"
-    | "photo_avatar_status_update";
+    | "photo_avatar_status_update"
+    | "board_presence"
+    | "board_typing";
   data: any;
   timestamp: string;
   userId?: number;
@@ -95,7 +97,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           }
 
           // Show toast notifications for important events
-          if (showToast && message.type !== "notification") {
+          if (
+            showToast &&
+            message.type !== "notification" &&
+            message.type !== "board_presence" &&
+            message.type !== "board_typing"
+          ) {
             toast({
               title: formatMessageType(message.type),
               description: message.data.message || JSON.stringify(message.data),

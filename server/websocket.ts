@@ -56,7 +56,7 @@ function authenticateRequest(req: IncomingMessage): { userId: string } | null {
 }
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "notification_created" | "admin_alert";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "notification_created" | "admin_alert" | "board_presence" | "board_typing";
   data: any;
   timestamp: string;
   userId?: number;
@@ -71,6 +71,21 @@ export class RealtimeService {
   // so internal operational alerts are scoped to operators only and never
   // leak to ordinary users.
   private adminClients: Set<WebSocket> = new Set();
+  // Per-board presence tracking. Each entry stores the set of sockets that
+  // joined the board's presence channel for a given user, plus the user's
+  // display info so we can render avatars without an extra round trip on
+  // the client. Sockets are removed on close or explicit `presence_leave`,
+  // and the user entry is dropped once their last socket leaves.
+  private boardPresence: Map<
+    string,
+    Map<string, { name: string | null; email: string | null; sockets: Set<WebSocket> }>
+  > = new Map();
+  // Reverse index: which boards each socket joined, so a single close can
+  // tear down every membership without scanning the whole presence map.
+  private socketBoards: WeakMap<WebSocket, Set<string>> = new WeakMap();
+  // Cache of resolved {name, email} per userId so a chatty client (lots of
+  // typing events) doesn't hammer storage. Best-effort only.
+  private userInfoCache: Map<string, { name: string | null; email: string | null }> = new Map();
 
   initialize(server: Server) {
     this.wss = new WebSocketServer({
@@ -139,8 +154,25 @@ export class RealtimeService {
       ws.on("message", (message: string) => {
         try {
           const data = JSON.parse(message.toString());
+          // Presence + typing are the only inbound messages we currently
+          // accept. Anything else is logged so unexpected payloads don't
+          // disappear silently, but is otherwise ignored.
+          if (data && typeof data === "object" && typeof data.type === "string") {
+            const boardId = typeof data.boardId === "string" ? data.boardId : null;
+            if (data.type === "presence_join" && boardId) {
+              void this.handlePresenceJoin(ws, userId, boardId);
+              return;
+            }
+            if (data.type === "presence_leave" && boardId) {
+              this.handlePresenceLeave(ws, userId, boardId);
+              return;
+            }
+            if (data.type === "typing" && boardId) {
+              this.handleTyping(ws, userId, boardId, !!data.isTyping);
+              return;
+            }
+          }
           console.log("📨 Received message:", data);
-          // Handle incoming messages if needed
         } catch (error) {
           console.error("Error parsing WebSocket message:", error);
         }
@@ -153,6 +185,16 @@ export class RealtimeService {
           clientSet.delete(ws);
         });
         this.adminClients.delete(ws);
+        // Tear down any presence memberships this socket held so other
+        // viewers see the user disappear from the header without waiting
+        // for an idle timeout.
+        const joinedBoards = this.socketBoards.get(ws);
+        if (joinedBoards) {
+          for (const bId of joinedBoards) {
+            this.handlePresenceLeave(ws, userId, bId, { skipReverseIndex: true });
+          }
+          this.socketBoards.delete(ws);
+        }
       });
 
       ws.on("error", (error) => {
@@ -648,6 +690,147 @@ export class RealtimeService {
   // tagged. Used in tests to assert admin scoping.
   getAdminSocketCount(): number {
     return this.adminClients.size;
+  }
+
+  // === Board presence ======================================================
+
+  private async resolveUserInfo(
+    userId: string,
+  ): Promise<{ name: string | null; email: string | null }> {
+    const cached = this.userInfoCache.get(userId);
+    if (cached) return cached;
+    let info: { name: string | null; email: string | null } = { name: null, email: null };
+    try {
+      const { storage } = await import("./storage");
+      const u = await storage.getUser(userId);
+      if (u) {
+        info = {
+          name: (u as { name?: string | null }).name ?? null,
+          email: (u as { email?: string | null }).email ?? null,
+        };
+      }
+    } catch (err) {
+      console.warn("[websocket] failed to resolve user info for presence", err);
+    }
+    this.userInfoCache.set(userId, info);
+    return info;
+  }
+
+  private async handlePresenceJoin(
+    ws: WebSocket,
+    userId: string,
+    boardId: string,
+  ): Promise<void> {
+    const info = await this.resolveUserInfo(userId);
+    let users = this.boardPresence.get(boardId);
+    if (!users) {
+      users = new Map();
+      this.boardPresence.set(boardId, users);
+    }
+    let entry = users.get(userId);
+    if (!entry) {
+      entry = { name: info.name, email: info.email, sockets: new Set() };
+      users.set(userId, entry);
+    }
+    entry.sockets.add(ws);
+    let socketBoards = this.socketBoards.get(ws);
+    if (!socketBoards) {
+      socketBoards = new Set();
+      this.socketBoards.set(ws, socketBoards);
+    }
+    socketBoards.add(boardId);
+    this.broadcastBoardPresence(boardId);
+  }
+
+  private handlePresenceLeave(
+    ws: WebSocket,
+    userId: string,
+    boardId: string,
+    opts: { skipReverseIndex?: boolean } = {},
+  ): void {
+    const users = this.boardPresence.get(boardId);
+    if (!users) return;
+    const entry = users.get(userId);
+    if (entry) {
+      entry.sockets.delete(ws);
+      if (entry.sockets.size === 0) {
+        users.delete(userId);
+      }
+    }
+    if (users.size === 0) {
+      this.boardPresence.delete(boardId);
+    }
+    if (!opts.skipReverseIndex) {
+      const socketBoards = this.socketBoards.get(ws);
+      if (socketBoards) {
+        socketBoards.delete(boardId);
+        if (socketBoards.size === 0) this.socketBoards.delete(ws);
+      }
+    }
+    this.broadcastBoardPresence(boardId);
+  }
+
+  private handleTyping(
+    ws: WebSocket,
+    userId: string,
+    boardId: string,
+    isTyping: boolean,
+  ): void {
+    const users = this.boardPresence.get(boardId);
+    if (!users) return;
+    // Only notify viewers who have presence on this board, and skip the
+    // sender's own sockets — they don't need to be told about themselves.
+    const info = users.get(userId);
+    const message: WebSocketMessage = {
+      type: "board_typing",
+      data: {
+        boardId,
+        userId,
+        name: info?.name ?? null,
+        email: info?.email ?? null,
+        isTyping,
+      },
+      timestamp: new Date().toISOString(),
+    };
+    for (const [otherUserId, entry] of users) {
+      if (otherUserId === userId) continue;
+      for (const sock of entry.sockets) {
+        if (sock !== ws) this.sendToClient(sock, message);
+      }
+    }
+  }
+
+  private broadcastBoardPresence(boardId: string): void {
+    const users = this.boardPresence.get(boardId);
+    const viewers = users
+      ? Array.from(users.entries()).map(([id, e]) => ({
+          userId: id,
+          name: e.name,
+          email: e.email,
+        }))
+      : [];
+    const message: WebSocketMessage = {
+      type: "board_presence",
+      data: { boardId, viewers },
+      timestamp: new Date().toISOString(),
+    };
+    if (!users) return;
+    for (const entry of users.values()) {
+      for (const sock of entry.sockets) {
+        this.sendToClient(sock, message);
+      }
+    }
+  }
+
+  // Test/diagnostics helper: returns the current viewers for a board.
+  getBoardViewers(boardId: string): Array<{ userId: string; name: string | null; email: string | null }> {
+    const users = this.boardPresence.get(boardId);
+    if (!users) return [];
+    return Array.from(users.entries()).map(([id, e]) => ({
+      userId: id,
+      name: e.name,
+      email: e.email,
+    }));
   }
 
   notifySjinnVideoReady(userId: string, videoUrl: string, taskId: string) {

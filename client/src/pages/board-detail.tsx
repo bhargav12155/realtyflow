@@ -24,6 +24,7 @@ import {
 import { DrawingModal } from "@/components/boards/DrawingModal";
 import { RecordModal } from "@/components/boards/RecordModal";
 import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
+import { PresenceAvatars } from "@/components/boards/PresenceAvatars";
 import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
 import {
@@ -225,13 +226,72 @@ export default function BoardDetailPage() {
     setChatModel(m);
   };
 
+  // Live presence: who else is currently viewing this board, and who is
+  // typing in the chat panel right now. The server only knows about a viewer
+  // after it receives a `presence_join`; our useEffect below sends one as
+  // soon as the websocket is connected and a board id is loaded.
+  type BoardViewer = { userId: string; name: string | null; email: string | null };
+  const [presenceViewers, setPresenceViewers] = useState<BoardViewer[]>([]);
+  // userId -> display name for users currently typing (other than self).
+  // Each entry has its own timeout so stale typing indicators don't linger
+  // if the sender disconnects mid-keystroke.
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   // Listen for asset status updates pushed via WebSocket
-  useWebSocket({
+  const { isConnected: wsConnected, send: wsSend } = useWebSocket({
     userId: user?.id ? String(user.id) : undefined,
     autoConnect: !!user?.id,
     showToast: false,
     onMessage: (msg) => {
       const t = msg.type;
+      if (t === "board_presence") {
+        const d = msg.data as { boardId: string; viewers: BoardViewer[] };
+        if (d.boardId !== boardId) return;
+        setPresenceViewers(Array.isArray(d.viewers) ? d.viewers : []);
+        return;
+      }
+      if (t === "board_typing") {
+        const d = msg.data as {
+          boardId: string;
+          userId: string;
+          name: string | null;
+          email: string | null;
+          isTyping: boolean;
+        };
+        if (d.boardId !== boardId) return;
+        const selfId = user?.id ? String(user.id) : null;
+        if (selfId && d.userId === selfId) return;
+        const label = (d.name && d.name.trim()) || (d.email && d.email.trim()) || "Someone";
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          if (d.isTyping) {
+            next[d.userId] = label;
+          } else {
+            delete next[d.userId];
+          }
+          return next;
+        });
+        // Reset the per-user expiry. Sender re-broadcasts every keystroke
+        // (debounced), so we should clear the indicator if we don't hear
+        // from them for ~5s.
+        const existing = typingTimersRef.current[d.userId];
+        if (existing) clearTimeout(existing);
+        if (d.isTyping) {
+          typingTimersRef.current[d.userId] = setTimeout(() => {
+            setTypingUsers((prev) => {
+              if (!(d.userId in prev)) return prev;
+              const next = { ...prev };
+              delete next[d.userId];
+              return next;
+            });
+            delete typingTimersRef.current[d.userId];
+          }, 5000);
+        } else {
+          delete typingTimersRef.current[d.userId];
+        }
+        return;
+      }
       if (t === "board_asset_status") {
         const d = msg.data as {
           boardId: string;
@@ -329,6 +389,66 @@ export default function BoardDetailPage() {
       }
     },
   });
+
+  // Send presence_join whenever we have a live socket and a board id, and
+  // presence_leave when leaving the page (or switching to another board).
+  // We re-send the join after a reconnect because the server's presence
+  // map is purged when the underlying socket closes.
+  useEffect(() => {
+    if (!boardId || !wsConnected) return;
+    wsSend({ type: "presence_join", boardId });
+    return () => {
+      wsSend({ type: "presence_leave", boardId });
+    };
+  }, [boardId, wsConnected, wsSend]);
+
+  // Clear typing indicators and viewer list when navigating between boards
+  // so the next board's header doesn't briefly show stale collaborators.
+  useEffect(() => {
+    setPresenceViewers([]);
+    setTypingUsers({});
+    for (const t of Object.values(typingTimersRef.current)) clearTimeout(t);
+    typingTimersRef.current = {};
+  }, [boardId]);
+
+  // Throttled "I'm typing" beacon for the chat input. Re-sends every 2s while
+  // the user keeps typing so the recipients' 5s expiry timer keeps being
+  // reset; sends a final `false` when they stop or send.
+  const lastTypingPingRef = useRef<number>(0);
+  const stopTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleChatTypingChange = useCallback(
+    (isTyping: boolean) => {
+      if (!boardId || !wsConnected) return;
+      if (isTyping) {
+        const now = Date.now();
+        if (now - lastTypingPingRef.current > 2000) {
+          wsSend({ type: "typing", boardId, isTyping: true });
+          lastTypingPingRef.current = now;
+        }
+        if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
+        stopTypingTimerRef.current = setTimeout(() => {
+          wsSend({ type: "typing", boardId, isTyping: false });
+          lastTypingPingRef.current = 0;
+        }, 3000);
+      } else {
+        if (stopTypingTimerRef.current) {
+          clearTimeout(stopTypingTimerRef.current);
+          stopTypingTimerRef.current = null;
+        }
+        wsSend({ type: "typing", boardId, isTyping: false });
+        lastTypingPingRef.current = 0;
+      }
+    },
+    [boardId, wsConnected, wsSend],
+  );
+
+  // Build a stable list of "other" viewers (excluding me) for header avatars.
+  const currentUserIdStr = user?.id ? String(user.id) : null;
+  const otherViewers = useMemo(
+    () => presenceViewers.filter((v) => v.userId !== currentUserIdStr),
+    [presenceViewers, currentUserIdStr],
+  );
+  const typingNames = useMemo(() => Object.values(typingUsers), [typingUsers]);
 
   const referencedAssetIds = selectedAssetIds;
   const selectedAssetObjects = useMemo(() => {
@@ -1230,7 +1350,10 @@ export default function BoardDetailPage() {
             <ChevronDown className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
           </button>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          {board.isShared && otherViewers.length > 0 && (
+            <PresenceAvatars viewers={otherViewers} />
+          )}
           <button
             type="button"
             onClick={toggleTheme}
@@ -1401,6 +1524,8 @@ export default function BoardDetailPage() {
                 : undefined
             }
             isSavingChatHistoryCap={updateChatHistoryCap.isPending}
+            typingUserNames={board.isShared ? typingNames : []}
+            onTypingChange={board.isShared ? handleChatTypingChange : undefined}
           />
         )}
       </div>

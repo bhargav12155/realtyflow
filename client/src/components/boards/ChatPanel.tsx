@@ -103,6 +103,13 @@ interface ChatPanelProps {
   chatHistoryCapMax?: number;
   /** Disables the cap input while a save is in flight. */
   isSavingChatHistoryCap?: boolean;
+  /** Display names of other collaborators currently typing. Empty when no one
+   *  is typing or when the board has no other viewers. */
+  typingUserNames?: string[];
+  /** Called as the user types into the chat input so the parent can fan out
+   *  a typing beacon over the websocket. The panel debounces internally —
+   *  callers should still throttle if they relay every event verbatim. */
+  onTypingChange?: (isTyping: boolean) => void;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
@@ -163,6 +170,8 @@ export function ChatPanel({
   chatHistoryCapMin = CHAT_HISTORY_CAP_MIN,
   chatHistoryCapMax = CHAT_HISTORY_CAP_MAX,
   isSavingChatHistoryCap,
+  typingUserNames,
+  onTypingChange,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -240,6 +249,16 @@ export function ChatPanel({
     if (!text || isSending || isClearingChat) return;
     onSend(text);
     setInput("");
+    // Sending implicitly means "stopped typing" — clear the indicator on the
+    // recipients' side immediately rather than waiting for the 5s expiry.
+    onTypingChange?.(false);
+  };
+
+  const handleInputChange = (next: string) => {
+    setInput(next);
+    if (!onTypingChange) return;
+    if (next.length > 0) onTypingChange(true);
+    else onTypingChange(false);
   };
 
   const handleBuildThis = (suggested: string) => {
@@ -463,6 +482,19 @@ export function ChatPanel({
             )}
           </div>
         )}
+        {typingUserNames && typingUserNames.length > 0 && (
+          <div
+            className="text-[11px] text-neutral-500 dark:text-neutral-400 italic"
+            data-testid="text-collaborator-typing"
+            aria-live="polite"
+          >
+            {typingUserNames.length === 1
+              ? `${typingUserNames[0]} is typing…`
+              : typingUserNames.length === 2
+                ? `${typingUserNames[0]} and ${typingUserNames[1]} are typing…`
+                : `${typingUserNames.length} people are typing…`}
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
@@ -562,7 +594,7 @@ export function ChatPanel({
                     : "What do you want to build?"
               }
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

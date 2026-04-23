@@ -492,6 +492,22 @@ export interface IStorage {
   getNotificationsForUser(userId: string): Promise<Notification[]>;
   markNotificationRead(id: string, userId: string): Promise<Notification | undefined>;
   markAllNotificationsRead(userId: string): Promise<number>;
+  /**
+   * Bulk-dismiss a single notification type for a user. Used by the admin
+   * notification bell so a noisy upstream incident (many `admin_alert` rows
+   * stacked up) can be cleared in one click without nuking unrelated
+   * `board_shared`/`user` notifications.
+   */
+  markNotificationsReadByType(userId: string, type: string): Promise<number>;
+  /**
+   * Per-user snooze for `admin_alert` persistence. Returns the timestamp
+   * (or null) until which new admin alerts will be suppressed for this
+   * user. Snooze state is process-local — it survives a page refresh but
+   * intentionally not a server restart, since stale snoozes during an
+   * incident would be worse than a noisy bell.
+   */
+  getAdminAlertSnoozeUntil(userId: string): Promise<Date | null>;
+  setAdminAlertSnoozeUntil(userId: string, until: Date | null): Promise<void>;
 
   // Board Assets (always user-scoped via boardId + userId)
   getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]>;
@@ -636,6 +652,28 @@ export type BoardMessageAuthor = {
 export type BoardMessageWithAuthor = BoardMessage & {
   author: BoardMessageAuthor | null;
 };
+
+// Process-local map of admin user id -> snooze expiry. Lives in module
+// scope (not on a class instance) because both DatabaseStorage callers
+// and the websocket layer need to consult the same view.
+const adminAlertSnoozes = new Map<string, Date>();
+
+/**
+ * Synchronous fast-path used by realtime broadcast paths so the
+ * common "no snooze active" case does not introduce an extra
+ * microtask per admin (which can widen the race window in tests
+ * that share the global storage singleton).
+ */
+export function isAdminAlertSnoozedSync(userId: string): boolean {
+  if (adminAlertSnoozes.size === 0) return false;
+  const until = adminAlertSnoozes.get(userId);
+  if (!until) return false;
+  if (until.getTime() <= Date.now()) {
+    adminAlertSnoozes.delete(userId);
+    return false;
+  }
+  return true;
+}
 
 export class MemStorage implements IStorage {
   private users: Map<string, User> = new Map();
@@ -3230,6 +3268,39 @@ export class MemStorage implements IStorage {
       .where(and(eq(notificationsTable.userId, userId), eq(notificationsTable.isRead, false)))
       .returning();
     return updated.length;
+  }
+
+  async markNotificationsReadByType(userId: string, type: string): Promise<number> {
+    const updated = await db
+      .update(notificationsTable)
+      .set({ isRead: true })
+      .where(
+        and(
+          eq(notificationsTable.userId, userId),
+          eq(notificationsTable.isRead, false),
+          eq(notificationsTable.type, type),
+        ),
+      )
+      .returning();
+    return updated.length;
+  }
+
+  async getAdminAlertSnoozeUntil(userId: string): Promise<Date | null> {
+    const until = adminAlertSnoozes.get(userId);
+    if (!until) return null;
+    if (until.getTime() <= Date.now()) {
+      adminAlertSnoozes.delete(userId);
+      return null;
+    }
+    return until;
+  }
+
+  async setAdminAlertSnoozeUntil(userId: string, until: Date | null): Promise<void> {
+    if (!until || until.getTime() <= Date.now()) {
+      adminAlertSnoozes.delete(userId);
+      return;
+    }
+    adminAlertSnoozes.set(userId, until);
   }
 
   async updateBoardForUser(id: string, userId: string, updates: BoardUpdate): Promise<Board | undefined> {

@@ -648,13 +648,21 @@ export class RealtimeService {
   }): Promise<void> {
     // Dynamic import to avoid a circular import between websocket and
     // storage (storage imports the realtimeService for board events).
-    const { storage } = await import("./storage");
+    const { storage, isAdminAlertSnoozedSync } = await import("./storage");
     const users = await storage.getAllUsers();
     const admins = users.filter(
       (u) => (u as { role?: string }).role === "admin",
     );
     for (const admin of admins) {
       try {
+        // Honor a per-admin snooze: while active, the realtime broadcast
+        // above already reached connected admin sockets, but we skip the
+        // notification row so the bell doesn't stack up during incidents.
+        // Synchronous check to avoid an extra microtask per admin in the
+        // common (no-snooze) hot path.
+        if (isAdminAlertSnoozedSync(admin.id)) {
+          continue;
+        }
         const notification = await storage.createNotification({
           userId: admin.id,
           type: "admin_alert",

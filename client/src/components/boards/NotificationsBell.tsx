@@ -1,12 +1,21 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Bell, X } from "lucide-react";
+import { AlertTriangle, Bell, BellOff, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import type { Notification } from "@shared/schema";
+
+interface AdminAlertSnoozeResponse {
+  until: string | null;
+}
+
+const SNOOZE_OPTIONS: Array<{ label: string; minutes: number }> = [
+  { label: "1h", minutes: 60 },
+  { label: "24h", minutes: 24 * 60 },
+];
 
 interface BoardSharedData {
   boardId?: string;
@@ -107,6 +116,29 @@ export function NotificationsBell() {
   // the item disappear from the list (per task requirements).
   const items = (notificationsQuery.data ?? []).filter((n) => !n.isRead);
   const unreadCount = items.length;
+  const adminAlertCount = useMemo(
+    () => items.filter((n) => n.type === "admin_alert").length,
+    [items],
+  );
+  // Admin status is inferred from "do we ever receive admin_alert rows":
+  // the server only persists admin_alert notifications for users with
+  // role === 'admin', so a user who has them (even if all read) is an
+  // admin. We also surface the snooze controls if ANY admin_alert has
+  // ever come through, so an admin can pre-snooze before the next storm.
+  const hasAdminAlertsEver = useMemo(
+    () => (notificationsQuery.data ?? []).some((n) => n.type === "admin_alert"),
+    [notificationsQuery.data],
+  );
+
+  const snoozeQuery = useQuery<AdminAlertSnoozeResponse>({
+    queryKey: ["/api/notifications/admin-alert-snooze"],
+    enabled: hasAdminAlertsEver,
+    refetchInterval: 60_000,
+  });
+  const snoozedUntilMs = snoozeQuery.data?.until
+    ? new Date(snoozeQuery.data.until).getTime()
+    : 0;
+  const isSnoozed = snoozedUntilMs > Date.now();
 
   const markRead = useMutation({
     mutationFn: async (id: string) => {
@@ -122,6 +154,37 @@ export function NotificationsBell() {
       await apiRequest("POST", "/api/notifications/read-all");
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+  });
+
+  const clearAdminAlerts = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/notifications/clear-by-type", { type: "admin_alert" });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/notifications"] }),
+    onError: (e: Error) =>
+      toast({
+        title: "Couldn't clear admin alerts",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      }),
+  });
+
+  const setSnooze = useMutation({
+    mutationFn: async (minutes: number | null) => {
+      await apiRequest("POST", "/api/notifications/admin-alert-snooze", { minutes });
+    },
+    onSuccess: (_data, minutes) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/admin-alert-snooze"] });
+      toast({
+        title: minutes ? `Admin alerts snoozed for ${minutes >= 60 ? `${minutes / 60}h` : `${minutes}m`}` : "Admin alert snooze cleared",
+      });
+    },
+    onError: (e: Error) =>
+      toast({
+        title: "Couldn't update snooze",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      }),
   });
 
   const handleClickItem = (n: Notification) => {
@@ -191,6 +254,60 @@ export function NotificationsBell() {
               </button>
             )}
           </div>
+          {hasAdminAlertsEver && (
+            <div
+              className="flex flex-wrap items-center gap-2 px-4 py-2 bg-red-50/40 dark:bg-red-950/10 border-b border-red-100 dark:border-red-900/40"
+              data-testid="panel-admin-alert-controls"
+            >
+              <button
+                type="button"
+                onClick={() => clearAdminAlerts.mutate()}
+                disabled={clearAdminAlerts.isPending || adminAlertCount === 0}
+                className="text-[11px] px-2 py-1 rounded bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-40 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60"
+                data-testid="button-clear-admin-alerts"
+              >
+                Clear admin alerts{adminAlertCount > 0 ? ` (${adminAlertCount})` : ""}
+              </button>
+              <div className="flex items-center gap-1 ml-auto">
+                {isSnoozed ? (
+                  <>
+                    <span
+                      className="flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300"
+                      data-testid="text-admin-alert-snoozed-until"
+                    >
+                      <BellOff className="w-3 h-3" />
+                      Snoozed until {new Date(snoozedUntilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSnooze.mutate(null)}
+                      disabled={setSnooze.isPending}
+                      className="text-[11px] text-neutral-500 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:text-neutral-100 underline"
+                      data-testid="button-admin-alert-snooze-clear"
+                    >
+                      Unsnooze
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[11px] text-neutral-500 dark:text-neutral-400">Snooze:</span>
+                    {SNOOZE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.minutes}
+                        type="button"
+                        onClick={() => setSnooze.mutate(opt.minutes)}
+                        disabled={setSnooze.isPending}
+                        className="text-[11px] px-1.5 py-0.5 rounded border border-neutral-200 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                        data-testid={`button-admin-alert-snooze-${opt.label}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           {notificationsQuery.isLoading ? (
             <div className="p-4 text-[12px] text-neutral-500 dark:text-neutral-400">Loading...</div>
           ) : items.length === 0 ? (

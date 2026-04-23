@@ -24,7 +24,19 @@ describe("RealtimeService.broadcastAdminAlert", () => {
   let admin: FakeSocket;
   let nonAdmin: FakeSocket;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // broadcastAdminAlert internally fires `persistAdminAlertForAdmins`
+    // as a fire-and-forget promise that touches the real storage
+    // singleton (and the real DB). If those background writes land
+    // while a sibling test suite is monkey-patching the same singleton,
+    // the writes leak into the sibling's mocks. Stub `getAllUsers` to
+    // return no admins so the background persist is a no-op for this
+    // suite's broadcasts. The other suite restores its own patches.
+    const storageModule = (await import("../server/storage")) as unknown as {
+      storage: { getAllUsers: () => Promise<unknown[]> };
+    };
+    storageModule.storage.getAllUsers = async () => [];
+
     service = new RealtimeService();
     admin = new FakeSocket();
     nonAdmin = new FakeSocket();

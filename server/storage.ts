@@ -655,26 +655,19 @@ export type BoardMessageWithAuthor = BoardMessage & {
   author: BoardMessageAuthor | null;
 };
 
-// Process-local map of admin user id -> snooze expiry. Lives in module
-// scope (not on a class instance) because both DatabaseStorage callers
-// and the websocket layer need to consult the same view.
-const adminAlertSnoozes = new Map<string, Date>();
-
 /**
- * Synchronous fast-path used by realtime broadcast paths so the
- * common "no snooze active" case does not introduce an extra
- * microtask per admin (which can widen the race window in tests
- * that share the global storage singleton).
+ * Returns true when the given admin user row has an active snooze window.
+ * Reads `adminAlertSnoozedUntil` directly so callers that already have the
+ * user record (e.g. the websocket broadcast loop, which loads every admin
+ * up-front) can skip an extra database round-trip per admin in the hot
+ * path.
  */
-export function isAdminAlertSnoozedSync(userId: string): boolean {
-  if (adminAlertSnoozes.size === 0) return false;
-  const until = adminAlertSnoozes.get(userId);
+export function isAdminAlertSnoozedFromUser(
+  user: { adminAlertSnoozedUntil?: Date | null } | null | undefined,
+): boolean {
+  const until = user?.adminAlertSnoozedUntil ?? null;
   if (!until) return false;
-  if (until.getTime() <= Date.now()) {
-    adminAlertSnoozes.delete(userId);
-    return false;
-  }
-  return true;
+  return until.getTime() > Date.now();
 }
 
 export class MemStorage implements IStorage {
@@ -715,6 +708,9 @@ export class MemStorage implements IStorage {
       name: "Mike Bjork",
       email: "mike@bjorkgroup.com",
       role: "team_lead",
+      isDemo: false,
+      emailNotifications: true,
+      adminAlertSnoozedUntil: null,
       createdAt: new Date(),
     };
     this.users.set(userId, user);
@@ -981,6 +977,9 @@ export class MemStorage implements IStorage {
       id,
       createdAt: new Date(),
       role: insertUser.role || "agent",
+      isDemo: insertUser.isDemo ?? false,
+      emailNotifications: insertUser.emailNotifications ?? true,
+      adminAlertSnoozedUntil: insertUser.adminAlertSnoozedUntil ?? null,
     };
     this.users.set(id, user);
     console.log(
@@ -3288,21 +3287,31 @@ export class MemStorage implements IStorage {
   }
 
   async getAdminAlertSnoozeUntil(userId: string): Promise<Date | null> {
-    const until = adminAlertSnoozes.get(userId);
+    const [row] = await db
+      .select({ until: usersTable.adminAlertSnoozedUntil })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    const until = row?.until ?? null;
     if (!until) return null;
     if (until.getTime() <= Date.now()) {
-      adminAlertSnoozes.delete(userId);
+      // Lazily clear expired snoozes so the column doesn't accumulate
+      // stale values forever for users that never re-snooze.
+      await db
+        .update(usersTable)
+        .set({ adminAlertSnoozedUntil: null })
+        .where(eq(usersTable.id, userId));
       return null;
     }
     return until;
   }
 
   async setAdminAlertSnoozeUntil(userId: string, until: Date | null): Promise<void> {
-    if (!until || until.getTime() <= Date.now()) {
-      adminAlertSnoozes.delete(userId);
-      return;
-    }
-    adminAlertSnoozes.set(userId, until);
+    const next = until && until.getTime() > Date.now() ? until : null;
+    await db
+      .update(usersTable)
+      .set({ adminAlertSnoozedUntil: next })
+      .where(eq(usersTable.id, userId));
   }
 
   async updateBoardForUser(id: string, userId: string, updates: BoardUpdate): Promise<Board | undefined> {

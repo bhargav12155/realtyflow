@@ -45,6 +45,10 @@ export const users = pgTable("users", {
   // you" notification. Defaults to true so existing recipients keep getting
   // emails until they explicitly turn them off.
   emailNotifications: boolean("email_notifications").default(true),
+  // Per-admin "snooze admin alert notifications until" timestamp. Stored on
+  // the user row so the snooze survives server restarts and redeploys.
+  // Null/past values mean no active snooze. Only meaningful for admin users.
+  adminAlertSnoozedUntil: timestamp("admin_alert_snoozed_until"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

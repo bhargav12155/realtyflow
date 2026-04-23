@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { ChatPanel, extractSuggestedPrompt, type ChatMessage } from "../ChatPanel";
 import { DEFAULT_SEEDANCE_OPTIONS } from "../PlatformPicker";
@@ -216,6 +216,70 @@ describe("ChatPanel thinking indicator", () => {
     expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
     rerender(<ChatPanel {...baseProps} isSending={false} />);
     expect(screen.queryByTestId("status-chat-thinking")).toBeNull();
+  });
+});
+
+describe("ChatPanel thinking hint escalation", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows no soft-warning hint before 20s, escalates at 20s and 60s, and clears them when isSending flips off", () => {
+    const baseProps: React.ComponentProps<typeof ChatPanel> = {
+      boardTitle: "My Board",
+      messages: [],
+      mode: "brainstorm",
+      onModeChange: vi.fn(),
+      provider: "luma",
+      onProviderChange: vi.fn(),
+      generationMode: "text-to-video",
+      onGenerationModeChange: vi.fn(),
+      seedanceOptions: DEFAULT_SEEDANCE_OPTIONS,
+      onSeedanceOptionsChange: vi.fn(),
+      referencedAssetIds: [],
+      onSend: vi.fn(),
+      isSending: true,
+    };
+    const { rerender } = render(<ChatPanel {...baseProps} />);
+
+    // Before 20s: no hint visible.
+    expect(screen.queryByTestId("text-chat-thinking-hint-slow")).toBeNull();
+    expect(screen.queryByTestId("text-chat-thinking-hint-very-slow")).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(19_999);
+    });
+    expect(screen.queryByTestId("text-chat-thinking-hint-slow")).toBeNull();
+    expect(screen.queryByTestId("text-chat-thinking-hint-very-slow")).toBeNull();
+
+    // At 20s: the gentle "still thinking" hint appears.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    const slow = screen.getByTestId("text-chat-thinking-hint-slow");
+    expect(slow.textContent).toBe(
+      "Still thinking — this is taking longer than usual.",
+    );
+    expect(screen.queryByTestId("text-chat-thinking-hint-very-slow")).toBeNull();
+
+    // At 60s: the stronger "unusually slow" hint replaces it.
+    act(() => {
+      vi.advanceTimersByTime(40_000);
+    });
+    expect(screen.queryByTestId("text-chat-thinking-hint-slow")).toBeNull();
+    const verySlow = screen.getByTestId("text-chat-thinking-hint-very-slow");
+    expect(verySlow.textContent).toBe(
+      "This is unusually slow — you can try again.",
+    );
+
+    // When isSending flips to false, all hints (and the indicator) disappear.
+    rerender(<ChatPanel {...baseProps} isSending={false} />);
+    expect(screen.queryByTestId("status-chat-thinking")).toBeNull();
+    expect(screen.queryByTestId("text-chat-thinking-hint-slow")).toBeNull();
+    expect(screen.queryByTestId("text-chat-thinking-hint-very-slow")).toBeNull();
   });
 });
 

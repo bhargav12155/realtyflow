@@ -157,6 +157,78 @@ describe("NotificationsBell board_unshared rendering", () => {
   });
 });
 
+function makeLeft(overrides: Partial<Notification> = {}): Notification {
+  return {
+    id: "n-left",
+    userId: "u-admin",
+    type: "board_left",
+    isRead: false,
+    createdAt: new Date().toISOString() as unknown as Date,
+    data: {
+      boardId: "brd_42",
+      boardTitle: "Roadmap",
+      leftByUserId: "rec-2",
+      leftByName: "Recipient Person",
+    },
+    ...overrides,
+  } as unknown as Notification;
+}
+
+describe("NotificationsBell board_left rendering", () => {
+  it("renders the leaver name in the title and the board title in the subtitle", async () => {
+    notificationsRef.current = [makeLeft()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const item = await screen.findByTestId("notification-n-left");
+    expect(item.textContent).toContain("Recipient Person left your shared board");
+    expect(item.textContent).toContain("Roadmap");
+  });
+
+  it("falls back to 'Someone' / 'Untitled board' when the payload omits names", async () => {
+    notificationsRef.current = [
+      makeLeft({
+        id: "n-left-bare",
+        data: { boardId: "brd_99" },
+      } as Partial<Notification>),
+    ];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const item = await screen.findByTestId("notification-n-left-bare");
+    expect(item.textContent).toContain("Someone left your shared board");
+    expect(item.textContent).toContain("Untitled board");
+  });
+
+  it("dismisses the entry on click by POSTing to the read endpoint", async () => {
+    notificationsRef.current = [makeLeft()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    fireEvent.click(await screen.findByTestId("button-notification-open-n-left"));
+
+    await waitFor(() => expect(apiRequestMock).toHaveBeenCalledTimes(1));
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "POST",
+      "/api/notifications/n-left/read",
+    );
+  });
+
+  it("dismisses the entry when the X dismiss button is clicked", async () => {
+    notificationsRef.current = [makeLeft()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    fireEvent.click(await screen.findByTestId("button-notification-dismiss-n-left"));
+
+    await waitFor(() => expect(apiRequestMock).toHaveBeenCalledTimes(1));
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "POST",
+      "/api/notifications/n-left/read",
+    );
+  });
+});
+
 describe("NotificationsBell admin_alert rendering", () => {
   beforeEach(() => {
     notificationsRef.current = [makeAdminAlert()];

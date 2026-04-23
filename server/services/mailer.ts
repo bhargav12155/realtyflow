@@ -211,3 +211,54 @@ export async function sendBoardUnsharedEmail(params: BoardUnsharedEmailParams): 
     html,
   });
 }
+
+export interface BoardLeftEmailParams {
+  ownerEmail: string;
+  ownerName?: string | null;
+  leaverName: string;
+  boardTitle: string;
+  boardUrl: string;
+}
+
+export async function sendBoardLeftEmail(params: BoardLeftEmailParams): Promise<boolean> {
+  const { ownerEmail, ownerName, leaverName, boardTitle, boardUrl } = params;
+  const safeLeaver = escapeHtml(leaverName);
+  const safeTitle = escapeHtml(boardTitle);
+  const safeUrl = escapeHtml(boardUrl);
+  const greeting = ownerName ? `Hi ${escapeHtml(ownerName)},` : "Hi,";
+
+  const subject = `${leaverName} left "${boardTitle}"`;
+
+  const text = [
+    ownerName ? `Hi ${ownerName},` : "Hi,",
+    "",
+    `${leaverName} just left your shared board "${boardTitle}" on Atlas.`,
+    "",
+    `They no longer have access. You can manage who the board is shared with here: ${boardUrl}`,
+    "",
+    "If you'd rather not get these emails, you can turn them off in your account settings.",
+  ].join("\n");
+
+  const html = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 24px;">
+    <p>${greeting}</p>
+    <p><strong>${safeLeaver}</strong> just left your shared board <strong>"${safeTitle}"</strong>.</p>
+    <p style="color: #555;">They no longer have access. You can manage who the board is shared with from the board page.</p>
+    <p style="margin: 24px 0;">
+      <a href="${safeUrl}" style="display: inline-block; background: #111; color: #fff; padding: 10px 18px; border-radius: 6px; text-decoration: none;">Open board</a>
+    </p>
+    <p style="color: #555; font-size: 13px;">Or paste this link into your browser:<br /><a href="${safeUrl}">${safeUrl}</a></p>
+    <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+    <p style="color: #888; font-size: 12px;">You're receiving this because you own a shared board on Atlas. You can turn off these emails in your account settings.</p>
+  </body>
+</html>`;
+
+  return sendEmail({
+    to: ownerEmail,
+    toName: ownerName ?? undefined,
+    subject,
+    text,
+    html,
+  });
+}

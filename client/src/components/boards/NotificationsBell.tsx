@@ -20,6 +20,12 @@ interface BoardUnsharedData {
   removedByName?: string | null;
 }
 
+interface BoardLeftData {
+  boardId?: string;
+  boardTitle?: string;
+  leftByName?: string | null;
+}
+
 interface AdminAlertData {
   source?: string;
   severity?: "info" | "warning" | "error";
@@ -132,6 +138,17 @@ export function NotificationsBell() {
       // No deep link — the user no longer has access. Just dismiss the
       // bell entry so it doesn't keep nagging them.
       if (!n.isRead) markRead.mutate(n.id);
+      return;
+    }
+    if (n.type === "board_left") {
+      // Owner-side heads-up that a recipient left. The board is still
+      // theirs, so deep-link them in (and dismiss the entry).
+      const data = (n.data ?? {}) as BoardLeftData;
+      if (data.boardId) {
+        setOpen(false);
+        if (!n.isRead) markRead.mutate(n.id);
+        setLocation(`/boards/${data.boardId}`);
+      }
     }
   };
 
@@ -185,24 +202,30 @@ export function NotificationsBell() {
               {items.map((n) => {
                 const isShare = n.type === "board_shared";
                 const isUnshare = n.type === "board_unshared";
+                const isLeft = n.type === "board_left";
                 const isAdminAlert = n.type === "admin_alert";
                 const shareData = isShare ? ((n.data ?? {}) as BoardSharedData) : null;
                 const unshareData = isUnshare ? ((n.data ?? {}) as BoardUnsharedData) : null;
+                const leftData = isLeft ? ((n.data ?? {}) as BoardLeftData) : null;
                 const alertData = isAdminAlert ? ((n.data ?? {}) as AdminAlertData) : null;
                 const title = isShare
                   ? `${shareData?.sharedByName ?? "Someone"} shared a board with you`
                   : isUnshare
                     ? `${unshareData?.removedByName ?? "Someone"} removed your access to a board`
-                    : isAdminAlert
-                      ? alertData?.title ?? "Admin alert"
-                      : "Notification";
+                    : isLeft
+                      ? `${leftData?.leftByName ?? "Someone"} left your shared board`
+                      : isAdminAlert
+                        ? alertData?.title ?? "Admin alert"
+                        : "Notification";
                 const subtitle = isShare
                   ? shareData?.boardTitle ?? "Untitled board"
                   : isUnshare
                     ? unshareData?.boardTitle ?? "Untitled board"
-                    : isAdminAlert
-                      ? alertData?.message ?? null
-                      : null;
+                    : isLeft
+                      ? leftData?.boardTitle ?? "Untitled board"
+                      : isAdminAlert
+                        ? alertData?.message ?? null
+                        : null;
                 const severity = alertData?.severity ?? "error";
                 const severityStyle = SEVERITY_STYLES[severity];
                 const sourceLabel = alertData?.source

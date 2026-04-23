@@ -13,7 +13,12 @@ import {
   DRAWING_MAX_CONTENT_BYTES,
 } from "@shared/schema";
 import { realtimeService } from "../websocket";
-import { sendBoardSharedEmail, sendBoardUnsharedEmail, getAppBaseUrl } from "../services/mailer";
+import {
+  sendBoardSharedEmail,
+  sendBoardUnsharedEmail,
+  sendBoardLeftEmail,
+  getAppBaseUrl,
+} from "../services/mailer";
 
 export const ASSET_KINDS = [
   "image",
@@ -513,8 +518,102 @@ export function registerBoardsRoutes(
   app.delete("/api/boards/:id/share/me", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
+      // Resolve the board (and therefore the owner) *before* leaving so we
+      // can fan out the heads-up notification + email after the share row
+      // is gone. We use the accessible-for-user lookup because the caller
+      // is a recipient, not the owner.
+      const board = await storage.getAccessibleBoardForUser(req.params.id, userId);
       const ok = await storage.leaveSharedBoard(req.params.id, userId);
       if (!ok) return res.status(404).json({ error: "Not a shared recipient of this board" });
+
+      // Best-effort fan-out to the owner. Mirrors the explicit-remove path:
+      // persisted notification + opt-out-respecting transactional email.
+      if (board && board.userId !== userId) {
+        const owner = await storage.getUser(board.userId).catch(() => undefined);
+        const leaver = await storage.getUser(userId).catch(() => undefined);
+        const leaverDisplayName = leaver?.name ?? leaver?.email ?? "A teammate";
+
+        try {
+          const notification = await storage.createNotification({
+            userId: board.userId,
+            type: "board_left",
+            data: {
+              boardId: board.id,
+              boardTitle: board.title,
+              leftByUserId: userId,
+              leftByName: leaver?.name ?? leaver?.email ?? null,
+            },
+          });
+          try {
+            realtimeService.notifyNotificationCreated(board.userId, {
+              notificationId: notification.id,
+              type: notification.type,
+              data: notification.data,
+            });
+          } catch (wsError) {
+            console.error(
+              "[boards] notify owner of leave via websocket failed",
+              JSON.stringify({
+                event: "notification.ws.failed",
+                type: "board_left",
+                boardId: board.id,
+                ownerUserId: board.userId,
+                error: (wsError as Error)?.message ?? String(wsError),
+              }),
+            );
+          }
+        } catch (notifyError) {
+          console.error(
+            "[boards] notify owner of leave failed",
+            JSON.stringify({
+              event: "notification.create.failed",
+              type: "board_left",
+              boardId: board.id,
+              ownerUserId: board.userId,
+              leftByUserId: userId,
+              error: (notifyError as Error)?.message ?? String(notifyError),
+            }),
+          );
+        }
+
+        try {
+          const ownerEmail = owner?.email?.trim();
+          const optedOut = owner && owner.emailNotifications === false;
+          if (!ownerEmail) {
+            console.warn(
+              "[boards] skipping leave email — owner has no email",
+              JSON.stringify({ event: "leave.email.skipped.no_address", boardId: board.id, ownerUserId: board.userId }),
+            );
+          } else if (optedOut) {
+            console.log(
+              "[boards] skipping leave email — owner opted out",
+              JSON.stringify({ event: "leave.email.skipped.opt_out", boardId: board.id, ownerUserId: board.userId }),
+            );
+          } else {
+            const baseUrl = getAppBaseUrl(req.get("host"));
+            const boardUrl = `${baseUrl}/boards/${encodeURIComponent(board.id)}`;
+            await sendBoardLeftEmail({
+              ownerEmail,
+              ownerName: owner?.name ?? null,
+              leaverName: leaverDisplayName,
+              boardTitle: board.title,
+              boardUrl,
+            });
+          }
+        } catch (emailError) {
+          console.error(
+            "[boards] send leave email failed",
+            JSON.stringify({
+              event: "leave.email.failed",
+              boardId: board.id,
+              ownerUserId: board.userId,
+              leftByUserId: userId,
+              error: (emailError as Error)?.message ?? String(emailError),
+            }),
+          );
+        }
+      }
+
       res.json({ success: true });
     } catch (error: unknown) {
       console.error("[boards] leave share error:", error);

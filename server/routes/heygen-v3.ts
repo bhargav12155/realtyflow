@@ -928,4 +928,94 @@ export function registerHeygenV3Routes(
       }
     },
   );
+
+  // -------------------------------------------------------------------
+  // Operator retention — manually prune old shape-drift incidents.
+  // Defaults to the same retention window as the daily background cron
+  // (`HEYGEN_SHAPE_DRIFT_RETENTION_DAYS`, falling back to 30 days) so
+  // operators can force a sweep without waiting for the next tick.
+  // -------------------------------------------------------------------
+  app.delete(
+    "/api/v3/admin/heygen-shape-drift-incidents",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const rawDays =
+        typeof req.query.olderThanDays === "string"
+          ? Number.parseInt(req.query.olderThanDays, 10)
+          : NaN;
+      const olderThanDays = Number.isFinite(rawDays) && rawDays > 0
+        ? rawDays
+        : getShapeDriftRetentionDays();
+      try {
+        const deleted = await defaultStorage.pruneHeygenShapeDriftIncidents(
+          olderThanDays,
+        );
+        return res.json({ deleted, olderThanDays });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return res
+          .status(500)
+          .json({ error: "shape_drift_incidents_prune_failed", message });
+      }
+    },
+  );
+}
+
+/**
+ * Retention window (in days) for `heygen_shape_drift_incidents` rows.
+ * Operators can override via the `HEYGEN_SHAPE_DRIFT_RETENTION_DAYS` env
+ * var; bad/missing values fall back to a sensible 30-day default so the
+ * table never grows unbounded in production.
+ */
+export function getShapeDriftRetentionDays(): number {
+  const raw = process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS;
+  const parsed = raw != null ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
+}
+
+/**
+ * Background prune job — runs once a day in production and deletes any
+ * `heygen_shape_drift_incidents` row older than the retention window.
+ * Idempotent and safe to call manually from tests; failures are logged
+ * but never thrown so a hiccup can't crash the server.
+ */
+export async function runShapeDriftRetentionSweep(): Promise<number> {
+  const days = getShapeDriftRetentionDays();
+  try {
+    const deleted = await defaultStorage.pruneHeygenShapeDriftIncidents(days);
+    if (deleted > 0) {
+      console.log(
+        `[heygen-shape-drift] pruned ${deleted} incident(s) older than ${days} day(s)`,
+      );
+    }
+    return deleted;
+  } catch (err) {
+    console.error("[heygen-shape-drift] retention sweep failed:", err);
+    return 0;
+  }
+}
+
+const SHAPE_DRIFT_RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let shapeDriftRetentionTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Schedule the daily shape-drift retention sweep. Safe to call multiple
+ * times — only the first call installs a timer. Skipped under
+ * `NODE_ENV=test` to keep test runs deterministic; tests can call
+ * `runShapeDriftRetentionSweep()` directly.
+ */
+export function startShapeDriftRetentionJob(): void {
+  if (shapeDriftRetentionTimer || process.env.NODE_ENV === "test") return;
+  shapeDriftRetentionTimer = setInterval(() => {
+    void runShapeDriftRetentionSweep();
+  }, SHAPE_DRIFT_RETENTION_INTERVAL_MS);
+  // Don't keep the event loop alive just for this cleanup tick.
+  shapeDriftRetentionTimer.unref?.();
+}
+
+export function stopShapeDriftRetentionJobForTests(): void {
+  if (shapeDriftRetentionTimer) {
+    clearInterval(shapeDriftRetentionTimer);
+    shapeDriftRetentionTimer = null;
+  }
 }

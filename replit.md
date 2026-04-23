@@ -39,6 +39,7 @@ Key features include:
 - **Photo Avatar Privacy**: Photo avatar data is strictly user-scoped.
 - **Auto Image Processing**: `autoProcessImageMiddleware` automatically resizes and compresses image uploads.
 - **Post-merge schema sync**: `scripts/post-merge.sh` runs `npm run db:push -- --force` directly and fails loud on any drift. The historical `engagement_leads` column drift was resolved, and the `public_users (agent_slug, email)` composite uniqueness is declared as a `uniqueIndex` (not a `unique` constraint) to avoid a drizzle-kit 0.31.x diff quirk that re-proposed composite unique constraints on every push.
+- **HeyGen shape-drift retention**: `recordHeygenShapeDriftIncident` writes through Drizzle into the Postgres `heygen_shape_drift_incidents` table (verified via the `pg` MemStorage method, no in-memory shadow), and a daily background sweep (`startShapeDriftRetentionJob` in `server/routes/heygen-v3.ts`, kicked off from `server/routes.ts`) deletes rows older than `HEYGEN_SHAPE_DRIFT_RETENTION_DAYS` (default 30 days) so the operator-analytics table stays bounded. Operators can also force a sweep on demand via `DELETE /api/v3/admin/heygen-shape-drift-incidents?olderThanDays=N` (admin-only); the response returns `{deleted, olderThanDays}`. The cron is suppressed under `NODE_ENV=test` so tests can call `runShapeDriftRetentionSweep()` directly.
 
 ## External Dependencies
 - **Database**: PostgreSQL (Neon)

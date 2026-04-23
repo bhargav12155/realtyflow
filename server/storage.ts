@@ -515,6 +515,10 @@ export interface IStorage {
   listHeygenShapeDriftIncidents(
     limit?: number,
   ): Promise<HeygenShapeDriftIncident[]>;
+  // Retention helper — delete incidents older than `olderThanDays` days.
+  // Returns the number of rows removed so callers (admin endpoint, cron)
+  // can log/respond with the prune count.
+  pruneHeygenShapeDriftIncidents(olderThanDays: number): Promise<number>;
 
   // Board chat messages — persisted conversation history for the chat panel.
   // Access is gated to the same set of users who can read the board (owners
@@ -3446,6 +3450,18 @@ export class MemStorage implements IStorage {
       .where(eq(boardMessagesTable.boardId, boardId))
       .returning({ id: boardMessagesTable.id });
     return { deleted: deleted.length };
+  }
+
+  async pruneHeygenShapeDriftIncidents(
+    olderThanDays: number,
+  ): Promise<number> {
+    const days = Math.max(1, Math.floor(olderThanDays));
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const deleted = await db
+      .delete(heygenShapeDriftIncidents)
+      .where(sql`${heygenShapeDriftIncidents.createdAt} < ${cutoff}`)
+      .returning({ id: heygenShapeDriftIncidents.id });
+    return deleted.length;
   }
 }
 

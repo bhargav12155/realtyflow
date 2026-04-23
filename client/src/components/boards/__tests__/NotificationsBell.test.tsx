@@ -1,0 +1,149 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Notification } from "@shared/schema";
+
+const notificationsRef: { current: Notification[] } = { current: [] };
+const queryClientRef: { current: QueryClient | null } = { current: null };
+const apiRequestMock = vi.fn(async () => ({}));
+
+vi.mock("@/lib/queryClient", () => {
+  const proxy = new Proxy(
+    {},
+    {
+      get: (_t, prop) => {
+        const qc = queryClientRef.current;
+        if (!qc) return () => {};
+        const value = (qc as unknown as Record<string, unknown>)[prop as string];
+        return typeof value === "function" ? value.bind(qc) : value;
+      },
+    },
+  );
+  return {
+    apiRequest: (...args: unknown[]) => apiRequestMock(...args),
+    queryClient: proxy,
+    getQueryFn: () => async () => notificationsRef.current,
+  };
+});
+
+vi.mock("@/hooks/use-toast", () => ({
+  useToast: () => ({ toast: vi.fn() }),
+}));
+
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => ({ user: { id: "u-admin", email: "a@b.c", name: "Admin" } }),
+}));
+
+vi.mock("@/hooks/useWebSocket", () => ({
+  useWebSocket: () => ({}),
+}));
+
+import { NotificationsBell } from "../NotificationsBell";
+
+function renderBell() {
+  const qc = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+        staleTime: 0,
+        queryFn: async () => notificationsRef.current,
+      },
+      mutations: { retry: false },
+    },
+  });
+  queryClientRef.current = qc;
+  return render(
+    <QueryClientProvider client={qc}>
+      <NotificationsBell />
+    </QueryClientProvider>,
+  );
+}
+
+function makeAdminAlert(overrides: Partial<Notification> = {}): Notification {
+  return {
+    id: "n-1",
+    userId: "u-admin",
+    type: "admin_alert",
+    isRead: false,
+    createdAt: new Date().toISOString() as unknown as Date,
+    data: {
+      source: "heygen",
+      severity: "error",
+      title: "HeyGen response failed schema validation",
+      message: "drift detected on /v2/avatar_group.list",
+      context: { endpoint: "/v2/avatar_group.list" },
+    },
+    ...overrides,
+  } as unknown as Notification;
+}
+
+afterEach(() => {
+  cleanup();
+  notificationsRef.current = [];
+  queryClientRef.current = null;
+  apiRequestMock.mockClear();
+});
+
+describe("NotificationsBell admin_alert rendering", () => {
+  beforeEach(() => {
+    notificationsRef.current = [makeAdminAlert()];
+  });
+
+  it("renders severity badge, source, title, message and the AlertTriangle icon", async () => {
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const badge = await screen.findByTestId("badge-admin-alert-severity-n-1");
+    expect(badge.textContent).toBe("Error");
+
+    const source = screen.getByTestId("text-admin-alert-source-n-1");
+    expect(source.textContent).toBe("heygen");
+
+    const title = screen.getByTestId("text-admin-alert-title-n-1");
+    expect(title.textContent).toBe("HeyGen response failed schema validation");
+
+    const message = screen.getByTestId("text-admin-alert-message-n-1");
+    expect(message.textContent).toBe("drift detected on /v2/avatar_group.list");
+
+    const icon = screen.getByTestId("icon-admin-alert-n-1");
+    // lucide-react renders an SVG; the AlertTriangle has the lucide class.
+    expect(icon.tagName.toLowerCase()).toBe("svg");
+    expect(icon.getAttribute("class") ?? "").toMatch(/lucide-(triangle-alert|alert-triangle)/);
+  });
+
+  it("uses the warning severity label/style when payload severity is warning", async () => {
+    notificationsRef.current = [
+      makeAdminAlert({
+        id: "n-warn",
+        data: {
+          source: "heygen",
+          severity: "warning",
+          title: "soft drift",
+          message: "non-fatal",
+        },
+      } as Partial<Notification>),
+    ];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const badge = await screen.findByTestId("badge-admin-alert-severity-n-warn");
+    expect(badge.textContent).toBe("Warning");
+  });
+
+  it("falls back to a default title when the payload omits one and hides message when absent", async () => {
+    notificationsRef.current = [
+      makeAdminAlert({
+        id: "n-bare",
+        data: { source: "heygen", severity: "info" },
+      } as Partial<Notification>),
+    ];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    expect((await screen.findByTestId("text-admin-alert-title-n-bare")).textContent).toBe(
+      "Admin alert",
+    );
+    expect(screen.queryByTestId("text-admin-alert-message-n-bare")).toBeNull();
+  });
+});

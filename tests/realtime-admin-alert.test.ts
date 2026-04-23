@@ -92,3 +92,210 @@ describe("RealtimeService.broadcastAdminAlert", () => {
     assert.equal(service.getAdminSocketCount(), 0);
   });
 });
+
+describe("RealtimeService.persistAdminAlertForAdmins", () => {
+  // The websocket module dynamically imports `./storage` from inside
+  // persistAdminAlertForAdmins, so we monkey-patch the singleton's
+  // methods to act as a fake storage. The patches are restored after
+  // each test to keep the suite hermetic.
+  type StorageLike = {
+    getAllUsers: () => Promise<Array<{ id: string; role?: string }>>;
+    createNotification: (n: {
+      userId: string;
+      type: string;
+      data: Record<string, unknown>;
+    }) => Promise<{ id: string; type: string; data: Record<string, unknown> }>;
+  };
+
+  let storageModule: { storage: StorageLike };
+  let originalGetAllUsers: StorageLike["getAllUsers"];
+  let originalCreateNotification: StorageLike["createNotification"];
+  let createdNotifications: Array<{
+    userId: string;
+    type: string;
+    data: Record<string, unknown>;
+  }>;
+
+  beforeEach(async () => {
+    storageModule = (await import("../server/storage")) as unknown as {
+      storage: StorageLike;
+    };
+    originalGetAllUsers = storageModule.storage.getAllUsers;
+    originalCreateNotification = storageModule.storage.createNotification;
+    createdNotifications = [];
+
+    storageModule.storage.getAllUsers = async () => [
+      { id: "admin-1", role: "admin" },
+      { id: "admin-2", role: "admin" },
+      { id: "user-1", role: "user" },
+      { id: "user-2" },
+    ];
+    let counter = 0;
+    storageModule.storage.createNotification = async (n) => {
+      counter += 1;
+      createdNotifications.push(n);
+      return { id: `nid-${counter}`, type: n.type, data: n.data };
+    };
+  });
+
+  // Restore patched methods so other suites don't see test-injected fakes.
+  function restore() {
+    storageModule.storage.getAllUsers = originalGetAllUsers;
+    storageModule.storage.createNotification = originalCreateNotification;
+  }
+
+  it("persists exactly one notification per admin user with the right type and data", async () => {
+    const service = new RealtimeService();
+    try {
+      const anyService = service as unknown as {
+        persistAdminAlertForAdmins: (payload: {
+          source: string;
+          severity: "info" | "warning" | "error";
+          title: string;
+          message: string;
+          context?: Record<string, unknown>;
+        }) => Promise<void>;
+      };
+      await anyService.persistAdminAlertForAdmins({
+        source: "heygen",
+        severity: "error",
+        title: "drift",
+        message: "schema mismatch",
+        context: { endpoint: "/v2/avatar_group.list" },
+      });
+
+      // Two admins → exactly two notifications, no notifications for
+      // the non-admin users.
+      assert.equal(createdNotifications.length, 2);
+      const adminUserIds = createdNotifications.map((n) => n.userId).sort();
+      assert.deepEqual(adminUserIds, ["admin-1", "admin-2"]);
+
+      for (const n of createdNotifications) {
+        assert.equal(n.type, "admin_alert");
+        assert.deepEqual(n.data, {
+          source: "heygen",
+          severity: "error",
+          title: "drift",
+          message: "schema mismatch",
+          context: { endpoint: "/v2/avatar_group.list" },
+        });
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it("defaults the persisted context to an empty object when omitted", async () => {
+    const service = new RealtimeService();
+    try {
+      const anyService = service as unknown as {
+        persistAdminAlertForAdmins: (payload: {
+          source: string;
+          severity: "info" | "warning" | "error";
+          title: string;
+          message: string;
+        }) => Promise<void>;
+      };
+      await anyService.persistAdminAlertForAdmins({
+        source: "heygen",
+        severity: "warning",
+        title: "soft drift",
+        message: "non-fatal",
+      });
+
+      assert.equal(createdNotifications.length, 2);
+      for (const n of createdNotifications) {
+        assert.deepEqual(n.data.context, {});
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it("broadcastAdminAlert (public entrypoint) also persists one notification per admin", async () => {
+    const service = new RealtimeService();
+    try {
+      // broadcastAdminAlert fires persistAdminAlertForAdmins as a
+      // fire-and-forget promise, so we wrap createNotification with a
+      // waiter that resolves once the expected number of writes land.
+      const expected = 2;
+      let resolveDone!: () => void;
+      const done = new Promise<void>((r) => {
+        resolveDone = r;
+      });
+      const patched = storageModule.storage.createNotification;
+      storageModule.storage.createNotification = async (n) => {
+        const result = await patched(n);
+        if (createdNotifications.length >= expected) resolveDone();
+        return result;
+      };
+
+      service.broadcastAdminAlert({
+        source: "heygen",
+        severity: "error",
+        title: "drift via public entrypoint",
+        message: "schema mismatch",
+        context: { endpoint: "/v2/avatar_group.list" },
+      });
+
+      // Fail fast on regressions instead of letting node:test hang.
+      await Promise.race([
+        done,
+        new Promise<void>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "broadcastAdminAlert did not persist the expected number of notifications in time",
+                ),
+              ),
+            2000,
+          ),
+        ),
+      ]);
+
+      assert.equal(createdNotifications.length, 2);
+      const adminUserIds = createdNotifications.map((n) => n.userId).sort();
+      assert.deepEqual(adminUserIds, ["admin-1", "admin-2"]);
+      for (const n of createdNotifications) {
+        assert.equal(n.type, "admin_alert");
+        assert.deepEqual(n.data, {
+          source: "heygen",
+          severity: "error",
+          title: "drift via public entrypoint",
+          message: "schema mismatch",
+          context: { endpoint: "/v2/avatar_group.list" },
+        });
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it("creates zero notifications when no admin users exist", async () => {
+    storageModule.storage.getAllUsers = async () => [
+      { id: "user-1", role: "user" },
+      { id: "user-2" },
+    ];
+    const service = new RealtimeService();
+    try {
+      const anyService = service as unknown as {
+        persistAdminAlertForAdmins: (payload: {
+          source: string;
+          severity: "info" | "warning" | "error";
+          title: string;
+          message: string;
+        }) => Promise<void>;
+      };
+      await anyService.persistAdminAlertForAdmins({
+        source: "heygen",
+        severity: "info",
+        title: "fyi",
+        message: "no admins",
+      });
+      assert.equal(createdNotifications.length, 0);
+    } finally {
+      restore();
+    }
+  });
+});

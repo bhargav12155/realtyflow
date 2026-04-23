@@ -9,8 +9,8 @@ export const modules: ModuleMap = {
   "./components/mockups/dashboard-variations/FeedLight.tsx": () => import("../components/mockups/dashboard-variations/FeedLight.tsx"),
   "./components/mockups/dashboard-variations/ScorecardDark.tsx": () => import("../components/mockups/dashboard-variations/ScorecardDark.tsx"),
   "./components/mockups/dashboard-variations/ScorecardLight.tsx": () => import("../components/mockups/dashboard-variations/ScorecardLight.tsx"),
-  "./components/mockups/boards-home/Dense.tsx": () => import("../components/mockups/boards-home/Dense.tsx"),
-  "./components/mockups/boards-home/Spacious.tsx": () => import("../components/mockups/boards-home/Spacious.tsx"),
   "./components/mockups/discover/Discover.tsx": () => import("../components/mockups/discover/Discover.tsx"),
-  "./components/mockups/discover/PlatformPicker.tsx": () => import("../components/mockups/discover/PlatformPicker.tsx")
+  "./components/mockups/discover/PlatformPicker.tsx": () => import("../components/mockups/discover/PlatformPicker.tsx"),
+  "./components/mockups/boards-home/Dense.tsx": () => import("../components/mockups/boards-home/Dense.tsx"),
+  "./components/mockups/boards-home/Spacious.tsx": () => import("../components/mockups/boards-home/Spacious.tsx")
 };

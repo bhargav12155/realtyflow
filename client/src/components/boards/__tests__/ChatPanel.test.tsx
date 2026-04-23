@@ -283,6 +283,64 @@ describe("ChatPanel thinking hint escalation", () => {
   });
 });
 
+describe("ChatPanel stop button", () => {
+  it("renders the Stop button next to the thinking indicator while sending in Think mode", () => {
+    const onStop = vi.fn();
+    renderPanel({ mode: "brainstorm", isSending: true, onStop });
+    expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
+    expect(screen.getByTestId("button-stop-chat")).not.toBeNull();
+  });
+
+  it("renders the Stop button next to the thinking indicator while sending in Build mode", () => {
+    const onStop = vi.fn();
+    renderPanel({ mode: "create", isSending: true, onStop });
+    expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
+    expect(screen.getByTestId("button-stop-chat")).not.toBeNull();
+  });
+
+  it("does not render the Stop button when not sending, even if onStop is provided", () => {
+    renderPanel({ mode: "brainstorm", isSending: false, onStop: vi.fn() });
+    expect(screen.queryByTestId("button-stop-chat")).toBeNull();
+  });
+
+  it("does not render the Stop button when onStop is omitted, even while sending", () => {
+    renderPanel({ mode: "create", isSending: true });
+    expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
+    expect(screen.queryByTestId("button-stop-chat")).toBeNull();
+  });
+
+  it("removes the Stop button once the reply settles (isSending flips back to false)", () => {
+    const onStop = vi.fn();
+    const baseProps: React.ComponentProps<typeof ChatPanel> = {
+      boardTitle: "My Board",
+      messages: [],
+      mode: "brainstorm",
+      onModeChange: vi.fn(),
+      provider: "luma",
+      onProviderChange: vi.fn(),
+      generationMode: "text-to-video",
+      onGenerationModeChange: vi.fn(),
+      seedanceOptions: DEFAULT_SEEDANCE_OPTIONS,
+      onSeedanceOptionsChange: vi.fn(),
+      referencedAssetIds: [],
+      onSend: vi.fn(),
+      isSending: true,
+      onStop,
+    };
+    const { rerender } = render(<ChatPanel {...baseProps} />);
+    expect(screen.getByTestId("button-stop-chat")).not.toBeNull();
+    rerender(<ChatPanel {...baseProps} isSending={false} />);
+    expect(screen.queryByTestId("button-stop-chat")).toBeNull();
+  });
+
+  it("invokes onStop when the Stop button is clicked", () => {
+    const onStop = vi.fn();
+    renderPanel({ mode: "create", isSending: true, onStop });
+    fireEvent.click(screen.getByTestId("button-stop-chat"));
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("extractSuggestedPrompt", () => {
   it("pulls the contents of the first fenced code block", () => {
     expect(extractSuggestedPrompt("Sure!\n```\nA red barn at dawn\n```\nLet me know.")).toBe(

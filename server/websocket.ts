@@ -582,6 +582,66 @@ export class RealtimeService {
     this.adminClients.forEach((client) => {
       this.sendToClient(client, message);
     });
+
+    // Persist a notification record per admin user so the dashboard's
+    // notification bell can render the alert after a page refresh — and
+    // so admins who weren't online when the alert fired still see it
+    // next time they sign in. Best-effort and fully async: a storage
+    // failure must never prevent the realtime broadcast above from
+    // happening, and the per-event reporters call this synchronously.
+    void this.persistAdminAlertForAdmins(payload).catch((err) => {
+      console.warn(
+        "[websocket] failed to persist admin alert notification(s)",
+        err,
+      );
+    });
+  }
+
+  private async persistAdminAlertForAdmins(payload: {
+    source: string;
+    severity: "info" | "warning" | "error";
+    title: string;
+    message: string;
+    context?: Record<string, unknown>;
+  }): Promise<void> {
+    // Dynamic import to avoid a circular import between websocket and
+    // storage (storage imports the realtimeService for board events).
+    const { storage } = await import("./storage");
+    const users = await storage.getAllUsers();
+    const admins = users.filter(
+      (u) => (u as { role?: string }).role === "admin",
+    );
+    for (const admin of admins) {
+      try {
+        const notification = await storage.createNotification({
+          userId: admin.id,
+          type: "admin_alert",
+          data: {
+            source: payload.source,
+            severity: payload.severity,
+            title: payload.title,
+            message: payload.message,
+            context: payload.context ?? {},
+          },
+        });
+        try {
+          this.notifyNotificationCreated(admin.id, {
+            notificationId: notification.id,
+            type: notification.type,
+            data: notification.data,
+          });
+        } catch {
+          // The realtime push is just an optimization; the polling
+          // fallback in NotificationsBell will pick it up on the next
+          // refetch even if the socket push fails.
+        }
+      } catch (err) {
+        console.warn(
+          "[websocket] failed to persist admin alert notification",
+          { adminId: admin.id, err },
+        );
+      }
+    }
   }
 
   // Test/diagnostics helper: returns the number of admin sockets currently

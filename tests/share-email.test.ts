@@ -1,7 +1,8 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { registerBoardsRoutes } from "../server/routes/boards";
+import { realtimeService } from "../server/websocket";
 import {
   sendBoardSharedEmail,
   sendBoardLeftEmail,
@@ -69,9 +70,11 @@ class FakeStorage {
       userId: board.userId,
       title: board.title ?? "Untitled board",
       isShared: board.isShared ?? false,
+      notifyOnCollaboratorChange:
+        (board as { notifyOnCollaboratorChange?: boolean }).notifyOnCollaboratorChange ?? true,
       createdAt: now,
       updatedAt: now,
-    };
+    } as Board;
     this.boards.set(created.id, created);
     return created;
   }
@@ -632,6 +635,173 @@ describe("DELETE /api/boards/:id/share/me — owner notification + email fan-out
     assert.equal(res.status, 404);
     assert.equal(sendGridCalls.length, 0);
     assert.equal(storage.notifications.size, 0);
+  });
+});
+
+// =====================================================
+// Per-board collaborator email mute (Task #218 / #219)
+//
+// Owners can flip `boards.notifyOnCollaboratorChange` to false to silence the
+// transactional emails for that board's share / unshare / leave events. The
+// in-app bell notification + websocket push must still fire — the mute only
+// suppresses the outbound email. These tests pin both halves so a future
+// refactor that accidentally re-routes emails through the muted board, OR
+// silences the bell along with the email, fails loudly.
+// =====================================================
+describe("Per-board collaborator email mute", () => {
+  it("POST /api/boards/:id/shares — mute=false suppresses email but still creates notification + WS event", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", username: "own", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", username: "rec", name: "Recipient", email: "rec@example.com" }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "Muted Board" });
+    const boardId = created.body!.id as string;
+    // Flip the per-board mute on the seeded row before sharing.
+    storage.boards.get(boardId)!.notifyOnCollaboratorChange = false;
+
+    const wsSpy = mock.method(realtimeService, "notifyNotificationCreated", () => {});
+    try {
+      const shared = await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "rec-2" });
+      assert.equal(shared.status, 200);
+    } finally {
+      wsSpy.mock.restore();
+    }
+
+    // Email is suppressed.
+    assert.equal(sendGridCalls.length, 0, "muted board must not send a share email");
+    // In-app bell notification still fires.
+    const list = Array.from(storage.notifications.values()).filter((n) => n.userId === "rec-2");
+    assert.equal(list.length, 1, "muted board still creates the bell notification");
+    assert.equal(list[0].type, "board_shared");
+    // WS push to the recipient still fires (one call, addressed to them).
+    assert.equal(wsSpy.mock.callCount(), 1, "websocket notify still fires when board is muted");
+    assert.equal(wsSpy.mock.calls[0].arguments[0], "rec-2");
+    const wsPayload = wsSpy.mock.calls[0].arguments[1] as { type: string };
+    assert.equal(wsPayload.type, "board_shared");
+  });
+
+  it("POST /api/boards/:id/shares — default (mute=true allows email) still emits exactly one email", async () => {
+    // Guards against a regression where the mute branch accidentally short-
+    // circuits the unmuted path too. We only assert the email count here —
+    // the body shape is covered by the existing happy-path test above.
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", name: "Recipient", email: "rec@example.com" }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "Loud Board" });
+    const boardId = created.body!.id as string;
+    assert.equal(
+      storage.boards.get(boardId)!.notifyOnCollaboratorChange,
+      true,
+      "default for new boards is unmuted",
+    );
+
+    const shared = await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "rec-2" });
+    assert.equal(shared.status, 200);
+    assert.equal(sendGridCalls.length, 1);
+  });
+
+  it("DELETE /api/boards/:id/shares/:userId — mute=false suppresses email but still creates notification + WS event", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", name: "Recipient", email: "rec@example.com" }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "Muted Board" });
+    const boardId = created.body!.id as string;
+    storage.boards.get(boardId)!.notifyOnCollaboratorChange = false;
+    await storage.shareBoard(boardId, "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const wsSpy = mock.method(realtimeService, "notifyNotificationCreated", () => {});
+    try {
+      const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+      assert.equal(res.status, 200);
+    } finally {
+      wsSpy.mock.restore();
+    }
+
+    assert.equal(sendGridCalls.length, 0, "muted board must not send an unshare email");
+    const list = Array.from(storage.notifications.values()).filter((n) => n.userId === "rec-2");
+    assert.equal(list.length, 1, "muted board still creates the unshare bell notification");
+    assert.equal(list[0].type, "board_unshared");
+    assert.equal(wsSpy.mock.callCount(), 1, "websocket notify still fires for unshare when muted");
+    assert.equal(wsSpy.mock.calls[0].arguments[0], "rec-2");
+    const wsPayload = wsSpy.mock.calls[0].arguments[1] as { type: string };
+    assert.equal(wsPayload.type, "board_unshared");
+  });
+
+  it("DELETE /api/boards/:id/shares/:userId — default (unmuted) still emits exactly one email", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", name: "Recipient", email: "rec@example.com" }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "Loud Board" });
+    const boardId = created.body!.id as string;
+    await storage.shareBoard(boardId, "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200);
+    assert.equal(sendGridCalls.length, 1);
+  });
+
+  it("DELETE /api/boards/:id/share/me — mute=false suppresses owner email but still creates owner notification + WS event", async () => {
+    const { app, storage } = buildApp("rec-2"); // recipient is the caller
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", name: "Recipient Person", email: "rec@example.com" }));
+    const now = new Date();
+    storage.boards.set("brd_muted_leave", {
+      id: "brd_muted_leave",
+      userId: "owner-1",
+      title: "Roadmap",
+      isShared: true,
+      notifyOnCollaboratorChange: false,
+      createdAt: now,
+      updatedAt: now,
+    } as Board);
+    await storage.shareBoard("brd_muted_leave", "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const wsSpy = mock.method(realtimeService, "notifyNotificationCreated", () => {});
+    try {
+      const res = await callJson(app, "DELETE", `/api/boards/brd_muted_leave/share/me`);
+      assert.equal(res.status, 200);
+    } finally {
+      wsSpy.mock.restore();
+    }
+
+    assert.equal(sendGridCalls.length, 0, "muted board must not send a leave email to the owner");
+    const list = Array.from(storage.notifications.values()).filter((n) => n.userId === "owner-1");
+    assert.equal(list.length, 1, "muted board still creates the leave bell notification on the owner");
+    assert.equal(list[0].type, "board_left");
+    assert.equal(wsSpy.mock.callCount(), 1, "websocket notify still fires for leave when muted");
+    assert.equal(wsSpy.mock.calls[0].arguments[0], "owner-1");
+    const wsPayload = wsSpy.mock.calls[0].arguments[1] as { type: string };
+    assert.equal(wsPayload.type, "board_left");
+    // Share row is still removed regardless of mute.
+    assert.equal(storage.shares.size, 0);
+  });
+
+  it("DELETE /api/boards/:id/share/me — default (unmuted) still emits exactly one email", async () => {
+    const { app, storage } = buildApp("rec-2");
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", name: "Recipient Person", email: "rec@example.com" }));
+    const now = new Date();
+    storage.boards.set("brd_loud_leave", {
+      id: "brd_loud_leave",
+      userId: "owner-1",
+      title: "Roadmap",
+      isShared: true,
+      notifyOnCollaboratorChange: true,
+      createdAt: now,
+      updatedAt: now,
+    } as Board);
+    await storage.shareBoard("brd_loud_leave", "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const res = await callJson(app, "DELETE", `/api/boards/brd_loud_leave/share/me`);
+    assert.equal(res.status, 200);
+    assert.equal(sendGridCalls.length, 1);
   });
 });
 

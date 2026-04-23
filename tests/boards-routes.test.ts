@@ -1085,6 +1085,60 @@ describe("Drawing asset content sanitization", () => {
     assert.equal(wrongType.status, 400);
   });
 
+  it("PATCH /api/boards/:id round-trips notifyOnCollaboratorChange (Task #218 / #219)", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string; notifyOnCollaboratorChange?: boolean }).id;
+    // New boards default to unmuted (true).
+    const before = await callJson(app, "GET", `/api/boards/${boardId}`);
+    assert.equal(
+      (before.body as { notifyOnCollaboratorChange: boolean }).notifyOnCollaboratorChange,
+      true,
+    );
+
+    // Mute the board.
+    const muted = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      notifyOnCollaboratorChange: false,
+    });
+    assert.equal(muted.status, 200);
+    assert.equal(
+      (muted.body as { notifyOnCollaboratorChange: boolean }).notifyOnCollaboratorChange,
+      false,
+    );
+    const afterMute = await callJson(app, "GET", `/api/boards/${boardId}`);
+    assert.equal(
+      (afterMute.body as { notifyOnCollaboratorChange: boolean }).notifyOnCollaboratorChange,
+      false,
+    );
+
+    // Unmute again.
+    const unmuted = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      notifyOnCollaboratorChange: true,
+    });
+    assert.equal(unmuted.status, 200);
+    assert.equal(
+      (unmuted.body as { notifyOnCollaboratorChange: boolean }).notifyOnCollaboratorChange,
+      true,
+    );
+  });
+
+  it("PATCH /api/boards/:id rejects a non-boolean notifyOnCollaboratorChange", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      notifyOnCollaboratorChange: "false",
+    });
+    assert.equal(res.status, 400);
+    // Row must not have been mutated by a rejected request.
+    const after = await callJson(app, "GET", `/api/boards/${boardId}`);
+    assert.equal(
+      (after.body as { notifyOnCollaboratorChange: boolean }).notifyOnCollaboratorChange,
+      true,
+    );
+  });
+
   it("PATCH /api/boards/:id with chatHistoryCap on a board the caller does not own returns 404", async () => {
     const ownerApp = buildApp("owner-1");
     const created = await callJson(ownerApp.app, "POST", "/api/boards", { title: "B" });

@@ -7,7 +7,10 @@
  */
 import type { Express, Request, RequestHandler, Response } from "express";
 import { db } from "../db";
-import { heygenWebhookEvents } from "@shared/schema";
+import {
+  heygenWebhookEvents,
+  type InsertHeygenShapeDriftIncident,
+} from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
 import { storage as defaultStorage } from "../storage";
 import { realtimeService } from "../websocket";
@@ -24,6 +27,64 @@ import {
 } from "@shared/heygenPhotoAvatarSchemas";
 
 /**
+ * Persistence hook for shape-drift incidents. Defaults to writing through
+ * the shared `defaultStorage` so production goes straight into the
+ * `heygen_shape_drift_incidents` table; tests can override via
+ * `setHeygenShapeDriftIncidentRecorder` to capture recorded rows in-memory
+ * (or to opt out of persistence entirely).
+ */
+export type HeygenShapeDriftIncidentRecorder = (
+  incident: InsertHeygenShapeDriftIncident,
+) => Promise<unknown> | unknown;
+
+let shapeDriftIncidentRecorder: HeygenShapeDriftIncidentRecorder = (
+  incident,
+) => defaultStorage.recordHeygenShapeDriftIncident(incident);
+
+export function setHeygenShapeDriftIncidentRecorder(
+  recorder: HeygenShapeDriftIncidentRecorder | null,
+): void {
+  shapeDriftIncidentRecorder = recorder
+    ? recorder
+    : (incident) => defaultStorage.recordHeygenShapeDriftIncident(incident);
+}
+
+/**
+ * Persist a shape-drift incident for operator analytics. Failures are
+ * swallowed (logged only) so a recorder hiccup never turns a 502 into a
+ * worse experience for the caller.
+ */
+function recordShapeDriftIncident(
+  err: HeygenResponseValidationError,
+  userId: string | null,
+): void {
+  const issuePaths = err.issues
+    .slice(0, 5)
+    .map((i) => i.path.join(".") || "(root)");
+  Promise.resolve()
+    .then(() =>
+      shapeDriftIncidentRecorder({
+        endpoint: err.endpoint,
+        issuePaths,
+        message: err.message,
+        userId: userId ?? null,
+        groupId: err.groupId ?? null,
+      }),
+    )
+    .catch((recordErr) => {
+      console.warn(
+        "[heygen-v3] failed to persist shape-drift incident",
+        recordErr,
+      );
+    });
+}
+
+function userIdFromReq(req: Request): string | null {
+  const id = (req as Request & { user?: { id?: string | number } }).user?.id;
+  return id == null ? null : String(id);
+}
+
+/**
  * If `err` is a `HeygenResponseValidationError` return the JSON body the
  * route should send back so the dashboard can surface a distinct
  * `heygen_shape_drift` notice (instead of being lumped into a generic
@@ -32,8 +93,10 @@ import {
  */
 function maybeShapeDriftPayload(
   err: unknown,
+  userId: string | null = null,
 ): ReturnType<typeof heygenShapeDriftErrorPayload> | null {
   if (err instanceof HeygenResponseValidationError) {
+    recordShapeDriftIncident(err, userId);
     return heygenShapeDriftErrorPayload(err);
   }
   return null;
@@ -46,7 +109,10 @@ function maybeShapeDriftPayload(
  * the historical `heygen_v3_voice_design_failed` code so existing
  * callers/tests keep working.
  */
-export function classifyVoiceDesignError(err: unknown): {
+export function classifyVoiceDesignError(
+  err: unknown,
+  userId: string | null = null,
+): {
   httpStatus: number;
   code: string;
   message: string;
@@ -55,7 +121,7 @@ export function classifyVoiceDesignError(err: unknown): {
   // generic upstream classification so the dashboard can surface the
   // copy-pastable "unexpected response shape" notice instead of one of the
   // friendly voice-designer error codes.
-  const drift = maybeShapeDriftPayload(err);
+  const drift = maybeShapeDriftPayload(err, userId);
   if (drift) {
     return {
       httpStatus: 502,
@@ -236,7 +302,7 @@ export function createV3PhotoAvatarConsentHandler(
       });
       return res.json(result);
     } catch (err: unknown) {
-      const drift = maybeShapeDriftPayload(err);
+      const drift = maybeShapeDriftPayload(err, userIdFromReq(req));
       if (drift) return res.status(502).json(drift);
       const message = err instanceof Error ? err.message : "Unknown error";
       return res.status(502).json({ error: "heygen_v3_consent_failed", message });
@@ -391,7 +457,10 @@ export function createV3VoicesDesignHandler(
       });
       return res.status(201).json(voice);
     } catch (err: unknown) {
-      const { httpStatus, code, message } = classifyVoiceDesignError(err);
+      const { httpStatus, code, message } = classifyVoiceDesignError(
+        err,
+        userIdFromReq(req),
+      );
       return res.status(httpStatus).json({ error: code, message });
     }
   };
@@ -486,7 +555,7 @@ export function createV3PhotoAvatarsHandler(
     try {
       createResult = await service.createAvatar({ name, imageKey });
     } catch (err: unknown) {
-      const drift = maybeShapeDriftPayload(err);
+      const drift = maybeShapeDriftPayload(err, userIdFromReq(req));
       if (drift) return res.status(502).json(drift);
       const message = err instanceof Error ? err.message : "Unknown error";
       return res
@@ -566,7 +635,22 @@ function mapWebhookStatusToTrainingStatus(
   return undefined;
 }
 
-export function registerHeygenV3Routes(app: Express) {
+export interface RegisterHeygenV3RoutesOptions {
+  /**
+   * Admin guard used by the operator-only routes (e.g. the shape-drift
+   * incidents listing). Optional so callers that haven't wired admin
+   * auth (tests, scripts) can still register the public routes; when not
+   * provided the admin endpoints fall back to `requireAuth` so they at
+   * least require a valid session.
+   */
+  requireAdmin?: RequestHandler;
+}
+
+export function registerHeygenV3Routes(
+  app: Express,
+  opts: RegisterHeygenV3RoutesOptions = {},
+) {
+  const requireAdmin: RequestHandler = opts.requireAdmin ?? requireAuth;
   // -------------------------------------------------------------------
   // Create a new v3 photo-avatar group. Used by the modern Upload UI;
   // any new avatar group goes through this path so it's tagged with
@@ -676,7 +760,11 @@ export function registerHeygenV3Routes(app: Express) {
       if (validationError) {
         // Surface the same `heygen_shape_drift` code the synchronous
         // routes use so anything tailing webhook responses (or replaying
-        // events) can join the dots with dashboard notices.
+        // events) can join the dots with dashboard notices. Also persist
+        // an incident row (no userId — webhook callbacks are unauth'd)
+        // so operator analytics see the regression even if no user-facing
+        // request triggered the same drift.
+        recordShapeDriftIncident(validationError, null);
         return res.status(200).json({
           ok: true,
           verified,
@@ -745,7 +833,7 @@ export function registerHeygenV3Routes(app: Express) {
         const page = await defaultGetV3Service().listLooks(groupId, cursor);
         return res.json(page);
       } catch (err: unknown) {
-        const drift = maybeShapeDriftPayload(err);
+        const drift = maybeShapeDriftPayload(err, userIdFromReq(req));
         if (drift) return res.status(502).json(drift);
         const message = err instanceof Error ? err.message : "Unknown error";
         return res.status(502).json({ error: "heygen_v3_looks_failed", message });
@@ -767,7 +855,7 @@ export function registerHeygenV3Routes(app: Express) {
       const page = await defaultGetV3Service().listVoices(query);
       return res.json(page);
     } catch (err: unknown) {
-      const drift = maybeShapeDriftPayload(err);
+      const drift = maybeShapeDriftPayload(err, userIdFromReq(req));
       if (drift) return res.status(502).json(drift);
       const message = err instanceof Error ? err.message : "Unknown error";
       return res.status(502).json({ error: "heygen_v3_voices_failed", message });
@@ -809,5 +897,35 @@ export function registerHeygenV3Routes(app: Express) {
       storage: defaultStorage as unknown as V3ConsentStorageLike,
       getV3Service: defaultGetV3Service,
     }),
+  );
+
+  // -------------------------------------------------------------------
+  // Operator analytics — list recent HeyGen shape-drift incidents.
+  // Each `heygen_shape_drift` 502 emitted from this file gets persisted
+  // to `heygen_shape_drift_incidents`; this route lets the dashboard
+  // (or `curl`-wielding operators) see the most recent rows without
+  // scraping production logs.
+  // -------------------------------------------------------------------
+  app.get(
+    "/api/v3/admin/heygen-shape-drift-incidents",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const rawLimit =
+        typeof req.query.limit === "string"
+          ? Number.parseInt(req.query.limit, 10)
+          : NaN;
+      const limit = Number.isFinite(rawLimit) ? rawLimit : 100;
+      try {
+        const incidents = await defaultStorage.listHeygenShapeDriftIncidents(
+          limit,
+        );
+        return res.json({ incidents });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return res
+          .status(500)
+          .json({ error: "shape_drift_incidents_failed", message });
+      }
+    },
   );
 }

@@ -728,7 +728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBoardsChatRoutes(app);
   registerNotificationsRoutes(app);
   registerSeedanceRoutes(app, requireAuth);
-  registerHeygenV3Routes(app);
+  registerHeygenV3Routes(app, { requireAdmin });
 
   // Helper function to ensure S3 URLs are properly formatted
   const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {

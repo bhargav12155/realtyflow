@@ -260,6 +260,53 @@ export type InsertHeygenWebhookEvent = z.infer<typeof insertHeygenWebhookEventSc
 export type HeygenWebhookEvent = typeof heygenWebhookEvents.$inferSelect;
 
 // =====================================================
+// HEYGEN SHAPE-DRIFT INCIDENTS TABLE
+// One row per `heygen_shape_drift` envelope emitted from the v3 routes.
+// Lets operators spot HeyGen API regressions from the dashboard / a quick
+// SQL query instead of waiting for users to file support tickets.
+// =====================================================
+export const heygenShapeDriftIncidents = pgTable(
+  "heygen_shape_drift_incidents",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    // The HeyGen route that returned the unexpected shape, e.g. `/v3/voices`
+    // or `/v3/photo_avatars/:groupId/looks`.
+    endpoint: text("endpoint").notNull(),
+    // First few `path.join('.')` strings from the Zod issue list, capped to
+    // mirror the transport-shape used by `heygenShapeDriftErrorPayload`.
+    issuePaths: text("issue_paths").array().notNull(),
+    // The truncated `HeygenResponseValidationError` message — the same
+    // copy-pastable string the dashboard surfaces to users so operators can
+    // join the dots between an incident row and a support report.
+    message: text("message").notNull(),
+    // Authenticated user id when known. Webhook callbacks have no user
+    // context so this is nullable.
+    userId: text("user_id"),
+    // Optional HeyGen group id parsed from the endpoint (when applicable).
+    groupId: text("group_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_heygen_shape_drift_endpoint").on(table.endpoint),
+    index("idx_heygen_shape_drift_created_at").on(table.createdAt),
+  ],
+);
+
+export const insertHeygenShapeDriftIncidentSchema = createInsertSchema(
+  heygenShapeDriftIncidents,
+).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertHeygenShapeDriftIncident = z.infer<
+  typeof insertHeygenShapeDriftIncidentSchema
+>;
+export type HeygenShapeDriftIncident =
+  typeof heygenShapeDriftIncidents.$inferSelect;
+
+// =====================================================
 // LOOK GENERATION JOBS TABLE (Track pending look generations)
 // =====================================================
 export const lookGenerationJobs = pgTable("look_generation_jobs", {

@@ -107,6 +107,9 @@ import {
   boardMessages as boardMessagesTable,
   boardShares as boardSharesTable,
   notifications as notificationsTable,
+  heygenShapeDriftIncidents,
+  type HeygenShapeDriftIncident,
+  type InsertHeygenShapeDriftIncident,
   type Board,
   type InsertBoard,
   type BoardAsset,
@@ -502,6 +505,16 @@ export interface IStorage {
   createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined>;
   updateBoardAssetForUser(boardId: string, assetId: string, userId: string, updates: BoardAssetUpdate): Promise<BoardAsset | undefined>;
   deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean>;
+
+  // HeyGen shape-drift incidents — operator analytics for the
+  // `heygen_shape_drift` 502 envelope so regressions in HeyGen's response
+  // shape can be spotted from the dashboard instead of by scraping logs.
+  recordHeygenShapeDriftIncident(
+    incident: InsertHeygenShapeDriftIncident,
+  ): Promise<HeygenShapeDriftIncident>;
+  listHeygenShapeDriftIncidents(
+    limit?: number,
+  ): Promise<HeygenShapeDriftIncident[]>;
 
   // Board chat messages — persisted conversation history for the chat panel.
   // Access is gated to the same set of users who can read the board (owners
@@ -3300,6 +3313,27 @@ export class MemStorage implements IStorage {
       .values({ ...message, boardId })
       .returning();
     return created;
+  }
+
+  async recordHeygenShapeDriftIncident(
+    incident: InsertHeygenShapeDriftIncident,
+  ): Promise<HeygenShapeDriftIncident> {
+    const [row] = await db
+      .insert(heygenShapeDriftIncidents)
+      .values(incident)
+      .returning();
+    return row;
+  }
+
+  async listHeygenShapeDriftIncidents(
+    limit = 100,
+  ): Promise<HeygenShapeDriftIncident[]> {
+    const capped = Math.max(1, Math.min(limit, 500));
+    return await db
+      .select()
+      .from(heygenShapeDriftIncidents)
+      .orderBy(desc(heygenShapeDriftIncidents.createdAt))
+      .limit(capped);
   }
 }
 

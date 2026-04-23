@@ -1946,6 +1946,13 @@ export const boards = pgTable("boards", {
   // total over this number, the oldest rows are auto-trimmed. Defaults to
   // the historical 200 so existing boards keep their current behavior.
   chatHistoryCap: integer("chat_history_cap").notNull().default(200),
+  // Per-board owner preference: when false, the server skips the
+  // board_shared / board_unshared / board_left transactional emails for
+  // this board. In-app notifications still fire so the bell remains useful.
+  // Defaults to true so existing boards keep their current behavior.
+  notifyOnCollaboratorChange: boolean("notify_on_collaborator_change")
+    .notNull()
+    .default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

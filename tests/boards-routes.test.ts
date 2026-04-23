@@ -198,6 +198,8 @@ class FakeBoardsStorage {
       // The boards table now persists a per-board cap on chat history; default
       // to the historical 200 so freshly created boards keep current behavior.
       chatHistoryCap: (board as { chatHistoryCap?: number }).chatHistoryCap ?? 200,
+      notifyOnCollaboratorChange:
+        (board as { notifyOnCollaboratorChange?: boolean }).notifyOnCollaboratorChange ?? true,
       createdAt: now,
       updatedAt: now,
     } as Board;

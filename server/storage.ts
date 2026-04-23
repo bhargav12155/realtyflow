@@ -606,7 +606,9 @@ export function clampBoardMessagesCap(value: number | null | undefined): number 
 }
 
 // Typed mutation DTOs (kept narrow on purpose: only mutable fields)
-export type BoardUpdate = Partial<Pick<Board, "title" | "isShared" | "chatHistoryCap">>;
+export type BoardUpdate = Partial<
+  Pick<Board, "title" | "isShared" | "chatHistoryCap" | "notifyOnCollaboratorChange">
+>;
 export type AccessibleBoard = Board & { isOwner: boolean };
 export type BoardShareRecipient = {
   userId: string;

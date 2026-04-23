@@ -26,6 +26,11 @@ interface ShareBoardDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface BoardSummary {
+  id: string;
+  notifyOnCollaboratorChange?: boolean;
+}
+
 export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDialogProps) {
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -38,6 +43,31 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
   const candidatesQuery = useQuery<ShareCandidate[]>({
     queryKey: ["/api/boards/share-candidates"],
     enabled: open,
+  });
+  const boardQuery = useQuery<BoardSummary>({
+    queryKey: ["/api/boards", boardId],
+    enabled: open,
+  });
+  const notifyOn = boardQuery.data?.notifyOnCollaboratorChange ?? true;
+
+  const notifyMutation = useMutation({
+    mutationFn: async (next: boolean) => {
+      const res = await apiRequest("PATCH", `/api/boards/${boardId}`, {
+        notifyOnCollaboratorChange: next,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Couldn't update notification setting",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      });
+    },
   });
 
   const sharedIds = useMemo(
@@ -93,6 +123,29 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
         </DialogHeader>
 
         <div className="space-y-4">
+          <label
+            className="flex items-start justify-between gap-3 px-3 py-2 rounded-md border border-neutral-200 dark:border-neutral-700"
+            data-testid="row-notify-toggle"
+          >
+            <div className="flex flex-col min-w-0">
+              <span className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100">
+                Email me when collaborators join or leave
+              </span>
+              <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                In-app notifications still appear in the bell.
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={notifyOn}
+              onChange={(e) => notifyMutation.mutate(e.target.checked)}
+              disabled={boardQuery.isLoading || notifyMutation.isPending}
+              className="mt-1 h-4 w-4 cursor-pointer accent-neutral-900 disabled:opacity-50 dark:accent-neutral-100"
+              aria-label="Email me when collaborators join or leave"
+              data-testid="toggle-notify-collaborator-change"
+            />
+          </label>
+
           <input
             type="text"
             value={search}

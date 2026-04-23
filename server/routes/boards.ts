@@ -61,6 +61,10 @@ const updateBoardSchema = z.object({
     .min(BOARD_MESSAGES_CAP_MIN)
     .max(BOARD_MESSAGES_CAP_MAX)
     .optional(),
+  // Per-board owner toggle: when false, server skips collaborator
+  // join/leave transactional emails for this board. In-app notifications
+  // continue regardless.
+  notifyOnCollaboratorChange: z.boolean().optional(),
 });
 
 export const BOARD_INTENTS = [
@@ -469,10 +473,16 @@ export function registerBoardsRoutes(
       try {
         const recipientEmail = recipient?.email?.trim();
         const optedOut = recipient && recipient.emailNotifications === false;
+        const boardMuted = board.notifyOnCollaboratorChange === false;
         if (!recipientEmail) {
           console.warn(
             "[boards] skipping share email — recipient has no email",
             JSON.stringify({ event: "share.email.skipped.no_address", boardId: board.id, recipientUserId: parsed.userId }),
+          );
+        } else if (boardMuted) {
+          console.log(
+            "[boards] skipping share email — board muted by owner",
+            JSON.stringify({ event: "share.email.skipped.board_muted", boardId: board.id, recipientUserId: parsed.userId }),
           );
         } else if (optedOut) {
           console.log(
@@ -579,10 +589,16 @@ export function registerBoardsRoutes(
         try {
           const ownerEmail = owner?.email?.trim();
           const optedOut = owner && owner.emailNotifications === false;
+          const boardMuted = board.notifyOnCollaboratorChange === false;
           if (!ownerEmail) {
             console.warn(
               "[boards] skipping leave email — owner has no email",
               JSON.stringify({ event: "leave.email.skipped.no_address", boardId: board.id, ownerUserId: board.userId }),
+            );
+          } else if (boardMuted) {
+            console.log(
+              "[boards] skipping leave email — board muted by owner",
+              JSON.stringify({ event: "leave.email.skipped.board_muted", boardId: board.id, ownerUserId: board.userId }),
             );
           } else if (optedOut) {
             console.log(
@@ -705,10 +721,16 @@ export function registerBoardsRoutes(
       try {
         const recipientEmail = removed?.email?.trim();
         const optedOut = removed && removed.emailNotifications === false;
+        const boardMuted = board.notifyOnCollaboratorChange === false;
         if (!recipientEmail) {
           console.warn(
             "[boards] skipping unshare email — recipient has no email",
             JSON.stringify({ event: "unshare.email.skipped.no_address", boardId: board.id, recipientUserId: req.params.userId }),
+          );
+        } else if (boardMuted) {
+          console.log(
+            "[boards] skipping unshare email — board muted by owner",
+            JSON.stringify({ event: "unshare.email.skipped.board_muted", boardId: board.id, recipientUserId: req.params.userId }),
           );
         } else if (optedOut) {
           console.log(

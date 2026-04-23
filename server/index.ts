@@ -109,10 +109,17 @@ app.use((req, res, next) => {
 
   // Wire HeyGen response-validation failures into structured logs and the
   // realtime admin alert channel so operators see HeyGen shape drift fast.
-  const { registerHeygenValidationReporter } = await import(
-    "./services/heygen-validation-reporter"
-  );
+  const { registerHeygenValidationReporter, setHeygenAlertsSettingsProvider } =
+    await import("./services/heygen-validation-reporter");
   registerHeygenValidationReporter();
+
+  // Let admins override the Slack webhook from the dashboard. The
+  // provider reads from `platform_settings.heygen_alerts` (cached in
+  // memory and refreshed on each save in admin-heygen-alerts route).
+  const { loadHeygenAlertsSettings } = await import(
+    "./services/heygen-alerts-settings"
+  );
+  setHeygenAlertsSettingsProvider(() => loadHeygenAlertsSettings());
 
   // Initialize automatic post scheduler
   const { PostScheduler } = await import("./services/post-scheduler");

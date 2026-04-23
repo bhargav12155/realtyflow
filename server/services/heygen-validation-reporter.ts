@@ -94,6 +94,49 @@ function resolveTunables(): Tunables {
 const DEFAULT_RUNBOOK_URL =
   "https://github.com/replit/agent/blob/main/docs/heygen-shape-drift-runbook.md";
 
+/**
+ * Admin-configurable settings for HeyGen Slack alerts. When a provider is
+ * registered (see `setHeygenAlertsSettingsProvider`), it takes precedence
+ * over the `HEYGEN_BURST_SLACK_WEBHOOK_URL` env var so an operator can
+ * change the destination channel (or disable the integration entirely)
+ * from the admin dashboard without touching Replit secrets.
+ */
+export interface HeygenAlertsSettings {
+  enabled: boolean;
+  webhookUrl: string | null;
+}
+
+export type HeygenAlertsSettingsProvider = () =>
+  | HeygenAlertsSettings
+  | null
+  | Promise<HeygenAlertsSettings | null>;
+
+let alertsSettingsProvider: HeygenAlertsSettingsProvider | null = null;
+
+export function setHeygenAlertsSettingsProvider(
+  provider: HeygenAlertsSettingsProvider | null,
+): void {
+  alertsSettingsProvider = provider;
+}
+
+async function resolveAlertsSettings(): Promise<HeygenAlertsSettings> {
+  if (alertsSettingsProvider) {
+    try {
+      const settings = await alertsSettingsProvider();
+      if (settings) return settings;
+    } catch (err) {
+      console.warn(
+        "[heygen-validation-reporter] alerts settings provider failed; falling back to env",
+        err,
+      );
+    }
+  }
+  return {
+    enabled: true,
+    webhookUrl: process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL ?? null,
+  };
+}
+
 let registered = false;
 let activeTunables: Tunables = { ...DEFAULTS };
 let lastBroadcastByEndpoint: Map<string, number> = new Map();
@@ -115,10 +158,17 @@ async function postBurstToSlack(payload: {
   sampleIssuePaths: string[];
   sampleMessage: string;
 }): Promise<void> {
-  const webhookUrl = process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
+  const settings = await resolveAlertsSettings();
+  if (!settings.enabled) {
+    console.warn(
+      "[heygen-validation-reporter] HeyGen Slack alerts disabled by admin settings; skipping burst notification",
+    );
+    return;
+  }
+  const webhookUrl = settings.webhookUrl;
   if (!webhookUrl) {
     console.warn(
-      "[heygen-validation-reporter] HEYGEN_BURST_SLACK_WEBHOOK_URL not set; skipping Slack burst notification",
+      "[heygen-validation-reporter] no Slack webhook configured (admin settings or HEYGEN_BURST_SLACK_WEBHOOK_URL); skipping burst notification",
     );
     return;
   }
@@ -350,6 +400,7 @@ export function __resetHeygenValidationReporterForTests(): void {
   lastBroadcastByEndpoint = new Map();
   recentFailureTimestamps = new Map();
   lastBurstAlertByEndpoint = new Map();
+  alertsSettingsProvider = null;
   setHeygenValidationReporter(null);
 }
 

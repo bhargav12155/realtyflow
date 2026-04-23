@@ -12,6 +12,7 @@ import AiAssistantPage from "@/pages/ai-assistant";
 import Dashboard from "@/pages/dashboard";
 import SocialMediaPage from "@/pages/social-media";
 import SettingsPage from "@/pages/settings";
+import AdminSettingsPage from "@/pages/admin-settings";
 import LoginPage from "@/pages/login";
 import IntegrationPage from "@/pages/integration";
 import VoiceLibrary from "@/pages/VoiceLibrary";
@@ -58,6 +59,11 @@ function Router() {
       <Route path="/settings">
         <ProtectedRoute>
           <SettingsPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/settings">
+        <ProtectedRoute>
+          <AdminSettingsPage />
         </ProtectedRoute>
       </Route>
       <Route path="/custom-voices">

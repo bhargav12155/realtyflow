@@ -737,6 +737,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // so the operator-analytics table never grows unbounded.
   startShapeDriftRetentionJob();
 
+  // Admin-controlled HeyGen Slack alert settings (lets operators change
+  // the destination webhook without editing Replit secrets).
+  const { registerAdminHeygenAlertsRoutes } = await import(
+    "./routes/admin-heygen-alerts"
+  );
+  registerAdminHeygenAlertsRoutes(app, { requireAdmin });
+
   // Helper function to ensure S3 URLs are properly formatted
   const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {
     if (!urlOrKey) return null;

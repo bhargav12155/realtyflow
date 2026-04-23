@@ -14,6 +14,7 @@ import {
   __resetHeygenValidationReporterForTests,
   normalizeEndpointForBurst,
   registerHeygenValidationReporter,
+  setHeygenAlertsSettingsProvider,
 } from "../server/services/heygen-validation-reporter";
 import { realtimeService } from "../server/websocket";
 
@@ -309,6 +310,60 @@ describe("heygen-validation-reporter", () => {
     });
     await new Promise((r) => setImmediate(r));
     assert.equal(fetchSpy.mock.calls.length, 1);
+  });
+
+  it("prefers the admin-configured webhook over the env var", async () => {
+    process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example/from-env";
+    setHeygenAlertsSettingsProvider(() => ({
+      enabled: true,
+      webhookUrl: "https://hooks.slack.example/from-admin",
+    }));
+
+    for (let i = 0; i < TUNABLES.BURST_THRESHOLD; i += 1) {
+      triggerFailureForAvatarGroupList();
+    }
+    await new Promise((r) => setImmediate(r));
+
+    const calls = fetchSpy.mock.calls;
+    assert.equal(calls.length, 1);
+    assert.equal(
+      (calls[0].arguments as [string, RequestInit])[0],
+      "https://hooks.slack.example/from-admin",
+    );
+  });
+
+  it("skips the Slack POST when admin settings disable alerts (even with env set)", async () => {
+    process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example/from-env";
+    setHeygenAlertsSettingsProvider(() => ({
+      enabled: false,
+      webhookUrl: "https://hooks.slack.example/from-admin",
+    }));
+
+    for (let i = 0; i < TUNABLES.BURST_THRESHOLD; i += 1) {
+      triggerFailureForAvatarGroupList();
+    }
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(fetchSpy.mock.calls.length, 0);
+  });
+
+  it("falls back to the env var when admin provider returns null", async () => {
+    process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example/from-env";
+    setHeygenAlertsSettingsProvider(() => null);
+
+    for (let i = 0; i < TUNABLES.BURST_THRESHOLD; i += 1) {
+      triggerFailureForAvatarGroupList();
+    }
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(fetchSpy.mock.calls.length, 1);
+    assert.equal(
+      (fetchSpy.mock.calls[0].arguments as [string, RequestInit])[0],
+      "https://hooks.slack.example/from-env",
+    );
   });
 
   it("does not crash when the websocket broadcaster throws", () => {

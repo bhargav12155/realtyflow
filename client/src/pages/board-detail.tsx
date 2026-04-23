@@ -357,6 +357,8 @@ export default function BoardDetailPage() {
           batchId: string;
           assetId: string;
           content?: string | null;
+          positionX?: number;
+          positionY?: number;
         };
         if (d.boardId !== boardId) return;
         queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
@@ -366,6 +368,8 @@ export default function BoardDetailPage() {
             return {
               ...a,
               ...(d.content !== undefined ? { content: d.content } : {}),
+              ...(d.positionX !== undefined ? { positionX: d.positionX } : {}),
+              ...(d.positionY !== undefined ? { positionY: d.positionY } : {}),
             };
           };
           return {

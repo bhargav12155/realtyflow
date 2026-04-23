@@ -1218,7 +1218,7 @@ describe("PATCH asset content broadcasts board_asset_updated", () => {
     }
   });
 
-  it("does not broadcast when the PATCH does not include a content change", async () => {
+  it("broadcasts the new positionX/Y when a drag-only PATCH lands", async () => {
     const { app, storage } = buildApp("owner-1");
     const created = await callJson(app, "POST", "/api/boards", { title: "B" });
     const boardId = (created.body as { id: string }).id;
@@ -1236,7 +1236,51 @@ describe("PATCH asset content broadcasts board_asset_updated", () => {
         app,
         "PATCH",
         `/api/boards/${boardId}/assets/${sticky!.id}`,
-        { positionX: 42 },
+        { positionX: 42, positionY: -7 },
+      );
+      assert.equal(res.status, 200);
+      assert.equal(spy.mock.calls.length, 1);
+      const [recipients, payload] = spy.mock.calls[0].arguments as [
+        string[],
+        {
+          boardId: string;
+          assetId: string;
+          positionX?: number;
+          positionY?: number;
+          content?: string | null;
+        },
+      ];
+      assert.deepEqual(recipients.sort(), ["owner-1", "recipient-2"].sort());
+      assert.equal(payload.boardId, boardId);
+      assert.equal(payload.assetId, sticky!.id);
+      assert.equal(payload.positionX, 42);
+      assert.equal(payload.positionY, -7);
+      // Content was not part of the PATCH so it must not be in the payload.
+      assert.equal(payload.content, undefined);
+    } finally {
+      spy.mock.restore();
+    }
+  });
+
+  it("does not broadcast when the PATCH only changes non-broadcast fields", async () => {
+    const { app, storage } = buildApp("owner-1");
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    await storage.shareBoard(boardId, "owner-1", "recipient-2");
+    const sticky = await storage.createBoardAssetForUser(boardId, "owner-1", {
+      batchId: "sticky-batch",
+      kind: "sticky",
+      provider: "tool",
+      content: "Hi",
+    } as BoardAssetCreate);
+
+    const spy = mock.method(realtimeService, "notifyBoardAssetUpdated", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "PATCH",
+        `/api/boards/${boardId}/assets/${sticky!.id}`,
+        { width: 200 },
       );
       assert.equal(res.status, 200);
       assert.equal(spy.mock.calls.length, 0);

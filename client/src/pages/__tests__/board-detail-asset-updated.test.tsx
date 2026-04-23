@@ -81,6 +81,8 @@ interface BoardResponseLite {
       kind: string;
       content?: string | null;
       status: string;
+      positionX?: number;
+      positionY?: number;
     }>;
   }>;
   assets: Array<{
@@ -88,6 +90,8 @@ interface BoardResponseLite {
     kind: string;
     content?: string | null;
     status: string;
+    positionX?: number;
+    positionY?: number;
   }>;
 }
 
@@ -213,5 +217,67 @@ describe("BoardDetailPage WS board_asset_updated handler", () => {
     const after = qc.getQueryData<BoardResponseLite>(["/api/boards", "board-x"]);
     expect(after!.batches[0].assets[0].content).toBe("Original");
     expect(after!.assets[0].content).toBe("Original");
+  });
+
+  it("patches the cached asset's positionX/Y when a board_asset_updated message includes a drag", async () => {
+    const board: BoardResponseLite = {
+      id: "board-1",
+      title: "B",
+      isShared: false,
+      isOwner: true,
+      batches: [
+        {
+          batchId: "batch-1",
+          batchLabel: null,
+          assets: [
+            {
+              id: "asset-1",
+              kind: "image",
+              status: "ready",
+              positionX: 0,
+              positionY: 0,
+            },
+          ],
+        },
+      ],
+      assets: [
+        {
+          id: "asset-1",
+          kind: "image",
+          status: "ready",
+          positionX: 0,
+          positionY: 0,
+        },
+      ],
+    };
+    const { qc } = renderAt("/boards/board-1", board);
+    await waitFor(() => {
+      expect(capturedOnMessage).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(qc.getQueryData(["/api/boards", "board-1"])).toBeTruthy();
+    });
+
+    act(() => {
+      capturedOnMessage!({
+        type: "board_asset_updated",
+        data: {
+          boardId: "board-1",
+          batchId: "batch-1",
+          assetId: "asset-1",
+          positionX: 120,
+          positionY: -45,
+        },
+      });
+    });
+
+    const patched = qc.getQueryData<BoardResponseLite>([
+      "/api/boards",
+      "board-1",
+    ]);
+    expect(patched!.batches[0].assets[0].positionX).toBe(120);
+    expect(patched!.batches[0].assets[0].positionY).toBe(-45);
+    expect(patched!.assets[0].positionX).toBe(120);
+    expect(patched!.assets[0].positionY).toBe(-45);
   });
 });

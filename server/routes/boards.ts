@@ -844,11 +844,14 @@ export function registerBoardsRoutes(
       );
       if (!updated) return res.status(404).json({ error: "Asset not found" });
       // If the editable text content changed (sticky / text / frame inline
-      // edits), push a typed WS event to every collaborator on the board so
-      // their canvas updates live without a manual refetch. Owner + share
-      // recipients are resolved best-effort and any failure is swallowed —
-      // the PATCH itself has already succeeded.
-      if (updates.content !== undefined) {
+      // edits) or the tile was repositioned via drag, push a typed WS event
+      // to every collaborator on the board so their canvas updates live
+      // without a manual refetch. Owner + share recipients are resolved
+      // best-effort and any failure is swallowed — the PATCH itself has
+      // already succeeded.
+      const positionChanged =
+        updates.positionX !== undefined || updates.positionY !== undefined;
+      if (updates.content !== undefined || positionChanged) {
         try {
           const access = await storage.getAccessibleBoardForUser(
             req.params.id,
@@ -866,7 +869,10 @@ export function registerBoardsRoutes(
               boardId: req.params.id,
               batchId: updated.batchId,
               assetId: updated.id,
-              content: updated.content,
+              ...(updates.content !== undefined ? { content: updated.content } : {}),
+              ...(positionChanged
+                ? { positionX: updated.positionX, positionY: updated.positionY }
+                : {}),
             });
           }
         } catch (broadcastErr) {

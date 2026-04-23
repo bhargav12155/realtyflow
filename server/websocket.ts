@@ -546,8 +546,9 @@ export class RealtimeService {
   }
 
   // Notify all collaborators on a board that an asset's editable fields
-  // (e.g. content for sticky/text/frame inline edits) have been updated.
-  // Sent to each provided userId so every viewer's canvas refreshes live.
+  // (e.g. content for sticky/text/frame inline edits, or positionX/Y after
+  // a drag) have been updated. Sent to each provided userId so every
+  // viewer's canvas refreshes live.
   notifyBoardAssetUpdated(
     userIds: string[],
     payload: {
@@ -555,6 +556,8 @@ export class RealtimeService {
       batchId: string;
       assetId: string;
       content?: string | null;
+      positionX?: number;
+      positionY?: number;
     },
   ) {
     const message: WebSocketMessage = {

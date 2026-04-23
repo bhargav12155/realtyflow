@@ -275,8 +275,9 @@ class FakeBoardsStorage {
       height: asset.height ?? 180,
       status: asset.status ?? "queued",
       rejectionReason: asset.rejectionReason ?? null,
+      content: asset.content ?? null,
       createdAt: new Date(),
-    };
+    } as BoardAsset;
     this.assets.set(created.id, created);
     return created;
   }
@@ -732,5 +733,211 @@ describe("Board chat — v2v-only-for-Luma/Runway validation", () => {
       provider: "luma",
     });
     assert.equal(res.status, 404);
+  });
+});
+
+describe("Drawing asset content sanitization", () => {
+  const validDrawing = JSON.stringify({
+    v: 1,
+    width: 480,
+    height: 320,
+    strokes: [
+      { color: "#111827", width: 3, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] },
+    ],
+  });
+
+  it("accepts a valid drawing payload on POST", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: validDrawing,
+    });
+    assert.equal(res.status, 200);
+    assert.equal((res.body as { kind: string }).kind, "drawing");
+    assert.ok((res.body as { content: string }).content);
+  });
+
+  it("rejects non-JSON drawing content on POST", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: "<svg><script>alert(1)</script></svg>",
+    });
+    assert.equal(res.status, 400);
+    assert.equal((res.body as { error: string }).error, "Invalid body");
+  });
+
+  it("rejects drawing payloads with disallowed colors (e.g. url(...))", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const malicious = JSON.stringify({
+      v: 1,
+      width: 480,
+      height: 320,
+      strokes: [
+        {
+          color: "url(#xss)",
+          width: 3,
+          points: [{ x: 1, y: 2 }],
+        },
+      ],
+    });
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: malicious,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("strips unknown fields from drawing payloads on POST", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const tainted = JSON.stringify({
+      v: 1,
+      width: 480,
+      height: 320,
+      strokes: [
+        { color: "#111827", width: 3, points: [{ x: 1, y: 2 }] },
+      ],
+      __proto__: { evil: true },
+      foreign: "<script>alert(1)</script>",
+    });
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: tainted,
+    });
+    assert.equal(res.status, 200);
+    const stored = JSON.parse((res.body as { content: string }).content);
+    assert.deepEqual(Object.keys(stored).sort(), ["height", "strokes", "v", "width"]);
+  });
+
+  it("rejects invalid drawing payloads on PATCH for drawing assets", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const drawing = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: validDrawing,
+    } as BoardAssetCreate);
+    const res = await callJson(
+      app,
+      "PATCH",
+      `/api/boards/${boardId}/assets/${drawing!.id}`,
+      { content: "<svg onload=alert(1)/>" },
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("accepts a large (>10k) valid drawing payload on PATCH for drawing assets", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const drawing = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: validDrawing,
+    } as BoardAssetCreate);
+    // Build a payload that serializes well above the 10k free-text cap but
+    // well under the 100k drawing schema cap to prove the cap parity fix.
+    const points = Array.from({ length: 1500 }, (_, i) => ({ x: i, y: i * 0.5 }));
+    const big = JSON.stringify({
+      v: 1,
+      width: 480,
+      height: 320,
+      strokes: [{ color: "#111827", width: 3, points }],
+    });
+    assert.ok(big.length > 10_000, "test payload should exceed the legacy 10k cap");
+    const res = await callJson(
+      app,
+      "PATCH",
+      `/api/boards/${boardId}/assets/${drawing!.id}`,
+      { content: big },
+    );
+    assert.equal(res.status, 200);
+    assert.ok((res.body as { content: string }).content.length > 10_000);
+  });
+
+  it("strips unknown fields from drawing payloads on PATCH", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const drawing = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "draw-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: validDrawing,
+    } as BoardAssetCreate);
+    const tainted = JSON.stringify({
+      v: 1,
+      width: 480,
+      height: 320,
+      strokes: [{ color: "#111827", width: 3, points: [{ x: 1, y: 2 }] }],
+      foreign: "<script>alert(1)</script>",
+    });
+    const res = await callJson(
+      app,
+      "PATCH",
+      `/api/boards/${boardId}/assets/${drawing!.id}`,
+      { content: tainted },
+    );
+    assert.equal(res.status, 200);
+    const stored = JSON.parse((res.body as { content: string }).content);
+    assert.deepEqual(Object.keys(stored).sort(), ["height", "strokes", "v", "width"]);
+  });
+
+  it("rejects oversized free-text content on PATCH for non-drawing assets", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const sticky = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "sticky-batch",
+      kind: "sticky",
+      provider: "tool",
+      content: "Note",
+    } as BoardAssetCreate);
+    const res = await callJson(
+      app,
+      "PATCH",
+      `/api/boards/${boardId}/assets/${sticky!.id}`,
+      { content: "x".repeat(10_001) },
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("does not validate content for non-drawing assets on PATCH", async () => {
+    const { app, storage } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+    const sticky = await storage.createBoardAssetForUser(boardId, "user-1", {
+      batchId: "sticky-batch",
+      kind: "sticky",
+      provider: "tool",
+      content: "Note",
+    } as BoardAssetCreate);
+    const res = await callJson(
+      app,
+      "PATCH",
+      `/api/boards/${boardId}/assets/${sticky!.id}`,
+      { content: "Updated note text" },
+    );
+    assert.equal(res.status, 200);
+    assert.equal((res.body as { content: string }).content, "Updated note text");
   });
 });

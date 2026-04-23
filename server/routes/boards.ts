@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction, RequestHandler } from "e
 import { z } from "zod";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
-import { insertBoardAssetSchema } from "@shared/schema";
+import { insertBoardAssetSchema, sanitizeDrawingContent } from "@shared/schema";
 import { realtimeService } from "../websocket";
 import { sendBoardSharedEmail, getAppBaseUrl } from "../services/mailer";
 
@@ -73,7 +73,38 @@ const createAssetSchema = insertBoardAssetSchema
     kind: z.enum(ASSET_KINDS),
     provider: z.enum(ASSET_PROVIDERS),
     status: z.enum(ASSET_STATUSES).optional(),
-    content: z.string().max(10_000).nullable().optional(),
+    content: z.string().max(100_000).nullable().optional(),
+  })
+  .transform((data, ctx) => {
+    // Drawing assets persist a JSON DrawingPayload in `content`. Validate the
+    // shape server-side and replace the field with the canonical re-serialized
+    // form so a malicious client can't smuggle arbitrary SVG / script markup
+    // that would be rendered to every collaborator.
+    if (data.kind === "drawing" && data.content != null) {
+      const sanitized = sanitizeDrawingContent(data.content);
+      if (sanitized == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["content"],
+          message: "Invalid drawing payload",
+        });
+        return z.NEVER;
+      }
+      return { ...data, content: sanitized };
+    }
+    if (data.kind !== "drawing" && typeof data.content === "string" && data.content.length > 10_000) {
+      // Non-drawing kinds keep the original 10k cap on free-text content.
+      ctx.addIssue({
+        code: z.ZodIssueCode.too_big,
+        path: ["content"],
+        type: "string",
+        maximum: 10_000,
+        inclusive: true,
+        message: "content too long",
+      });
+      return z.NEVER;
+    }
+    return data;
   });
 
 const updateAssetSchema = z.object({
@@ -88,7 +119,10 @@ const updateAssetSchema = z.object({
   durationSeconds: z.number().nullable().optional(),
   modelLabel: z.string().nullable().optional(),
   batchLabel: z.string().nullable().optional(),
-  content: z.string().max(10_000).nullable().optional(),
+  // Drawing assets store a JSON DrawingPayload (validated below in the
+  // route handler once we know the asset's kind) which can be larger than
+  // free-text content; cap at the same 100k ceiling as the create schema.
+  content: z.string().max(100_000).nullable().optional(),
 });
 
 // =====================================================
@@ -531,6 +565,30 @@ export function registerBoardsRoutes(
     try {
       const userId = String(req.user!.id);
       const updates = updateAssetSchema.parse(req.body ?? {});
+      // For drawing assets the `content` blob is a JSON DrawingPayload that
+      // must be validated server-side before we persist it (see createAsset
+      // route for the same check). We have to look up the existing asset to
+      // know the kind because PATCH bodies don't include it.
+      if (typeof updates.content === "string") {
+        const existing = await storage.getBoardAssetByIdForUser(
+          req.params.id,
+          req.params.assetId,
+          userId,
+        );
+        if (!existing) return res.status(404).json({ error: "Asset not found" });
+        if (existing.kind === "drawing") {
+          const sanitized = sanitizeDrawingContent(updates.content);
+          if (sanitized == null) {
+            return res.status(400).json({ error: "Invalid drawing payload" });
+          }
+          updates.content = sanitized;
+        } else if (updates.content.length > 10_000) {
+          // Free-text content (sticky/text/frame) keeps its original 10k cap;
+          // only drawing payloads are allowed to grow up to the schema-level
+          // 100k ceiling because they're structured JSON.
+          return res.status(400).json({ error: "Invalid body", issues: [{ path: ["content"], message: "content too long" }] });
+        }
+      }
       const updated = await storage.updateBoardAssetForUser(
         req.params.id,
         req.params.assetId,

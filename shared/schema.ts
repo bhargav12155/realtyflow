@@ -1969,6 +1969,67 @@ export const insertBoardAssetSchema = createInsertSchema(boardAssets).omit({
 export type InsertBoardAsset = z.infer<typeof insertBoardAssetSchema>;
 export type BoardAsset = typeof boardAssets.$inferSelect;
 
+// =====================================================
+// Drawing asset content schema
+// =====================================================
+// `boardAssets.content` for kind === "drawing" stores a JSON DrawingPayload
+// rather than raw SVG markup. Storing structured strokes (instead of arbitrary
+// SVG) means the canvas can render them by emitting controlled <path> elements
+// — it never has to inject untrusted HTML/SVG via dangerouslySetInnerHTML.
+//
+// We still validate the JSON shape on the server before persisting so a
+// malicious or buggy client can't smuggle unexpected fields, oversized
+// arrays, or non-finite numbers into the database (and on through to every
+// collaborator's browser).
+export const DRAWING_MAX_STROKES = 500;
+export const DRAWING_MAX_POINTS_PER_STROKE = 5000;
+export const DRAWING_MAX_DIMENSION = 8192;
+
+// Hex color (#rgb / #rrggbb / #rrggbbaa). Drawing tool only emits hex today;
+// rejecting other forms blocks accidental injection of url(...) refs, CSS
+// expressions, etc.
+const drawingColorSchema = z
+  .string()
+  .regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+
+const drawingPointSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+
+const drawingStrokeSchema = z.object({
+  color: drawingColorSchema,
+  width: z.number().finite().min(0.1).max(64),
+  points: z.array(drawingPointSchema).min(1).max(DRAWING_MAX_POINTS_PER_STROKE),
+});
+
+export const drawingPayloadSchema = z.object({
+  v: z.literal(1),
+  width: z.number().finite().positive().max(DRAWING_MAX_DIMENSION),
+  height: z.number().finite().positive().max(DRAWING_MAX_DIMENSION),
+  strokes: z.array(drawingStrokeSchema).max(DRAWING_MAX_STROKES),
+});
+
+export type DrawingPayloadParsed = z.infer<typeof drawingPayloadSchema>;
+
+// Parse + validate a drawing content blob (a JSON-encoded DrawingPayload).
+// Returns the parsed payload re-serialized to a canonical JSON string when
+// valid, or null when the input is missing/invalid. Used by the boards API
+// to sanitize drawing assets before persisting.
+export function sanitizeDrawingContent(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  if (typeof raw !== "string") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const result = drawingPayloadSchema.safeParse(parsed);
+  if (!result.success) return null;
+  return JSON.stringify(result.data);
+}
+
 // Persisted board chat conversation. One row per user/assistant message in
 // the board chat panel, in chronological order. Pending/streaming bubbles
 // are NOT persisted — only completed turns. Cascades on board delete.

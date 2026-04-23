@@ -5,6 +5,20 @@ import { GroupAssetToolbar } from "../GroupAssetToolbar";
 
 afterEach(() => cleanup());
 
+function stubRect(el: HTMLElement, rect: { left: number; top: number; right: number; bottom: number }) {
+  el.getBoundingClientRect = () => ({
+    left: rect.left,
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    x: rect.left,
+    y: rect.top,
+    width: rect.right - rect.left,
+    height: rect.bottom - rect.top,
+    toJSON: () => ({}),
+  });
+}
+
 function makeBatch(): CanvasBatch {
   return {
     batchId: "batch-1",
@@ -77,6 +91,61 @@ describe("BoardCanvas multi-select", () => {
     );
     fireEvent.keyDown(window, { key: "a", metaKey: true });
     expect(onSelectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("marquee drag from the canvas background fires onSelectMany with intersecting tile ids", () => {
+    const onSelectMany = vi.fn();
+    const { container } = render(
+      <BoardCanvas
+        batches={[makeBatch()]}
+        selectedAssetIds={new Set()}
+        onSelectAsset={() => {}}
+        onSelectMany={onSelectMany}
+        onDeleteAsset={() => {}}
+        onClearRejection={() => {}}
+      />,
+    );
+    const tile1 = container.querySelector('[data-asset-id="asset-1"]') as HTMLElement;
+    const tile2 = container.querySelector('[data-asset-id="asset-2"]') as HTMLElement;
+    stubRect(tile1, { left: 100, top: 100, right: 200, bottom: 200 });
+    stubRect(tile2, { left: 300, top: 100, right: 400, bottom: 200 });
+
+    const scroller = screen.getByTestId("canvas-scroller");
+    fireEvent.mouseDown(scroller, { button: 0, clientX: 50, clientY: 50 });
+    fireEvent.mouseMove(window, { clientX: 450, clientY: 250 });
+    fireEvent.mouseUp(window, { clientX: 450, clientY: 250 });
+
+    expect(onSelectMany).toHaveBeenCalledTimes(1);
+    expect(onSelectMany).toHaveBeenCalledWith(["asset-1", "asset-2"]);
+  });
+
+  it("marquee drag still begins when started inside a batch wrapper (non-root child)", () => {
+    const onSelectMany = vi.fn();
+    const { container } = render(
+      <BoardCanvas
+        batches={[makeBatch()]}
+        selectedAssetIds={new Set()}
+        onSelectAsset={() => {}}
+        onSelectMany={onSelectMany}
+        onDeleteAsset={() => {}}
+        onClearRejection={() => {}}
+      />,
+    );
+    const tile1 = container.querySelector('[data-asset-id="asset-1"]') as HTMLElement;
+    const tile2 = container.querySelector('[data-asset-id="asset-2"]') as HTMLElement;
+    stubRect(tile1, { left: 100, top: 100, right: 200, bottom: 200 });
+    stubRect(tile2, { left: 300, top: 100, right: 400, bottom: 200 });
+
+    // Start the press from inside a batch wrapper rather than the scroller root.
+    // This guards the relaxed start condition: anything that isn't a tile,
+    // button, link, form field, or popover should still kick off a marquee.
+    const batchWrapper = screen.getByTestId("batch-batch-1");
+    fireEvent.mouseDown(batchWrapper, { button: 0, clientX: 60, clientY: 60 });
+    fireEvent.mouseMove(window, { clientX: 460, clientY: 260 });
+    fireEvent.mouseUp(window, { clientX: 460, clientY: 260 });
+
+    expect(onSelectMany).toHaveBeenCalledTimes(1);
+    expect(onSelectMany).toHaveBeenCalledWith(["asset-1", "asset-2"]);
   });
 
   it("Esc clears the current selection", () => {

@@ -23,6 +23,7 @@ interface WebSocketMessage {
     | "voice_clone_complete"
     | "voice_clone_failed"
     | "board_asset_status"
+    | "board_asset_updated"
     | "board_auto_eval"
     | "notification_created"
     | "photo_avatar_status_update";

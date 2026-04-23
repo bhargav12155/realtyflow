@@ -56,7 +56,7 @@ function authenticateRequest(req: IncomingMessage): { userId: string } | null {
 }
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_auto_eval" | "notification_created" | "admin_alert";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "notification_created" | "admin_alert";
   data: any;
   timestamp: string;
   userId?: number;
@@ -501,6 +501,28 @@ export class RealtimeService {
       data: payload,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  // Notify all collaborators on a board that an asset's editable fields
+  // (e.g. content for sticky/text/frame inline edits) have been updated.
+  // Sent to each provided userId so every viewer's canvas refreshes live.
+  notifyBoardAssetUpdated(
+    userIds: string[],
+    payload: {
+      boardId: string;
+      batchId: string;
+      assetId: string;
+      content?: string | null;
+    },
+  ) {
+    const message: WebSocketMessage = {
+      type: "board_asset_updated",
+      data: payload,
+      timestamp: new Date().toISOString(),
+    };
+    for (const uid of userIds) {
+      this.sendToUser(uid, message);
+    }
   }
 
   // Notify when a board batch finishes auto-evaluation

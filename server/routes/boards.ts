@@ -538,6 +538,39 @@ export function registerBoardsRoutes(
         updates,
       );
       if (!updated) return res.status(404).json({ error: "Asset not found" });
+      // If the editable text content changed (sticky / text / frame inline
+      // edits), push a typed WS event to every collaborator on the board so
+      // their canvas updates live without a manual refetch. Owner + share
+      // recipients are resolved best-effort and any failure is swallowed —
+      // the PATCH itself has already succeeded.
+      if (updates.content !== undefined) {
+        try {
+          const access = await storage.getAccessibleBoardForUser(
+            req.params.id,
+            userId,
+          );
+          if (access) {
+            const ownerId = access.userId;
+            const shares = await storage.getBoardShares(
+              req.params.id,
+              ownerId,
+            );
+            const recipientIds = new Set<string>([ownerId]);
+            for (const s of shares) recipientIds.add(s.userId);
+            realtimeService.notifyBoardAssetUpdated(Array.from(recipientIds), {
+              boardId: req.params.id,
+              batchId: updated.batchId,
+              assetId: updated.id,
+              content: updated.content,
+            });
+          }
+        } catch (broadcastErr) {
+          console.warn(
+            "[boards] broadcast asset update failed:",
+            broadcastErr instanceof Error ? broadcastErr.message : broadcastErr,
+          );
+        }
+      }
       res.json(updated);
     } catch (error: unknown) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });

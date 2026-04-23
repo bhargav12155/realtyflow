@@ -245,6 +245,31 @@ export default function BoardDetailPage() {
         queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
         return;
       }
+      if (t === "board_asset_updated") {
+        const d = msg.data as {
+          boardId: string;
+          batchId: string;
+          assetId: string;
+          content?: string | null;
+        };
+        if (d.boardId !== boardId) return;
+        queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
+          if (!prev) return prev;
+          const patchAsset = <T extends { id: string }>(a: T): T => {
+            if (a.id !== d.assetId) return a;
+            return {
+              ...a,
+              ...(d.content !== undefined ? { content: d.content } : {}),
+            };
+          };
+          return {
+            ...prev,
+            batches: prev.batches.map((b) => ({ ...b, assets: b.assets.map(patchAsset) })),
+            assets: prev.assets.map(patchAsset),
+          };
+        });
+        return;
+      }
       if (
         t === "video_generation_complete" ||
         t === "video_generation_failed" ||
@@ -567,6 +592,37 @@ export default function BoardDetailPage() {
     onError: (e: Error) => {
       const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
       toast({ title: "Re-evaluation failed", description: errText, variant: "destructive" });
+    },
+  });
+
+  const updateAssetContent = useMutation({
+    mutationFn: async ({ assetId, content }: { assetId: string; content: string }) => {
+      const res = await apiRequest("PATCH", `/api/boards/${boardId}/assets/${assetId}`, {
+        content,
+      });
+      return res.json();
+    },
+    onMutate: async ({ assetId, content }) => {
+      // Optimistically patch the cached board so the editor's own canvas
+      // updates instantly without waiting for the round-trip refetch.
+      queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
+        if (!prev) return prev;
+        const patchAsset = <T extends { id: string; content?: string | null }>(a: T): T =>
+          a.id === assetId ? { ...a, content } : a;
+        return {
+          ...prev,
+          batches: prev.batches.map((b) => ({ ...b, assets: b.assets.map(patchAsset) })),
+          assets: prev.assets.map(patchAsset),
+        };
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't save edit", description: errText, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
     },
   });
 
@@ -1028,6 +1084,9 @@ export default function BoardDetailPage() {
             }
             setWinnerPendingAssetId={
               setWinner.isPending ? setWinner.variables?.assetId ?? null : null
+            }
+            onUpdateAssetContent={(assetId, content) =>
+              updateAssetContent.mutate({ assetId, content })
             }
           />
           {selectedAssetIds.length === 1 && selectedAsset && (

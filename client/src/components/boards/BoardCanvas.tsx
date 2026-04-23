@@ -46,6 +46,7 @@ interface BoardCanvasProps {
   ) => void;
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
+  onUpdateAssetContent?: (assetId: string, content: string) => void;
 }
 
 interface MarqueeBox {
@@ -69,6 +70,7 @@ export function BoardCanvas({
   onReEvaluate,
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
+  onUpdateAssetContent,
 }: BoardCanvasProps) {
   // Build a quick lookup so each tile can resolve its source-asset thumbnail
   // (used for the before/after preview on edited image tiles) without a prop
@@ -214,6 +216,7 @@ export function BoardCanvas({
               onReEvaluate={onReEvaluate}
               reEvalPending={reEvalPendingBatchId === b.batchId}
               setWinnerPendingAssetId={setWinnerPendingAssetId}
+              onUpdateAssetContent={onUpdateAssetContent}
             />
           ))
         )}
@@ -246,6 +249,7 @@ function BatchGroup({
   onReEvaluate,
   reEvalPending,
   setWinnerPendingAssetId,
+  onUpdateAssetContent,
 }: {
   batch: CanvasBatch;
   assetsById: Map<string, CanvasAsset>;
@@ -260,6 +264,7 @@ function BatchGroup({
   ) => void;
   reEvalPending?: boolean;
   setWinnerPendingAssetId?: string | null;
+  onUpdateAssetContent?: (assetId: string, content: string) => void;
 }) {
   const [reEvalOpen, setReEvalOpen] = useState(false);
   const winnerId = pickWinnerId(batch.assets);
@@ -317,6 +322,11 @@ function BatchGroup({
                   onSetWinner ? () => onSetWinner(batch.batchId, a.id) : undefined
                 }
                 setWinnerPending={setWinnerPendingAssetId === a.id}
+                onUpdateContent={
+                  onUpdateAssetContent
+                    ? (next) => onUpdateAssetContent(a.id, next)
+                    : undefined
+                }
               />
             );
           })}
@@ -408,6 +418,7 @@ function AssetTile({
   onClearRejection,
   onSetWinner,
   setWinnerPending,
+  onUpdateContent,
 }: {
   asset: CanvasAsset;
   sourceAsset?: CanvasAsset | null;
@@ -419,6 +430,7 @@ function AssetTile({
   onClearRejection: () => void;
   onSetWinner?: () => void;
   setWinnerPending?: boolean;
+  onUpdateContent?: (content: string) => void;
 }) {
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
@@ -437,6 +449,40 @@ function AssetTile({
     !isWinner &&
     !!asset.assetUrl &&
     (asset.status === "ready" || asset.status === "rejected");
+  const isEditableKind = isSticky || isText || isFrame;
+  const canEdit = isEditableKind && !!onUpdateContent;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(asset.content ?? "");
+  const editRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  // When the canonical content changes from outside (e.g. WS push from
+  // another collaborator), keep our draft in sync as long as we're not
+  // mid-edit ourselves.
+  useEffect(() => {
+    if (!editing) setDraft(asset.content ?? "");
+  }, [asset.content, editing]);
+  useEffect(() => {
+    if (editing && editRef.current) {
+      editRef.current.focus();
+      editRef.current.select();
+    }
+  }, [editing]);
+  const startEdit = () => {
+    if (!canEdit) return;
+    setDraft(asset.content ?? "");
+    setEditing(true);
+  };
+  const commitEdit = () => {
+    if (!editing) return;
+    setEditing(false);
+    const next = isFrame ? draft.replace(/\n+/g, " ").trim() : draft;
+    if (next !== (asset.content ?? "")) {
+      onUpdateContent?.(next);
+    }
+  };
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft(asset.content ?? "");
+  };
   return (
     <div
       className={`relative group flex-shrink-0 w-[150px] h-[110px] ${
@@ -468,29 +514,97 @@ function AssetTile({
           const additive = e.shiftKey || e.metaKey || e.ctrlKey;
           onSelect({ additive });
         }}
+        onDoubleClick={(e) => {
+          if (!canEdit) return;
+          e.stopPropagation();
+          startEdit();
+        }}
         data-testid={`asset-${asset.id}`}
       >
         {isSticky ? (
-          <div
-            className="w-full h-full p-2 text-[11px] leading-snug text-neutral-900 whitespace-pre-wrap break-words overflow-hidden"
-            data-testid={`sticky-content-${asset.id}`}
-          >
-            {asset.content || "Sticky note"}
-          </div>
+          editing ? (
+            <textarea
+              ref={(el) => (editRef.current = el)}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                } else if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  commitEdit();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full h-full p-2 text-[11px] leading-snug text-neutral-900 bg-transparent resize-none outline-none focus:ring-2 focus:ring-blue-500 rounded"
+              data-testid={`input-edit-sticky-${asset.id}`}
+            />
+          ) : (
+            <div
+              className="w-full h-full p-2 text-[11px] leading-snug text-neutral-900 whitespace-pre-wrap break-words overflow-hidden"
+              data-testid={`sticky-content-${asset.id}`}
+            >
+              {asset.content || "Sticky note"}
+            </div>
+          )
         ) : isText ? (
-          <div
-            className="w-full h-full p-1.5 text-[12px] leading-snug text-neutral-900 dark:text-neutral-100 whitespace-pre-wrap break-words overflow-hidden"
-            data-testid={`text-content-${asset.id}`}
-          >
-            {asset.content || "Text"}
-          </div>
+          editing ? (
+            <textarea
+              ref={(el) => (editRef.current = el)}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                } else if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  commitEdit();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full h-full p-1.5 text-[12px] leading-snug text-neutral-900 dark:text-neutral-100 bg-transparent resize-none outline-none focus:ring-2 focus:ring-blue-500 rounded"
+              data-testid={`input-edit-text-${asset.id}`}
+            />
+          ) : (
+            <div
+              className="w-full h-full p-1.5 text-[12px] leading-snug text-neutral-900 dark:text-neutral-100 whitespace-pre-wrap break-words overflow-hidden"
+              data-testid={`text-content-${asset.id}`}
+            >
+              {asset.content || "Text"}
+            </div>
+          )
         ) : isFrame ? (
-          <div
-            className="w-full h-full p-1.5 flex items-start justify-start text-[11px] font-medium uppercase tracking-wide text-neutral-600 dark:text-neutral-300"
-            data-testid={`frame-content-${asset.id}`}
-          >
-            {asset.content || "Frame"}
-          </div>
+          editing ? (
+            <input
+              ref={(el) => (editRef.current = el)}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitEdit();
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full p-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-700 dark:text-neutral-200 bg-transparent outline-none focus:ring-2 focus:ring-blue-500 rounded"
+              data-testid={`input-edit-frame-${asset.id}`}
+            />
+          ) : (
+            <div
+              className="w-full h-full p-1.5 flex items-start justify-start text-[11px] font-medium uppercase tracking-wide text-neutral-600 dark:text-neutral-300"
+              data-testid={`frame-content-${asset.id}`}
+            >
+              {asset.content || "Frame"}
+            </div>
+          )
         ) : isDrawing ? (
           (() => {
             const drawing = parseDrawingContent(asset.content);

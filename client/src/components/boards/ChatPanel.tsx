@@ -137,13 +137,31 @@ export function ChatPanel({
     ? `${selectedThinkModel.name} is thinking…`
     : "Generating…";
 
+  // Track how long the current request has been pending so we can show a
+  // gentle reassurance after ~20 s and a stronger "try again" hint at ~60 s.
+  // Stages: 0 = normal, 1 = still thinking, 2 = unusually slow.
+  const [waitStage, setWaitStage] = useState<0 | 1 | 2>(0);
+  useEffect(() => {
+    if (!isSending) {
+      setWaitStage(0);
+      return;
+    }
+    setWaitStage(0);
+    const t1 = setTimeout(() => setWaitStage(1), 20000);
+    const t2 = setTimeout(() => setWaitStage(2), 60000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isSending]);
+
   // Keep the latest message (and the thinking row, when shown) in view.
   useEffect(() => {
     const el = messagesEndRef.current;
     if (el && typeof el.scrollIntoView === "function") {
       el.scrollIntoView({ block: "end" });
     }
-  }, [messages.length, isSending]);
+  }, [messages.length, isSending, waitStage]);
 
   // Apply a parent-provided pre-fill (e.g. the typed idea from the Boards
   // home in Plan mode) once, then clear it so we don't clobber the user's
@@ -282,6 +300,20 @@ export function ChatPanel({
                 </button>
               )}
             </div>
+            {waitStage > 0 && (
+              <div
+                className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400 max-w-[300px] leading-snug"
+                data-testid={
+                  waitStage === 1
+                    ? "text-chat-thinking-hint-slow"
+                    : "text-chat-thinking-hint-very-slow"
+                }
+              >
+                {waitStage === 1
+                  ? "Still thinking — this is taking longer than usual."
+                  : "This is unusually slow — you can try again."}
+              </div>
+            )}
           </div>
         )}
         <div ref={messagesEndRef} />

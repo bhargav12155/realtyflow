@@ -195,9 +195,12 @@ class FakeBoardsStorage {
       userId: board.userId,
       title: board.title ?? "Untitled board",
       isShared: board.isShared ?? false,
+      // The boards table now persists a per-board cap on chat history; default
+      // to the historical 200 so freshly created boards keep current behavior.
+      chatHistoryCap: (board as { chatHistoryCap?: number }).chatHistoryCap ?? 200,
       createdAt: now,
       updatedAt: now,
-    };
+    } as Board;
     this.boards.set(created.id, created);
     return created;
   }
@@ -1019,6 +1022,77 @@ describe("Drawing asset content sanitization", () => {
       { content: "x".repeat(10_001) },
     );
     assert.equal(res.status, 400);
+  });
+
+  it("PATCH /api/boards/:id accepts a valid chatHistoryCap and persists it on the board", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string; chatHistoryCap?: number }).id;
+    // Default is the historical 200, since createBoard didn't set it.
+    const before = await callJson(app, "GET", `/api/boards/${boardId}`);
+    assert.equal((before.body as { chatHistoryCap: number }).chatHistoryCap, 200);
+
+    const updated = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      chatHistoryCap: 50,
+    });
+    assert.equal(updated.status, 200);
+    assert.equal((updated.body as { chatHistoryCap: number }).chatHistoryCap, 50);
+
+    const after = await callJson(app, "GET", `/api/boards/${boardId}`);
+    assert.equal((after.body as { chatHistoryCap: number }).chatHistoryCap, 50);
+  });
+
+  it("PATCH /api/boards/:id rejects chatHistoryCap below the documented minimum", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      chatHistoryCap: 5,
+    });
+    assert.equal(res.status, 400);
+    // The board row must not have been mutated by a rejected request.
+    const after = await callJson(app, "GET", `/api/boards/${boardId}`);
+    assert.equal((after.body as { chatHistoryCap: number }).chatHistoryCap, 200);
+  });
+
+  it("PATCH /api/boards/:id rejects chatHistoryCap above the documented maximum", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      chatHistoryCap: 5000,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("PATCH /api/boards/:id rejects a non-integer chatHistoryCap", async () => {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+
+    const fractional = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      chatHistoryCap: 42.5,
+    });
+    assert.equal(fractional.status, 400);
+
+    const wrongType = await callJson(app, "PATCH", `/api/boards/${boardId}`, {
+      chatHistoryCap: "100",
+    });
+    assert.equal(wrongType.status, 400);
+  });
+
+  it("PATCH /api/boards/:id with chatHistoryCap on a board the caller does not own returns 404", async () => {
+    const ownerApp = buildApp("owner-1");
+    const created = await callJson(ownerApp.app, "POST", "/api/boards", { title: "B" });
+    const boardId = (created.body as { id: string }).id;
+
+    const otherApp = buildApp("intruder-1");
+    const res = await callJson(otherApp.app, "PATCH", `/api/boards/${boardId}`, {
+      chatHistoryCap: 50,
+    });
+    assert.equal(res.status, 404);
   });
 
   it("does not validate content for non-drawing assets on PATCH", async () => {

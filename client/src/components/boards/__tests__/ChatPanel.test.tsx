@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
-import { ChatPanel, extractSuggestedPrompt, type ChatMessage } from "../ChatPanel";
+import {
+  ChatPanel,
+  CHAT_HISTORY_CAP_DEFAULT,
+  CHAT_HISTORY_CAP_MAX,
+  CHAT_HISTORY_CAP_MIN,
+  extractSuggestedPrompt,
+  type ChatMessage,
+} from "../ChatPanel";
 import { DEFAULT_SEEDANCE_OPTIONS } from "../PlatformPicker";
 
 afterEach(() => cleanup());
@@ -338,6 +345,92 @@ describe("ChatPanel stop button", () => {
     renderPanel({ mode: "create", isSending: true, onStop });
     fireEvent.click(screen.getByTestId("button-stop-chat"));
     expect(onStop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ChatPanel chat history cap (owner-only settings)", () => {
+  it("does not render the gear button when onChangeChatHistoryCap is omitted (non-owner)", () => {
+    renderPanel({ chatHistoryCap: 200 });
+    expect(screen.queryByTestId("button-chat-settings")).toBeNull();
+  });
+
+  it("renders the gear button when onChangeChatHistoryCap is provided (owner)", () => {
+    renderPanel({
+      chatHistoryCap: 200,
+      onChangeChatHistoryCap: vi.fn(),
+    });
+    expect(screen.getByTestId("button-chat-settings")).not.toBeNull();
+  });
+
+  it("opens the popover with the input pre-filled to the current cap, and Save invokes onChangeChatHistoryCap with the new value", () => {
+    const onChangeChatHistoryCap = vi.fn();
+    renderPanel({ chatHistoryCap: 200, onChangeChatHistoryCap });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    const input = screen.getByTestId("input-chat-history-cap") as HTMLInputElement;
+    expect(input.value).toBe("200");
+    fireEvent.change(input, { target: { value: "75" } });
+    fireEvent.click(screen.getByTestId("button-save-chat-history-cap"));
+    expect(onChangeChatHistoryCap).toHaveBeenCalledTimes(1);
+    expect(onChangeChatHistoryCap).toHaveBeenCalledWith(75);
+  });
+
+  it("clamps an out-of-range value down to the maximum before persisting", () => {
+    const onChangeChatHistoryCap = vi.fn();
+    renderPanel({ chatHistoryCap: 200, onChangeChatHistoryCap });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    const input = screen.getByTestId("input-chat-history-cap") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: String(CHAT_HISTORY_CAP_MAX + 5000) } });
+    fireEvent.click(screen.getByTestId("button-save-chat-history-cap"));
+    expect(onChangeChatHistoryCap).toHaveBeenCalledWith(CHAT_HISTORY_CAP_MAX);
+  });
+
+  it("clamps an out-of-range value up to the minimum before persisting", () => {
+    const onChangeChatHistoryCap = vi.fn();
+    renderPanel({ chatHistoryCap: 200, onChangeChatHistoryCap });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    const input = screen.getByTestId("input-chat-history-cap") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1" } });
+    fireEvent.click(screen.getByTestId("button-save-chat-history-cap"));
+    expect(onChangeChatHistoryCap).toHaveBeenCalledWith(CHAT_HISTORY_CAP_MIN);
+  });
+
+  it("does not call onChangeChatHistoryCap when the (clamped) value matches the current cap", () => {
+    const onChangeChatHistoryCap = vi.fn();
+    renderPanel({ chatHistoryCap: 200, onChangeChatHistoryCap });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    fireEvent.click(screen.getByTestId("button-save-chat-history-cap"));
+    expect(onChangeChatHistoryCap).not.toHaveBeenCalled();
+  });
+
+  it("ignores Save when the input is non-numeric", () => {
+    const onChangeChatHistoryCap = vi.fn();
+    renderPanel({ chatHistoryCap: 200, onChangeChatHistoryCap });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    const input = screen.getByTestId("input-chat-history-cap") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("button-save-chat-history-cap"));
+    expect(onChangeChatHistoryCap).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the default cap when chatHistoryCap is undefined", () => {
+    const onChangeChatHistoryCap = vi.fn();
+    renderPanel({ onChangeChatHistoryCap });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    const input = screen.getByTestId("input-chat-history-cap") as HTMLInputElement;
+    expect(input.value).toBe(String(CHAT_HISTORY_CAP_DEFAULT));
+  });
+
+  it("disables the input and Save button while a save is in flight", () => {
+    renderPanel({
+      chatHistoryCap: 200,
+      onChangeChatHistoryCap: vi.fn(),
+      isSavingChatHistoryCap: true,
+    });
+    fireEvent.click(screen.getByTestId("button-chat-settings"));
+    const input = screen.getByTestId("input-chat-history-cap") as HTMLInputElement;
+    const save = screen.getByTestId("button-save-chat-history-cap") as HTMLButtonElement;
+    expect(input.disabled).toBe(true);
+    expect(save.disabled).toBe(true);
   });
 });
 

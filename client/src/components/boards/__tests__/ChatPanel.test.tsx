@@ -434,6 +434,59 @@ describe("ChatPanel chat history cap (owner-only settings)", () => {
   });
 });
 
+describe("ChatPanel collaborator typing indicator", () => {
+  it("does not render the typing line when typingUserNames is empty or undefined", () => {
+    renderPanel();
+    expect(screen.queryByTestId("text-collaborator-typing")).toBeNull();
+    cleanup();
+    renderPanel({ typingUserNames: [] });
+    expect(screen.queryByTestId("text-collaborator-typing")).toBeNull();
+  });
+
+  it('renders "<name> is typing…" for one collaborator', () => {
+    renderPanel({ typingUserNames: ["Casey"] });
+    expect(screen.getByTestId("text-collaborator-typing").textContent).toBe(
+      "Casey is typing…",
+    );
+  });
+
+  it('renders "<a> and <b> are typing…" for exactly two collaborators', () => {
+    renderPanel({ typingUserNames: ["Casey", "Sam"] });
+    expect(screen.getByTestId("text-collaborator-typing").textContent).toBe(
+      "Casey and Sam are typing…",
+    );
+  });
+
+  it("collapses three or more collaborators into a count summary", () => {
+    renderPanel({ typingUserNames: ["Casey", "Sam", "Jordan"] });
+    expect(screen.getByTestId("text-collaborator-typing").textContent).toBe(
+      "3 people are typing…",
+    );
+  });
+
+  it("fires onTypingChange(true) when text is entered and onTypingChange(false) when cleared", () => {
+    const onTypingChange = vi.fn();
+    renderPanel({ onTypingChange });
+    const input = screen.getByTestId("input-chat") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "hello" } });
+    expect(onTypingChange).toHaveBeenLastCalledWith(true);
+    fireEvent.change(input, { target: { value: "" } });
+    expect(onTypingChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("clears the typing indicator after sending a message", () => {
+    const onTypingChange = vi.fn();
+    const onSend = vi.fn();
+    renderPanel({ onTypingChange, onSend });
+    const input = screen.getByTestId("input-chat") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "ping" } });
+    expect(onTypingChange).toHaveBeenLastCalledWith(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("ping");
+    expect(onTypingChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
 describe("extractSuggestedPrompt", () => {
   it("pulls the contents of the first fenced code block", () => {
     expect(extractSuggestedPrompt("Sure!\n```\nA red barn at dawn\n```\nLet me know.")).toBe(

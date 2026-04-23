@@ -10,6 +10,10 @@ const viewers: PresenceViewer[] = [
   { userId: "u-charlie", name: null, email: "charlie@example.com" },
 ];
 
+function viewer(id: string, name: string | null = null, email: string | null = null): PresenceViewer {
+  return { userId: id, name, email };
+}
+
 describe("PresenceAvatars", () => {
   it("renders nothing when there are no viewers", () => {
     const { container } = render(<PresenceAvatars viewers={[]} />);
@@ -112,5 +116,51 @@ describe("PresenceAvatars", () => {
     for (let i = 0; i < 6; i++) {
       expect(screen.getByTestId(`row-presence-viewer-u-${i}`)).toBeTruthy();
     }
+  });
+
+  it("renders one circle per viewer with a stable test id derived from the user id", () => {
+    render(
+      <PresenceAvatars
+        viewers={[
+          viewer("u1", "Alex Smith"),
+          viewer("u2", null, "casey@example.com"),
+        ]}
+      />,
+    );
+    expect(screen.getByTestId("avatar-presence-u1").textContent).toBe("AS");
+    expect(screen.getByTestId("avatar-presence-u2").textContent).toBe("CE");
+    // No overflow chip when count is below the cap.
+    expect(screen.queryByTestId("text-presence-overflow")).toBeNull();
+  });
+
+  it("falls back to '?' initials when neither name nor email is provided", () => {
+    render(<PresenceAvatars viewers={[viewer("anon")]} />);
+    expect(screen.getByTestId("avatar-presence-anon").textContent).toBe("?");
+  });
+
+  it("caps visible avatars at `max` and renders a +N overflow chip for the rest", () => {
+    const v = ["a", "b", "c", "d", "e", "f"].map((id) =>
+      viewer(id, id.toUpperCase()),
+    );
+    render(<PresenceAvatars viewers={v} max={4} />);
+    expect(screen.getByTestId("avatar-presence-a")).not.toBeNull();
+    expect(screen.getByTestId("avatar-presence-d")).not.toBeNull();
+    // 5th and 6th viewer should be collapsed into the overflow chip.
+    expect(screen.queryByTestId("avatar-presence-e")).toBeNull();
+    expect(screen.queryByTestId("avatar-presence-f")).toBeNull();
+    const overflow = screen.getByTestId("text-presence-overflow");
+    expect(overflow.textContent).toBe("+2");
+    // The overflow tooltip should list the hidden viewers' display labels so
+    // hovering surfaces who is being collapsed.
+    expect(overflow.getAttribute("title")).toContain("E");
+    expect(overflow.getAttribute("title")).toContain("F");
+  });
+
+  it("uses the default cap of 4 when no max prop is supplied", () => {
+    const v = ["a", "b", "c", "d", "e"].map((id) => viewer(id, id.toUpperCase()));
+    render(<PresenceAvatars viewers={v} />);
+    expect(screen.getByTestId("avatar-presence-d")).not.toBeNull();
+    expect(screen.queryByTestId("avatar-presence-e")).toBeNull();
+    expect(screen.getByTestId("text-presence-overflow").textContent).toBe("+1");
   });
 });

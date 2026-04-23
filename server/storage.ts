@@ -122,7 +122,7 @@ import {
   users as usersTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "./db";
 
 export interface IStorage {
@@ -525,7 +525,24 @@ export interface IStorage {
     userId: string,
     message: BoardMessageCreate,
   ): Promise<BoardMessage | undefined>;
+  /**
+   * Hard-delete every persisted chat message on a board. Owner-only — shared
+   * collaborators can read and append, but only the owner can wipe the
+   * thread. Returns `null` when the caller isn't the owner (or the board
+   * doesn't exist), and the number of rows actually deleted otherwise.
+   */
+  clearBoardMessagesForUser(
+    boardId: string,
+    userId: string,
+  ): Promise<{ deleted: number } | null>;
 }
+
+/**
+ * Hard cap on persisted chat messages per board. Once an insert pushes the
+ * count past this number, the oldest rows are deleted so the panel stays
+ * snappy and the chat history doesn't grow unbounded.
+ */
+export const BOARD_MESSAGES_CAP = 200;
 
 // Typed mutation DTOs (kept narrow on purpose: only mutable fields)
 export type BoardUpdate = Partial<Pick<Board, "title" | "isShared">>;
@@ -3312,6 +3329,18 @@ export class MemStorage implements IStorage {
       .insert(boardMessagesTable)
       .values({ ...message, boardId })
       .returning();
+    // Auto-trim: once the board's history exceeds the cap, drop the oldest
+    // rows so the chat panel stays snappy. Done as a best-effort follow-up
+    // to the insert — a failure here must not bubble up and undo the
+    // user-visible message that just persisted, so we only log.
+    try {
+      await this.trimBoardMessagesIfNeeded(boardId);
+    } catch (err) {
+      console.warn(
+        "[storage] auto-trim of board messages failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
     return created;
   }
 
@@ -3334,6 +3363,43 @@ export class MemStorage implements IStorage {
       .from(heygenShapeDriftIncidents)
       .orderBy(desc(heygenShapeDriftIncidents.createdAt))
       .limit(capped);
+  }
+
+  private async trimBoardMessagesIfNeeded(boardId: string): Promise<void> {
+    // Postgres doesn't allow LIMIT inside a DELETE, so we identify the
+    // surviving (newest BOARD_MESSAGES_CAP) ids first and delete everything
+    // else. The (board_id, created_at) index covers this read.
+    const keep = await db
+      .select({ id: boardMessagesTable.id })
+      .from(boardMessagesTable)
+      .where(eq(boardMessagesTable.boardId, boardId))
+      .orderBy(desc(boardMessagesTable.createdAt))
+      .limit(BOARD_MESSAGES_CAP);
+    if (keep.length < BOARD_MESSAGES_CAP) return;
+    const keepIds = keep.map((r) => r.id);
+    await db
+      .delete(boardMessagesTable)
+      .where(
+        and(
+          eq(boardMessagesTable.boardId, boardId),
+          notInArray(boardMessagesTable.id, keepIds),
+        ),
+      );
+  }
+
+  async clearBoardMessagesForUser(
+    boardId: string,
+    userId: string,
+  ): Promise<{ deleted: number } | null> {
+    // Owner-only: a shared collaborator should not be able to wipe the
+    // owner's chat history out from under them.
+    const owned = await this.getBoardByIdForUser(boardId, userId);
+    if (!owned) return null;
+    const deleted = await db
+      .delete(boardMessagesTable)
+      .where(eq(boardMessagesTable.boardId, boardId))
+      .returning({ id: boardMessagesTable.id });
+    return { deleted: deleted.length };
   }
 }
 

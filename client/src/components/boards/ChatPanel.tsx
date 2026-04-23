@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Wand2, X, Eye, Film, Square } from "lucide-react";
+import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   PlatformPicker,
@@ -74,6 +74,11 @@ interface ChatPanelProps {
   onStop?: () => void;
   pendingInput?: string | null;
   onPendingInputApplied?: () => void;
+  /** Owner-only: when provided, shows a "Clear chat" trash button in the
+   *  panel header that wipes the persisted history after confirmation. */
+  onClearChat?: () => void;
+  /** Disables the Clear button while the wipe is in flight. */
+  isClearingChat?: boolean;
 }
 
 /**
@@ -123,6 +128,8 @@ export function ChatPanel({
   onStop,
   pendingInput,
   onPendingInputApplied,
+  onClearChat,
+  isClearingChat,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -211,9 +218,36 @@ export function ChatPanel({
         <div className="flex items-center gap-1 font-medium text-[13px] text-neutral-900 truncate dark:text-neutral-100">
           <span className="truncate" data-testid="text-chat-board-title">{boardTitle}</span>
         </div>
-        <button className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400" data-testid="button-collapse-chat">
-          <Minus className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onClearChat && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isClearingChat) return;
+                if (messages.length === 0) return;
+                if (
+                  typeof window !== "undefined" &&
+                  !window.confirm(
+                    "Clear this board's chat history? Every message will be permanently deleted.",
+                  )
+                ) {
+                  return;
+                }
+                onClearChat();
+              }}
+              disabled={isClearingChat || messages.length === 0}
+              className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed dark:hover:bg-neutral-800 dark:text-neutral-400"
+              data-testid="button-clear-chat"
+              aria-label="Clear chat history"
+              title="Clear chat history"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400" data-testid="button-collapse-chat">
+            <Minus className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto px-4 py-4 space-y-3 text-[13px]" data-testid="list-chat-messages">

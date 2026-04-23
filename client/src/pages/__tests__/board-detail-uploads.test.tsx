@@ -24,6 +24,8 @@ vi.mock("@/lib/queryClient", () => ({
 vi.mock("@/lib/boardUpload", () => ({
   uploadFileToBoard: (...args: unknown[]) => uploadFileToBoardMock(...args),
   uploadFilesToBoard: vi.fn(),
+  isBoardUploadCancelled: (err: unknown) =>
+    err instanceof Error && err.name === "AbortError",
 }));
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));

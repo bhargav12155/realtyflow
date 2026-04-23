@@ -478,6 +478,25 @@ export default function BoardDetailPage() {
     toast({ title: "Reply stopped", description: "We canceled the in-flight reply." });
   };
 
+  const clearChat = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/boards/${boardId}/messages`);
+      return res.json();
+    },
+    onSuccess: () => {
+      // Drop the in-memory transcript so the panel reflects the wipe
+      // immediately, then refresh the cached history so any other open tab
+      // sees an empty thread on its next focus.
+      setMessages([]);
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] });
+      toast({ title: "Chat cleared", description: "All messages have been deleted." });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't clear chat", description: errText, variant: "destructive" });
+    },
+  });
+
   const deleteAsset = useMutation({
     mutationFn: async (assetId: string) => {
       const res = await apiRequest("DELETE", `/api/boards/${boardId}/assets/${assetId}`);
@@ -1208,6 +1227,10 @@ export default function BoardDetailPage() {
             onStop={handleStopChat}
             pendingInput={pendingInput}
             onPendingInputApplied={() => setPendingInput(null)}
+            onClearChat={
+              board.isOwner !== false ? () => clearChat.mutate() : undefined
+            }
+            isClearingChat={clearChat.isPending}
           />
         )}
       </div>

@@ -1255,6 +1255,29 @@ export function registerBoardsChatRoutes(
     }
   });
 
+  // DELETE wipes the persisted conversation. Owner-only — collaborators on a
+  // shared board can read/append but should not be able to clear the owner's
+  // history. The boards-chat handler also auto-trims past 200 messages on
+  // every insert; this is the explicit user-initiated escape hatch.
+  app.delete("/api/boards/:id/messages", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const boardId = req.params.id;
+      const result = await storage.clearBoardMessagesForUser(boardId, userId);
+      if (!result) {
+        // Storage returns null both when the board doesn't exist for this
+        // user AND when they're not the owner — surface the same 404 either
+        // way to avoid leaking ownership info to shared collaborators.
+        return res.status(404).json({ error: "Board not found" });
+      }
+      return res.json({ deleted: result.deleted });
+    } catch (error: unknown) {
+      console.error("[boards-chat] clear messages error:", error);
+      const message = error instanceof Error ? error.message : "Failed to clear messages";
+      return res.status(500).json({ error: message });
+    }
+  });
+
   app.post("/api/boards/:id/chat", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);

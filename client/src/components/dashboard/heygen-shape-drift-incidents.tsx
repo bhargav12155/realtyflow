@@ -278,6 +278,22 @@ const RETENTION_RUNS_QUERY_KEY = [
   "/api/v3/admin/heygen-shape-drift-retention-runs",
 ] as const;
 
+export const STALE_RUN_THRESHOLD_MS = 36 * 60 * 60 * 1000;
+
+function formatDurationApprox(ms: number): string {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60000));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
+}
+
 export function HeygenShapeDriftRetentionRunsPanel() {
   const { data, isLoading, isError, error, isFetching } =
     useQuery<RetentionRunsResponse>({
@@ -286,6 +302,28 @@ export function HeygenShapeDriftRetentionRunsPanel() {
 
   const runs = data?.runs ?? [];
   const lastRun = runs[0];
+
+  const lastRunAgeMs = useMemo(() => {
+    if (!lastRun) return null;
+    const d =
+      typeof lastRun.createdAt === "string"
+        ? new Date(lastRun.createdAt)
+        : lastRun.createdAt;
+    const t = d?.getTime?.();
+    if (!t || Number.isNaN(t)) return null;
+    return Date.now() - t;
+  }, [lastRun]);
+
+  const isStale =
+    !isLoading &&
+    !isError &&
+    (lastRunAgeMs === null || lastRunAgeMs > STALE_RUN_THRESHOLD_MS);
+
+  const staleMessage = !lastRun
+    ? "No retention sweep has been recorded yet. If this server has been running for more than a day, the daily cron may not be firing — check logs and HEYGEN_SHAPE_DRIFT_RETENTION_DAYS configuration."
+    : `The most recent retention sweep ran ${formatDurationApprox(
+        lastRunAgeMs ?? 0,
+      )} ago, which is past the ~36h staleness threshold. The daily cron may not be firing — check server logs.`;
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: RETENTION_RUNS_QUERY_KEY });
@@ -337,7 +375,27 @@ export function HeygenShapeDriftRetentionRunsPanel() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {!isLoading && !isError && isStale ? (
+          <div
+            className="flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+            data-testid="alert-heygen-retention-stale"
+            role="alert"
+          >
+            <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-500 flex-shrink-0" />
+            <div>
+              <div className="font-medium text-amber-700 dark:text-amber-300">
+                Daily HeyGen cleanup may not be running
+              </div>
+              <div
+                className="text-xs text-muted-foreground mt-0.5"
+                data-testid="text-heygen-retention-stale-message"
+              >
+                {staleMessage}
+              </div>
+            </div>
+          </div>
+        ) : null}
         {isLoading ? (
           <div
             className="space-y-2"

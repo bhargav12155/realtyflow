@@ -128,13 +128,18 @@ export default function BoardDetailPage() {
       content: m.notice ? `_${m.notice}_\n\n${m.content}` : m.content,
       cta: m.cta ?? undefined,
     }));
-    // Don't clobber an in-flight conversation. If the user already started
-    // typing/sending before the history finished loading, we keep the live
-    // session and treat hydration as "missed this round" — they can refresh
-    // to get the merged view next time. This is the safer trade-off:
-    // overwriting would drop the optimistic message AND the pendingId the
-    // chat mutation needs to swap in the assistant reply.
-    setMessages((current) => (current.length > 0 ? current : restored));
+    // Merge older history above any in-flight messages. If the user started
+    // sending before hydration finished, we keep their optimistic message and
+    // the pending assistant placeholder (so the chat mutation can still swap
+    // in the reply via pendingId) and prepend the restored history above it.
+    // Dedupe by id so a restored row can't appear twice if it's already in
+    // local state.
+    setMessages((current) => {
+      if (current.length === 0) return restored;
+      const liveIds = new Set(current.map((m) => m.id));
+      const olderHistory = restored.filter((m) => !liveIds.has(m.id));
+      return [...olderHistory, ...current];
+    });
     hydratedBoardRef.current = boardId;
   }, [boardId, messagesQuery.data]);
 

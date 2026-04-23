@@ -8,6 +8,9 @@ const sharesRef: { current: Array<{ userId: string; name: string | null; email: 
 const candidatesRef: { current: Array<{ id: string; name: string | null; email: string | null; username: string | null }> } = {
   current: [],
 };
+const boardRef: { current: { id: string; notifyOnCollaboratorChange?: boolean } } = {
+  current: { id: "board-1", notifyOnCollaboratorChange: true },
+};
 const queryClientRef: { current: QueryClient | null } = { current: null };
 const apiRequestMock = vi.fn(async () => ({ json: async () => ({}) }));
 
@@ -48,6 +51,7 @@ function renderDialog() {
           const key = queryKey as unknown[];
           if (key[0] === "/api/boards" && key[2] === "shares") return sharesRef.current;
           if (key[0] === "/api/boards/share-candidates") return candidatesRef.current;
+          if (key[0] === "/api/boards" && key.length === 2 && key[1] === "board-1") return boardRef.current;
           return undefined;
         },
       },
@@ -68,6 +72,7 @@ afterEach(() => {
   cleanup();
   sharesRef.current = [];
   candidatesRef.current = [];
+  boardRef.current = { id: "board-1", notifyOnCollaboratorChange: true };
   queryClientRef.current = null;
   apiRequestMock.mockClear();
 });
@@ -118,5 +123,96 @@ describe("ShareBoardDialog remove confirmation", () => {
       "DELETE",
       "/api/boards/board-1/shares/user-2",
     );
+  });
+});
+
+describe("ShareBoardDialog notify-on-collaborator-change toggle", () => {
+  beforeEach(() => {
+    sharesRef.current = [];
+    candidatesRef.current = [];
+  });
+
+  it("reflects the board's current notifyOnCollaboratorChange=true value", async () => {
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: true };
+    renderDialog();
+
+    const toggle = (await screen.findByTestId("toggle-notify-collaborator-change")) as HTMLInputElement;
+    await waitFor(() => {
+      expect(toggle.checked).toBe(true);
+    });
+  });
+
+  it("reflects the board's current notifyOnCollaboratorChange=false value (muted)", async () => {
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: false };
+    renderDialog();
+
+    const toggle = (await screen.findByTestId("toggle-notify-collaborator-change")) as HTMLInputElement;
+    await waitFor(() => {
+      expect(toggle.checked).toBe(false);
+    });
+  });
+
+  it("PATCHes the board with notifyOnCollaboratorChange=false when toggling off", async () => {
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: true };
+    renderDialog();
+
+    const toggle = (await screen.findByTestId("toggle-notify-collaborator-change")) as HTMLInputElement;
+    await waitFor(() => {
+      expect(toggle.checked).toBe(true);
+    });
+
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: false };
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "PATCH",
+        "/api/boards/board-1",
+        { notifyOnCollaboratorChange: false },
+      );
+    });
+  });
+
+  it("PATCHes the board with notifyOnCollaboratorChange=true when toggling on", async () => {
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: false };
+    renderDialog();
+
+    const toggle = (await screen.findByTestId("toggle-notify-collaborator-change")) as HTMLInputElement;
+    await waitFor(() => {
+      expect(toggle.checked).toBe(false);
+    });
+
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: true };
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "PATCH",
+        "/api/boards/board-1",
+        { notifyOnCollaboratorChange: true },
+      );
+    });
+  });
+
+  it("keeps the new value after the post-mutation refetch", async () => {
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: true };
+    renderDialog();
+
+    const toggle = (await screen.findByTestId("toggle-notify-collaborator-change")) as HTMLInputElement;
+    await waitFor(() => {
+      expect(toggle.checked).toBe(true);
+    });
+
+    boardRef.current = { id: "board-1", notifyOnCollaboratorChange: false };
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(apiRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      const refreshed = screen.getByTestId("toggle-notify-collaborator-change") as HTMLInputElement;
+      expect(refreshed.checked).toBe(false);
+    });
   });
 });

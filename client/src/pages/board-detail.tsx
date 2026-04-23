@@ -961,6 +961,47 @@ export default function BoardDetailPage() {
     },
   });
 
+  const moveAssets = useMutation({
+    mutationFn: async (
+      moves: Array<{ id: string; positionX: number; positionY: number }>,
+    ) => {
+      const results = await Promise.all(
+        moves.map((m) =>
+          apiRequest("PATCH", `/api/boards/${boardId}/assets/${m.id}`, {
+            positionX: m.positionX,
+            positionY: m.positionY,
+          }).then((r) => r.json()),
+        ),
+      );
+      return results;
+    },
+    onMutate: (moves) => {
+      // Optimistic: update cached positions immediately so dropped tiles
+      // don't snap back to their old spot while the PATCHes are in flight.
+      const byId = new Map(moves.map((m) => [m.id, m] as const));
+      queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
+        if (!prev) return prev;
+        const patch = <T extends { id: string }>(a: T): T => {
+          const m = byId.get(a.id);
+          return m ? { ...a, positionX: m.positionX, positionY: m.positionY } : a;
+        };
+        return {
+          ...prev,
+          batches: prev.batches.map((b) => ({ ...b, assets: b.assets.map(patch) })),
+          assets: prev.assets.map(patch),
+        };
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't move tiles", description: errText, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+  });
+
   const resizeAsset = useMutation({
     mutationFn: async (vars: { assetId: string; width: number; height: number }) => {
       const res = await apiRequest(
@@ -1437,6 +1478,7 @@ export default function BoardDetailPage() {
             onResizeAsset={(assetId, width, height) =>
               resizeAsset.mutate({ assetId, width, height })
             }
+            onMoveAssets={(moves) => moveAssets.mutate(moves)}
             reEvalPendingBatchId={
               reEvaluateBatch.isPending ? reEvaluateBatch.variables?.batchId ?? null : null
             }

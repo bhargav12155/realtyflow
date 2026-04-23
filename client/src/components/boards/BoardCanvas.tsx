@@ -21,6 +21,14 @@ export interface CanvasAsset {
   sourceAssetId?: string | null;
   width?: number | null;
   height?: number | null;
+  positionX?: number | null;
+  positionY?: number | null;
+}
+
+export interface AssetMove {
+  id: string;
+  positionX: number;
+  positionY: number;
 }
 
 const RESIZABLE_KINDS = new Set([
@@ -75,6 +83,8 @@ interface BoardCanvasProps {
     payload: { modelHint: ReEvalModel; extraCriteria?: string },
   ) => void;
   onResizeAsset?: (assetId: string, width: number, height: number) => void;
+  /** Persist new positions for one or more tiles after a drag completes. */
+  onMoveAssets?: (moves: AssetMove[]) => void;
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
@@ -88,6 +98,9 @@ interface MarqueeBox {
 }
 
 const MARQUEE_THRESHOLD_PX = 4;
+const TILE_DRAG_THRESHOLD_PX = 4;
+/** ms after a tile drag during which the trailing click is suppressed. */
+const TILE_DRAG_CLICK_SUPPRESS_MS = 250;
 
 export function BoardCanvas({
   batches,
@@ -100,6 +113,7 @@ export function BoardCanvas({
   onSetWinner,
   onReEvaluate,
   onResizeAsset,
+  onMoveAssets,
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
@@ -116,6 +130,101 @@ export function BoardCanvas({
   const marqueeStartRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
+
+  // Tile drag state: when the user mouse-downs on a tile and moves past the
+  // threshold, every tile in the drag set follows the cursor. If the tile is
+  // part of a multi-selection, the whole selection moves together; otherwise
+  // just the pressed tile moves. On release, persist the new positions.
+  const tileDragRef = useRef<{
+    startX: number;
+    startY: number;
+    ids: string[];
+    starts: Map<string, { x: number; y: number }>;
+    moved: boolean;
+  } | null>(null);
+  const [activeTileDrag, setActiveTileDrag] = useState<{
+    ids: Set<string>;
+    delta: { x: number; y: number };
+  } | null>(null);
+  const suppressTileClickUntilRef = useRef(0);
+
+  const beginTileDrag = (assetId: string, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    // Shift / cmd / ctrl-click is reserved for additive multi-select; don't
+    // hijack it for a drag.
+    if (e.shiftKey || e.metaKey || e.ctrlKey) return;
+    if (!onMoveAssets) return;
+    const ids =
+      selectedAssetIds.has(assetId) && selectedAssetIds.size > 1
+        ? Array.from(selectedAssetIds)
+        : [assetId];
+    const starts = new Map<string, { x: number; y: number }>();
+    for (const id of ids) {
+      const a = assetsById.get(id);
+      starts.set(id, {
+        x: typeof a?.positionX === "number" ? a.positionX : 0,
+        y: typeof a?.positionY === "number" ? a.positionY : 0,
+      });
+    }
+    tileDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      ids,
+      starts,
+      moved: false,
+    };
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const s = tileDragRef.current;
+      if (!s) return;
+      const dx = e.clientX - s.startX;
+      const dy = e.clientY - s.startY;
+      if (!s.moved) {
+        if (Math.abs(dx) < TILE_DRAG_THRESHOLD_PX && Math.abs(dy) < TILE_DRAG_THRESHOLD_PX) {
+          return;
+        }
+        s.moved = true;
+      }
+      setActiveTileDrag({ ids: new Set(s.ids), delta: { x: dx, y: dy } });
+    };
+    const onUp = (e: MouseEvent) => {
+      const s = tileDragRef.current;
+      if (!s) return;
+      tileDragRef.current = null;
+      setActiveTileDrag(null);
+      if (!s.moved) return;
+      // Suppress the click that fires immediately after the drag's mouseup
+      // so it doesn't toggle/clear the selection.
+      suppressTileClickUntilRef.current = Date.now() + TILE_DRAG_CLICK_SUPPRESS_MS;
+      const dx = e.clientX - s.startX;
+      const dy = e.clientY - s.startY;
+      const moves: AssetMove[] = s.ids.map((id) => {
+        const start = s.starts.get(id) ?? { x: 0, y: 0 };
+        return {
+          id,
+          positionX: Math.round(start.x + dx),
+          positionY: Math.round(start.y + dy),
+        };
+      });
+      onMoveAssets?.(moves);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [onMoveAssets]);
+
+  const consumeTileClickAfterDrag = () => {
+    if (Date.now() < suppressTileClickUntilRef.current) {
+      suppressTileClickUntilRef.current = 0;
+      return true;
+    }
+    return false;
+  };
 
   // Marquee selection: when the user mouse-downs on the canvas background
   // (not on a tile or popover), drag a rectangle. On release, replace the
@@ -250,6 +359,9 @@ export function BoardCanvas({
               reEvalPending={reEvalPendingBatchId === b.batchId}
               setWinnerPendingAssetId={setWinnerPendingAssetId}
               onUpdateAssetContent={onUpdateAssetContent}
+              activeTileDrag={activeTileDrag}
+              onTileDragStart={onMoveAssets ? beginTileDrag : undefined}
+              consumeTileClickAfterDrag={consumeTileClickAfterDrag}
             />
           ))
         )}
@@ -284,6 +396,9 @@ function BatchGroup({
   reEvalPending,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
+  activeTileDrag,
+  onTileDragStart,
+  consumeTileClickAfterDrag,
 }: {
   batch: CanvasBatch;
   assetsById: Map<string, CanvasAsset>;
@@ -300,6 +415,9 @@ function BatchGroup({
   reEvalPending?: boolean;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
+  activeTileDrag: { ids: Set<string>; delta: { x: number; y: number } } | null;
+  onTileDragStart?: (assetId: string, e: React.MouseEvent) => void;
+  consumeTileClickAfterDrag: () => boolean;
 }) {
   const [reEvalOpen, setReEvalOpen] = useState(false);
   const winnerId = pickWinnerId(batch.assets);
@@ -342,6 +460,11 @@ function BatchGroup({
         <div className="flex flex-wrap gap-2">
           {batch.assets.map((a) => {
             const source = a.sourceAssetId ? assetsById.get(a.sourceAssetId) ?? null : null;
+            const isDragging = activeTileDrag?.ids.has(a.id) ?? false;
+            const baseX = typeof a.positionX === "number" ? a.positionX : 0;
+            const baseY = typeof a.positionY === "number" ? a.positionY : 0;
+            const offsetX = baseX + (isDragging ? activeTileDrag!.delta.x : 0);
+            const offsetY = baseY + (isDragging ? activeTileDrag!.delta.y : 0);
             return (
               <AssetTile
                 key={a.id}
@@ -367,6 +490,13 @@ function BatchGroup({
                     ? (next) => onUpdateAssetContent(a.id, next)
                     : undefined
                 }
+                offsetX={offsetX}
+                offsetY={offsetY}
+                isDragging={isDragging}
+                onDragStart={
+                  onTileDragStart ? (e) => onTileDragStart(a.id, e) : undefined
+                }
+                consumeClickAfterDrag={consumeTileClickAfterDrag}
               />
             );
           })}
@@ -460,6 +590,11 @@ function AssetTile({
   onResize,
   setWinnerPending,
   onUpdateContent,
+  offsetX,
+  offsetY,
+  isDragging,
+  onDragStart,
+  consumeClickAfterDrag,
 }: {
   asset: CanvasAsset;
   sourceAsset?: CanvasAsset | null;
@@ -473,6 +608,11 @@ function AssetTile({
   onResize?: (width: number, height: number) => void;
   setWinnerPending?: boolean;
   onUpdateContent?: (content: string) => void;
+  offsetX: number;
+  offsetY: number;
+  isDragging: boolean;
+  onDragStart?: (e: React.MouseEvent) => void;
+  consumeClickAfterDrag: () => boolean;
 }) {
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
@@ -597,7 +737,14 @@ function AssetTile({
   return (
     <div
       ref={tileRef}
-      style={{ width: tileWidth, height: tileHeight }}
+      style={{
+        width: tileWidth,
+        height: tileHeight,
+        transform:
+          offsetX || offsetY ? `translate(${offsetX}px, ${offsetY}px)` : undefined,
+        zIndex: isDragging ? 20 : undefined,
+        opacity: isDragging ? 0.85 : undefined,
+      }}
       className={`relative group flex-shrink-0 ${
         isWinner ? "ring-2 ring-amber-400 rounded-md" : ""
       }`}
@@ -606,6 +753,8 @@ function AssetTile({
         setBeforeOpen(false);
       }}
       data-asset-id={asset.id}
+      data-tile-offset-x={offsetX || undefined}
+      data-tile-offset-y={offsetY || undefined}
     >
       <div
         className={`relative w-full h-full rounded-md overflow-hidden ${
@@ -621,9 +770,26 @@ function AssetTile({
           // Prevent the canvas-level mousedown from starting a marquee when
           // the user clicks (or shift-clicks) directly on a tile.
           e.stopPropagation();
+          if (!onDragStart) return;
+          // Don't start a tile drag from interactive controls inside the
+          // tile (delete button, resize handle, the inline editor, etc.).
+          const target = e.target as HTMLElement | null;
+          if (
+            target &&
+            target.closest(
+              'button, a, input, textarea, select, [contenteditable="true"], [data-resize-handle="true"]',
+            )
+          ) {
+            return;
+          }
+          if (editing) return;
+          onDragStart(e);
         }}
         onClick={(e) => {
           e.stopPropagation();
+          // If the click was the tail end of a drag, swallow it so we don't
+          // toggle / clear the selection on drop.
+          if (consumeClickAfterDrag()) return;
           const additive = e.shiftKey || e.metaKey || e.ctrlKey;
           onSelect({ additive });
         }}
@@ -889,6 +1055,8 @@ function AssetTile({
           aria-valuenow={size.width}
           className="absolute -bottom-1 -right-1 w-4 h-4 rounded-sm bg-blue-500 border-2 border-white shadow cursor-se-resize z-30"
           data-testid={`handle-resize-${asset.id}`}
+          data-resize-handle="true"
+          onMouseDown={(e) => e.stopPropagation()}
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}

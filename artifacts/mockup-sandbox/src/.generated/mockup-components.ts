@@ -3,14 +3,14 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/board-detail/AssetToolbar.tsx": () => import("../components/mockups/board-detail/AssetToolbar.tsx"),
   "./components/mockups/board-detail/CanvasChat.tsx": () => import("../components/mockups/board-detail/CanvasChat.tsx"),
-  "./components/mockups/boards-home/Dense.tsx": () => import("../components/mockups/boards-home/Dense.tsx"),
-  "./components/mockups/boards-home/Spacious.tsx": () => import("../components/mockups/boards-home/Spacious.tsx"),
-  "./components/mockups/discover/Discover.tsx": () => import("../components/mockups/discover/Discover.tsx"),
-  "./components/mockups/discover/PlatformPicker.tsx": () => import("../components/mockups/discover/PlatformPicker.tsx"),
   "./components/mockups/dashboard-variations/CommandDark.tsx": () => import("../components/mockups/dashboard-variations/CommandDark.tsx"),
   "./components/mockups/dashboard-variations/CommandLight.tsx": () => import("../components/mockups/dashboard-variations/CommandLight.tsx"),
   "./components/mockups/dashboard-variations/FeedDark.tsx": () => import("../components/mockups/dashboard-variations/FeedDark.tsx"),
   "./components/mockups/dashboard-variations/FeedLight.tsx": () => import("../components/mockups/dashboard-variations/FeedLight.tsx"),
   "./components/mockups/dashboard-variations/ScorecardDark.tsx": () => import("../components/mockups/dashboard-variations/ScorecardDark.tsx"),
-  "./components/mockups/dashboard-variations/ScorecardLight.tsx": () => import("../components/mockups/dashboard-variations/ScorecardLight.tsx")
+  "./components/mockups/dashboard-variations/ScorecardLight.tsx": () => import("../components/mockups/dashboard-variations/ScorecardLight.tsx"),
+  "./components/mockups/boards-home/Dense.tsx": () => import("../components/mockups/boards-home/Dense.tsx"),
+  "./components/mockups/boards-home/Spacious.tsx": () => import("../components/mockups/boards-home/Spacious.tsx"),
+  "./components/mockups/discover/Discover.tsx": () => import("../components/mockups/discover/Discover.tsx"),
+  "./components/mockups/discover/PlatformPicker.tsx": () => import("../components/mockups/discover/PlatformPicker.tsx")
 };

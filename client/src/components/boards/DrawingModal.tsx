@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  DRAWING_MAX_STROKES,
+  DRAWING_MAX_POINTS_PER_STROKE,
+  DRAWING_MAX_CONTENT_BYTES,
+  DRAWING_SOFT_STROKE_WARN,
+} from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 export interface DrawingStroke {
   color: string;
@@ -88,15 +95,51 @@ export function DrawingModal({ open, onCancel, onSave }: DrawingModalProps) {
   const [active, setActive] = useState<DrawingStroke | null>(null);
   const [color, setColor] = useState(PALETTE[0]);
   const [width, setWidth] = useState(3);
+  const { toast } = useToast();
+  const limitToastedRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
       setStrokes([]);
       setActive(null);
+      limitToastedRef.current = false;
     }
   }, [open]);
 
+  // Estimated payload size for the budget meter. We don't need exact byte
+  // counts — just enough to warn before the user hits the server cap.
+  const estimatedBytes = useMemo(() => {
+    const all = active ? [...strokes, active] : strokes;
+    let total = 32; // wrapper {v,width,height,strokes:[]}
+    for (const s of all) {
+      // ~"#rrggbb" + width digits + "[{x:..,y:..},...]"
+      total += 24 + s.points.length * 28;
+    }
+    return total;
+  }, [strokes, active]);
+
   if (!open) return null;
+
+  const strokeCount = strokes.length + (active ? 1 : 0);
+  const atStrokeCap = strokeCount >= DRAWING_MAX_STROKES;
+  const overByteCap = estimatedBytes >= DRAWING_MAX_CONTENT_BYTES;
+  const softWarn =
+    strokeCount >= DRAWING_SOFT_STROKE_WARN ||
+    estimatedBytes >= DRAWING_MAX_CONTENT_BYTES * 0.75;
+
+  const showLimitToast = (description: string) => {
+    if (limitToastedRef.current) return;
+    limitToastedRef.current = true;
+    toast({
+      title: "Drawing is at its limit",
+      description,
+      variant: "destructive",
+    });
+    // Allow another toast once the user clears or saves and reopens.
+    window.setTimeout(() => {
+      limitToastedRef.current = false;
+    }, 4000);
+  };
 
   const pointFromEvent = (e: React.PointerEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -107,12 +150,44 @@ export function DrawingModal({ open, onCancel, onSave }: DrawingModalProps) {
   };
 
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (atStrokeCap) {
+      showLimitToast(
+        `You've reached the ${DRAWING_MAX_STROKES}-stroke limit. Save what you have or clear the drawing to keep going.`,
+      );
+      return;
+    }
+    if (overByteCap) {
+      showLimitToast(
+        "This drawing is too dense to keep adding to. Save it or clear it before drawing more.",
+      );
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     setActive({ color, width, points: [pointFromEvent(e)] });
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     if (!active) return;
+    if (active.points.length >= DRAWING_MAX_POINTS_PER_STROKE) {
+      // Auto-end the stroke at the per-stroke point cap so a single endless
+      // drag can't single-handedly blow the payload budget.
+      setStrokes((s) => [...s, active]);
+      setActive(null);
+      showLimitToast(
+        `That stroke hit the ${DRAWING_MAX_POINTS_PER_STROKE}-point limit. Lift the pen and start a new stroke to continue.`,
+      );
+      return;
+    }
+    if (estimatedBytes >= DRAWING_MAX_CONTENT_BYTES) {
+      // Same idea for the byte budget: stop growing the active stroke so a
+      // long drag doesn't push the payload past what the server will accept.
+      setStrokes((s) => [...s, active]);
+      setActive(null);
+      showLimitToast(
+        "This drawing is at its size budget. Save it or clear it before drawing more.",
+      );
+      return;
+    }
     setActive({ ...active, points: [...active.points, pointFromEvent(e)] });
   };
 
@@ -207,12 +282,31 @@ export function DrawingModal({ open, onCancel, onSave }: DrawingModalProps) {
             onClick={() => {
               setStrokes([]);
               setActive(null);
+              limitToastedRef.current = false;
             }}
             className="ml-auto text-[11px] text-neutral-600 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-white"
             data-testid="button-drawing-clear"
           >
             Clear
           </button>
+        </div>
+        <div
+          className={`flex items-center justify-between text-[11px] mb-1 ${
+            atStrokeCap || overByteCap
+              ? "text-red-600 dark:text-red-400"
+              : softWarn
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-neutral-500 dark:text-neutral-400"
+          }`}
+          data-testid="text-drawing-budget"
+          aria-live="polite"
+        >
+          <span data-testid="text-drawing-stroke-count">
+            {strokeCount} / {DRAWING_MAX_STROKES} strokes
+          </span>
+          <span data-testid="text-drawing-size-budget">
+            ~{Math.min(100, Math.round((estimatedBytes / DRAWING_MAX_CONTENT_BYTES) * 100))}% of size budget
+          </span>
         </div>
         <svg
           ref={svgRef}

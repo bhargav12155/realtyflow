@@ -2,7 +2,11 @@ import type { Express, Request, Response, NextFunction, RequestHandler } from "e
 import { z } from "zod";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth } from "../middleware/auth";
-import { insertBoardAssetSchema, sanitizeDrawingContent } from "@shared/schema";
+import {
+  insertBoardAssetSchema,
+  sanitizeDrawingContent,
+  DRAWING_MAX_CONTENT_BYTES,
+} from "@shared/schema";
 import { realtimeService } from "../websocket";
 import { sendBoardSharedEmail, getAppBaseUrl } from "../services/mailer";
 
@@ -73,7 +77,7 @@ const createAssetSchema = insertBoardAssetSchema
     kind: z.enum(ASSET_KINDS),
     provider: z.enum(ASSET_PROVIDERS),
     status: z.enum(ASSET_STATUSES).optional(),
-    content: z.string().max(100_000).nullable().optional(),
+    content: z.string().max(DRAWING_MAX_CONTENT_BYTES).nullable().optional(),
   })
   .transform((data, ctx) => {
     // Drawing assets persist a JSON DrawingPayload in `content`. Validate the
@@ -121,8 +125,9 @@ const updateAssetSchema = z.object({
   batchLabel: z.string().nullable().optional(),
   // Drawing assets store a JSON DrawingPayload (validated below in the
   // route handler once we know the asset's kind) which can be larger than
-  // free-text content; cap at the same 100k ceiling as the create schema.
-  content: z.string().max(100_000).nullable().optional(),
+  // free-text content; cap at the same DRAWING_MAX_CONTENT_BYTES ceiling
+  // the create schema uses.
+  content: z.string().max(DRAWING_MAX_CONTENT_BYTES).nullable().optional(),
 });
 
 // =====================================================

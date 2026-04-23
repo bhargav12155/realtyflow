@@ -1981,9 +1981,18 @@ export type BoardAsset = typeof boardAssets.$inferSelect;
 // malicious or buggy client can't smuggle unexpected fields, oversized
 // arrays, or non-finite numbers into the database (and on through to every
 // collaborator's browser).
-export const DRAWING_MAX_STROKES = 500;
-export const DRAWING_MAX_POINTS_PER_STROKE = 5000;
+// Product-friendly drawing caps. The previous values (500 strokes / 5000
+// points / 100KB content) were generous enough to discourage casual abuse
+// but still let a determined client flood a shared board with very dense
+// drawings that hurt page performance for everyone. The tighter caps below
+// match what the drawing tool actually needs for normal use, and the
+// `DRAWING_SOFT_STROKE_WARN` threshold lets the UI nudge users *before*
+// they hit the hard ceiling.
+export const DRAWING_MAX_STROKES = 200;
+export const DRAWING_MAX_POINTS_PER_STROKE = 2000;
 export const DRAWING_MAX_DIMENSION = 8192;
+export const DRAWING_MAX_CONTENT_BYTES = 60_000;
+export const DRAWING_SOFT_STROKE_WARN = 150;
 
 // Hex color (#rgb / #rrggbb / #rrggbbaa). Drawing tool only emits hex today;
 // rejecting other forms blocks accidental injection of url(...) refs, CSS

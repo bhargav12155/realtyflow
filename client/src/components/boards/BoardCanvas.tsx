@@ -148,6 +148,27 @@ export function BoardCanvas({
   } | null>(null);
   const suppressTileClickUntilRef = useRef(0);
 
+  // Per-session stacking order. Tiles touched by a drag are bumped to the top
+  // so a tile dropped on the same coordinates as a sibling stays in front
+  // instead of getting buried under whichever sibling renders later in DOM
+  // order. Combined with a baseline z-index for any tile that has a stored
+  // non-zero position, this keeps moved tiles above untouched ones too.
+  const [tileZOrder, setTileZOrder] = useState<Map<string, number>>(
+    () => new Map(),
+  );
+  const tileZCounterRef = useRef(0);
+  const bumpTileZ = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setTileZOrder((prev) => {
+      const next = new Map(prev);
+      for (const id of ids) {
+        tileZCounterRef.current += 1;
+        next.set(id, tileZCounterRef.current);
+      }
+      return next;
+    });
+  };
+
   const beginTileDrag = (assetId: string, e: React.MouseEvent) => {
     if (e.button !== 0) return;
     // Shift / cmd / ctrl-click is reserved for additive multi-select; don't
@@ -173,6 +194,9 @@ export function BoardCanvas({
       starts,
       moved: false,
     };
+    // Raise the dragged tiles immediately so they paint above siblings as
+    // soon as the drag starts (and stay there after drop).
+    bumpTileZ(ids);
   };
 
   useEffect(() => {
@@ -362,6 +386,7 @@ export function BoardCanvas({
               activeTileDrag={activeTileDrag}
               onTileDragStart={onMoveAssets ? beginTileDrag : undefined}
               consumeTileClickAfterDrag={consumeTileClickAfterDrag}
+              tileZOrder={tileZOrder}
             />
           ))
         )}
@@ -399,6 +424,7 @@ function BatchGroup({
   activeTileDrag,
   onTileDragStart,
   consumeTileClickAfterDrag,
+  tileZOrder,
 }: {
   batch: CanvasBatch;
   assetsById: Map<string, CanvasAsset>;
@@ -418,6 +444,7 @@ function BatchGroup({
   activeTileDrag: { ids: Set<string>; delta: { x: number; y: number } } | null;
   onTileDragStart?: (assetId: string, e: React.MouseEvent) => void;
   consumeTileClickAfterDrag: () => boolean;
+  tileZOrder: Map<string, number>;
 }) {
   const [reEvalOpen, setReEvalOpen] = useState(false);
   const winnerId = pickWinnerId(batch.assets);
@@ -465,6 +492,14 @@ function BatchGroup({
             const baseY = typeof a.positionY === "number" ? a.positionY : 0;
             const offsetX = baseX + (isDragging ? activeTileDrag!.delta.x : 0);
             const offsetY = baseY + (isDragging ? activeTileDrag!.delta.y : 0);
+            // Stacking: any tile with a stored non-zero position sits above
+            // tiles still in their flex-flow slot, and recently-dragged
+            // tiles sit above older ones (tracked by tileZOrder). The
+            // currently-dragging tile is bumped highest of all.
+            const hasStoredPosition = baseX !== 0 || baseY !== 0;
+            const sessionZ = tileZOrder.get(a.id) ?? 0;
+            const baselineZ = hasStoredPosition || sessionZ > 0 ? 1 : 0;
+            const tileZ = isDragging ? 9999 : baselineZ + sessionZ;
             return (
               <AssetTile
                 key={a.id}
@@ -492,6 +527,7 @@ function BatchGroup({
                 }
                 offsetX={offsetX}
                 offsetY={offsetY}
+                zIndex={tileZ}
                 isDragging={isDragging}
                 onDragStart={
                   onTileDragStart ? (e) => onTileDragStart(a.id, e) : undefined
@@ -592,6 +628,7 @@ function AssetTile({
   onUpdateContent,
   offsetX,
   offsetY,
+  zIndex,
   isDragging,
   onDragStart,
   consumeClickAfterDrag,
@@ -610,6 +647,7 @@ function AssetTile({
   onUpdateContent?: (content: string) => void;
   offsetX: number;
   offsetY: number;
+  zIndex: number;
   isDragging: boolean;
   onDragStart?: (e: React.MouseEvent) => void;
   consumeClickAfterDrag: () => boolean;
@@ -742,7 +780,7 @@ function AssetTile({
         height: tileHeight,
         transform:
           offsetX || offsetY ? `translate(${offsetX}px, ${offsetY}px)` : undefined,
-        zIndex: isDragging ? 20 : undefined,
+        zIndex: zIndex || undefined,
         opacity: isDragging ? 0.85 : undefined,
       }}
       className={`relative group flex-shrink-0 ${

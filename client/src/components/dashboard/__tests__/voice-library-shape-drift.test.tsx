@@ -103,6 +103,55 @@ describe("VoiceLibraryManager — HeyGen shape-drift alert", () => {
     ).toBeTruthy();
   });
 
+  it("retries the /api/v3/voices query when the alert's Retry button is clicked", async () => {
+    let voicesCallCount = 0;
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.startsWith("/api/v3/voices")) {
+        voicesCallCount++;
+        if (voicesCallCount === 1) {
+          return new Response(
+            JSON.stringify({
+              error: "heygen_shape_drift",
+              endpoint: "/v2/voices",
+              message: "shape drift",
+              issuePaths: ["data.voices.0.voice_id"],
+            }),
+            { status: 502, headers: { "Content-Type": "application/json" } },
+          ) as unknown as Response;
+        }
+        return new Response(
+          JSON.stringify({ data: [], nextCursor: null }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ) as unknown as Response;
+      }
+      return new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }) as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    renderManager();
+
+    const browseTab = await waitFor(() => screen.getByTestId("tab-voice-browse"));
+    fireEvent.mouseDown(browseTab);
+    fireEvent.click(browseTab);
+
+    const retryBtn = await waitFor(() =>
+      screen.getByTestId("button-retry-heygen-shape-drift-voices-browse"),
+    );
+    expect(voicesCallCount).toBe(1);
+
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => expect(voicesCallCount).toBeGreaterThanOrEqual(2));
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("alert-heygen-shape-drift-voices-browse"),
+      ).toBeNull(),
+    );
+  });
+
   it("renders the alert in the Design tab when /api/v3/voices/design returns heygen_shape_drift", async () => {
     global.fetch = vi.fn(async (url: RequestInfo | URL) => {
       // Browse tab default fetch returns an empty page; we don't care

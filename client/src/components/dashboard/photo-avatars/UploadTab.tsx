@@ -14,6 +14,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import { AlertCircle, Image, Loader2, Upload, X } from "lucide-react";
 import { usePhotoAvatars } from "./context";
 import type { AvatarGroup } from "./types";
+import { HeygenShapeDriftAlert } from "@/components/dashboard/heygen-shape-drift-alert";
 
 export function UploadTab() {
   const m = usePhotoAvatars();
@@ -24,6 +25,8 @@ export function UploadTab() {
     showGroupNameDialog, setShowGroupNameDialog,
     groupNameInput, setGroupNameInput,
     handleConfirmGroupName,
+    retryConfirmGroupName, closeGroupNameDialog,
+    createShapeDrift, isRetryingCreate,
     avatarGroups,
     consentAcknowledged, setConsentAcknowledged,
     consentVideoUrl, setConsentVideoUrl,
@@ -182,7 +185,16 @@ export function UploadTab() {
         </>
       )}
 
-      <Dialog open={showGroupNameDialog} onOpenChange={setShowGroupNameDialog}>
+      <Dialog
+        open={showGroupNameDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeGroupNameDialog();
+          } else {
+            setShowGroupNameDialog(true);
+          }
+        }}
+      >
         <DialogContent data-testid="dialog-group-name">
           <DialogHeader>
             <DialogTitle>Name Your Avatar Group</DialogTitle>
@@ -202,11 +214,22 @@ export function UploadTab() {
               }}
               data-testid="input-group-name"
             />
+            {createShapeDrift && (
+              <HeygenShapeDriftAlert
+                details={createShapeDrift}
+                scope="photo-avatar-create"
+                action="creating your photo avatar"
+                onRetry={() => {
+                  void retryConfirmGroupName();
+                }}
+                isRetrying={isRetryingCreate}
+              />
+            )}
             <div className="flex gap-2 justify-end">
               <Button
                 variant="outline"
                 onClick={() => {
-                  setShowGroupNameDialog(false);
+                  closeGroupNameDialog();
                   setGroupNameInput("");
                 }}
                 data-testid="button-cancel-group"
@@ -215,7 +238,7 @@ export function UploadTab() {
               </Button>
               <Button
                 onClick={handleConfirmGroupName}
-                disabled={!groupNameInput.trim()}
+                disabled={!groupNameInput.trim() || isRetryingCreate}
                 data-testid="button-confirm-group"
               >
                 Create Avatar Group

@@ -242,6 +242,8 @@ export function VoiceLibraryManager() {
     isLoading: isBrowseLoading,
     isError: isBrowseError,
     error: browseError,
+    refetch: refetchBrowse,
+    isFetching: isBrowseFetching,
   } = useQuery<HeygenVoicesPage, Error & { shapeDrift?: HeygenShapeDriftDetails }>({
     queryKey: browseQueryKey,
     queryFn: async () => {
@@ -767,6 +769,10 @@ export function VoiceLibraryManager() {
                     details={browseShapeDrift}
                     scope="voices-browse"
                     action="loading HeyGen voices"
+                    onRetry={() => {
+                      void refetchBrowse();
+                    }}
+                    isRetrying={isBrowseFetching}
                   />
                 ) : (
                   <div className="text-center py-8 text-destructive text-sm" data-testid="text-browse-error">

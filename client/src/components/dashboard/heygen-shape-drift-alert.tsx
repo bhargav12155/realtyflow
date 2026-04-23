@@ -1,6 +1,7 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { Loader2, RefreshCw } from "lucide-react";
 import { HEYGEN_SHAPE_DRIFT_ERROR_CODE } from "@shared/heygenPhotoAvatarSchemas";
 
 export interface HeygenShapeDriftDetails {
@@ -64,6 +65,16 @@ interface HeygenShapeDriftAlertProps {
   scopeValue?: string;
   /** Phrase used in the "We hit … while {action}" sentence. */
   action: string;
+  /**
+   * Optional one-click retry hook. When provided, a "Retry" button is
+   * rendered next to the "Copy details" button so the user can re-run
+   * the failing HeyGen call without rebuilding their input. Pair with
+   * `isRetrying` to show a spinner / disable the button while the
+   * retry request is in flight.
+   */
+  onRetry?: () => void;
+  /** When true the retry button shows a spinner and is disabled. */
+  isRetrying?: boolean;
 }
 
 /**
@@ -79,6 +90,8 @@ export function HeygenShapeDriftAlert({
   scopeLabel,
   scopeValue,
   action,
+  onRetry,
+  isRetrying,
 }: HeygenShapeDriftAlertProps) {
   const { toast } = useToast();
   const issues = details.issuePaths.join(", ") || "(none)";
@@ -114,6 +127,29 @@ export function HeygenShapeDriftAlert({
         >
           {detailsBlock}
         </pre>
+        <div className="flex flex-wrap gap-2">
+        {onRetry && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-[10px] px-2"
+            onClick={onRetry}
+            disabled={isRetrying}
+            data-testid={`button-retry-heygen-shape-drift-${scope}`}
+          >
+            {isRetrying ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Retrying…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Retry
+              </>
+            )}
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -142,6 +178,7 @@ export function HeygenShapeDriftAlert({
         >
           Copy details
         </Button>
+        </div>
       </AlertDescription>
     </Alert>
   );

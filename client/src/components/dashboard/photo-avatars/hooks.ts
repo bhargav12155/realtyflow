@@ -77,6 +77,16 @@ export function usePhotoAvatarManager() {
   // HeyGen v3 consent capture for the Upload tab.
   const [consentAcknowledged, setConsentAcknowledged] = useState(false);
   const [consentVideoUrl, setConsentVideoUrl] = useState("");
+  // Shape-drift envelope returned by `/api/v3/photo-avatars` when
+  // HeyGen replies with a payload that doesn't match our schema. Held
+  // in state so the create dialog can surface a dedicated retry alert
+  // (without forcing the user to re-pick files / re-enter the name)
+  // alongside the destructive toast.
+  const [createShapeDrift, setCreateShapeDrift] =
+    useState<HeygenShapeDriftDetails | null>(null);
+  // True while a retry kicked off from the shape-drift alert is in
+  // flight, so the alert button can show a spinner.
+  const [isRetryingCreate, setIsRetryingCreate] = useState(false);
   // V3 Looks browser — tracks which group's panel is currently open.
   const [openLooksGroupId, setOpenLooksGroupId] = useState<string | null>(null);
   const [generationForm, setGenerationForm] = useState<PhotoGenerationRequest>({
@@ -1079,6 +1089,9 @@ export function usePhotoAvatarManager() {
       return;
     }
 
+    // Clear any prior shape-drift alert before re-attempting so the
+    // retry button shows a clean state.
+    setCreateShapeDrift(null);
     try {
       // Upload all photos and collect their HeyGen image_key + s3 url.
       // The v3 createAvatar call uses a single image key, so we send the
@@ -1139,6 +1152,11 @@ export function usePhotoAvatarManager() {
       const drift = (error as { shapeDrift?: HeygenShapeDriftDetails })
         ?.shapeDrift;
       if (drift) {
+        // Surface the drift as both a toast (immediate notice) and an
+        // inline alert with a Retry button — the dialog stays open so
+        // the user keeps their files / name / consent and can re-run
+        // the create call without rebuilding the form.
+        setCreateShapeDrift(drift);
         toast({
           ...shapeDriftToast(drift),
           variant: "destructive",
@@ -1155,6 +1173,26 @@ export function usePhotoAvatarManager() {
         variant: "destructive",
       });
     }
+  };
+
+  // One-click retry for the create-avatar call after a HeyGen
+  // shape-drift error. Reuses the existing handler so the user's
+  // selected files, group name, and consent inputs are reused without
+  // any extra work.
+  const retryConfirmGroupName = async () => {
+    setIsRetryingCreate(true);
+    try {
+      await handleConfirmGroupName();
+    } finally {
+      setIsRetryingCreate(false);
+    }
+  };
+
+  // Wrap the dialog close handler so dismissing the dialog also
+  // dismisses any lingering shape-drift alert.
+  const closeGroupNameDialog = () => {
+    setShowGroupNameDialog(false);
+    setCreateShapeDrift(null);
   };
 
   const getRecordingErrorMessage = (error: any): { title: string; description: string } => {
@@ -1419,6 +1457,8 @@ export function usePhotoAvatarManager() {
     // upload
     uploadedFiles, setUploadedFiles,
     handleFileUpload, handleUploadFiles, handleConfirmGroupName,
+    retryConfirmGroupName, closeGroupNameDialog,
+    createShapeDrift, isRetryingCreate,
     showGroupNameDialog, setShowGroupNameDialog,
     groupNameInput, setGroupNameInput,
     // v3 consent + looks browser

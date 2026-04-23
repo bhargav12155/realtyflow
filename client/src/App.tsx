@@ -25,6 +25,7 @@ import HelpGuidesPage from "@/pages/help-guides";
 import BoardsHomePage from "@/pages/boards-home";
 import BoardsDiscoverPage from "@/pages/boards-discover";
 import BoardDetailPage from "@/pages/board-detail";
+import AdminAlertsPage from "@/pages/admin-alerts";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import { DemoModeBanner } from "@/components/shared/demo-mode-banner";
@@ -114,6 +115,11 @@ function Router() {
       <Route path="/boards/:id">
         <ProtectedRoute>
           <BoardDetailPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/alerts">
+        <ProtectedRoute>
+          <AdminAlertsPage />
         </ProtectedRoute>
       </Route>
       <Route path="/help" component={HelpGuidesPage} />

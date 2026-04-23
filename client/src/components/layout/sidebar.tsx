@@ -170,6 +170,14 @@ const navigationItems = [
     adminOnly: true,
   },
   {
+    icon: AlertTriangle,
+    label: "Infrastructure Alerts",
+    href: "/admin/alerts",
+    key: "admin-alerts",
+    isPageLink: true,
+    adminOnly: true,
+  },
+  {
     icon: Target,
     label: "Advanced Advertising",
     href: "/dashboard#advertising",

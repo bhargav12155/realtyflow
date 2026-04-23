@@ -43,12 +43,19 @@ describe("heygen-validation-reporter", () => {
   let warnSpy: ReturnType<typeof mock.method>;
   let errorSpy: ReturnType<typeof mock.method>;
   let broadcastSpy: ReturnType<typeof mock.method>;
+  let fetchSpy: ReturnType<typeof mock.method>;
+  let originalWebhookUrl: string | undefined;
 
   beforeEach(() => {
     __resetHeygenValidationReporterForTests();
     warnSpy = mock.method(console, "warn", () => {});
     errorSpy = mock.method(console, "error", () => {});
     broadcastSpy = mock.method(realtimeService, "broadcastAdminAlert", () => {});
+    fetchSpy = mock.method(globalThis, "fetch", async () =>
+      new Response("ok", { status: 200 }),
+    );
+    originalWebhookUrl = process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
+    delete process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
     registerHeygenValidationReporter();
   });
 
@@ -56,6 +63,12 @@ describe("heygen-validation-reporter", () => {
     warnSpy.mock.restore();
     errorSpy.mock.restore();
     broadcastSpy.mock.restore();
+    fetchSpy.mock.restore();
+    if (originalWebhookUrl === undefined) {
+      delete process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
+    } else {
+      process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL = originalWebhookUrl;
+    }
     __resetHeygenValidationReporterForTests();
   });
 
@@ -217,6 +230,71 @@ describe("heygen-validation-reporter", () => {
       context: { endpoint: string };
     }).context;
     assert.equal(ctx.endpoint, "/v3/photo_avatars/:groupId/looks");
+  });
+
+  it("POSTs the burst payload to the configured Slack webhook", async () => {
+    process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example/services/T/B/X";
+
+    for (let i = 0; i < TUNABLES.BURST_THRESHOLD; i += 1) {
+      triggerFailureForAvatarGroupList();
+    }
+
+    // Wait a tick for the fire-and-forget Slack POST.
+    await new Promise((r) => setImmediate(r));
+
+    const calls = fetchSpy.mock.calls;
+    assert.equal(calls.length, 1, "expected one Slack webhook POST");
+    const [url, init] = calls[0].arguments as [string, RequestInit];
+    assert.equal(url, "https://hooks.slack.example/services/T/B/X");
+    assert.equal(init.method, "POST");
+    assert.match(
+      (init.headers as Record<string, string>)["Content-Type"],
+      /application\/json/,
+    );
+    const body = JSON.parse(init.body as string) as {
+      text: string;
+      attachments: Array<{ fields: Array<{ title: string; value: string }> }>;
+    };
+    assert.match(body.text, /HeyGen shape drift burst/);
+    assert.match(body.text, /\/v2\/avatar_group\.list/);
+    assert.match(body.text, /runbook/i);
+    const fieldTitles = body.attachments[0].fields.map((f) => f.title);
+    assert.ok(fieldTitles.includes("Endpoint"));
+    assert.ok(fieldTitles.includes("Runbook"));
+  });
+
+  it("skips the Slack POST when no webhook URL is configured", async () => {
+    for (let i = 0; i < TUNABLES.BURST_THRESHOLD; i += 1) {
+      triggerFailureForAvatarGroupList();
+    }
+    await new Promise((r) => setImmediate(r));
+    assert.equal(fetchSpy.mock.calls.length, 0);
+  });
+
+  it("does not POST to Slack when below the burst threshold", async () => {
+    process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example/services/T/B/X";
+    triggerFailureForAvatarGroupList();
+    await new Promise((r) => setImmediate(r));
+    assert.equal(fetchSpy.mock.calls.length, 0);
+  });
+
+  it("survives a Slack webhook outage without crashing the request path", async () => {
+    process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL =
+      "https://hooks.slack.example/services/T/B/X";
+    fetchSpy.mock.restore();
+    fetchSpy = mock.method(globalThis, "fetch", async () => {
+      throw new Error("network down");
+    });
+
+    assert.doesNotThrow(() => {
+      for (let i = 0; i < TUNABLES.BURST_THRESHOLD; i += 1) {
+        triggerFailureForAvatarGroupList();
+      }
+    });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(fetchSpy.mock.calls.length, 1);
   });
 
   it("does not crash when the websocket broadcaster throws", () => {

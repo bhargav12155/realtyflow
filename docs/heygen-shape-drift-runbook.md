@@ -35,16 +35,34 @@ turns each failure into:
    {"event":"heygen.response.invalid.burst","endpoint":"/v3/photo_avatars/:groupId/looks","windowMs":300000,"threshold":3,"count":3, ...}
    ```
 
-   This is the line the team's log-based alerting pipeline keys on to
-   route a page (e.g. a Slack `#oncall-alerts` rule matching
-   `event="heygen.response.invalid.burst"`). The endpoint label is
-   normalized so failures across different group / video ids count
-   together (e.g. `/v3/photo_avatars/abc123/looks` and
+   The endpoint label is normalized so failures across different
+   group / video ids count together (e.g.
+   `/v3/photo_avatars/abc123/looks` and
    `/v3/photo_avatars/def456/looks` both bucket under
    `/v3/photo_avatars/:groupId/looks`).
 
    The burst alarm is deduped per endpoint for 15 minutes so a sustained
    outage does not page repeatedly.
+
+4. **A direct Slack webhook POST** to the on-call channel, in addition
+   to the log line and the dashboard alert. The reporter posts to the
+   incoming-webhook URL configured via the
+   `HEYGEN_BURST_SLACK_WEBHOOK_URL` secret. The Slack message includes
+   the normalized endpoint, the failure count + window, the first
+   sample issue paths, and a link to this runbook (override the link
+   via the `HEYGEN_RUNBOOK_URL` env var if your team mirrors these
+   docs internally).
+
+   If the webhook secret is unset, the burst alert still lights up the
+   dashboard bell and the structured logs — only the Slack POST is
+   skipped (with a single warn line). Configure the secret in the
+   Replit Secrets panel as `HEYGEN_BURST_SLACK_WEBHOOK_URL` to wire the
+   page-the-team channel.
+
+   Webhook delivery is fire-and-forget: a Slack outage will not break
+   the user request that tripped the burst. A non-2xx response from
+   Slack is logged at warn level so it is visible in the structured
+   logs without re-paging.
 
 ## When the alert fires
 

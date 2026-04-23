@@ -110,6 +110,9 @@ import {
   heygenShapeDriftIncidents,
   type HeygenShapeDriftIncident,
   type InsertHeygenShapeDriftIncident,
+  heygenShapeDriftRetentionRuns,
+  type HeygenShapeDriftRetentionRun,
+  type InsertHeygenShapeDriftRetentionRun,
   type Board,
   type InsertBoard,
   type BoardAsset,
@@ -519,6 +522,17 @@ export interface IStorage {
   // Returns the number of rows removed so callers (admin endpoint, cron)
   // can log/respond with the prune count.
   pruneHeygenShapeDriftIncidents(olderThanDays: number): Promise<number>;
+
+  // Audit log for the daily background sweep that prunes the
+  // `heygen_shape_drift_incidents` table. One row per execution; the
+  // admin dashboard uses `listHeygenShapeDriftRetentionRuns` to confirm
+  // the cron is firing on time.
+  recordHeygenShapeDriftRetentionRun(
+    run: InsertHeygenShapeDriftRetentionRun,
+  ): Promise<HeygenShapeDriftRetentionRun>;
+  listHeygenShapeDriftRetentionRuns(
+    limit?: number,
+  ): Promise<HeygenShapeDriftRetentionRun[]>;
 
   // Board chat messages — persisted conversation history for the chat panel.
   // Access is gated to the same set of users who can read the board (owners
@@ -3488,6 +3502,27 @@ export class MemStorage implements IStorage {
       .where(sql`${heygenShapeDriftIncidents.createdAt} < ${cutoff}`)
       .returning({ id: heygenShapeDriftIncidents.id });
     return deleted.length;
+  }
+
+  async recordHeygenShapeDriftRetentionRun(
+    run: InsertHeygenShapeDriftRetentionRun,
+  ): Promise<HeygenShapeDriftRetentionRun> {
+    const [row] = await db
+      .insert(heygenShapeDriftRetentionRuns)
+      .values(run)
+      .returning();
+    return row;
+  }
+
+  async listHeygenShapeDriftRetentionRuns(
+    limit = 30,
+  ): Promise<HeygenShapeDriftRetentionRun[]> {
+    const capped = Math.max(1, Math.min(limit, 200));
+    return await db
+      .select()
+      .from(heygenShapeDriftRetentionRuns)
+      .orderBy(desc(heygenShapeDriftRetentionRuns.createdAt))
+      .limit(capped);
   }
 }
 

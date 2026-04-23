@@ -935,6 +935,37 @@ export function registerHeygenV3Routes(
   // (`HEYGEN_SHAPE_DRIFT_RETENTION_DAYS`, falling back to 30 days) so
   // operators can force a sweep without waiting for the next tick.
   // -------------------------------------------------------------------
+  // (DELETE handler is registered below, after the GET listing route.)
+
+  // -------------------------------------------------------------------
+  // Operator analytics — list recent retention sweep runs.
+  // The daily background job records one row per execution (timestamp +
+  // deleted count + retention window) so operators can confirm the cron
+  // is firing on time and how much it's pruning.
+  // -------------------------------------------------------------------
+  app.get(
+    "/api/v3/admin/heygen-shape-drift-retention-runs",
+    requireAdmin,
+    async (req: Request, res: Response) => {
+      const rawLimit =
+        typeof req.query.limit === "string"
+          ? Number.parseInt(req.query.limit, 10)
+          : NaN;
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 30;
+      try {
+        const runs = await defaultStorage.listHeygenShapeDriftRetentionRuns(
+          limit,
+        );
+        return res.json({ runs });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        return res
+          .status(500)
+          .json({ error: "shape_drift_retention_runs_failed", message });
+      }
+    },
+  );
+
   app.delete(
     "/api/v3/admin/heygen-shape-drift-incidents",
     requireAdmin,
@@ -981,18 +1012,33 @@ export function getShapeDriftRetentionDays(): number {
  */
 export async function runShapeDriftRetentionSweep(): Promise<number> {
   const days = getShapeDriftRetentionDays();
+  let deleted = 0;
   try {
-    const deleted = await defaultStorage.pruneHeygenShapeDriftIncidents(days);
+    deleted = await defaultStorage.pruneHeygenShapeDriftIncidents(days);
     if (deleted > 0) {
       console.log(
         `[heygen-shape-drift] pruned ${deleted} incident(s) older than ${days} day(s)`,
       );
     }
-    return deleted;
   } catch (err) {
     console.error("[heygen-shape-drift] retention sweep failed:", err);
     return 0;
   }
+  // Record an audit row so operators can see in the dashboard that the
+  // sweep actually ran (even when it deleted 0 rows). Failures here are
+  // logged but never thrown — the prune itself already succeeded.
+  try {
+    await defaultStorage.recordHeygenShapeDriftRetentionRun({
+      deletedCount: deleted,
+      retentionDays: days,
+    });
+  } catch (err) {
+    console.error(
+      "[heygen-shape-drift] failed to record retention run audit row:",
+      err,
+    );
+  }
+  return deleted;
 }
 
 const SHAPE_DRIFT_RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;

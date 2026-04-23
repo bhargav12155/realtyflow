@@ -307,6 +307,46 @@ export type HeygenShapeDriftIncident =
   typeof heygenShapeDriftIncidents.$inferSelect;
 
 // =====================================================
+// HEYGEN SHAPE-DRIFT RETENTION RUNS TABLE
+// One row per execution of the daily background sweep that prunes old
+// `heygen_shape_drift_incidents` rows. Lets operators confirm the cron
+// is firing on time and see how many rows it removed without grepping
+// production logs.
+// =====================================================
+export const heygenShapeDriftRetentionRuns = pgTable(
+  "heygen_shape_drift_retention_runs",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    // Number of `heygen_shape_drift_incidents` rows the sweep removed.
+    // 0 is a valid value — operators still want to know the job ran.
+    deletedCount: integer("deleted_count").notNull(),
+    // Retention window (in days) the sweep used. Captured per-row so a
+    // later config change is obvious from the audit log.
+    retentionDays: integer("retention_days").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("idx_heygen_shape_drift_retention_runs_created_at").on(
+      table.createdAt,
+    ),
+  ],
+);
+
+export const insertHeygenShapeDriftRetentionRunSchema = createInsertSchema(
+  heygenShapeDriftRetentionRuns,
+).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertHeygenShapeDriftRetentionRun = z.infer<
+  typeof insertHeygenShapeDriftRetentionRunSchema
+>;
+export type HeygenShapeDriftRetentionRun =
+  typeof heygenShapeDriftRetentionRuns.$inferSelect;
+
+// =====================================================
 // LOOK GENERATION JOBS TABLE (Track pending look generations)
 // =====================================================
 export const lookGenerationJobs = pgTable("look_generation_jobs", {

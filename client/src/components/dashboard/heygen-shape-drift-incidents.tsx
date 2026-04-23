@@ -24,9 +24,18 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
-import type { HeygenShapeDriftIncident } from "@shared/schema";
+import type {
+  HeygenShapeDriftIncident,
+  HeygenShapeDriftRetentionRun,
+} from "@shared/schema";
 
 interface IncidentsResponse {
   incidents: HeygenShapeDriftIncident[];
@@ -258,6 +267,155 @@ export function HeygenShapeDriftIncidentsPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface RetentionRunsResponse {
+  runs: HeygenShapeDriftRetentionRun[];
+}
+
+const RETENTION_RUNS_QUERY_KEY = [
+  "/api/v3/admin/heygen-shape-drift-retention-runs",
+] as const;
+
+export function HeygenShapeDriftRetentionRunsPanel() {
+  const { data, isLoading, isError, error, isFetching } =
+    useQuery<RetentionRunsResponse>({
+      queryKey: RETENTION_RUNS_QUERY_KEY,
+    });
+
+  const runs = data?.runs ?? [];
+  const lastRun = runs[0];
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: RETENTION_RUNS_QUERY_KEY });
+  };
+
+  return (
+    <Card data-testid="card-heygen-shape-drift-retention-runs">
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-muted-foreground" />
+              Retention sweeps
+            </CardTitle>
+            <CardDescription>
+              Daily background job that prunes old{" "}
+              <code>heygen_shape_drift_incidents</code> rows. Most recent
+              runs are listed below — use this to confirm the cron is firing
+              on time.
+              {lastRun ? (
+                <>
+                  {" "}
+                  Last run{" "}
+                  <span data-testid="text-heygen-retention-last-run">
+                    {formatTimestamp(lastRun.createdAt)}
+                  </span>{" "}
+                  removed{" "}
+                  <span data-testid="text-heygen-retention-last-deleted">
+                    {lastRun.deletedCount}
+                  </span>{" "}
+                  row(s).
+                </>
+              ) : null}
+            </CardDescription>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={isFetching}
+            data-testid="button-refresh-heygen-retention-runs"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 mr-1.5 ${
+                isFetching ? "animate-spin" : ""
+              }`}
+            />
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div
+            className="space-y-2"
+            data-testid="loading-heygen-retention-runs"
+          >
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ) : isError ? (
+          <div
+            className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm"
+            data-testid="error-heygen-retention-runs"
+          >
+            Failed to load retention runs:{" "}
+            {error instanceof Error ? error.message : "unknown error"}
+          </div>
+        ) : runs.length === 0 ? (
+          <div
+            className="rounded border border-dashed p-6 text-center text-sm text-muted-foreground"
+            data-testid="empty-heygen-retention-runs"
+          >
+            No retention sweeps recorded yet. The job runs once a day in
+            production.
+          </div>
+        ) : (
+          <div className="rounded border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Timestamp</TableHead>
+                  <TableHead className="text-right">Deleted</TableHead>
+                  <TableHead className="text-right">
+                    Retention (days)
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {runs.map((run) => (
+                  <TableRow
+                    key={run.id}
+                    data-testid={`row-heygen-retention-run-${run.id}`}
+                  >
+                    <TableCell
+                      className="text-xs whitespace-nowrap"
+                      data-testid={`text-heygen-retention-timestamp-${run.id}`}
+                    >
+                      {formatTimestamp(run.createdAt)}
+                    </TableCell>
+                    <TableCell
+                      className="text-xs text-right font-mono"
+                      data-testid={`text-heygen-retention-deleted-${run.id}`}
+                    >
+                      {run.deletedCount}
+                    </TableCell>
+                    <TableCell
+                      className="text-xs text-right font-mono"
+                      data-testid={`text-heygen-retention-days-${run.id}`}
+                    >
+                      {run.retentionDays}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function HeygenShapeDriftDashboard() {
+  return (
+    <div className="space-y-6" data-testid="container-heygen-shape-drift">
+      <HeygenShapeDriftIncidentsPanel />
+      <HeygenShapeDriftRetentionRunsPanel />
+    </div>
   );
 }
 

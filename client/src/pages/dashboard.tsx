@@ -8,6 +8,7 @@ import { BrandSettings } from "@/components/dashboard/brand-settings";
 import { ContentCalendar } from "@/components/dashboard/content-calendar";
 import { LocalMarketTools } from "@/components/dashboard/local-market-tools";
 import { OverviewCards, RecentPostActivity } from "@/components/dashboard/overview-cards";
+import { HeygenShapeDriftIncidentsPanel } from "@/components/dashboard/heygen-shape-drift-incidents";
 import { PhotoAvatarManager } from "@/components/dashboard/photo-avatar-manager";
 import { ScheduledPostsManager } from "@/components/dashboard/scheduled-posts-manager";
 import { SEOOptimizer } from "@/components/dashboard/seo-optimizer";
@@ -141,6 +142,8 @@ export default function Dashboard() {
         return <LocalMarketTools />;
       case "brand-settings":
         return <BrandSettings />;
+      case "heygen-incidents":
+        return <HeygenShapeDriftIncidentsPanel />;
       case "analytics":
         return (
           <div className="space-y-6">

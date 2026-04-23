@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn, getUserDisplayName, getUserInitials } from "@/lib/utils";
 import { useBusinessType, BUSINESS_TYPE_OPTIONS, BusinessType } from "@/lib/businessContext";
 import {
+  AlertTriangle,
   BarChart3,
   BookOpen,
   Bot,
@@ -48,6 +49,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 
 const navigationItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", key: "dashboard", isPageLink: true },
@@ -159,6 +161,14 @@ const navigationItems = [
   },
   { icon: BarChart3, label: "Analytics", href: "/dashboard#analytics", key: "analytics", isPageLink: true },
   {
+    icon: AlertTriangle,
+    label: "HeyGen Shape Drift",
+    href: "/dashboard#heygen-incidents",
+    key: "heygen-incidents",
+    isPageLink: true,
+    adminOnly: true,
+  },
+  {
     icon: Target,
     label: "Advanced Advertising",
     href: "/dashboard#advertising",
@@ -202,6 +212,10 @@ function SidebarContent({
   const [, setLocation] = useLocation();
   const [expandedMenus, setExpandedMenus] = useState<string[]>(["avatar-video"]);
   const { businessType, setBusinessType } = useBusinessType();
+  const { data: adminStatus } = useQuery<{ isAdmin: boolean }>({
+    queryKey: ["/api/user/is-admin"],
+  });
+  const isAdmin = adminStatus?.isAdmin ?? false;
 
   const currentBusinessOption = BUSINESS_TYPE_OPTIONS.find((o) => o.value === businessType) || BUSINESS_TYPE_OPTIONS[0];
 
@@ -373,6 +387,9 @@ function SidebarContent({
         <div className="space-y-1">
           {navigationItems.map((item: any) => {
             if (item.showOnlyFor && !item.showOnlyFor.includes(businessType)) {
+              return null;
+            }
+            if (item.adminOnly && !isAdmin) {
               return null;
             }
 

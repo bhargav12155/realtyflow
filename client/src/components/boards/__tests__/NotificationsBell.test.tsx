@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Notification } from "@shared/schema";
 
@@ -83,6 +83,78 @@ afterEach(() => {
   notificationsRef.current = [];
   queryClientRef.current = null;
   apiRequestMock.mockClear();
+});
+
+function makeUnshare(overrides: Partial<Notification> = {}): Notification {
+  return {
+    id: "n-unshare",
+    userId: "u-admin",
+    type: "board_unshared",
+    isRead: false,
+    createdAt: new Date().toISOString() as unknown as Date,
+    data: {
+      boardId: "brd_42",
+      boardTitle: "Quarterly Plan",
+      removedByUserId: "owner-1",
+      removedByName: "Owner Person",
+    },
+    ...overrides,
+  } as unknown as Notification;
+}
+
+describe("NotificationsBell board_unshared rendering", () => {
+  it("renders the remover name in the title and the board title in the subtitle", async () => {
+    notificationsRef.current = [makeUnshare()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const item = await screen.findByTestId("notification-n-unshare");
+    expect(item.textContent).toContain("Owner Person removed your access to a board");
+    expect(item.textContent).toContain("Quarterly Plan");
+  });
+
+  it("falls back to 'Someone' / 'Untitled board' when the payload omits names", async () => {
+    notificationsRef.current = [
+      makeUnshare({
+        id: "n-bare",
+        data: { boardId: "brd_99" },
+      } as Partial<Notification>),
+    ];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    const item = await screen.findByTestId("notification-n-bare");
+    expect(item.textContent).toContain("Someone removed your access to a board");
+    expect(item.textContent).toContain("Untitled board");
+  });
+
+  it("dismisses the entry on click by POSTing to the read endpoint (no deep-link nav)", async () => {
+    notificationsRef.current = [makeUnshare()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    fireEvent.click(await screen.findByTestId("button-notification-open-n-unshare"));
+
+    await waitFor(() => expect(apiRequestMock).toHaveBeenCalledTimes(1));
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "POST",
+      "/api/notifications/n-unshare/read",
+    );
+  });
+
+  it("dismisses the entry when the X dismiss button is clicked", async () => {
+    notificationsRef.current = [makeUnshare()];
+    renderBell();
+    fireEvent.click(await screen.findByTestId("button-notifications"));
+
+    fireEvent.click(await screen.findByTestId("button-notification-dismiss-n-unshare"));
+
+    await waitFor(() => expect(apiRequestMock).toHaveBeenCalledTimes(1));
+    expect(apiRequestMock).toHaveBeenCalledWith(
+      "POST",
+      "/api/notifications/n-unshare/read",
+    );
+  });
 });
 
 describe("NotificationsBell admin_alert rendering", () => {

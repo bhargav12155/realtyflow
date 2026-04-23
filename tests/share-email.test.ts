@@ -112,7 +112,20 @@ class FakeStorage {
     this.shares.set(created.id, created);
     return created;
   }
-  async unshareBoard(): Promise<boolean> { return false; }
+  async unshareBoard(
+    boardId: string,
+    ownerUserId: string,
+    sharedWithUserId: string,
+  ): Promise<boolean> {
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return false;
+    const hit = Array.from(this.shares.entries()).find(
+      ([, s]) => s.boardId === boardId && s.sharedWithUserId === sharedWithUserId,
+    );
+    if (!hit) return false;
+    this.shares.delete(hit[0]);
+    return true;
+  }
   async leaveSharedBoard(): Promise<boolean> { return false; }
   async updateBoardForUser(): Promise<Board | undefined> { return undefined; }
   async deleteBoardForUser(): Promise<boolean> { return false; }
@@ -317,6 +330,142 @@ describe("POST /api/boards/:id/shares — email fan-out", () => {
     const shared = await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "rec-2" });
     assert.equal(shared.status, 200);
     assert.equal(sendGridCalls.length, 1);
+  });
+});
+
+// =====================================================
+// Route-level tests: DELETE /api/boards/:id/shares/:userId
+// notification + email fan-out (Task #214)
+// =====================================================
+describe("DELETE /api/boards/:id/shares/:userId — notification + email fan-out", () => {
+  async function seedSharedBoard(): Promise<{ app: Express; storage: FakeStorage; boardId: string }> {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", username: "own", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", username: "rec", name: "Recipient", email: "rec@example.com" }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "Quarterly Plan" });
+    const boardId = created.body!.id as string;
+    // Create the share directly so the POST email/notification side-effects
+    // don't pollute our DELETE assertions.
+    await storage.shareBoard(boardId, "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+    return { app, storage, boardId };
+  }
+
+  it("creates a board_unshared notification with boardId, boardTitle, removedByUserId and removedByName", async () => {
+    const { app, storage, boardId } = await seedSharedBoard();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200);
+
+    const list = Array.from(storage.notifications.values()).filter((n) => n.userId === "rec-2");
+    assert.equal(list.length, 1, "exactly one notification fired for the removed teammate");
+    const n = list[0];
+    assert.equal(n.type, "board_unshared");
+    assert.equal(n.isRead, false);
+    const data = n.data as {
+      boardId: string;
+      boardTitle: string;
+      removedByUserId: string;
+      removedByName: string | null;
+    };
+    assert.equal(data.boardId, boardId);
+    assert.equal(data.boardTitle, "Quarterly Plan");
+    assert.equal(data.removedByUserId, "owner-1");
+    assert.equal(data.removedByName, "Owner Person");
+  });
+
+  it("falls back to the remover email when their display name is null", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(
+      makeUser({ id: "owner-1", username: "own", name: null as unknown as string, email: "owner@example.com" }),
+    );
+    storage.users.push(makeUser({ id: "rec-2", name: "Recipient", email: "rec@example.com" }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = created.body!.id as string;
+    await storage.shareBoard(boardId, "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200);
+
+    const n = Array.from(storage.notifications.values())[0];
+    const data = n.data as { removedByName: string | null };
+    assert.equal(data.removedByName, "owner@example.com");
+    // Email subject also reflects the email-as-name fallback.
+    assert.equal(sendGridCalls.length, 1);
+    assert.equal(
+      sendGridCalls[0].body.personalizations[0].subject,
+      'owner@example.com removed your access to "B"',
+    );
+  });
+
+  it("sends a SendGrid email on the happy path with the board title and remover name", async () => {
+    const { app, boardId } = await seedSharedBoard();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200);
+
+    assert.equal(sendGridCalls.length, 1, "expected exactly one SendGrid send");
+    const call = sendGridCalls[0];
+    assert.equal(call.headers["authorization"], "Bearer test-key");
+    assert.equal(call.body.from.email, "no-reply@example.com");
+    const personalization = call.body.personalizations[0];
+    assert.deepEqual(personalization.to[0], { email: "rec@example.com", name: "Recipient" });
+    assert.equal(personalization.subject, 'Owner Person removed your access to "Quarterly Plan"');
+    const html = call.body.content.find((c: { type: string }) => c.type === "text/html").value as string;
+    const text = call.body.content.find((c: { type: string }) => c.type === "text/plain").value as string;
+    assert.ok(html.includes("Quarterly Plan"));
+    assert.ok(html.includes("Owner Person"));
+    assert.ok(text.includes("Quarterly Plan"));
+    assert.ok(text.includes("Owner Person"));
+  });
+
+  it("skips the email when the recipient has emailNotifications=false but still creates the in-app notification", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner Person", email: "owner@example.com" }));
+    storage.users.push(
+      makeUser({ id: "rec-2", name: "Opted Out", email: "opt@example.com", emailNotifications: false }),
+    );
+    const created = await callJson(app, "POST", "/api/boards", { title: "Quiet Board" });
+    const boardId = created.body!.id as string;
+    await storage.shareBoard(boardId, "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200, "DELETE itself still succeeds");
+    assert.equal(sendGridCalls.length, 0, "no email should be sent when recipient opted out");
+    // The in-app bell entry must still fire so the user notices on next visit.
+    const list = Array.from(storage.notifications.values()).filter((n) => n.userId === "rec-2");
+    assert.equal(list.length, 1);
+    assert.equal(list[0].type, "board_unshared");
+  });
+
+  it("skips the email silently when the recipient has no email address", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push(makeUser({ id: "owner-1", name: "Owner", email: "owner@example.com" }));
+    storage.users.push(makeUser({ id: "rec-2", name: "No Email", email: "   " }));
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = created.body!.id as string;
+    await storage.shareBoard(boardId, "owner-1", "rec-2");
+    sendGridCalls = [];
+    storage.notifications.clear();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200);
+    assert.equal(sendGridCalls.length, 0);
+    // Notification still persisted so the bell can render it.
+    assert.equal(storage.notifications.size, 1);
+  });
+
+  it("does not fail the unshare when the mailer throws", async () => {
+    sendGridResponder = async () => { throw new Error("kaboom"); };
+    const { app, boardId } = await seedSharedBoard();
+
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/rec-2`);
+    assert.equal(res.status, 200, "unshare must succeed even when SendGrid throws");
   });
 });
 

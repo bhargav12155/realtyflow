@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square } from "lucide-react";
+import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   PlatformPicker,
@@ -92,7 +92,22 @@ interface ChatPanelProps {
   onClearChat?: () => void;
   /** Disables the Clear button while the wipe is in flight. */
   isClearingChat?: boolean;
+  /** Owner-only: current per-board cap on persisted chat messages. When
+   *  defined alongside `onChangeChatHistoryCap`, a settings button appears in
+   *  the panel header that lets the owner tune the cap. */
+  chatHistoryCap?: number;
+  /** Persist a new per-board chat history cap. Disabled while in flight. */
+  onChangeChatHistoryCap?: (n: number) => void;
+  /** Bounds for the cap input (keep in sync with the server-side schema). */
+  chatHistoryCapMin?: number;
+  chatHistoryCapMax?: number;
+  /** Disables the cap input while a save is in flight. */
+  isSavingChatHistoryCap?: boolean;
 }
+
+export const CHAT_HISTORY_CAP_MIN = 10;
+export const CHAT_HISTORY_CAP_MAX = 2000;
+export const CHAT_HISTORY_CAP_DEFAULT = 200;
 
 /**
  * Pull a concrete suggested prompt out of an assistant message so the UI can
@@ -143,10 +158,24 @@ export function ChatPanel({
   onPendingInputApplied,
   onClearChat,
   isClearingChat,
+  chatHistoryCap,
+  onChangeChatHistoryCap,
+  chatHistoryCapMin = CHAT_HISTORY_CAP_MIN,
+  chatHistoryCapMax = CHAT_HISTORY_CAP_MAX,
+  isSavingChatHistoryCap,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const initialCap = chatHistoryCap ?? CHAT_HISTORY_CAP_DEFAULT;
+  const [capDraft, setCapDraft] = useState<string>(String(initialCap));
+  // Re-sync the draft whenever the persisted value changes (e.g. after a
+  // successful save or when navigating between boards) so the input always
+  // reflects the source of truth on next open.
+  useEffect(() => {
+    setCapDraft(String(chatHistoryCap ?? CHAT_HISTORY_CAP_DEFAULT));
+  }, [chatHistoryCap]);
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
@@ -232,6 +261,70 @@ export function ChatPanel({
           <span className="truncate" data-testid="text-chat-board-title">{boardTitle}</span>
         </div>
         <div className="flex items-center gap-1">
+          {onChangeChatHistoryCap && (
+            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400"
+                  data-testid="button-chat-settings"
+                  aria-label="Chat history settings"
+                  title="Chat history settings"
+                >
+                  <SettingsIcon className="w-3.5 h-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[260px] p-3">
+                <div className="space-y-2">
+                  <div>
+                    <div
+                      className="text-[12px] font-medium text-neutral-800 dark:text-neutral-100"
+                      data-testid="text-chat-history-cap-title"
+                    >
+                      Keep last N messages
+                    </div>
+                    <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-snug">
+                      Older messages get auto-trimmed. Choose between {chatHistoryCapMin} and {chatHistoryCapMax}.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={chatHistoryCapMin}
+                      max={chatHistoryCapMax}
+                      value={capDraft}
+                      onChange={(e) => setCapDraft(e.target.value)}
+                      className="flex-1 text-[13px] rounded-md border border-neutral-200 px-2 py-1 bg-white text-neutral-800 outline-none focus:border-violet-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                      data-testid="input-chat-history-cap"
+                      disabled={isSavingChatHistoryCap}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const parsed = Number.parseInt(capDraft, 10);
+                        if (!Number.isFinite(parsed)) return;
+                        const clamped = Math.min(
+                          chatHistoryCapMax,
+                          Math.max(chatHistoryCapMin, parsed),
+                        );
+                        if (clamped === chatHistoryCap) {
+                          setSettingsOpen(false);
+                          return;
+                        }
+                        onChangeChatHistoryCap(clamped);
+                        setSettingsOpen(false);
+                      }}
+                      disabled={isSavingChatHistoryCap}
+                      className="text-[12px] px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+                      data-testid="button-save-chat-history-cap"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
           {onClearChat && (
             <button
               type="button"

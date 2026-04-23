@@ -550,14 +550,33 @@ export interface IStorage {
 }
 
 /**
- * Hard cap on persisted chat messages per board. Once an insert pushes the
- * count past this number, the oldest rows are deleted so the panel stays
- * snappy and the chat history doesn't grow unbounded.
+ * Default per-board cap on persisted chat messages, used for any board that
+ * doesn't have an explicit `chatHistoryCap` value. Each board now stores its
+ * own cap so owners can tune it from the chat panel; this constant only
+ * serves as the fallback for legacy rows / new boards.
  */
 export const BOARD_MESSAGES_CAP = 200;
 
+/**
+ * Inclusive bounds for the per-board chat history cap. The minimum keeps the
+ * conversation useful (a handful of turns is meaningless); the maximum stops
+ * runaway growth even if an owner cranks the slider.
+ */
+export const BOARD_MESSAGES_CAP_MIN = 10;
+export const BOARD_MESSAGES_CAP_MAX = 2000;
+
+export function clampBoardMessagesCap(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return BOARD_MESSAGES_CAP;
+  }
+  const rounded = Math.floor(value);
+  if (rounded < BOARD_MESSAGES_CAP_MIN) return BOARD_MESSAGES_CAP_MIN;
+  if (rounded > BOARD_MESSAGES_CAP_MAX) return BOARD_MESSAGES_CAP_MAX;
+  return rounded;
+}
+
 // Typed mutation DTOs (kept narrow on purpose: only mutable fields)
-export type BoardUpdate = Partial<Pick<Board, "title" | "isShared">>;
+export type BoardUpdate = Partial<Pick<Board, "title" | "isShared" | "chatHistoryCap">>;
 export type AccessibleBoard = Board & { isOwner: boolean };
 export type BoardShareRecipient = {
   userId: string;
@@ -3382,9 +3401,12 @@ export class MemStorage implements IStorage {
     // Auto-trim: once the board's history exceeds the cap, drop the oldest
     // rows so the chat panel stays snappy. Done as a best-effort follow-up
     // to the insert — a failure here must not bubble up and undo the
-    // user-visible message that just persisted, so we only log.
+    // user-visible message that just persisted, so we only log. The cap is
+    // pulled from the board row so owners can tune it per-board; we fall
+    // back to the historical default if the value is missing or invalid.
     try {
-      await this.trimBoardMessagesIfNeeded(boardId);
+      const cap = clampBoardMessagesCap(access.chatHistoryCap);
+      await this.trimBoardMessagesIfNeeded(boardId, cap);
     } catch (err) {
       console.warn(
         "[storage] auto-trim of board messages failed:",
@@ -3415,17 +3437,21 @@ export class MemStorage implements IStorage {
       .limit(capped);
   }
 
-  private async trimBoardMessagesIfNeeded(boardId: string): Promise<void> {
+  private async trimBoardMessagesIfNeeded(
+    boardId: string,
+    cap: number = BOARD_MESSAGES_CAP,
+  ): Promise<void> {
+    const effectiveCap = clampBoardMessagesCap(cap);
     // Postgres doesn't allow LIMIT inside a DELETE, so we identify the
-    // surviving (newest BOARD_MESSAGES_CAP) ids first and delete everything
-    // else. The (board_id, created_at) index covers this read.
+    // surviving (newest `cap`) ids first and delete everything else. The
+    // (board_id, created_at) index covers this read.
     const keep = await db
       .select({ id: boardMessagesTable.id })
       .from(boardMessagesTable)
       .where(eq(boardMessagesTable.boardId, boardId))
       .orderBy(desc(boardMessagesTable.createdAt))
-      .limit(BOARD_MESSAGES_CAP);
-    if (keep.length < BOARD_MESSAGES_CAP) return;
+      .limit(effectiveCap);
+    if (keep.length < effectiveCap) return;
     const keepIds = keep.map((r) => r.id);
     await db
       .delete(boardMessagesTable)

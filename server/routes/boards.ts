@@ -1,6 +1,11 @@
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { z } from "zod";
-import { storage as defaultStorage, type IStorage } from "../storage";
+import {
+  storage as defaultStorage,
+  type IStorage,
+  BOARD_MESSAGES_CAP_MIN,
+  BOARD_MESSAGES_CAP_MAX,
+} from "../storage";
 import { requireAuth } from "../middleware/auth";
 import {
   insertBoardAssetSchema,
@@ -43,6 +48,14 @@ export const ASSET_PROVIDERS = [
 const updateBoardSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   isShared: z.boolean().optional(),
+  // Owner-controlled per-board cap on persisted chat messages. Bounded to
+  // keep the conversation useful (>= MIN) while preventing runaway growth.
+  chatHistoryCap: z
+    .number()
+    .int()
+    .min(BOARD_MESSAGES_CAP_MIN)
+    .max(BOARD_MESSAGES_CAP_MAX)
+    .optional(),
 });
 
 export const BOARD_INTENTS = [

@@ -40,6 +40,10 @@ interface BoardResponse {
   title: string;
   isShared: boolean;
   isOwner?: boolean;
+  // Per-board cap on persisted chat messages (owner-tunable). Always present
+  // on rows from the server, but typed as optional so older cached responses
+  // don't blow up.
+  chatHistoryCap?: number;
   batches: CanvasBatch[];
   assets: Array<CanvasBatch["assets"][number]>;
 }
@@ -541,6 +545,36 @@ export default function BoardDetailPage() {
     chatAbortRef.current = null;
     toast({ title: "Reply stopped", description: "We canceled the in-flight reply." });
   };
+
+  const updateChatHistoryCap = useMutation({
+    mutationFn: async (cap: number) => {
+      const res = await apiRequest("PATCH", `/api/boards/${boardId}`, {
+        chatHistoryCap: cap,
+      });
+      return res.json();
+    },
+    onSuccess: (data: { chatHistoryCap?: number }) => {
+      // Patch the cached board so the input + auto-trim path immediately
+      // reflect the new cap without waiting for a refetch.
+      queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) =>
+        prev
+          ? { ...prev, chatHistoryCap: data?.chatHistoryCap ?? prev.chatHistoryCap }
+          : prev,
+      );
+      toast({
+        title: "Chat history limit updated",
+        description: `Keeping the last ${data?.chatHistoryCap ?? "?"} messages on this board.`,
+      });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({
+        title: "Couldn't update chat limit",
+        description: errText,
+        variant: "destructive",
+      });
+    },
+  });
 
   // Clearing the chat is an irreversible hard delete on the server. To give
   // owners a safety net for misclicks, we defer the actual DELETE by 10s and
@@ -1360,6 +1394,13 @@ export default function BoardDetailPage() {
               board.isOwner !== false ? handleClearChat : undefined
             }
             isClearingChat={isClearingChat}
+            chatHistoryCap={board.chatHistoryCap}
+            onChangeChatHistoryCap={
+              board.isOwner !== false
+                ? (n) => updateChatHistoryCap.mutate(n)
+                : undefined
+            }
+            isSavingChatHistoryCap={updateChatHistoryCap.isPending}
           />
         )}
       </div>

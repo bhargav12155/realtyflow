@@ -1902,6 +1902,10 @@ export const boards = pgTable("boards", {
   userId: varchar("user_id").notNull(),
   title: text("title").notNull().default("Untitled board"),
   isShared: boolean("is_shared").notNull().default(false),
+  // Per-board cap on persisted chat messages. When a new message pushes the
+  // total over this number, the oldest rows are auto-trimmed. Defaults to
+  // the historical 200 so existing boards keep their current behavior.
+  chatHistoryCap: integer("chat_history_cap").notNull().default(200),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

@@ -166,3 +166,48 @@ export async function sendBoardSharedEmail(params: BoardSharedEmailParams): Prom
     html,
   });
 }
+
+export interface BoardUnsharedEmailParams {
+  recipientEmail: string;
+  recipientName?: string | null;
+  removerName: string;
+  boardTitle: string;
+}
+
+export async function sendBoardUnsharedEmail(params: BoardUnsharedEmailParams): Promise<boolean> {
+  const { recipientEmail, recipientName, removerName, boardTitle } = params;
+  const safeRemover = escapeHtml(removerName);
+  const safeTitle = escapeHtml(boardTitle);
+  const greeting = recipientName ? `Hi ${escapeHtml(recipientName)},` : "Hi,";
+
+  const subject = `${removerName} removed your access to "${boardTitle}"`;
+
+  const text = [
+    recipientName ? `Hi ${recipientName},` : "Hi,",
+    "",
+    `${removerName} removed your access to the board "${boardTitle}" on Atlas.`,
+    "",
+    "You won't see this board in your Shared tab anymore. If you think this was a mistake, reach out to them directly.",
+    "",
+    "If you'd rather not get these emails, you can turn them off in your account settings.",
+  ].join("\n");
+
+  const html = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 24px;">
+    <p>${greeting}</p>
+    <p><strong>${safeRemover}</strong> removed your access to the board <strong>"${safeTitle}"</strong>.</p>
+    <p style="color: #555;">You won't see this board in your Shared tab anymore. If you think this was a mistake, reach out to them directly.</p>
+    <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+    <p style="color: #888; font-size: 12px;">You're receiving this because someone changed your access to a shared board. You can turn off these emails in your account settings.</p>
+  </body>
+</html>`;
+
+  return sendEmail({
+    to: recipientEmail,
+    toName: recipientName ?? undefined,
+    subject,
+    text,
+    html,
+  });
+}

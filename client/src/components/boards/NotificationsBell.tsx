@@ -14,6 +14,12 @@ interface BoardSharedData {
   sharedByName?: string | null;
 }
 
+interface BoardUnsharedData {
+  boardId?: string;
+  boardTitle?: string;
+  removedByName?: string | null;
+}
+
 interface AdminAlertData {
   source?: string;
   severity?: "info" | "warning" | "error";
@@ -120,6 +126,12 @@ export function NotificationsBell() {
         if (!n.isRead) markRead.mutate(n.id);
         setLocation(`/boards/${data.boardId}`);
       }
+      return;
+    }
+    if (n.type === "board_unshared") {
+      // No deep link — the user no longer has access. Just dismiss the
+      // bell entry so it doesn't keep nagging them.
+      if (!n.isRead) markRead.mutate(n.id);
     }
   };
 
@@ -172,19 +184,25 @@ export function NotificationsBell() {
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {items.map((n) => {
                 const isShare = n.type === "board_shared";
+                const isUnshare = n.type === "board_unshared";
                 const isAdminAlert = n.type === "admin_alert";
                 const shareData = isShare ? ((n.data ?? {}) as BoardSharedData) : null;
+                const unshareData = isUnshare ? ((n.data ?? {}) as BoardUnsharedData) : null;
                 const alertData = isAdminAlert ? ((n.data ?? {}) as AdminAlertData) : null;
                 const title = isShare
                   ? `${shareData?.sharedByName ?? "Someone"} shared a board with you`
-                  : isAdminAlert
-                    ? alertData?.title ?? "Admin alert"
-                    : "Notification";
+                  : isUnshare
+                    ? `${unshareData?.removedByName ?? "Someone"} removed your access to a board`
+                    : isAdminAlert
+                      ? alertData?.title ?? "Admin alert"
+                      : "Notification";
                 const subtitle = isShare
                   ? shareData?.boardTitle ?? "Untitled board"
-                  : isAdminAlert
-                    ? alertData?.message ?? null
-                    : null;
+                  : isUnshare
+                    ? unshareData?.boardTitle ?? "Untitled board"
+                    : isAdminAlert
+                      ? alertData?.message ?? null
+                      : null;
                 const severity = alertData?.severity ?? "error";
                 const severityStyle = SEVERITY_STYLES[severity];
                 const sourceLabel = alertData?.source

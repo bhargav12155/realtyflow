@@ -13,7 +13,7 @@ import {
   DRAWING_MAX_CONTENT_BYTES,
 } from "@shared/schema";
 import { realtimeService } from "../websocket";
-import { sendBoardSharedEmail, getAppBaseUrl } from "../services/mailer";
+import { sendBoardSharedEmail, sendBoardUnsharedEmail, getAppBaseUrl } from "../services/mailer";
 
 export const ASSET_KINDS = [
   "image",
@@ -526,6 +526,11 @@ export function registerBoardsRoutes(
   app.delete("/api/boards/:id/shares/:userId", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
+      // Resolve the board *before* unsharing so we still know its title even
+      // after the share row is gone. We also need it to gate the operation
+      // to the owner.
+      const board = await storage.getBoardByIdForUser(req.params.id, userId);
+      if (!board) return res.status(404).json({ error: "Board not found" });
       const ok = await storage.unshareBoard(req.params.id, userId, req.params.userId);
       if (!ok) return res.status(404).json({ error: "Share not found" });
       // Best-effort: push a real-time event to the removed user so any open
@@ -535,7 +540,6 @@ export function registerBoardsRoutes(
       // this WS push is purely a UX accelerator — never block the unshare on
       // a socket failure.
       try {
-        const { realtimeService } = await import("../websocket");
         realtimeService.sendToUser(req.params.userId, {
           type: "board_access_revoked",
           data: { boardId: req.params.id },
@@ -545,6 +549,91 @@ export function registerBoardsRoutes(
         console.warn(
           "[boards] notify removed collaborator failed",
           wsErr instanceof Error ? wsErr.message : wsErr,
+        );
+      }
+
+      // Persist a notification so the removed user finds out the next time
+      // they open the bell, even if they were nowhere near the board when
+      // access was revoked. Mirrors the share-with-you path: bell entry +
+      // opt-out-respecting transactional email, both best-effort.
+      const remover = await storage.getUser(userId).catch(() => undefined);
+      const removed = await storage.getUser(req.params.userId).catch(() => undefined);
+      const removerDisplayName = remover?.name ?? remover?.email ?? "A teammate";
+
+      try {
+        const notification = await storage.createNotification({
+          userId: req.params.userId,
+          type: "board_unshared",
+          data: {
+            boardId: board.id,
+            boardTitle: board.title,
+            removedByUserId: userId,
+            removedByName: remover?.name ?? remover?.email ?? null,
+          },
+        });
+        try {
+          realtimeService.notifyNotificationCreated(req.params.userId, {
+            notificationId: notification.id,
+            type: notification.type,
+            data: notification.data,
+          });
+        } catch (wsError) {
+          console.error(
+            "[boards] notify unshare recipient via websocket failed",
+            JSON.stringify({
+              event: "notification.ws.failed",
+              type: "board_unshared",
+              boardId: board.id,
+              recipientUserId: req.params.userId,
+              error: (wsError as Error)?.message ?? String(wsError),
+            }),
+          );
+        }
+      } catch (notifyError) {
+        console.error(
+          "[boards] notify unshare recipient failed",
+          JSON.stringify({
+            event: "notification.create.failed",
+            type: "board_unshared",
+            boardId: board.id,
+            recipientUserId: req.params.userId,
+            removedByUserId: userId,
+            error: (notifyError as Error)?.message ?? String(notifyError),
+          }),
+        );
+      }
+
+      try {
+        const recipientEmail = removed?.email?.trim();
+        const optedOut = removed && removed.emailNotifications === false;
+        if (!recipientEmail) {
+          console.warn(
+            "[boards] skipping unshare email — recipient has no email",
+            JSON.stringify({ event: "unshare.email.skipped.no_address", boardId: board.id, recipientUserId: req.params.userId }),
+          );
+        } else if (optedOut) {
+          console.log(
+            "[boards] skipping unshare email — recipient opted out",
+            JSON.stringify({ event: "unshare.email.skipped.opt_out", boardId: board.id, recipientUserId: req.params.userId }),
+          );
+        } else {
+          await sendBoardUnsharedEmail({
+            recipientEmail,
+            recipientName: removed?.name ?? null,
+            removerName: removerDisplayName,
+            boardTitle: board.title,
+          });
+        }
+      } catch (emailError) {
+        console.error(
+          "[boards] send unshare email failed",
+          JSON.stringify({
+            event: "unshare.email.failed",
+            boardId: board.id,
+            recipientUserId: req.params.userId,
+            removedByUserId: userId,
+            error: (emailError as Error)?.message ?? String(emailError),
+          }),
         );
       }
       res.json({ success: true });

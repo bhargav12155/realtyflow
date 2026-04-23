@@ -174,6 +174,51 @@ describe("ChatPanel referenced-asset chips", () => {
   });
 });
 
+describe("ChatPanel thinking indicator", () => {
+  it("shows the indicator with the active Think model name in Think mode while sending", () => {
+    renderPanel({ mode: "brainstorm", chatModel: "gemini", isSending: true });
+    expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
+    expect(screen.getByTestId("text-chat-thinking-label").textContent).toBe(
+      "Gemini is thinking…",
+    );
+  });
+
+  it('shows "Generating…" in Build mode while sending', () => {
+    renderPanel({ mode: "create", isSending: true });
+    expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
+    expect(screen.getByTestId("text-chat-thinking-label").textContent).toBe(
+      "Generating…",
+    );
+  });
+
+  it("does not render the indicator when isSending is false", () => {
+    renderPanel({ mode: "brainstorm", isSending: false });
+    expect(screen.queryByTestId("status-chat-thinking")).toBeNull();
+  });
+
+  it("removes the indicator when isSending flips back to false", () => {
+    const baseProps: React.ComponentProps<typeof ChatPanel> = {
+      boardTitle: "My Board",
+      messages: [],
+      mode: "brainstorm",
+      onModeChange: vi.fn(),
+      provider: "luma",
+      onProviderChange: vi.fn(),
+      generationMode: "text-to-video",
+      onGenerationModeChange: vi.fn(),
+      seedanceOptions: DEFAULT_SEEDANCE_OPTIONS,
+      onSeedanceOptionsChange: vi.fn(),
+      referencedAssetIds: [],
+      onSend: vi.fn(),
+      isSending: true,
+    };
+    const { rerender } = render(<ChatPanel {...baseProps} />);
+    expect(screen.getByTestId("status-chat-thinking")).not.toBeNull();
+    rerender(<ChatPanel {...baseProps} isSending={false} />);
+    expect(screen.queryByTestId("status-chat-thinking")).toBeNull();
+  });
+});
+
 describe("extractSuggestedPrompt", () => {
   it("pulls the contents of the first fenced code block", () => {
     expect(extractSuggestedPrompt("Sure!\n```\nA red barn at dawn\n```\nLet me know.")).toBe(

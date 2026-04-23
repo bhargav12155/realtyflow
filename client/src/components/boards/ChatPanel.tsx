@@ -124,10 +124,22 @@ export function ChatPanel({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
   const isPlan = mode === "brainstorm";
   const selectedThinkModel =
     THINK_MODELS.find((m) => m.id === chatModel) ?? THINK_MODELS[0];
+  const thinkingLabel = isPlan
+    ? `${selectedThinkModel.name} is thinking…`
+    : "Generating…";
+
+  // Keep the latest message (and the thinking row, when shown) in view.
+  useEffect(() => {
+    const el = messagesEndRef.current;
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ block: "end" });
+    }
+  }, [messages.length, isSending]);
 
   // Apply a parent-provided pre-fill (e.g. the typed idea from the Boards
   // home in Plan mode) once, then clear it so we don't clobber the user's
@@ -238,6 +250,24 @@ export function ChatPanel({
             </div>
           );
         })}
+        {isSending && (
+          <div data-testid="status-chat-thinking" aria-live="polite">
+            <div className="text-neutral-700 leading-relaxed dark:text-neutral-300 max-w-[300px] inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-1" aria-hidden="true">
+                <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 animate-bounce motion-reduce:animate-pulse" style={{ animationDelay: "0ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 animate-bounce motion-reduce:animate-pulse" style={{ animationDelay: "150ms" }} />
+                <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 dark:bg-neutral-500 animate-bounce motion-reduce:animate-pulse" style={{ animationDelay: "300ms" }} />
+              </span>
+              <span
+                className="text-[12px] text-neutral-500 dark:text-neutral-400 italic"
+                data-testid="text-chat-thinking-label"
+              >
+                {thinkingLabel}
+              </span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
       </div>
 
       {referencedAssetIds.length > 0 && (() => {

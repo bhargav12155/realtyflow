@@ -8,7 +8,9 @@ import {
   parseHeygenV3VoicesPageResponse,
 } from "../shared/heygenPhotoAvatarSchemas";
 import {
+  __HEYGEN_VALIDATION_REPORTER_DEFAULTS as DEFAULTS,
   __HEYGEN_VALIDATION_REPORTER_TUNABLES as TUNABLES,
+  __getActiveHeygenValidationReporterTunables,
   __resetHeygenValidationReporterForTests,
   normalizeEndpointForBurst,
   registerHeygenValidationReporter,
@@ -44,7 +46,14 @@ describe("heygen-validation-reporter", () => {
   let errorSpy: ReturnType<typeof mock.method>;
   let broadcastSpy: ReturnType<typeof mock.method>;
   let fetchSpy: ReturnType<typeof mock.method>;
-  let originalWebhookUrl: string | undefined;
+  const TUNABLE_ENV_KEYS = [
+    "HEYGEN_BURST_SLACK_WEBHOOK_URL",
+    "HEYGEN_BROADCAST_DEDUP_MS",
+    "HEYGEN_BURST_WINDOW_MS",
+    "HEYGEN_BURST_THRESHOLD",
+    "HEYGEN_BURST_DEDUP_MS",
+  ] as const;
+  const originalEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     __resetHeygenValidationReporterForTests();
@@ -54,8 +63,10 @@ describe("heygen-validation-reporter", () => {
     fetchSpy = mock.method(globalThis, "fetch", async () =>
       new Response("ok", { status: 200 }),
     );
-    originalWebhookUrl = process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
-    delete process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
+    for (const k of TUNABLE_ENV_KEYS) {
+      originalEnv[k] = process.env[k];
+      delete process.env[k];
+    }
     registerHeygenValidationReporter();
   });
 
@@ -64,10 +75,13 @@ describe("heygen-validation-reporter", () => {
     errorSpy.mock.restore();
     broadcastSpy.mock.restore();
     fetchSpy.mock.restore();
-    if (originalWebhookUrl === undefined) {
-      delete process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL;
-    } else {
-      process.env.HEYGEN_BURST_SLACK_WEBHOOK_URL = originalWebhookUrl;
+    for (const k of TUNABLE_ENV_KEYS) {
+      const v = originalEnv[k];
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
     }
     __resetHeygenValidationReporterForTests();
   });
@@ -304,5 +318,90 @@ describe("heygen-validation-reporter", () => {
     });
 
     assert.doesNotThrow(() => triggerFailureForAvatarGroupList());
+  });
+
+  it("uses default tunables when no env overrides are set", () => {
+    const active = __getActiveHeygenValidationReporterTunables();
+    assert.equal(active.BURST_THRESHOLD, DEFAULTS.BURST_THRESHOLD);
+    assert.equal(active.BURST_WINDOW_MS, DEFAULTS.BURST_WINDOW_MS);
+    assert.equal(active.BURST_DEDUP_MS, DEFAULTS.BURST_DEDUP_MS);
+    assert.equal(active.BROADCAST_DEDUP_MS, DEFAULTS.BROADCAST_DEDUP_MS);
+  });
+
+  it("honors HEYGEN_BURST_THRESHOLD when re-registered", () => {
+    __resetHeygenValidationReporterForTests();
+    process.env.HEYGEN_BURST_THRESHOLD = "5";
+    registerHeygenValidationReporter();
+
+    assert.equal(
+      __getActiveHeygenValidationReporterTunables().BURST_THRESHOLD,
+      5,
+    );
+    assert.equal(TUNABLES.BURST_THRESHOLD, 5);
+
+    // Below the override threshold (5): no burst should fire.
+    for (let i = 0; i < 4; i += 1) triggerFailureForAvatarGroupList();
+    let burstBroadcasts = broadcastSpy.mock.calls.filter((c) =>
+      /burst/i.test((c.arguments[0] as { title: string }).title),
+    );
+    assert.equal(burstBroadcasts.length, 0);
+
+    // One more failure crosses the configured threshold.
+    triggerFailureForAvatarGroupList();
+    burstBroadcasts = broadcastSpy.mock.calls.filter((c) =>
+      /burst/i.test((c.arguments[0] as { title: string }).title),
+    );
+    assert.equal(burstBroadcasts.length, 1);
+    const ctx = (burstBroadcasts[0].arguments[0] as {
+      context: { threshold: number; count: number };
+    }).context;
+    assert.equal(ctx.threshold, 5);
+    assert.ok(ctx.count >= 5);
+  });
+
+  it("honors HEYGEN_BURST_WINDOW_MS and HEYGEN_BURST_DEDUP_MS overrides", () => {
+    __resetHeygenValidationReporterForTests();
+    process.env.HEYGEN_BURST_WINDOW_MS = "60000";
+    process.env.HEYGEN_BURST_DEDUP_MS = "120000";
+    registerHeygenValidationReporter();
+
+    const active = __getActiveHeygenValidationReporterTunables();
+    assert.equal(active.BURST_WINDOW_MS, 60000);
+    assert.equal(active.BURST_DEDUP_MS, 120000);
+
+    for (let i = 0; i < active.BURST_THRESHOLD; i += 1) {
+      triggerFailureForAvatarGroupList();
+    }
+    const burstBroadcasts = broadcastSpy.mock.calls.filter((c) =>
+      /burst/i.test((c.arguments[0] as { title: string }).title),
+    );
+    assert.equal(burstBroadcasts.length, 1);
+    const ctx = (burstBroadcasts[0].arguments[0] as {
+      context: { windowMs: number };
+    }).context;
+    assert.equal(ctx.windowMs, 60000);
+  });
+
+  it("falls back to defaults and warns when an env override is invalid", () => {
+    __resetHeygenValidationReporterForTests();
+    process.env.HEYGEN_BURST_THRESHOLD = "not-a-number";
+    process.env.HEYGEN_BURST_WINDOW_MS = "-1";
+    registerHeygenValidationReporter();
+
+    const active = __getActiveHeygenValidationReporterTunables();
+    assert.equal(active.BURST_THRESHOLD, DEFAULTS.BURST_THRESHOLD);
+    assert.equal(active.BURST_WINDOW_MS, DEFAULTS.BURST_WINDOW_MS);
+
+    const warnLines = warnSpy.mock.calls
+      .map((c) => c.arguments[0])
+      .filter((a): a is string => typeof a === "string");
+    assert.ok(
+      warnLines.some((l) => l.includes("HEYGEN_BURST_THRESHOLD")),
+      "expected a warn line about the invalid threshold",
+    );
+    assert.ok(
+      warnLines.some((l) => l.includes("HEYGEN_BURST_WINDOW_MS")),
+      "expected a warn line about the invalid window",
+    );
   });
 });

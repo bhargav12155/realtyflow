@@ -93,19 +93,26 @@ turns each failure into:
 
 ## Tunables
 
-The thresholds live in `server/services/heygen-validation-reporter.ts`
-under `__HEYGEN_VALIDATION_REPORTER_TUNABLES`:
+The thresholds live in `server/services/heygen-validation-reporter.ts`.
+Defaults are in code, but each value is overridable per deploy via an
+env var so operators can tighten or loosen the alarm without a code
+change. Invalid / non-positive overrides fall back to the default and
+log a warn line at server startup.
 
-- `BURST_THRESHOLD` — failures within the window before the burst fires
-  (default 3).
-- `BURST_WINDOW_MS` — sliding window length (default 5 minutes).
-- `BURST_DEDUP_MS` — minimum gap between burst alerts for the same
-  endpoint (default 15 minutes).
-- `BROADCAST_DEDUP_MS` — gap between per-event admin alerts for the same
-  endpoint+groupId (default 5 minutes).
+| Setting              | Env var                       | Default     | Meaning                                                                  |
+| -------------------- | ----------------------------- | ----------- | ------------------------------------------------------------------------ |
+| `BURST_THRESHOLD`    | `HEYGEN_BURST_THRESHOLD`      | `3`         | Failures within the window before the burst fires.                       |
+| `BURST_WINDOW_MS`    | `HEYGEN_BURST_WINDOW_MS`      | `300000`    | Sliding window length (ms).                                              |
+| `BURST_DEDUP_MS`     | `HEYGEN_BURST_DEDUP_MS`       | `900000`    | Minimum gap between burst alerts for the same endpoint (ms).             |
+| `BROADCAST_DEDUP_MS` | `HEYGEN_BROADCAST_DEDUP_MS`   | `300000`    | Gap between per-event admin alerts for the same endpoint+groupId (ms).   |
 
-If we start getting paged for one-off blips, raise `BURST_THRESHOLD`. If
-real outages are slipping past the alarm, lower it. Keep the change
+Example: to match the policy "page when more than 5 incidents land in
+10 minutes for a single endpoint", set
+`HEYGEN_BURST_THRESHOLD=6` and `HEYGEN_BURST_WINDOW_MS=600000` in the
+deploy environment.
+
+If we start getting paged for one-off blips, raise `HEYGEN_BURST_THRESHOLD`.
+If real outages are slipping past the alarm, lower it. Keep the change
 small and add a note to this runbook with the date.
 
 ## Related code & tests

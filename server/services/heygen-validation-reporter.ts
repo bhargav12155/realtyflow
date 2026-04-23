@@ -21,6 +21,10 @@
  *      `HEYGEN_BURST_SLACK_WEBHOOK_URL` so the team's on-call channel is
  *      paged directly (no log-based alerting rule required). See
  *      `docs/heygen-shape-drift-runbook.md` for the response procedure.
+ *
+ * The burst thresholds are configurable per deploy via env vars (see
+ * `resolveTunables` below) so operators can tighten or relax the alarm
+ * without a code change.
  */
 
 import {
@@ -32,15 +36,57 @@ import { realtimeService } from "../websocket";
 // ---------------------------------------------------------------------------
 // Tunable thresholds
 //
-// Kept module-level (not env-driven) so the values are visible in code
-// review. If we ever need to tune these per-deploy, swap them for env
-// vars — but the defaults below are intentionally conservative so a brief
-// HeyGen hiccup does not page anyone.
+// Defaults are intentionally conservative so a brief HeyGen hiccup does
+// not page anyone. Each value can be overridden per deploy via an env
+// var; invalid / non-positive values fall back to the default and a
+// single warn line is logged at registration time so the misconfig is
+// visible.
 // ---------------------------------------------------------------------------
-const BROADCAST_DEDUP_MS = 5 * 60 * 1000; // dedupe per endpoint+groupId
-const BURST_WINDOW_MS = 5 * 60 * 1000; // sliding window for rate alarm
-const BURST_THRESHOLD = 3; // failures within window that trip the alarm
-const BURST_DEDUP_MS = 15 * 60 * 1000; // suppress repeat burst alerts per endpoint
+const DEFAULTS = {
+  BROADCAST_DEDUP_MS: 5 * 60 * 1000, // dedupe per endpoint+groupId
+  BURST_WINDOW_MS: 5 * 60 * 1000, // sliding window for rate alarm
+  BURST_THRESHOLD: 3, // failures within window that trip the alarm
+  BURST_DEDUP_MS: 15 * 60 * 1000, // suppress repeat burst alerts per endpoint
+} as const;
+
+const ENV_KEYS = {
+  BROADCAST_DEDUP_MS: "HEYGEN_BROADCAST_DEDUP_MS",
+  BURST_WINDOW_MS: "HEYGEN_BURST_WINDOW_MS",
+  BURST_THRESHOLD: "HEYGEN_BURST_THRESHOLD",
+  BURST_DEDUP_MS: "HEYGEN_BURST_DEDUP_MS",
+} as const;
+
+type TunableKey = keyof typeof DEFAULTS;
+
+interface Tunables {
+  BROADCAST_DEDUP_MS: number;
+  BURST_WINDOW_MS: number;
+  BURST_THRESHOLD: number;
+  BURST_DEDUP_MS: number;
+}
+
+function readPositiveIntEnv(envKey: string, fallback: number): number {
+  const raw = process.env[envKey];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0 || !Number.isInteger(parsed)) {
+    console.warn(
+      `[heygen-validation-reporter] ${envKey}=${JSON.stringify(
+        raw,
+      )} is not a positive integer; falling back to default ${fallback}`,
+    );
+    return fallback;
+  }
+  return parsed;
+}
+
+function resolveTunables(): Tunables {
+  const out = {} as Tunables;
+  for (const key of Object.keys(DEFAULTS) as TunableKey[]) {
+    out[key] = readPositiveIntEnv(ENV_KEYS[key], DEFAULTS[key]);
+  }
+  return out;
+}
 
 // Default runbook URL surfaced in the Slack message. Overridable via env so
 // the link can point at the team's internal docs mirror without a code
@@ -49,6 +95,7 @@ const DEFAULT_RUNBOOK_URL =
   "https://github.com/replit/agent/blob/main/docs/heygen-shape-drift-runbook.md";
 
 let registered = false;
+let activeTunables: Tunables = { ...DEFAULTS };
 let lastBroadcastByEndpoint: Map<string, number> = new Map();
 let recentFailureTimestamps: Map<string, number[]> = new Map();
 let lastBurstAlertByEndpoint: Map<string, number> = new Map();
@@ -167,7 +214,7 @@ export function normalizeEndpointForBurst(endpoint: string): string {
 function recordFailureForBurst(endpoint: string, now: number): number {
   const arr = recentFailureTimestamps.get(endpoint) ?? [];
   // Drop timestamps older than the window before counting.
-  const cutoff = now - BURST_WINDOW_MS;
+  const cutoff = now - activeTunables.BURST_WINDOW_MS;
   let i = 0;
   while (i < arr.length && arr[i] < cutoff) i += 1;
   const trimmed = i > 0 ? arr.slice(i) : arr;
@@ -179,6 +226,7 @@ function recordFailureForBurst(endpoint: string, now: number): number {
 export function registerHeygenValidationReporter(): void {
   if (registered) return;
   registered = true;
+  activeTunables = resolveTunables();
 
   setHeygenValidationReporter((report: HeygenValidationFailureReport) => {
     const logLine = {
@@ -198,7 +246,7 @@ export function registerHeygenValidationReporter(): void {
     // dashboard while operators are already triaging the issue.
     const dedupeKey = `${report.endpoint}::${report.groupId ?? ""}`;
     const last = lastBroadcastByEndpoint.get(dedupeKey) ?? 0;
-    if (now - last >= BROADCAST_DEDUP_MS) {
+    if (now - last >= activeTunables.BROADCAST_DEDUP_MS) {
       lastBroadcastByEndpoint.set(dedupeKey, now);
       try {
         realtimeService.broadcastAdminAlert({
@@ -233,15 +281,15 @@ export function registerHeygenValidationReporter(): void {
     // as a backup signal for teams that prefer it.
     const burstEndpoint = normalizeEndpointForBurst(report.endpoint);
     const count = recordFailureForBurst(burstEndpoint, now);
-    if (count >= BURST_THRESHOLD) {
+    if (count >= activeTunables.BURST_THRESHOLD) {
       const lastBurst = lastBurstAlertByEndpoint.get(burstEndpoint) ?? 0;
-      if (now - lastBurst >= BURST_DEDUP_MS) {
+      if (now - lastBurst >= activeTunables.BURST_DEDUP_MS) {
         lastBurstAlertByEndpoint.set(burstEndpoint, now);
         const burstLine = {
           event: "heygen.response.invalid.burst",
           endpoint: burstEndpoint,
-          windowMs: BURST_WINDOW_MS,
-          threshold: BURST_THRESHOLD,
+          windowMs: activeTunables.BURST_WINDOW_MS,
+          threshold: activeTunables.BURST_THRESHOLD,
           count,
           sampleIssuePaths: report.issuePaths,
           sampleMessage: report.message,
@@ -261,13 +309,13 @@ export function registerHeygenValidationReporter(): void {
             severity: "error",
             title: "HeyGen shape drift burst detected",
             message: `HeyGen returned ${count} invalid responses for ${burstEndpoint} in the last ${Math.round(
-              BURST_WINDOW_MS / 60000,
+              activeTunables.BURST_WINDOW_MS / 60000,
             )} minutes. See docs/heygen-shape-drift-runbook.md.`,
             context: {
               endpoint: burstEndpoint,
               count,
-              windowMs: BURST_WINDOW_MS,
-              threshold: BURST_THRESHOLD,
+              windowMs: activeTunables.BURST_WINDOW_MS,
+              threshold: activeTunables.BURST_THRESHOLD,
               sampleIssuePaths: report.issuePaths,
             },
           });
@@ -284,8 +332,8 @@ export function registerHeygenValidationReporter(): void {
         void postBurstToSlack({
           endpoint: burstEndpoint,
           count,
-          windowMs: BURST_WINDOW_MS,
-          threshold: BURST_THRESHOLD,
+          windowMs: activeTunables.BURST_WINDOW_MS,
+          threshold: activeTunables.BURST_THRESHOLD,
           sampleIssuePaths: report.issuePaths,
           sampleMessage: report.message,
         });
@@ -298,17 +346,27 @@ export function registerHeygenValidationReporter(): void {
 // `registered` guard so each test run can re-register a fresh reporter.
 export function __resetHeygenValidationReporterForTests(): void {
   registered = false;
+  activeTunables = { ...DEFAULTS };
   lastBroadcastByEndpoint = new Map();
   recentFailureTimestamps = new Map();
   lastBurstAlertByEndpoint = new Map();
   setHeygenValidationReporter(null);
 }
 
-// Test-only: expose the tunables so tests can assert against them without
-// hard-coding the same magic numbers.
-export const __HEYGEN_VALIDATION_REPORTER_TUNABLES = {
-  BROADCAST_DEDUP_MS,
-  BURST_WINDOW_MS,
-  BURST_THRESHOLD,
-  BURST_DEDUP_MS,
-} as const;
+// Test-only: expose the resolved (env-aware) tunables so tests can assert
+// against them without hard-coding the same magic numbers, and the
+// defaults so tests can verify env overrides take effect.
+export const __HEYGEN_VALIDATION_REPORTER_DEFAULTS = DEFAULTS;
+export function __getActiveHeygenValidationReporterTunables(): Tunables {
+  return { ...activeTunables };
+}
+// Backwards-compatible alias for existing tests that import the static
+// tunables. Returns the *active* (post-register) values.
+export const __HEYGEN_VALIDATION_REPORTER_TUNABLES = new Proxy(
+  {} as Tunables,
+  {
+    get(_t, prop: string) {
+      return activeTunables[prop as TunableKey];
+    },
+  },
+);

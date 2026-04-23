@@ -107,4 +107,29 @@ describe("Sidebar — Admin entry visibility", () => {
 
     expect(screen.queryByTestId("nav-admin")).toBeNull();
   });
+
+  it("renders all admin-only nav entries for admin users", async () => {
+    renderSidebar(true);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("nav-heygen-shape-drift").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByTestId("nav-heygen-shape-drift").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("nav-infrastructure-alerts").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("nav-admin").length).toBeGreaterThan(0);
+  });
+
+  it("hides all admin-only nav entries for non-admin users", async () => {
+    renderSidebar(false);
+
+    // Wait for a non-admin nav item to appear so we know the sidebar rendered.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("nav-dashboard").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByTestId("nav-heygen-shape-drift")).toBeNull();
+    expect(screen.queryByTestId("nav-infrastructure-alerts")).toBeNull();
+    expect(screen.queryByTestId("nav-admin")).toBeNull();
+  });
 });

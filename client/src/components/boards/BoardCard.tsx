@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { MoreVertical, Plus, LogOut, Trash2 } from "lucide-react";
+import { MoreVertical, Plus, LogOut, Trash2, BellOff } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +48,8 @@ export interface BoardSummary {
   collaborators?: BoardCollaborator[];
   /** The owner of this board (only set on boards shared with the current user). */
   owner?: BoardOwner | null;
+  /** When false, the owner has muted collaborator join/leave emails for this board. */
+  notifyOnCollaboratorChange?: boolean;
 }
 
 const TINTS = [
@@ -284,6 +286,10 @@ export function BoardCard({
   // would confuse the user (and hide their Leave option).
   const showDelete = !!onDelete && board.isOwner === true;
   const showMenu = showLeave || showDelete;
+  // Owner-only cue so the user can tell at a glance which boards have
+  // collaborator join/leave emails silenced via the share dialog toggle.
+  const showMutedIndicator =
+    board.isOwner === true && board.notifyOnCollaboratorChange === false;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const titleForCopy = board.title || "Untitled board";
   return (
@@ -293,8 +299,38 @@ export function BoardCard({
           className={`block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
           data-testid={`card-board-${board.id}`}
         >
-          <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300">
-            {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
+          <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300 flex items-center gap-1.5">
+            <span>
+              {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
+            </span>
+            {showMutedIndicator && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    className="inline-flex items-center justify-center w-4 h-4 rounded-full text-neutral-500 dark:text-neutral-400 outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+                    aria-label="Collaborator emails muted"
+                    data-testid={`indicator-muted-${board.id}`}
+                  >
+                    <BellOff className="w-3 h-3" strokeWidth={2} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  className="max-w-xs"
+                  data-testid={`tooltip-muted-${board.id}`}
+                >
+                  <span className="text-xs">
+                    Collaborator join/leave emails are muted for this board. Open the share dialog to re-enable them.
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
           <div className="text-[10px] text-neutral-500 mb-3 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
           <ThumbCollage thumbs={board.thumbnails ?? []} />

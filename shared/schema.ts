@@ -2046,6 +2046,18 @@ export const boardMessages = pgTable("board_messages", {
   boardId: varchar("board_id")
     .notNull()
     .references(() => boards.id, { onDelete: "cascade" }),
+  // Which user authored this turn. Always set for new rows; nullable so the
+  // backfill is non-breaking for messages persisted before collaborator chat
+  // landed (those rows are owner-authored by definition — the only writer the
+  // /messages routes accepted at the time). The GET handler treats NULL as
+  // "the board owner" so the UI label is still correct for legacy rows.
+  // Assistant turns also carry the userId of the human whose request
+  // produced them, which is enough for the owner-readable audit ("who asked
+  // the question that produced this reply") without inventing a separate
+  // "assistant author" concept.
+  authorUserId: varchar("author_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
   role: varchar("role", { length: 16 }).notNull(), // 'user' | 'assistant'
   content: text("content").notNull(),
   // Friendly fallback notice ("Claude was unavailable, used Gemini instead.")

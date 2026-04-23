@@ -25,12 +25,25 @@ export interface ChatMessageCta {
   testId?: string;
 }
 
+export interface ChatMessageAuthor {
+  /** Pre-formatted display label (e.g. "Alex" or "alex@example.com"). */
+  name: string;
+  /** True when this turn was authored by the currently signed-in user. The
+   *  panel uses this to skip the "from <name>" tag on the user's own
+   *  bubbles and to align them on the right. */
+  isSelf: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   pending?: boolean;
   cta?: ChatMessageCta;
+  /** Only meaningful on shared boards. When omitted (or when the panel
+   *  hasn't been told the board has collaborators) no author tag renders,
+   *  which preserves the existing single-user look on private boards. */
+  author?: ChatMessageAuthor;
 }
 
 /**
@@ -262,8 +275,22 @@ export function ChatPanel({
           const suggested = isPlan && m.role === "assistant" && !m.pending
             ? extractSuggestedPrompt(m.content)
             : null;
+          // Only label user turns by another collaborator. The current
+          // user's own bubbles stay clean so the most common case (private
+          // board) looks unchanged.
+          const showAuthor =
+            m.role === "user" && m.author && !m.author.isSelf;
           return (
             <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
+              <div className={m.role === "user" ? "flex flex-col items-end" : ""}>
+              {showAuthor && (
+                <div
+                  className="text-[11px] text-neutral-500 dark:text-neutral-400 mb-0.5 mr-1"
+                  data-testid={`text-msg-author-${m.id}`}
+                >
+                  {m.author!.name}
+                </div>
+              )}
               <div
                 className={
                   m.role === "user"
@@ -288,6 +315,7 @@ export function ChatPanel({
                     </a>
                   </div>
                 )}
+              </div>
               </div>
               {suggested && (
                 <div className="mt-1.5">

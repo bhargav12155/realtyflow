@@ -1176,7 +1176,13 @@ export function registerBoardsChatRoutes(
       const boardId = req.params.id;
       const board = await storage.getAccessibleBoardForUser(boardId, userId);
       if (!board) return res.status(404).json({ error: "Board not found" });
-      const messages = await storage.getBoardMessagesForUser(boardId, userId);
+      // Hand the chat panel the joined-with-author view so the owner can see
+      // exactly which collaborator contributed each turn on a shared board.
+      // Non-shared boards just see the same name on every row (their own).
+      const messages = await storage.getBoardMessagesWithAuthorsForUser(
+        boardId,
+        userId,
+      );
       return res.json({ messages });
     } catch (error: unknown) {
       console.error("[boards-chat] list messages error:", error);

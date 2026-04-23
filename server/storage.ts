@@ -520,6 +520,14 @@ export interface IStorage {
   // Access is gated to the same set of users who can read the board (owners
   // and shared collaborators).
   getBoardMessagesForUser(boardId: string, userId: string): Promise<BoardMessage[]>;
+  // Owner-readable read of the same conversation, joined with the users
+  // table so the chat panel can label which collaborator authored each
+  // turn. Same access gate as `getBoardMessagesForUser` — anyone who can
+  // read the board can see who said what.
+  getBoardMessagesWithAuthorsForUser(
+    boardId: string,
+    userId: string,
+  ): Promise<BoardMessageWithAuthor[]>;
   createBoardMessageForUser(
     boardId: string,
     userId: string,
@@ -580,7 +588,17 @@ export type BoardAssetUpdate = Partial<Pick<
   | "evalHistory"
   | "content"
 >>;
-export type BoardMessageCreate = Omit<InsertBoardMessage, "boardId">;
+// authorUserId is filled in by `createBoardMessageForUser` from the userId
+// argument so callers can't accidentally attribute a message to someone else.
+export type BoardMessageCreate = Omit<InsertBoardMessage, "boardId" | "authorUserId">;
+export type BoardMessageAuthor = {
+  id: string;
+  name: string | null;
+  email: string | null;
+};
+export type BoardMessageWithAuthor = BoardMessage & {
+  author: BoardMessageAuthor | null;
+};
 
 export class MemStorage implements IStorage {
   private users: Map<string, User> = new Map();
@@ -3318,6 +3336,34 @@ export class MemStorage implements IStorage {
       .orderBy(boardMessagesTable.createdAt);
   }
 
+  async getBoardMessagesWithAuthorsForUser(
+    boardId: string,
+    userId: string,
+  ): Promise<BoardMessageWithAuthor[]> {
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return [];
+    const rows = await db
+      .select({
+        message: boardMessagesTable,
+        authorName: usersTable.name,
+        authorEmail: usersTable.email,
+      })
+      .from(boardMessagesTable)
+      .leftJoin(usersTable, eq(usersTable.id, boardMessagesTable.authorUserId))
+      .where(eq(boardMessagesTable.boardId, boardId))
+      .orderBy(boardMessagesTable.createdAt);
+    return rows.map((r) => ({
+      ...r.message,
+      author: r.message.authorUserId
+        ? {
+            id: r.message.authorUserId,
+            name: r.authorName ?? null,
+            email: r.authorEmail ?? null,
+          }
+        : null,
+    }));
+  }
+
   async createBoardMessageForUser(
     boardId: string,
     userId: string,
@@ -3327,7 +3373,7 @@ export class MemStorage implements IStorage {
     if (!access) return undefined;
     const [created] = await db
       .insert(boardMessagesTable)
-      .values({ ...message, boardId })
+      .values({ ...message, boardId, authorUserId: userId })
       .returning();
     // Auto-trim: once the board's history exceeds the cap, drop the oldest
     // rows so the chat panel stays snappy. Done as a best-effort follow-up

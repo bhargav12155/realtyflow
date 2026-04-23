@@ -104,6 +104,11 @@ export default function BoardDetailPage() {
     enabled: !!boardId,
   });
 
+  type PersistedBoardMessageAuthor = {
+    id: string;
+    name: string | null;
+    email: string | null;
+  };
   type PersistedBoardMessage = {
     id: string;
     role: "user" | "assistant";
@@ -111,22 +116,59 @@ export default function BoardDetailPage() {
     notice: string | null;
     cta: { label: string; href: string; testId?: string } | null;
     createdAt: string | null;
+    authorUserId?: string | null;
+    author?: PersistedBoardMessageAuthor | null;
   };
   const messagesQuery = useQuery<{ messages: PersistedBoardMessage[] }>({
     queryKey: ["/api/boards", boardId, "messages"],
     enabled: !!boardId,
   });
 
+  // The board owner's id, used as the fallback "author" for legacy rows
+  // (persisted before authorship was tracked) and to label the most common
+  // private-board case correctly.
+  const boardOwnerId = boardQuery.data
+    ? (boardQuery.data as unknown as { userId?: string }).userId ?? null
+    : null;
+  const currentUserId = user?.id ? String(user.id) : null;
+
+  // Resolve a message's author into a label + isSelf flag for ChatPanel.
+  // Only emits an author tag when the board has actually been shared with
+  // someone — otherwise the panel stays visually identical to the
+  // single-user version. Null author rows (legacy data) are attributed to
+  // the board owner, which matches who could have written them under the
+  // old owner-only policy.
+  const resolveAuthor = useCallback(
+    (m: PersistedBoardMessage) => {
+      if (!boardQuery.data?.isShared) return undefined;
+      const authorId = m.authorUserId ?? m.author?.id ?? boardOwnerId;
+      if (!authorId) return undefined;
+      const isSelf = currentUserId !== null && authorId === currentUserId;
+      const label =
+        m.author?.name?.trim() ||
+        m.author?.email?.trim() ||
+        (authorId === boardOwnerId ? "Board owner" : "Collaborator");
+      return { name: label, isSelf };
+    },
+    [boardQuery.data?.isShared, boardOwnerId, currentUserId],
+  );
+
   useEffect(() => {
     if (!boardId) return;
     if (hydratedBoardRef.current === boardId) return;
     const data = messagesQuery.data;
     if (!data || !Array.isArray(data.messages)) return;
+    // Wait for board metadata too — `resolveAuthor` needs `isShared` and the
+    // owner id to decide whether and how to label each message. Hydrating
+    // before the board query resolves would strip author labels permanently
+    // (we only hydrate once per board).
+    if (!boardQuery.data) return;
     const restored: ChatMessage[] = data.messages.map((m) => ({
       id: m.id,
       role: m.role,
       content: m.notice ? `_${m.notice}_\n\n${m.content}` : m.content,
       cta: m.cta ?? undefined,
+      author: resolveAuthor(m),
     }));
     // Merge older history above any in-flight messages. If the user started
     // sending before hydration finished, we keep their optimistic message and
@@ -141,7 +183,7 @@ export default function BoardDetailPage() {
       return [...olderHistory, ...current];
     });
     hydratedBoardRef.current = boardId;
-  }, [boardId, messagesQuery.data]);
+  }, [boardId, messagesQuery.data, boardQuery.data, resolveAuthor]);
 
   // Reset hydration when navigating between boards so the next board hydrates
   // from its own history rather than reusing the previous one.
@@ -341,6 +383,18 @@ export default function BoardDetailPage() {
     setSelectedAssetIds((prev) => prev.filter((x) => x !== id));
   }, []);
 
+  // Build the "from <me>" tag that decorates a turn we just sent
+  // optimistically. Same gating as the hydrated-message resolver: only emit
+  // a tag on shared boards so the private-board UI stays unchanged.
+  const selfAuthorTag = useMemo(() => {
+    if (!boardQuery.data?.isShared || !user) return undefined;
+    const label =
+      (typeof user.name === "string" && user.name.trim()) ||
+      (typeof user.email === "string" && user.email.trim()) ||
+      "You";
+    return { name: label, isSelf: true } as const;
+  }, [boardQuery.data?.isShared, user]);
+
   const sendSelfAvatarCta = (text: string) => {
     const cta = {
       label: "Open Photo Avatars",
@@ -349,7 +403,12 @@ export default function BoardDetailPage() {
     };
     const assistantContent =
       "Got it — to create a Photo Avatar of yourself, head to Photo Avatars. Upload a clear headshot there and we'll train the avatar so you can use it in any video.";
-    const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: text };
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      content: text,
+      author: selfAuthorTag,
+    };
     const assistantMsg: ChatMessage = {
       id: `a-${Date.now()}`,
       role: "assistant",
@@ -403,7 +462,12 @@ export default function BoardDetailPage() {
       return res.json();
     },
     onMutate: (text) => {
-      const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: text };
+      const userMsg: ChatMessage = {
+        id: `u-${Date.now()}`,
+        role: "user",
+        content: text,
+        author: selfAuthorTag,
+      };
       const pendingMsg: ChatMessage = { id: `a-${Date.now()}`, role: "assistant", content: "", pending: true };
       setMessages((m) => [...m, userMsg, pendingMsg]);
       return { pendingId: pendingMsg.id };

@@ -101,15 +101,29 @@ class FakeStorage {
   messages: Array<{
     id: string;
     boardId: string;
+    authorUserId: string | null;
     role: "user" | "assistant";
     content: string;
     notice: string | null;
     cta: { label: string; href: string; testId?: string } | null;
     createdAt: Date;
   }> = [];
+  // Map of userId -> {name,email} so the with-authors read can join.
+  users = new Map<string, { id: string; name: string | null; email: string | null }>();
+  // Junction: which userIds a board has been shared with. Mirrors the real
+  // board_shares table; getAccessibleBoardForUser consults it.
+  shares = new Map<string, Set<string>>();
+  shareBoardWith(boardId: string, userId: string) {
+    const s = this.shares.get(boardId) ?? new Set<string>();
+    s.add(userId);
+    this.shares.set(boardId, s);
+  }
   async getAccessibleBoardForUser(id: string, userId: string) {
-    const b = await this.getBoardByIdForUser(id, userId);
-    return b ? { ...b, isOwner: true } : undefined;
+    const b = this.boards.get(id);
+    if (!b) return undefined;
+    if (b.userId === userId) return { ...b, isOwner: true };
+    if (this.shares.get(id)?.has(userId)) return { ...b, isOwner: false };
+    return undefined;
   }
   async getBoardMessagesForUser(boardId: string, userId: string) {
     const access = await this.getAccessibleBoardForUser(boardId, userId);
@@ -117,6 +131,22 @@ class FakeStorage {
     return this.messages
       .filter((m) => m.boardId === boardId)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+  async getBoardMessagesWithAuthorsForUser(boardId: string, userId: string) {
+    const rows = await this.getBoardMessagesForUser(boardId, userId);
+    return rows.map((m) => {
+      const u = m.authorUserId ? this.users.get(m.authorUserId) : null;
+      return {
+        ...m,
+        author: m.authorUserId
+          ? {
+              id: m.authorUserId,
+              name: u?.name ?? null,
+              email: u?.email ?? null,
+            }
+          : null,
+      };
+    });
   }
   async createBoardMessageForUser(
     boardId: string,
@@ -133,6 +163,7 @@ class FakeStorage {
     const row = {
       id: this.nextId("msg"),
       boardId,
+      authorUserId: userId,
       role: msg.role,
       content: msg.content,
       notice: msg.notice ?? null,
@@ -205,11 +236,20 @@ interface BuildResult {
   bgPromises: Promise<void>[];
 }
 
-function buildApp(opts: BuildOpts = {}): BuildResult {
+function buildApp(opts: BuildOpts & { userId?: string; userEmail?: string } = {}): BuildResult {
   const app: Express = express();
   app.use(express.json());
+  // Tests can override which user is "logged in" per request by sending an
+  // `x-test-user` header (used by the collaborator test); otherwise we
+  // default to the userId passed at build time (or "user-1").
   app.use((req, _res, next) => {
-    (req as any).user = { id: "user-1", type: "agent", email: "u@example.com" };
+    const headerUser = req.headers["x-test-user"];
+    const id = typeof headerUser === "string" ? headerUser : opts.userId ?? "user-1";
+    (req as any).user = {
+      id,
+      type: "agent",
+      email: opts.userEmail ?? `${id}@example.com`,
+    };
     next();
   });
   const storage = new FakeStorage();
@@ -243,12 +283,14 @@ function buildApp(opts: BuildOpts = {}): BuildResult {
   return { app, storage, bgPromises };
 }
 
-async function getJson(app: Express, path: string) {
+async function getJson(app: Express, path: string, asUser?: string) {
   const server = app.listen(0);
   try {
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no addr");
-    const res = await fetch(`http://127.0.0.1:${addr.port}${path}`);
+    const headers: Record<string, string> = {};
+    if (asUser) headers["x-test-user"] = asUser;
+    const res = await fetch(`http://127.0.0.1:${addr.port}${path}`, { headers });
     const text = await res.text();
     let json: any = null;
     try { json = text ? JSON.parse(text) : null; } catch { /* leave null */ }
@@ -258,14 +300,16 @@ async function getJson(app: Express, path: string) {
   }
 }
 
-async function postJson(app: Express, path: string, body: unknown) {
+async function postJson(app: Express, path: string, body: unknown, asUser?: string) {
   const server = app.listen(0);
   try {
     const addr = server.address();
     if (!addr || typeof addr === "string") throw new Error("no addr");
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (asUser) headers["x-test-user"] = asUser;
     const res = await fetch(`http://127.0.0.1:${addr.port}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
     const text = await res.text();
@@ -1327,5 +1371,96 @@ describe("POST /api/boards/:id/chat — image edit flow (gemini-image)", () => {
       gem.editCalls[0].referenceImageUrls,
       ["https://example.com/a.png", "https://example.com/b.png"],
     );
+  });
+});
+
+describe("Shared boards — collaborator chat history", () => {
+  it("lets a collaborator read history and post messages, and tags each turn with its author", async () => {
+    const { app, storage } = buildApp();
+    const owner = await storage.createBoard({ userId: "owner", title: "Shared", isShared: true });
+    storage.shareBoardWith(owner.id, "collab");
+    storage.users.set("owner", { id: "owner", name: "Olivia Owner", email: "olivia@example.com" });
+    storage.users.set("collab", { id: "collab", name: "Carl Collab", email: "carl@example.com" });
+
+    // Owner posts a message via the lightweight POST /messages route.
+    const ownerPost = await postJson(
+      app,
+      `/api/boards/${owner.id}/messages`,
+      { role: "user", content: "Hi team", notice: null, cta: null },
+      "owner",
+    );
+    assert.equal(ownerPost.status, 200);
+
+    // Collaborator can read what the owner wrote AND post their own reply.
+    const collabRead = await getJson(app, `/api/boards/${owner.id}/messages`, "collab");
+    assert.equal(collabRead.status, 200);
+    assert.equal(collabRead.body.messages.length, 1);
+    assert.equal(collabRead.body.messages[0].content, "Hi team");
+    assert.equal(collabRead.body.messages[0].author?.id, "owner");
+    assert.equal(collabRead.body.messages[0].author?.name, "Olivia Owner");
+
+    const collabPost = await postJson(
+      app,
+      `/api/boards/${owner.id}/messages`,
+      { role: "user", content: "Reply from collab", notice: null, cta: null },
+      "collab",
+    );
+    assert.equal(collabPost.status, 200);
+
+    // Owner sees both turns labelled with the right author.
+    const ownerRead = await getJson(app, `/api/boards/${owner.id}/messages`, "owner");
+    assert.equal(ownerRead.status, 200);
+    assert.equal(ownerRead.body.messages.length, 2);
+    assert.deepEqual(
+      ownerRead.body.messages.map((m: any) => [m.content, m.author?.id]),
+      [
+        ["Hi team", "owner"],
+        ["Reply from collab", "collab"],
+      ],
+    );
+  });
+
+  it("attributes a Plan-mode chat turn to the collaborator who sent it", async () => {
+    const anthropic = makeFakeChat("anthropic");
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini: makeFakeChat("gemini"), openaiBrainstorm: makeFakeOpenAIBrainstorm().fn },
+    });
+    const owner = await storage.createBoard({ userId: "owner", title: "Shared", isShared: true });
+    storage.shareBoardWith(owner.id, "collab");
+    storage.users.set("collab", { id: "collab", name: "Carl Collab", email: null });
+
+    const reply = await postJson(
+      app,
+      `/api/boards/${owner.id}/chat`,
+      { message: "what should we try next?", mode: "brainstorm" },
+      "collab",
+    );
+    assert.equal(reply.status, 200);
+
+    const read = await getJson(app, `/api/boards/${owner.id}/messages`, "owner");
+    assert.equal(read.status, 200);
+    // Both turns produced by this brainstorm call should be attributed to
+    // the collaborator who actually invoked the chat — otherwise the owner
+    // can't tell who's been driving the conversation.
+    assert.equal(read.body.messages.length, 2);
+    for (const m of read.body.messages) {
+      assert.equal(m.author?.id, "collab", `expected ${m.role} turn to be authored by collab`);
+    }
+  });
+
+  it("rejects /messages access for users who are neither owner nor collaborators", async () => {
+    const { app, storage } = buildApp();
+    const owner = await storage.createBoard({ userId: "owner", title: "Private", isShared: false });
+
+    const read = await getJson(app, `/api/boards/${owner.id}/messages`, "stranger");
+    assert.equal(read.status, 404);
+
+    const post = await postJson(
+      app,
+      `/api/boards/${owner.id}/messages`,
+      { role: "user", content: "sneak", notice: null, cta: null },
+      "stranger",
+    );
+    assert.equal(post.status, 404);
   });
 });

@@ -639,6 +639,36 @@ export default function BoardDetailPage() {
     },
   });
 
+  const resizeAsset = useMutation({
+    mutationFn: async (vars: { assetId: string; width: number; height: number }) => {
+      const res = await apiRequest(
+        "PATCH",
+        `/api/boards/${boardId}/assets/${vars.assetId}`,
+        { width: vars.width, height: vars.height },
+      );
+      return res.json();
+    },
+    onMutate: (vars) => {
+      // Optimistic: update the cached size right away so the resize handle
+      // doesn't snap back while the PATCH is in flight.
+      queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
+        if (!prev) return prev;
+        const patch = <T extends { id: string }>(a: T): T =>
+          a.id === vars.assetId ? { ...a, width: vars.width, height: vars.height } : a;
+        return {
+          ...prev,
+          batches: prev.batches.map((b) => ({ ...b, assets: b.assets.map(patch) })),
+          assets: prev.assets.map(patch),
+        };
+      });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't resize", description: errText, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+  });
+
   // Reset selection when board changes
   useEffect(() => {
     setSelectedAssetIds([]);
@@ -1078,6 +1108,9 @@ export default function BoardDetailPage() {
             onSetWinner={(batchId, assetId) => setWinner.mutate({ batchId, assetId })}
             onReEvaluate={(batchId, payload) =>
               reEvaluateBatch.mutate({ batchId, ...payload })
+            }
+            onResizeAsset={(assetId, width, height) =>
+              resizeAsset.mutate({ assetId, width, height })
             }
             reEvalPendingBatchId={
               reEvaluateBatch.isPending ? reEvaluateBatch.variables?.batchId ?? null : null

@@ -19,7 +19,17 @@ export interface CanvasAsset {
   content?: string | null;
   evalHistory?: BoardAssetEvalHistoryEntry[] | null;
   sourceAssetId?: string | null;
+  width?: number | null;
+  height?: number | null;
 }
+
+const RESIZABLE_KINDS = new Set(["drawing", "audio"]);
+const RESIZE_DEFAULTS: Record<string, { width: number; height: number }> = {
+  drawing: { width: 360, height: 240 },
+  audio: { width: 320, height: 90 },
+};
+const RESIZE_MIN = { width: 160, height: 80 };
+const RESIZE_MAX = { width: 800, height: 600 };
 
 export interface CanvasBatch {
   batchId: string;
@@ -44,6 +54,7 @@ interface BoardCanvasProps {
     batchId: string,
     payload: { modelHint: ReEvalModel; extraCriteria?: string },
   ) => void;
+  onResizeAsset?: (assetId: string, width: number, height: number) => void;
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
@@ -68,6 +79,7 @@ export function BoardCanvas({
   onClearRejection,
   onSetWinner,
   onReEvaluate,
+  onResizeAsset,
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
@@ -214,6 +226,7 @@ export function BoardCanvas({
               onClearRejection={onClearRejection}
               onSetWinner={onSetWinner}
               onReEvaluate={onReEvaluate}
+              onResizeAsset={onResizeAsset}
               reEvalPending={reEvalPendingBatchId === b.batchId}
               setWinnerPendingAssetId={setWinnerPendingAssetId}
               onUpdateAssetContent={onUpdateAssetContent}
@@ -247,6 +260,7 @@ function BatchGroup({
   onClearRejection,
   onSetWinner,
   onReEvaluate,
+  onResizeAsset,
   reEvalPending,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
@@ -262,6 +276,7 @@ function BatchGroup({
     batchId: string,
     payload: { modelHint: ReEvalModel; extraCriteria?: string },
   ) => void;
+  onResizeAsset?: (assetId: string, width: number, height: number) => void;
   reEvalPending?: boolean;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
@@ -320,6 +335,11 @@ function BatchGroup({
                 onClearRejection={() => onClearRejection(a.id)}
                 onSetWinner={
                   onSetWinner ? () => onSetWinner(batch.batchId, a.id) : undefined
+                }
+                onResize={
+                  onResizeAsset
+                    ? (w, h) => onResizeAsset(a.id, w, h)
+                    : undefined
                 }
                 setWinnerPending={setWinnerPendingAssetId === a.id}
                 onUpdateContent={
@@ -417,6 +437,7 @@ function AssetTile({
   onDelete,
   onClearRejection,
   onSetWinner,
+  onResize,
   setWinnerPending,
   onUpdateContent,
 }: {
@@ -429,6 +450,7 @@ function AssetTile({
   onDelete: () => void;
   onClearRejection: () => void;
   onSetWinner?: () => void;
+  onResize?: (width: number, height: number) => void;
   setWinnerPending?: boolean;
   onUpdateContent?: (content: string) => void;
 }) {
@@ -483,9 +505,79 @@ function AssetTile({
     setEditing(false);
     setDraft(asset.content ?? "");
   };
+
+  const isResizable = RESIZABLE_KINDS.has(asset.kind) && !!onResize;
+  const fallbackSize = RESIZE_DEFAULTS[asset.kind] ?? { width: 150, height: 110 };
+  const storedWidth =
+    typeof asset.width === "number" && asset.width > 0
+      ? asset.width
+      : fallbackSize.width;
+  const storedHeight =
+    typeof asset.height === "number" && asset.height > 0
+      ? asset.height
+      : fallbackSize.height;
+  const [size, setSize] = useState<{ width: number; height: number }>({
+    width: storedWidth,
+    height: storedHeight,
+  });
+  const tileRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<{
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+  } | null>(null);
+  // Re-sync when the persisted size changes (e.g. after the PATCH succeeds
+  // and the cached board is refreshed, or another collaborator resizes).
+  useEffect(() => {
+    if (!isResizable) return;
+    if (resizeRef.current) return;
+    setSize({ width: storedWidth, height: storedHeight });
+  }, [isResizable, storedWidth, storedHeight]);
+
+  const tileWidth = isResizable ? size.width : 150;
+  const tileHeight = isResizable ? size.height : 110;
+
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!isResizable) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: size.width,
+      startH: size.height,
+    };
+  };
+  const handleResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    const dw = e.clientX - r.startX;
+    const dh = e.clientY - r.startY;
+    const w = Math.max(RESIZE_MIN.width, Math.min(RESIZE_MAX.width, r.startW + dw));
+    const h = Math.max(RESIZE_MIN.height, Math.min(RESIZE_MAX.height, r.startH + dh));
+    setSize({ width: Math.round(w), height: Math.round(h) });
+  };
+  const handleResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    resizeRef.current = null;
+    if (size.width !== r.startW || size.height !== r.startH) {
+      onResize?.(size.width, size.height);
+    }
+  };
+
   return (
     <div
-      className={`relative group flex-shrink-0 w-[150px] h-[110px] ${
+      ref={tileRef}
+      style={{ width: tileWidth, height: tileHeight }}
+      className={`relative group flex-shrink-0 ${
         isWinner ? "ring-2 ring-amber-400 rounded-md" : ""
       }`}
       onMouseLeave={() => {
@@ -767,6 +859,20 @@ function AssetTile({
           history={history}
           onDelete={onDelete}
           onClear={onClearRejection}
+        />
+      )}
+      {isResizable && selected && (
+        <div
+          role="slider"
+          aria-label="Resize"
+          aria-valuenow={size.width}
+          className="absolute -bottom-1 -right-1 w-4 h-4 rounded-sm bg-blue-500 border-2 border-white shadow cursor-se-resize z-30"
+          data-testid={`handle-resize-${asset.id}`}
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+          onPointerCancel={handleResizePointerUp}
+          onClick={(e) => e.stopPropagation()}
         />
       )}
     </div>

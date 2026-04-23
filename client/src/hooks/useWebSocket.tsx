@@ -25,6 +25,7 @@ interface WebSocketMessage {
     | "board_asset_status"
     | "board_asset_updated"
     | "board_auto_eval"
+    | "board_access_revoked"
     | "notification_created"
     | "photo_avatar_status_update"
     | "board_presence"

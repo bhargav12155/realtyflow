@@ -376,6 +376,26 @@ export default function BoardDetailPage() {
         });
         return;
       }
+      if (t === "board_access_revoked") {
+        const d = msg.data as { boardId?: string };
+        if (!d?.boardId || d.boardId !== boardId) return;
+        // The owner just revoked our access. Drop every cached entry tied
+        // to this board so the chat panel and board view can't keep
+        // displaying messages or assets we're no longer allowed to see,
+        // tell the user what happened, and bounce them back to the boards
+        // home. The REST endpoints are already gated on the share row, so
+        // any in-flight refetch will return 404 — this just prevents the
+        // stale UI from sitting there until the next refresh.
+        queryClient.removeQueries({ queryKey: ["/api/boards", boardId] });
+        queryClient.removeQueries({ queryKey: ["/api/boards", boardId, "messages"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+        toast({
+          title: "Access removed",
+          description: "The owner removed you from this board.",
+        });
+        setLocation("/boards");
+        return;
+      }
       if (
         t === "video_generation_complete" ||
         t === "video_generation_failed" ||

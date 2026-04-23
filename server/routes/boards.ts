@@ -528,6 +528,25 @@ export function registerBoardsRoutes(
       const userId = String(req.user!.id);
       const ok = await storage.unshareBoard(req.params.id, userId, req.params.userId);
       if (!ok) return res.status(404).json({ error: "Share not found" });
+      // Best-effort: push a real-time event to the removed user so any open
+      // board page (chat panel + canvas) reacts immediately instead of
+      // continuing to show stale data until the next refetch. The REST
+      // endpoints already gate access via `getAccessibleBoardForUser`, so
+      // this WS push is purely a UX accelerator — never block the unshare on
+      // a socket failure.
+      try {
+        const { realtimeService } = await import("../websocket");
+        realtimeService.sendToUser(req.params.userId, {
+          type: "board_access_revoked",
+          data: { boardId: req.params.id },
+          timestamp: new Date().toISOString(),
+        });
+      } catch (wsErr) {
+        console.warn(
+          "[boards] notify removed collaborator failed",
+          wsErr instanceof Error ? wsErr.message : wsErr,
+        );
+      }
       res.json({ success: true });
     } catch (error: unknown) {
       console.error("[boards] unshare error:", error);

@@ -488,6 +488,47 @@ describe("/api/boards sharing", () => {
     assert.deepEqual(afterRemove.body, []);
   });
 
+  it("DELETE /api/boards/:id/shares/:userId pushes a board_access_revoked event to the removed user", async () => {
+    const { app, storage } = buildApp("owner-1");
+    storage.users.push({
+      id: "recipient-3",
+      username: "rec3",
+      password: "x",
+      name: "Recipient Three",
+      email: "rec3@example.com",
+      role: "agent",
+      isDemo: false,
+      createdAt: new Date(),
+    });
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const boardId = created.body!.id as string;
+    await callJson(app, "POST", `/api/boards/${boardId}/shares`, { userId: "recipient-3" });
+
+    // Intercept realtimeService.sendToUser before unshare so we can assert
+    // the typed eviction event fires for the removed collaborator and not
+    // for anyone else.
+    const { realtimeService } = await import("../server/websocket");
+    const original = realtimeService.sendToUser.bind(realtimeService);
+    const calls: Array<{ userId: string; type: string; data: unknown }> = [];
+    (realtimeService as unknown as { sendToUser: typeof realtimeService.sendToUser }).sendToUser = (
+      userId,
+      message,
+    ) => {
+      calls.push({ userId, type: message.type, data: message.data });
+    };
+    try {
+      const removed = await callJson(app, "DELETE", `/api/boards/${boardId}/shares/recipient-3`);
+      assert.equal(removed.status, 200);
+    } finally {
+      (realtimeService as unknown as { sendToUser: typeof realtimeService.sendToUser }).sendToUser = original;
+    }
+
+    const evictions = calls.filter((c) => c.type === "board_access_revoked");
+    assert.equal(evictions.length, 1, "expected exactly one board_access_revoked event");
+    assert.equal(evictions[0].userId, "recipient-3");
+    assert.deepEqual(evictions[0].data, { boardId });
+  });
+
   it("creates a notification for the recipient when a board is shared", async () => {
     const { app, storage } = buildApp("owner-1");
     storage.users.push({

@@ -42,6 +42,7 @@ import {
   Radio,
   Search,
   Settings,
+  Shield,
   Share2,
   Sparkles,
   Target,
@@ -174,6 +175,14 @@ const navigationItems = [
     href: "/dashboard#advertising",
     key: "advertising",
     isPageLink: true,
+  },
+  {
+    icon: Shield,
+    label: "Admin",
+    href: "/admin/settings",
+    key: "admin-settings",
+    isPageLink: true,
+    adminOnly: true,
   },
   {
     icon: BookOpen,

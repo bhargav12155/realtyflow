@@ -41,8 +41,10 @@ turns each failure into:
    `/v3/photo_avatars/def456/looks` both bucket under
    `/v3/photo_avatars/:groupId/looks`).
 
-   The burst alarm is deduped per endpoint for 15 minutes so a sustained
-   outage does not page repeatedly.
+   The burst alert only fires on the **rising edge** — once an
+   endpoint has tripped the alarm it is considered "degraded" and
+   does not re-page until it has fully recovered (see step 5 below),
+   so a sustained outage does not wake the on-call repeatedly.
 
 4. **A direct Slack webhook POST** to the on-call channel, in addition
    to the log line and the dashboard alert. The reporter posts to the
@@ -63,6 +65,21 @@ turns each failure into:
    the user request that tripped the burst. A non-2xx response from
    Slack is logged at warn level so it is visible in the structured
    logs without re-paging.
+
+5. **Sustained-outage heartbeats and recovery messages.** While an
+   endpoint stays degraded the reporter does not re-page. Instead it:
+
+   - Posts a single ":warning: HeyGen shape drift still degraded"
+     update to the same Slack channel at most once per
+     `DEGRADED_UPDATE_MS` (default 30 minutes) so the on-call channel
+     gets a heartbeat without being woken up again.
+   - Tracks the last failure timestamp; once the endpoint has gone a
+     full `BURST_WINDOW_MS` (default 5 minutes) without another
+     failure, posts a single
+     ":white_check_mark: HeyGen shape drift recovered" message,
+     emits a `heygen.response.invalid.recovered` log line, and fires
+     an `info`-severity admin alert. After recovery the next burst
+     starts a fresh rising edge and pages again.
 
 ## When the alert fires
 
@@ -99,12 +116,12 @@ env var so operators can tighten or loosen the alarm without a code
 change. Invalid / non-positive overrides fall back to the default and
 log a warn line at server startup.
 
-| Setting              | Env var                       | Default     | Meaning                                                                  |
-| -------------------- | ----------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `BURST_THRESHOLD`    | `HEYGEN_BURST_THRESHOLD`      | `3`         | Failures within the window before the burst fires.                       |
-| `BURST_WINDOW_MS`    | `HEYGEN_BURST_WINDOW_MS`      | `300000`    | Sliding window length (ms).                                              |
-| `BURST_DEDUP_MS`     | `HEYGEN_BURST_DEDUP_MS`       | `900000`    | Minimum gap between burst alerts for the same endpoint (ms).             |
-| `BROADCAST_DEDUP_MS` | `HEYGEN_BROADCAST_DEDUP_MS`   | `300000`    | Gap between per-event admin alerts for the same endpoint+groupId (ms).   |
+| Setting              | Env var                       | Default     | Meaning                                                                              |
+| -------------------- | ----------------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `BURST_THRESHOLD`    | `HEYGEN_BURST_THRESHOLD`      | `3`         | Failures within the window before the burst fires.                                   |
+| `BURST_WINDOW_MS`    | `HEYGEN_BURST_WINDOW_MS`      | `300000`    | Sliding window length (ms). Also the quiet period after which an endpoint recovers. |
+| `DEGRADED_UPDATE_MS` | `HEYGEN_DEGRADED_UPDATE_MS`   | `1800000`   | Minimum gap between "still degraded" Slack heartbeats while degraded (ms).           |
+| `BROADCAST_DEDUP_MS` | `HEYGEN_BROADCAST_DEDUP_MS`   | `300000`    | Gap between per-event admin alerts for the same endpoint+groupId (ms).               |
 
 Example: to match the policy "page when more than 5 incidents land in
 10 minutes for a single endpoint", set

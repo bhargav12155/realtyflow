@@ -542,24 +542,89 @@ export default function BoardDetailPage() {
     toast({ title: "Reply stopped", description: "We canceled the in-flight reply." });
   };
 
-  const clearChat = useMutation({
-    mutationFn: async () => {
+  // Clearing the chat is an irreversible hard delete on the server. To give
+  // owners a safety net for misclicks, we defer the actual DELETE by 10s and
+  // surface an "Undo" toast (matching the upload-cancel pattern above). The
+  // local transcript is wiped immediately so the panel reflects the action,
+  // but the server isn't touched until the undo window expires.
+  const CLEAR_UNDO_WINDOW_MS = 10_000;
+  const pendingClearRef = useRef<{
+    snapshot: ChatMessage[];
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const [isClearingChat, setIsClearingChat] = useState(false);
+
+  const performClearOnServer = useCallback(async () => {
+    if (!boardId) return;
+    try {
       const res = await apiRequest("DELETE", `/api/boards/${boardId}/messages`);
-      return res.json();
-    },
-    onSuccess: () => {
-      // Drop the in-memory transcript so the panel reflects the wipe
-      // immediately, then refresh the cached history so any other open tab
-      // sees an empty thread on its next focus.
+      await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] });
+    } catch (e) {
+      // The local transcript was already wiped optimistically; if the server
+      // delete fails the UI must not stay falsely empty. Reset hydration so
+      // the next /messages query overwrites local state with the server's
+      // truth, and refetch immediately.
+      hydratedBoardRef.current = null;
       setMessages([]);
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] });
-      toast({ title: "Chat cleared", description: "All messages have been deleted." });
-    },
-    onError: (e: Error) => {
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      const errText = (e as Error)?.message?.replace(/^\d+:\s*/, "") ?? String(e);
       toast({ title: "Couldn't clear chat", description: errText, variant: "destructive" });
+    }
+  }, [boardId, toast]);
+
+  const handleClearChat = useCallback(() => {
+    if (pendingClearRef.current) return;
+    if (messages.length === 0) return;
+    const snapshot = messages;
+    setMessages([]);
+    setIsClearingChat(true);
+    const timer = setTimeout(() => {
+      pendingClearRef.current = null;
+      setIsClearingChat(false);
+      void performClearOnServer();
+    }, CLEAR_UNDO_WINDOW_MS);
+    pendingClearRef.current = { snapshot, timer };
+    toast({
+      title: "Chat cleared",
+      description: "Messages will be permanently deleted in 10 seconds.",
+      duration: CLEAR_UNDO_WINDOW_MS,
+      action: (
+        <ToastAction
+          altText="Undo clearing the chat"
+          onClick={() => {
+            const pending = pendingClearRef.current;
+            if (!pending) return;
+            clearTimeout(pending.timer);
+            pendingClearRef.current = null;
+            setMessages(pending.snapshot);
+            setIsClearingChat(false);
+            toast({
+              title: "Chat restored",
+              description: "We brought your messages back.",
+            });
+          }}
+          data-testid="button-undo-clear-chat"
+        >
+          Undo
+        </ToastAction>
+      ),
+    });
+  }, [messages, performClearOnServer, toast]);
+
+  // If the user navigates away while a clear is still pending, commit it now
+  // so the server matches their last visible action instead of silently
+  // discarding the delete.
+  useEffect(
+    () => () => {
+      const pending = pendingClearRef.current;
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      pendingClearRef.current = null;
+      void performClearOnServer();
     },
-  });
+    [performClearOnServer],
+  );
 
   const deleteAsset = useMutation({
     mutationFn: async (assetId: string) => {
@@ -1292,9 +1357,9 @@ export default function BoardDetailPage() {
             pendingInput={pendingInput}
             onPendingInputApplied={() => setPendingInput(null)}
             onClearChat={
-              board.isOwner !== false ? () => clearChat.mutate() : undefined
+              board.isOwner !== false ? handleClearChat : undefined
             }
-            isClearingChat={clearChat.isPending}
+            isClearingChat={isClearingChat}
           />
         )}
       </div>

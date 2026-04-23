@@ -208,7 +208,7 @@ export function ChatPanel({
 
   const submit = () => {
     const text = input.trim();
-    if (!text || isSending) return;
+    if (!text || isSending || isClearingChat) return;
     onSend(text);
     setInput("");
   };
@@ -238,14 +238,6 @@ export function ChatPanel({
               onClick={() => {
                 if (isClearingChat) return;
                 if (messages.length === 0) return;
-                if (
-                  typeof window !== "undefined" &&
-                  !window.confirm(
-                    "Clear this board's chat history? Every message will be permanently deleted.",
-                  )
-                ) {
-                  return;
-                }
                 onClearChat();
               }}
               disabled={isClearingChat || messages.length === 0}
@@ -468,8 +460,14 @@ export function ChatPanel({
             <div className="w-6 h-6 rounded bg-gradient-to-br from-amber-300 via-rose-300 to-violet-400 flex-shrink-0" />
             <input
               ref={inputRef}
-              className="flex-1 bg-transparent outline-none text-[13px] text-neutral-800 placeholder:text-neutral-400 py-0.5 dark:text-neutral-100 dark:placeholder:text-neutral-500"
-              placeholder={isPlan ? "Plan it out — ask a question or share an idea…" : "What do you want to build?"}
+              className="flex-1 bg-transparent outline-none text-[13px] text-neutral-800 placeholder:text-neutral-400 py-0.5 dark:text-neutral-100 dark:placeholder:text-neutral-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              placeholder={
+                isClearingChat
+                  ? "Clearing chat — undo within 10 seconds…"
+                  : isPlan
+                    ? "Plan it out — ask a question or share an idea…"
+                    : "What do you want to build?"
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -478,6 +476,7 @@ export function ChatPanel({
                   submit();
                 }
               }}
+              disabled={isClearingChat}
               data-testid="input-chat"
             />
           </div>
@@ -584,7 +583,7 @@ export function ChatPanel({
               <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-mic"><Mic className="w-3.5 h-3.5" /></button>
               <button
                 onClick={submit}
-                disabled={isSending || !input.trim()}
+                disabled={isSending || isClearingChat || !input.trim()}
                 className="w-6 h-6 rounded-full bg-neutral-200 hover:bg-neutral-300 disabled:opacity-50 flex items-center justify-center dark:bg-neutral-700 dark:hover:bg-neutral-600"
                 data-testid="button-send-chat"
               >

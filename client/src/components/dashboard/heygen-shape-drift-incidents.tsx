@@ -279,6 +279,7 @@ const RETENTION_RUNS_QUERY_KEY = [
 ] as const;
 
 export const STALE_RUN_THRESHOLD_MS = 36 * 60 * 60 * 1000;
+export const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function formatDurationApprox(ms: number): string {
   const totalMinutes = Math.max(0, Math.floor(ms / 60000));
@@ -303,7 +304,7 @@ export function HeygenShapeDriftRetentionRunsPanel() {
   const runs = data?.runs ?? [];
   const lastRun = runs[0];
 
-  const lastRunAgeMs = useMemo(() => {
+  const lastRunMs = useMemo(() => {
     if (!lastRun) return null;
     const d =
       typeof lastRun.createdAt === "string"
@@ -311,8 +312,12 @@ export function HeygenShapeDriftRetentionRunsPanel() {
         : lastRun.createdAt;
     const t = d?.getTime?.();
     if (!t || Number.isNaN(t)) return null;
-    return Date.now() - t;
+    return t;
   }, [lastRun]);
+
+  const lastRunAgeMs = lastRunMs === null ? null : Date.now() - lastRunMs;
+  const nextDueAt =
+    lastRunMs === null ? null : new Date(lastRunMs + RETENTION_INTERVAL_MS);
 
   const isStale =
     !isLoading &&
@@ -354,7 +359,11 @@ export function HeygenShapeDriftRetentionRunsPanel() {
                   <span data-testid="text-heygen-retention-last-deleted">
                     {lastRun.deletedCount}
                   </span>{" "}
-                  row(s).
+                  row(s). Next sweep due{" "}
+                  <span data-testid="text-heygen-retention-next-due">
+                    {nextDueAt ? formatTimestamp(nextDueAt) : "—"}
+                  </span>
+                  .
                 </>
               ) : null}
             </CardDescription>

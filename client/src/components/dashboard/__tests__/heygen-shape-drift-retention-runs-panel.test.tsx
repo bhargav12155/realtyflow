@@ -109,6 +109,13 @@ describe("HeygenShapeDriftRetentionRunsPanel", () => {
 
     // Empty-state placeholder must NOT be in the document when we have rows.
     expect(screen.queryByTestId("empty-heygen-retention-runs")).toBeNull();
+
+    // Next sweep due = last run + 24h, formatted via toLocaleString().
+    const nextDue = screen.getByTestId("text-heygen-retention-next-due");
+    const expectedNext = new Date(
+      new Date("2026-04-22T12:34:56Z").getTime() + 24 * 60 * 60 * 1000,
+    ).toLocaleString();
+    expect(nextDue.textContent).toBe(expectedNext);
   });
 
   it("renders the empty state when no retention sweeps have been recorded", async () => {
@@ -120,6 +127,8 @@ describe("HeygenShapeDriftRetentionRunsPanel", () => {
     expect(empty.textContent).toMatch(/no retention sweeps/i);
     // No "last run" summary when there's nothing to summarize.
     expect(screen.queryByTestId("text-heygen-retention-last-run")).toBeNull();
+    // And no "next sweep due" timestamp either.
+    expect(screen.queryByTestId("text-heygen-retention-next-due")).toBeNull();
   });
 
   it("renders an error banner when the GET endpoint fails", async () => {

@@ -257,8 +257,10 @@ class FakeBoardsStorage {
     return result;
   }
   async getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined> {
-    const b = await this.getBoardByIdForUser(boardId, userId);
-    if (!b) return undefined;
+    // Mirrors the real storage (Task #229): owner OR shared collaborator
+    // can read board assets.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
     const a = this.assets.get(assetId);
     return a && a.boardId === boardId ? a : undefined;
   }
@@ -296,8 +298,11 @@ class FakeBoardsStorage {
     return updated;
   }
   async deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean> {
-    const a = await this.getBoardAssetByIdForUser(boardId, assetId, userId);
-    if (!a) return false;
+    // Owner-only (Task #229): destructive actions stay with the board owner.
+    const owner = await this.getBoardByIdForUser(boardId, userId);
+    if (!owner) return false;
+    const a = this.assets.get(assetId);
+    if (!a || a.boardId !== boardId) return false;
     this.assets.delete(assetId);
     return true;
   }
@@ -876,6 +881,79 @@ describe("Bulk asset position update", () => {
       moves: [],
     });
     assert.equal(res.status, 400);
+  });
+});
+
+describe("Shared collaborators can rearrange tiles (Task #229)", () => {
+  async function setupSharedBoard() {
+    const { app, storage } = buildApp("recipient-2");
+    // Seed owner's board + two assets, then share with recipient-2 (the
+    // logged-in user for this app). The single-app fake satisfies both
+    // owner-side seeding and recipient-side requests because it doesn't
+    // tie boards to req.user.
+    const board = await storage.createBoard({ userId: "owner-1", title: "Shared canvas" });
+    const a = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "b", kind: "image", provider: "upload",
+      assetUrl: "https://example.com/a.png", thumbnailUrl: null, status: "ready",
+      positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const b = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "b", kind: "image", provider: "upload",
+      assetUrl: "https://example.com/b.png", thumbnailUrl: null, status: "ready",
+      positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    return { app, storage, boardId: board.id, a: a!, b: b! };
+  }
+
+  it("PATCH single asset succeeds for a shared collaborator", async () => {
+    const { app, boardId, a } = await setupSharedBoard();
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}/assets/${a.id}`, {
+      positionX: 42, positionY: 99,
+    });
+    assert.equal(res.status, 200);
+    assert.equal((res.body as BoardAsset).positionX, 42);
+    assert.equal((res.body as BoardAsset).positionY, 99);
+  });
+
+  it("PATCH /assets/positions bulk move succeeds for a shared collaborator", async () => {
+    const { app, boardId, a, b } = await setupSharedBoard();
+    const res = await callJson(app, "PATCH", `/api/boards/${boardId}/assets/positions`, {
+      moves: [
+        { id: a.id, positionX: 11, positionY: 22 },
+        { id: b.id, positionX: 33, positionY: 44 },
+      ],
+    });
+    assert.equal(res.status, 200);
+    const rows = res.body as BoardAsset[];
+    assert.equal(rows.length, 2);
+    const byId = new Map(rows.map((r) => [r.id, r] as const));
+    assert.equal(byId.get(a.id)!.positionX, 11);
+    assert.equal(byId.get(b.id)!.positionY, 44);
+  });
+
+  it("DELETE asset stays owner-only — collaborator gets 404", async () => {
+    const { app, boardId, a } = await setupSharedBoard();
+    const res = await callJson(app, "DELETE", `/api/boards/${boardId}/assets/${a.id}`);
+    assert.equal(res.status, 404);
+  });
+
+  it("non-collaborators (no share row) still get 404 on PATCH", async () => {
+    const { app, storage } = buildApp("stranger-3");
+    const board = await storage.createBoard({ userId: "owner-1", title: "Private" });
+    const a = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "b", kind: "image", provider: "upload",
+      assetUrl: "https://example.com/a.png", thumbnailUrl: null, status: "ready",
+      positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const single = await callJson(app, "PATCH", `/api/boards/${board.id}/assets/${a!.id}`, {
+      positionX: 1, positionY: 2,
+    });
+    assert.equal(single.status, 404);
+    const bulk = await callJson(app, "PATCH", `/api/boards/${board.id}/assets/positions`, {
+      moves: [{ id: a!.id, positionX: 1, positionY: 2 }],
+    });
+    assert.equal(bulk.status, 404);
   });
 });
 

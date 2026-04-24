@@ -3361,16 +3361,20 @@ export class MemStorage implements IStorage {
   }
 
   async getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined> {
+    // Authorization: any user with access to the board (owner OR shared
+    // collaborator) can read assets. Shared collaborators are first-class on
+    // the canvas — see Task #229. Owner-only operations (delete, share
+    // management) re-check ownership explicitly via getBoardByIdForUser.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
     const [row] = await db
-      .select({ asset: boardAssetsTable })
+      .select()
       .from(boardAssetsTable)
-      .innerJoin(boardsTable, eq(boardsTable.id, boardAssetsTable.boardId))
       .where(and(
         eq(boardAssetsTable.id, assetId),
         eq(boardAssetsTable.boardId, boardId),
-        eq(boardsTable.userId, userId),
       ));
-    return row?.asset;
+    return row;
   }
 
   async getBoardAssetSummariesForBoards(
@@ -3429,7 +3433,9 @@ export class MemStorage implements IStorage {
     userId: string,
     updates: BoardAssetUpdate,
   ): Promise<BoardAsset | undefined> {
-    // Verify ownership first to avoid leaking through bare id update
+    // Auth via getBoardAssetByIdForUser, which now allows the board owner
+    // OR any shared collaborator (Task #229) — collaborators can rearrange
+    // tiles on a shared canvas just like the owner.
     const existing = await this.getBoardAssetByIdForUser(boardId, assetId, userId);
     if (!existing) return undefined;
     const [updated] = await db
@@ -3437,7 +3443,14 @@ export class MemStorage implements IStorage {
       .set(updates)
       .where(and(eq(boardAssetsTable.id, assetId), eq(boardAssetsTable.boardId, boardId)))
       .returning();
-    if (updated) await this.touchBoardForUser(boardId, userId);
+    // Bump updatedAt unconditionally — touchBoardForUser is owner-scoped and
+    // would silently no-op for shared collaborators.
+    if (updated) {
+      await db
+        .update(boardsTable)
+        .set({ updatedAt: new Date() })
+        .where(eq(boardsTable.id, boardId));
+    }
     return updated;
   }
 
@@ -3452,17 +3465,20 @@ export class MemStorage implements IStorage {
     const byId = new Map<string, { id: string; positionX: number; positionY: number }>();
     for (const u of updates) byId.set(u.id, u);
     const ids = Array.from(byId.keys());
+    // Authorize the caller against the board (owner OR shared collaborator —
+    // Task #229). Done before opening the transaction so we don't pay the
+    // cost of a tx for unauthorized callers.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
     return await db.transaction(async (tx) => {
-      // Authorize the whole batch up front: every id must belong to a board
-      // owned by the caller. If even one is missing the entire transaction
-      // rolls back so the group never lands half-moved.
+      // Authorize the whole batch: every id must belong to this board. If
+      // even one is missing the entire transaction rolls back so the group
+      // never lands half-moved.
       const owned = await tx
         .select({ id: boardAssetsTable.id })
         .from(boardAssetsTable)
-        .innerJoin(boardsTable, eq(boardsTable.id, boardAssetsTable.boardId))
         .where(and(
           eq(boardAssetsTable.boardId, boardId),
-          eq(boardsTable.userId, userId),
           inArray(boardAssetsTable.id, ids),
         ));
       if (owned.length !== ids.length) return undefined;
@@ -3479,16 +3495,22 @@ export class MemStorage implements IStorage {
         if (!row) return undefined;
         updated.push(row);
       }
-      // Touch the parent board once for the whole batch.
+      // Touch the parent board once for the whole batch. Not user-scoped:
+      // a shared collaborator (Task #229) needs the bump to land too.
       await tx
         .update(boardsTable)
         .set({ updatedAt: new Date() })
-        .where(and(eq(boardsTable.id, boardId), eq(boardsTable.userId, userId)));
+        .where(eq(boardsTable.id, boardId));
       return updated;
     });
   }
 
   async deleteBoardAssetForUser(boardId: string, assetId: string, userId: string): Promise<boolean> {
+    // Delete is owner-only — Task #229 widens move/update to collaborators
+    // but keeps destructive actions on the owner. Re-check ownership
+    // explicitly because getBoardAssetByIdForUser now also accepts shares.
+    const owner = await this.getBoardByIdForUser(boardId, userId);
+    if (!owner) return false;
     const existing = await this.getBoardAssetByIdForUser(boardId, assetId, userId);
     if (!existing) return false;
     const [deleted] = await db

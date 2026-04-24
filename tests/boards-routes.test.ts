@@ -8,7 +8,12 @@ import {
   BoardChatValidationError,
   V2V_PROVIDERS,
 } from "../server/routes/boards";
-import { registerBoardsChatRoutes } from "../server/routes/boards-chat";
+import {
+  registerBoardsChatRoutes,
+  type DispatchOne,
+  type DispatchImage,
+  type DispatchResult,
+} from "../server/routes/boards-chat";
 import { registerNotificationsRoutes } from "../server/routes/notifications";
 import type { Board, BoardAsset, BoardShare, InsertBoard, InsertNotification, Notification, User } from "@shared/schema";
 import { DRAWING_MAX_CONTENT_BYTES } from "@shared/schema";
@@ -1284,6 +1289,171 @@ describe("Shared collaborators can pick batch winners and re-evaluate (Task #232
       assert.ok(recipientsSeen.has("recipient-2"));
       // Storage was seeded with one share recipient ("recipient-2") so the
       // total recipient set must be exactly {owner-1, recipient-2}.
+      assert.deepEqual(
+        [...recipientsSeen].sort(),
+        ["owner-1", "recipient-2"].sort(),
+      );
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+});
+
+// ----------------------------------------------------------------------
+// Live broadcast for the *initial* generation pass (Task #241): when a
+// collaborator starts a chat-mode "create" batch on a shared board, every
+// queued → ready / failed status flip in `runDispatchersForBatch` must
+// fan out to owner + every share recipient (not just the actor) so other
+// participants see the new tiles flip from "Generating…" to the finished
+// image without a manual refresh.
+// ----------------------------------------------------------------------
+describe("Chat-mode create fans out generation progress to every collaborator (Task #241)", () => {
+  // Build an isolated app + storage where the chat route is wired with
+  // injected stubs for dispatchOne / dispatchImage / autoEvaluateBatch so
+  // the test stays hermetic (no real OpenAI/Luma/etc. calls) and we can
+  // observe every status flip via the spy on `notifyBoardAssetStatus`.
+  function buildAppWithChatStubs(asUser: string): {
+    app: Express;
+    storage: FakeBoardsStorage;
+    awaitBatches: () => Promise<void>;
+  } {
+    const app: Express = express();
+    app.use(express.json());
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      req.user = { id: asUser, type: "agent", email: "test@example.com" };
+      next();
+    });
+    const storage = new FakeBoardsStorage();
+    const storageAsInterface = storage as unknown as IStorage;
+    registerBoardsRoutes(app, { storage: storageAsInterface });
+
+    let imageCount = 0;
+    const dispatchImage: DispatchImage = async (provider) => {
+      imageCount += 1;
+      return {
+        modelLabel: `${provider}-stub`,
+        imageUrl: `https://example.com/generated-${imageCount}.png`,
+        edited: false,
+      };
+    };
+    const dispatchOne: DispatchOne = async (provider): Promise<DispatchResult> => {
+      // Stubbed for completeness per the task description; the image
+      // provider used in this test never reaches the video dispatch path.
+      return {
+        taskId: "stub-task",
+        modelLabel: `${provider}-stub`,
+        poll: async () => ({ status: "completed", videoUrl: "https://example.com/v.mp4" }),
+      };
+    };
+    const autoEvaluateBatch = async () => {
+      // No-op evaluation: the route only invokes this when there are >=2
+      // ready/rejected candidates, so it's wired for hermeticity but the
+      // result is intentionally inert (no winner match -> no extra
+      // status flips that could confuse the recipient assertions).
+      return { winnerAssetId: "noop", modelUsed: "heuristic", rejected: [] };
+    };
+
+    // Capture the in-flight background batch so the test can await every
+    // queued -> ready status flip before inspecting the spy.
+    const inFlight: Promise<void>[] = [];
+    registerBoardsChatRoutes(app, {
+      storage: storageAsInterface,
+      dispatchImage,
+      dispatchOne,
+      autoEvaluateBatch,
+      onBatchScheduled: (p) => inFlight.push(p),
+    });
+    return {
+      app,
+      storage,
+      awaitBatches: async () => {
+        await Promise.all(inFlight);
+      },
+    };
+  }
+
+  it("collaborator-initiated image batch broadcasts queued + ready frames to owner + every share recipient", async () => {
+    const { app, storage, awaitBatches } = buildAppWithChatStubs("recipient-2");
+    const board = await storage.createBoard({ userId: "owner-1", title: "Shared canvas" });
+    // Two share recipients so we prove fan-out reaches the whole audience,
+    // not just the actor.
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    await storage.shareBoard(board.id, "owner-1", "recipient-3");
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(app, "POST", `/api/boards/${board.id}/chat`, {
+        message: "draw a calm landscape",
+        mode: "create",
+        provider: "openai-image",
+        variations: 2,
+      });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      // Drain the background batch promise so every status flip has
+      // landed before we inspect the spy.
+      await awaitBatches();
+
+      const calls = statusSpy.mock.calls.map(
+        (c) => c.arguments as [string, { assetId: string; status: string }],
+      );
+
+      // Each of the 2 variations should produce two frames per recipient:
+      // queued (status="generating") and ready. With 3 participants
+      // (owner-1, recipient-2, recipient-3) that's 12 calls minimum.
+      // Group calls by assetId to verify each tile is broadcast to every
+      // participant for both lifecycle stages.
+      const byAsset = new Map<string, Array<[string, string]>>();
+      for (const [uid, payload] of calls) {
+        const arr = byAsset.get(payload.assetId) ?? [];
+        arr.push([uid, payload.status]);
+        byAsset.set(payload.assetId, arr);
+      }
+      assert.equal(byAsset.size, 2, "two variations should each emit status frames");
+      for (const [assetId, frames] of byAsset) {
+        const recipientsForAsset = new Set(frames.map(([uid]) => uid));
+        assert.deepEqual(
+          [...recipientsForAsset].sort(),
+          ["owner-1", "recipient-2", "recipient-3"].sort(),
+          `asset ${assetId} should be broadcast to every participant`,
+        );
+        const statuses = new Set(frames.map(([, s]) => s));
+        assert.ok(
+          statuses.has("generating"),
+          `asset ${assetId} should emit a queued/generating frame`,
+        );
+        assert.ok(
+          statuses.has("ready"),
+          `asset ${assetId} should emit a ready frame after dispatch`,
+        );
+      }
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+
+  it("does not push generation progress to strangers (no share row)", async () => {
+    const { app, storage, awaitBatches } = buildAppWithChatStubs("recipient-2");
+    const board = await storage.createBoard({ userId: "owner-1", title: "Shared canvas" });
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    // "stranger-9" is intentionally not added as a share recipient.
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(app, "POST", `/api/boards/${board.id}/chat`, {
+        message: "another landscape",
+        mode: "create",
+        provider: "openai-image",
+        variations: 1,
+      });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      await awaitBatches();
+
+      const recipientsSeen = new Set(
+        statusSpy.mock.calls.map((c) => (c.arguments as [string])[0]),
+      );
+      assert.ok(!recipientsSeen.has("stranger-9"));
+      // Sanity: the legitimate participants did receive frames so the
+      // negative assertion above is meaningful.
       assert.deepEqual(
         [...recipientsSeen].sort(),
         ["owner-1", "recipient-2"].sort(),

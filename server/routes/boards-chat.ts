@@ -642,8 +642,16 @@ async function runBatchInBackground(args: {
   dispatch: DispatchOne;
   dispatchImageFn: DispatchImage;
   autoEval: (input: { prompt: string; assets: BoardAsset[] }) => Promise<AutoEvalResult>;
+  /**
+   * Pre-resolved fan-out targets (owner + every share recipient + the
+   * actor) so each queued → ready / failed status flip during the batch
+   * lands on every connected participant's canvas in real time. Mirrors
+   * how the manual winner override and re-eval flows fan out via
+   * `resolveBoardRecipients` (Task #237).
+   */
+  recipients: string[];
 }) {
-  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval } = args;
+  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
 
   await Promise.all(
     rows.map(async (row) => {
@@ -656,7 +664,7 @@ async function runBatchInBackground(args: {
             assetUrl: imageResult.imageUrl,
             thumbnailUrl: imageResult.imageUrl,
           });
-          if (updated) pushAssetStatus([userId], boardId, updated);
+          if (updated) pushAssetStatus(recipients, boardId, updated);
           return;
         }
         const videoProvider = provider as VideoProvider;
@@ -664,14 +672,14 @@ async function runBatchInBackground(args: {
         const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatched.modelLabel,
         });
-        if (labelled) pushAssetStatus([userId], boardId, labelled);
+        if (labelled) pushAssetStatus(recipients, boardId, labelled);
         const result = await pollUntilDone(dispatched.poll);
         if (result.error || !result.videoUrl) {
           const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "failed",
             rejectionReason: result.error || "No output URL returned",
           });
-          if (failed) pushAssetStatus([userId], boardId, failed);
+          if (failed) pushAssetStatus(recipients, boardId, failed);
           return;
         }
         const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
@@ -680,7 +688,7 @@ async function runBatchInBackground(args: {
           thumbnailUrl: result.videoUrl,
           durationSeconds: result.durationSeconds ?? null,
         });
-        if (ready) pushAssetStatus([userId], boardId, ready);
+        if (ready) pushAssetStatus(recipients, boardId, ready);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Generation failed";
         console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
@@ -688,7 +696,7 @@ async function runBatchInBackground(args: {
           status: "failed",
           rejectionReason: msg,
         });
-        if (failed) pushAssetStatus([userId], boardId, failed);
+        if (failed) pushAssetStatus(recipients, boardId, failed);
       }
     }),
   );
@@ -1474,6 +1482,11 @@ export function registerBoardsChatRoutes(
 
       const tileWidth = isImage ? 256 : 320;
       const tileHeight = isImage ? 256 : 180;
+      // Resolve once: queued-row creates and every later status flip in
+      // `runBatchInBackground` need to fan out to the same audience (owner
+      // + every share recipient + actor) so collaborators see the new
+      // tiles flip from "Generating…" → ready/failed without a refresh.
+      const recipients = await resolveBoardRecipients(storage, boardId, userId);
       const rows: BoardAsset[] = [];
       for (let i = 0; i < variations; i++) {
         const payload: BoardAssetCreate = {
@@ -1496,7 +1509,7 @@ export function registerBoardsChatRoutes(
         const created = await storage.createBoardAssetForUser(boardId, userId, payload);
         if (created) {
           rows.push(created);
-          pushAssetStatus([userId], boardId, created);
+          pushAssetStatus(recipients, boardId, created);
         }
       }
 
@@ -1515,6 +1528,7 @@ export function registerBoardsChatRoutes(
         dispatch,
         dispatchImageFn,
         autoEval,
+        recipients,
       }).catch((err) => console.error("[boards-chat] background batch error:", err));
       deps.onBatchScheduled?.(bgPromise);
 

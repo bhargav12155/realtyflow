@@ -118,6 +118,26 @@ class FakeStorage {
     s.add(userId);
     this.shares.set(boardId, s);
   }
+  // Mirrors `IStorage.getBoardShares` for the recipient-resolution path
+  // that the create-mode chat handler hits to fan out generation progress
+  // (Task #241). Returns the share-with userIds for the board so the
+  // chat route can broadcast queued/ready status flips to every
+  // collaborator. Owner-gated like the real implementation.
+  async getBoardShares(boardId: string, ownerUserId: string) {
+    const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
+    if (!owner) return [];
+    const ids = this.shares.get(boardId);
+    if (!ids) return [];
+    return Array.from(ids).map((userId) => {
+      const u = this.users.get(userId);
+      return {
+        userId,
+        name: u?.name ?? null,
+        email: u?.email ?? null,
+        sharedAt: null as Date | null,
+      };
+    });
+  }
   async getAccessibleBoardForUser(id: string, userId: string) {
     const b = this.boards.get(id);
     if (!b) return undefined;

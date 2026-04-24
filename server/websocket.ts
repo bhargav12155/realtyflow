@@ -56,7 +56,7 @@ function authenticateRequest(req: IncomingMessage): { userId: string } | null {
 }
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "board_access_revoked" | "notification_created" | "admin_alert" | "board_presence" | "board_typing";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "board_access_revoked" | "notification_created" | "admin_alert" | "board_presence" | "board_typing" | "board_asset_dragging";
   data: any;
   timestamp: string;
   userId?: number;
@@ -169,6 +169,39 @@ export class RealtimeService {
             }
             if (data.type === "typing" && boardId) {
               this.handleTyping(ws, userId, boardId, !!data.isTyping);
+              return;
+            }
+            if (data.type === "asset_dragging" && boardId) {
+              const movesRaw = Array.isArray(data.moves) ? data.moves : [];
+              const moves: Array<{
+                id: string;
+                positionX: number;
+                positionY: number;
+              }> = [];
+              for (const m of movesRaw) {
+                if (
+                  m &&
+                  typeof m === "object" &&
+                  typeof m.id === "string" &&
+                  typeof m.positionX === "number" &&
+                  typeof m.positionY === "number"
+                ) {
+                  moves.push({
+                    id: m.id,
+                    positionX: Math.round(m.positionX),
+                    positionY: Math.round(m.positionY),
+                  });
+                }
+              }
+              if (moves.length > 0 || data.isEnd) {
+                void this.handleAssetDragging(
+                  ws,
+                  userId,
+                  boardId,
+                  moves,
+                  !!data.isEnd,
+                );
+              }
               return;
             }
           }
@@ -800,6 +833,48 @@ export class RealtimeService {
         name: info?.name ?? null,
         email: info?.email ?? null,
         isTyping,
+      },
+      timestamp: new Date().toISOString(),
+    };
+    for (const [otherUserId, entry] of users) {
+      if (otherUserId === userId) continue;
+      for (const sock of entry.sockets) {
+        if (sock !== ws) this.sendToClient(sock, message);
+      }
+    }
+  }
+
+  private async handleAssetDragging(
+    ws: WebSocket,
+    userId: string,
+    boardId: string,
+    moves: Array<{ id: string; positionX: number; positionY: number }>,
+    isEnd: boolean,
+  ): Promise<void> {
+    // We rely on the existing board presence channel: only sockets that
+    // joined this board's presence map are eligible recipients. The sender's
+    // own sockets are excluded so a user never sees their own ghost.
+    const users = this.boardPresence.get(boardId);
+    if (!users) return;
+    let info = users.get(userId);
+    if (!info) {
+      // Sender hasn't joined presence (shouldn't happen with the page
+      // wiring, but be defensive). Still resolve their name from cache so
+      // recipients can label the ghost properly.
+      info = {
+        ...(await this.resolveUserInfo(userId)),
+        sockets: new Set(),
+      };
+    }
+    const message: WebSocketMessage = {
+      type: "board_asset_dragging",
+      data: {
+        boardId,
+        userId,
+        name: info.name ?? null,
+        email: info.email ?? null,
+        moves,
+        isEnd,
       },
       timestamp: new Date().toISOString(),
     };

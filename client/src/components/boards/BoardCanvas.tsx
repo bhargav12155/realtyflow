@@ -85,6 +85,19 @@ interface BoardCanvasProps {
   onResizeAsset?: (assetId: string, width: number, height: number) => void;
   /** Persist new positions for one or more tiles after a drag completes. */
   onMoveAssets?: (moves: AssetMove[]) => void;
+  /**
+   * Throttled live "I'm dragging these tiles" beacon. Fires while the user
+   * is moving tiles and one final time on release with `isEnd=true`. The
+   * page wires this to a WebSocket broadcast so other collaborators can
+   * render an in-flight ghost at the new position.
+   */
+  onTileDragging?: (moves: AssetMove[], isEnd: boolean) => void;
+  /**
+   * Per-tile remote drag overrides keyed by assetId. Each entry carries the
+   * remote dragger's current target position plus their display label so the
+   * canvas can render a translucent "ghost" tile with their name attached.
+   */
+  remoteDrags?: Map<string, { positionX: number; positionY: number; name: string }>;
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
@@ -114,6 +127,8 @@ export function BoardCanvas({
   onReEvaluate,
   onResizeAsset,
   onMoveAssets,
+  onTileDragging,
+  remoteDrags,
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
@@ -200,6 +215,20 @@ export function BoardCanvas({
   };
 
   useEffect(() => {
+    // Throttle the live drag broadcast so we don't flood the websocket with
+    // a packet per mousemove. ~60ms ≈ 16fps which is smooth enough for a
+    // ghost preview without saturating the channel.
+    const DRAG_BROADCAST_INTERVAL_MS = 60;
+    let lastDragBroadcastAt = 0;
+    const buildMoves = (s: NonNullable<typeof tileDragRef.current>, dx: number, dy: number): AssetMove[] =>
+      s.ids.map((id) => {
+        const start = s.starts.get(id) ?? { x: 0, y: 0 };
+        return {
+          id,
+          positionX: Math.round(start.x + dx),
+          positionY: Math.round(start.y + dy),
+        };
+      });
     const onMove = (e: MouseEvent) => {
       const s = tileDragRef.current;
       if (!s) return;
@@ -212,26 +241,35 @@ export function BoardCanvas({
         s.moved = true;
       }
       setActiveTileDrag({ ids: new Set(s.ids), delta: { x: dx, y: dy } });
+      if (onTileDragging) {
+        const now = Date.now();
+        if (now - lastDragBroadcastAt >= DRAG_BROADCAST_INTERVAL_MS) {
+          lastDragBroadcastAt = now;
+          onTileDragging(buildMoves(s, dx, dy), false);
+        }
+      }
     };
     const onUp = (e: MouseEvent) => {
       const s = tileDragRef.current;
       if (!s) return;
       tileDragRef.current = null;
       setActiveTileDrag(null);
-      if (!s.moved) return;
+      if (!s.moved) {
+        // No drag actually happened; still tell collaborators to clear any
+        // ghost they might be holding (defensive — they shouldn't be).
+        onTileDragging?.([], true);
+        return;
+      }
       // Suppress the click that fires immediately after the drag's mouseup
       // so it doesn't toggle/clear the selection.
       suppressTileClickUntilRef.current = Date.now() + TILE_DRAG_CLICK_SUPPRESS_MS;
       const dx = e.clientX - s.startX;
       const dy = e.clientY - s.startY;
-      const moves: AssetMove[] = s.ids.map((id) => {
-        const start = s.starts.get(id) ?? { x: 0, y: 0 };
-        return {
-          id,
-          positionX: Math.round(start.x + dx),
-          positionY: Math.round(start.y + dy),
-        };
-      });
+      const moves = buildMoves(s, dx, dy);
+      // Final ghost-clear beacon. The persisted positions arrive moments
+      // later via `board_asset_updated`, so the ghost should disappear here
+      // and the canonical tile slides into the new spot on the receiver.
+      onTileDragging?.(moves, true);
       onMoveAssets?.(moves);
     };
     window.addEventListener("mousemove", onMove);
@@ -240,7 +278,7 @@ export function BoardCanvas({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [onMoveAssets]);
+  }, [onMoveAssets, onTileDragging]);
 
   const consumeTileClickAfterDrag = () => {
     if (Date.now() < suppressTileClickUntilRef.current) {
@@ -387,6 +425,7 @@ export function BoardCanvas({
               onTileDragStart={onMoveAssets ? beginTileDrag : undefined}
               consumeTileClickAfterDrag={consumeTileClickAfterDrag}
               tileZOrder={tileZOrder}
+              remoteDrags={remoteDrags}
             />
           ))
         )}
@@ -425,6 +464,7 @@ function BatchGroup({
   onTileDragStart,
   consumeTileClickAfterDrag,
   tileZOrder,
+  remoteDrags,
 }: {
   batch: CanvasBatch;
   assetsById: Map<string, CanvasAsset>;
@@ -445,6 +485,7 @@ function BatchGroup({
   onTileDragStart?: (assetId: string, e: React.MouseEvent) => void;
   consumeTileClickAfterDrag: () => boolean;
   tileZOrder: Map<string, number>;
+  remoteDrags?: Map<string, { positionX: number; positionY: number; name: string }>;
 }) {
   const [reEvalOpen, setReEvalOpen] = useState(false);
   const winnerId = pickWinnerId(batch.assets);
@@ -490,8 +531,15 @@ function BatchGroup({
             const isDragging = activeTileDrag?.ids.has(a.id) ?? false;
             const baseX = typeof a.positionX === "number" ? a.positionX : 0;
             const baseY = typeof a.positionY === "number" ? a.positionY : 0;
-            const offsetX = baseX + (isDragging ? activeTileDrag!.delta.x : 0);
-            const offsetY = baseY + (isDragging ? activeTileDrag!.delta.y : 0);
+            // Local drag wins over a remote ghost — if I'm actively dragging
+            // this tile myself, my own gesture is the source of truth.
+            const remote = !isDragging ? remoteDrags?.get(a.id) ?? null : null;
+            const offsetX = remote
+              ? remote.positionX
+              : baseX + (isDragging ? activeTileDrag!.delta.x : 0);
+            const offsetY = remote
+              ? remote.positionY
+              : baseY + (isDragging ? activeTileDrag!.delta.y : 0);
             // Stacking: any tile with a stored non-zero position sits above
             // tiles still in their flex-flow slot, and recently-dragged
             // tiles sit above older ones (tracked by tileZOrder). The
@@ -499,10 +547,15 @@ function BatchGroup({
             const hasStoredPosition = baseX !== 0 || baseY !== 0;
             const sessionZ = tileZOrder.get(a.id) ?? 0;
             const baselineZ = hasStoredPosition || sessionZ > 0 ? 1 : 0;
-            const tileZ = isDragging ? 9999 : baselineZ + sessionZ;
+            const tileZ = isDragging
+              ? 9999
+              : remote
+                ? 9000
+                : baselineZ + sessionZ;
             return (
               <AssetTile
                 key={a.id}
+                remoteDragName={remote?.name ?? null}
                 asset={a}
                 sourceAsset={source}
                 selected={selectedAssetIds.has(a.id)}
@@ -632,6 +685,7 @@ function AssetTile({
   isDragging,
   onDragStart,
   consumeClickAfterDrag,
+  remoteDragName,
 }: {
   asset: CanvasAsset;
   sourceAsset?: CanvasAsset | null;
@@ -651,6 +705,12 @@ function AssetTile({
   isDragging: boolean;
   onDragStart?: (e: React.MouseEvent) => void;
   consumeClickAfterDrag: () => boolean;
+  /**
+   * When non-null, another collaborator is currently dragging this tile.
+   * The render path treats the tile as a translucent "ghost" and pins a
+   * small badge with their name so viewers can see who is moving it.
+   */
+  remoteDragName?: string | null;
 }) {
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
@@ -781,11 +841,16 @@ function AssetTile({
         transform:
           offsetX || offsetY ? `translate(${offsetX}px, ${offsetY}px)` : undefined,
         zIndex: zIndex || undefined,
-        opacity: isDragging ? 0.85 : undefined,
+        opacity: isDragging ? 0.85 : remoteDragName ? 0.7 : undefined,
+        // While a remote drag is in flight we let the cursor pass through
+        // so the local user can still grab tiles underneath without their
+        // clicks being eaten by a translucent ghost in motion.
+        pointerEvents: remoteDragName ? "none" : undefined,
+        transition: remoteDragName ? "transform 80ms linear" : undefined,
       }}
       className={`relative group flex-shrink-0 ${
         isWinner ? "ring-2 ring-amber-400 rounded-md" : ""
-      }`}
+      } ${remoteDragName ? "ring-2 ring-fuchsia-500 rounded-md" : ""}`}
       onMouseLeave={() => {
         setHistoryOpen(false);
         setBeforeOpen(false);
@@ -793,7 +858,16 @@ function AssetTile({
       data-asset-id={asset.id}
       data-tile-offset-x={offsetX || undefined}
       data-tile-offset-y={offsetY || undefined}
+      data-remote-dragger={remoteDragName || undefined}
     >
+      {remoteDragName && (
+        <div
+          className="absolute -top-5 left-0 px-1.5 py-0.5 rounded bg-fuchsia-500 text-white text-[10px] font-medium leading-none shadow whitespace-nowrap pointer-events-none z-10"
+          data-testid={`tile-remote-dragger-${asset.id}`}
+        >
+          {remoteDragName}
+        </div>
+      )}
       <div
         className={`relative w-full h-full rounded-md overflow-hidden ${
           isSticky

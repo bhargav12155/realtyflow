@@ -238,6 +238,25 @@ export default function BoardDetailPage() {
   const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
   const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  // Live tile drags from other collaborators. Key: assetId. Value: target
+  // position the dragger is hovering over plus their display name. Cleared
+  // when the dragger sends `isEnd:true`, when they leave presence, or via a
+  // safety timeout in case we never see the end packet (e.g. they crashed
+  // mid-drag). The persisted position arrives moments later via
+  // `board_asset_updated`, so the ghost vanishes and the canonical tile
+  // slides into place.
+  const [remoteDrags, setRemoteDrags] = useState<
+    Map<string, { positionX: number; positionY: number; name: string; userId: string }>
+  >(() => new Map());
+  const remoteDragTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const clearRemoteDragTimer = (assetId: string) => {
+    const t = remoteDragTimersRef.current[assetId];
+    if (t) {
+      clearTimeout(t);
+      delete remoteDragTimersRef.current[assetId];
+    }
+  };
+
   // Listen for asset status updates pushed via WebSocket
   const { isConnected: wsConnected, send: wsSend } = useWebSocket({
     userId: user?.id ? String(user.id) : undefined,
@@ -290,6 +309,63 @@ export default function BoardDetailPage() {
         } else {
           delete typingTimersRef.current[d.userId];
         }
+        return;
+      }
+      if (t === "board_asset_dragging") {
+        const d = msg.data as {
+          boardId: string;
+          userId: string;
+          name: string | null;
+          email: string | null;
+          moves: Array<{ id: string; positionX: number; positionY: number }>;
+          isEnd: boolean;
+        };
+        if (d.boardId !== boardId) return;
+        // Defensive: server already filters self-broadcasts via socket
+        // identity, but if it ever gets through (e.g. multi-tab), suppress
+        // it here so the user's own drag doesn't render a ghost on top of
+        // their real one.
+        const selfId = user?.id ? String(user.id) : null;
+        if (selfId && d.userId === selfId) return;
+        const label =
+          (d.name && d.name.trim()) || (d.email && d.email.trim()) || "Someone";
+        setRemoteDrags((prev) => {
+          const next = new Map(prev);
+          if (d.isEnd) {
+            // Clear every asset this user was dragging — match by userId so
+            // a stale entry left over from another asset on the same drag
+            // also gets purged.
+            for (const [aid, entry] of prev) {
+              if (entry.userId === d.userId) {
+                next.delete(aid);
+                clearRemoteDragTimer(aid);
+              }
+            }
+            return next;
+          }
+          for (const m of d.moves) {
+            next.set(m.id, {
+              positionX: m.positionX,
+              positionY: m.positionY,
+              name: label,
+              userId: d.userId,
+            });
+            clearRemoteDragTimer(m.id);
+            // Safety expiry: if the dragger goes silent for 3s without an
+            // explicit end packet (e.g. they closed their tab mid-drag),
+            // drop the ghost so it doesn't haunt the canvas forever.
+            remoteDragTimersRef.current[m.id] = setTimeout(() => {
+              setRemoteDrags((cur) => {
+                if (!cur.has(m.id)) return cur;
+                const out = new Map(cur);
+                out.delete(m.id);
+                return out;
+              });
+              delete remoteDragTimersRef.current[m.id];
+            }, 3000);
+          }
+          return next;
+        });
         return;
       }
       if (t === "board_asset_status") {
@@ -361,6 +437,17 @@ export default function BoardDetailPage() {
           positionY?: number;
         };
         if (d.boardId !== boardId) return;
+        // The canonical post-drop position just landed — drop any in-flight
+        // ghost we're holding for this tile so the real tile takes over.
+        if (d.positionX !== undefined || d.positionY !== undefined) {
+          setRemoteDrags((prev) => {
+            if (!prev.has(d.assetId)) return prev;
+            const next = new Map(prev);
+            next.delete(d.assetId);
+            return next;
+          });
+          clearRemoteDragTimer(d.assetId);
+        }
         queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
           if (!prev) return prev;
           const patchAsset = <T extends { id: string }>(a: T): T => {
@@ -433,6 +520,9 @@ export default function BoardDetailPage() {
     setTypingUsers({});
     for (const t of Object.values(typingTimersRef.current)) clearTimeout(t);
     typingTimersRef.current = {};
+    setRemoteDrags(new Map());
+    for (const t of Object.values(remoteDragTimersRef.current)) clearTimeout(t);
+    remoteDragTimersRef.current = {};
   }, [boardId]);
 
   // Throttled "I'm typing" beacon for the chat input. Re-sends every 2s while
@@ -1484,6 +1574,11 @@ export default function BoardDetailPage() {
               resizeAsset.mutate({ assetId, width, height })
             }
             onMoveAssets={(moves) => moveAssets.mutate(moves)}
+            onTileDragging={(moves, isEnd) => {
+              if (!boardId || !wsConnected) return;
+              wsSend({ type: "asset_dragging", boardId, moves, isEnd });
+            }}
+            remoteDrags={remoteDrags}
             reEvalPendingBatchId={
               reEvaluateBatch.isPending ? reEvaluateBatch.variables?.batchId ?? null : null
             }

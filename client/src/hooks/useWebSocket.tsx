@@ -29,7 +29,8 @@ interface WebSocketMessage {
     | "notification_created"
     | "photo_avatar_status_update"
     | "board_presence"
-    | "board_typing";
+    | "board_typing"
+    | "board_asset_dragging";
   data: any;
   timestamp: string;
   userId?: number;

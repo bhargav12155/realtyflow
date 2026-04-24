@@ -265,8 +265,10 @@ class FakeBoardsStorage {
     return a && a.boardId === boardId ? a : undefined;
   }
   async createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined> {
-    const b = await this.getBoardByIdForUser(boardId, userId);
-    if (!b) return undefined;
+    // Mirrors the real storage (Task #230): owner OR shared collaborator
+    // can create board assets.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
     const created: BoardAsset = {
       id: this.nextId("ast"),
       boardId,
@@ -935,6 +937,75 @@ describe("Shared collaborators can rearrange tiles (Task #229)", () => {
   it("DELETE asset stays owner-only — collaborator gets 404", async () => {
     const { app, boardId, a } = await setupSharedBoard();
     const res = await callJson(app, "DELETE", `/api/boards/${boardId}/assets/${a.id}`);
+    assert.equal(res.status, 404);
+  });
+
+  it("POST /assets succeeds for a shared collaborator (Task #230)", async () => {
+    const { app, boardId } = await setupSharedBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "collab-batch",
+      kind: "image",
+      provider: "upload",
+      assetUrl: "https://example.com/collab.png",
+      thumbnailUrl: null,
+      status: "ready",
+      positionX: 100,
+      positionY: 200,
+    });
+    assert.equal(res.status, 200);
+    const body = res.body as BoardAsset;
+    assert.equal(body.boardId, boardId);
+    assert.equal(body.assetUrl, "https://example.com/collab.png");
+    assert.equal(body.positionX, 100);
+  });
+
+  it("collaborators can create sticky / text / frame / drawing tiles", async () => {
+    const { app, boardId } = await setupSharedBoard();
+    const sticky = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "sticky-batch", kind: "sticky", provider: "tool",
+      content: "hello from collab", positionX: 10, positionY: 10,
+    });
+    assert.equal(sticky.status, 200);
+    assert.equal((sticky.body as BoardAsset).kind, "sticky");
+    const text = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "text-batch", kind: "text", provider: "tool",
+      content: "collab note", positionX: 20, positionY: 20,
+    });
+    assert.equal(text.status, 200);
+    assert.equal((text.body as BoardAsset).kind, "text");
+    const frame = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "frame-batch", kind: "frame", provider: "tool",
+      content: "collab section", positionX: 30, positionY: 30,
+    });
+    assert.equal(frame.status, 200);
+    assert.equal((frame.body as BoardAsset).kind, "frame");
+    const drawing = await callJson(app, "POST", `/api/boards/${boardId}/assets`, {
+      batchId: "drawing-batch",
+      kind: "drawing",
+      provider: "tool",
+      content: JSON.stringify({
+        v: 1, width: 300, height: 200,
+        strokes: [{ color: "#000000", width: 2, points: [{ x: 1, y: 1 }, { x: 2, y: 2 }] }],
+      }),
+      positionX: 40, positionY: 40,
+    });
+    assert.equal(drawing.status, 200);
+    assert.equal((drawing.body as BoardAsset).kind, "drawing");
+  });
+
+  it("non-collaborators (no share row) still get 404 on POST /assets", async () => {
+    const { app, storage } = buildApp("stranger-3");
+    const board = await storage.createBoard({ userId: "owner-1", title: "Private" });
+    const res = await callJson(app, "POST", `/api/boards/${board.id}/assets`, {
+      batchId: "stranger-batch",
+      kind: "image",
+      provider: "upload",
+      assetUrl: "https://example.com/x.png",
+      thumbnailUrl: null,
+      status: "ready",
+      positionX: 0,
+      positionY: 0,
+    });
     assert.equal(res.status, 404);
   });
 

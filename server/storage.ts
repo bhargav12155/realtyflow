@@ -3415,15 +3415,26 @@ export class MemStorage implements IStorage {
   }
 
   async createBoardAssetForUser(boardId: string, userId: string, asset: BoardAssetCreate): Promise<BoardAsset | undefined> {
-    // Verify board ownership before insert
-    const board = await this.getBoardByIdForUser(boardId, userId);
-    if (!board) return undefined;
+    // Authorization: any user with access to the board (owner OR shared
+    // collaborator) can create assets. Task #230 widens creates to
+    // collaborators so they can contribute uploads, generations, stickies,
+    // text, frames, and drawings on shared canvases — matching the
+    // collaborative drag UX from Task #229. Owner-only actions (delete,
+    // share management, board rename/delete) stay gated separately.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return undefined;
     const [created] = await db
       .insert(boardAssetsTable)
       .values({ ...asset, boardId })
       .returning();
-    // Touch parent board's updatedAt
-    await this.touchBoardForUser(boardId, userId);
+    // Bump parent board's updatedAt unconditionally — touchBoardForUser is
+    // owner-scoped and would silently no-op for shared collaborators.
+    if (created) {
+      await db
+        .update(boardsTable)
+        .set({ updatedAt: new Date() })
+        .where(eq(boardsTable.id, boardId));
+    }
     return created;
   }
 

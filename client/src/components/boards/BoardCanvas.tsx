@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
+import {
+  colorFor,
+  colorHexFor,
+  initialsFor,
+  labelFor,
+} from "@/lib/presence-colors";
 
 export interface SelectAssetOptions {
   /** True for shift/cmd/ctrl-click — toggle this id in the existing selection. */
@@ -113,7 +119,10 @@ interface BoardCanvasProps {
    * user's display label so the canvas can render a small labelled pointer
    * exactly where the collaborator's mouse is hovering.
    */
-  remoteCursors?: Map<string, { x: number; y: number; name: string }>;
+  remoteCursors?: Map<
+    string,
+    { x: number; y: number; name: string | null; email: string | null }
+  >;
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
@@ -508,45 +517,57 @@ export function BoardCanvas({
 function RemoteCursorLayer({
   cursors,
 }: {
-  cursors: Map<string, { x: number; y: number; name: string }>;
+  cursors: Map<
+    string,
+    { x: number; y: number; name: string | null; email: string | null }
+  >;
 }) {
   // Cursors live in the scroller's content layer so they scroll naturally
   // with the canvas. Each pointer is non-interactive so it can't intercept
   // clicks on the tiles underneath; the label sits to the bottom-right of
-  // the arrow so it doesn't visually collide with the tip.
+  // the arrow so it doesn't visually collide with the tip. Color and
+  // initials are derived from the same userId-based palette as the
+  // presence avatars so a viewer's cursor matches their avatar circle.
   return (
     <>
-      {Array.from(cursors.entries()).map(([userId, c]) => (
-        <div
-          key={userId}
-          className="absolute pointer-events-none z-40"
-          style={{ left: c.x, top: c.y, transform: "translate(-2px, -2px)" }}
-          data-testid={`remote-cursor-${userId}`}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.25))" }}
-          >
-            <path
-              d="M2 1 L2 14 L6 11 L8.5 16 L11 15 L8.5 10 L13 10 Z"
-              fill="#a21caf"
-              stroke="white"
-              strokeWidth="1"
-              strokeLinejoin="round"
-            />
-          </svg>
+      {Array.from(cursors.entries()).map(([userId, c]) => {
+        const hex = colorHexFor(userId);
+        const bg = colorFor(userId);
+        const initials = initialsFor(c.name, c.email);
+        const fullLabel = labelFor({ name: c.name, email: c.email });
+        return (
           <div
-            className="mt-0.5 ml-3 inline-block px-1.5 py-0.5 rounded bg-fuchsia-600 text-white text-[10px] font-medium leading-none shadow whitespace-nowrap"
-            data-testid={`remote-cursor-label-${userId}`}
+            key={userId}
+            className="absolute pointer-events-none z-40"
+            style={{ left: c.x, top: c.y, transform: "translate(-2px, -2px)" }}
+            data-testid={`remote-cursor-${userId}`}
           >
-            {c.name}
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.25))" }}
+            >
+              <path
+                d="M2 1 L2 14 L6 11 L8.5 16 L11 15 L8.5 10 L13 10 Z"
+                fill={hex}
+                stroke="white"
+                strokeWidth="1"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <div
+              className={`mt-0.5 ml-3 inline-block px-1.5 py-0.5 rounded ${bg} text-white text-[10px] font-semibold leading-none shadow whitespace-nowrap`}
+              title={fullLabel}
+              data-testid={`remote-cursor-label-${userId}`}
+            >
+              {initials}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }

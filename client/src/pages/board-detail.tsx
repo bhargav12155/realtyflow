@@ -265,7 +265,10 @@ export default function BoardDetailPage() {
   // pinned to the canvas forever. An explicit `isLeave` packet clears the
   // cursor immediately.
   const [remoteCursors, setRemoteCursors] = useState<
-    Map<string, { x: number; y: number; name: string }>
+    Map<
+      string,
+      { x: number; y: number; name: string | null; email: string | null }
+    >
   >(() => new Map());
   const remoteCursorTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const clearRemoteCursorTimer = (userId: string) => {
@@ -371,13 +374,14 @@ export default function BoardDetailPage() {
           });
           return;
         }
-        const label =
-          (d.name && d.name.trim()) || (d.email && d.email.trim()) || "Someone";
         const x = d.x;
         const y = d.y;
         setRemoteCursors((prev) => {
           const next = new Map(prev);
-          next.set(d.userId, { x, y, name: label });
+          // Keep name/email separate so the cursor renderer can derive both
+          // a user-colored chip with initials and a tooltip with the full
+          // label using the shared presence helpers.
+          next.set(d.userId, { x, y, name: d.name, email: d.email });
           return next;
         });
         clearRemoteCursorTimer(d.userId);

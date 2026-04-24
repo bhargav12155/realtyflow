@@ -4,6 +4,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { colorFor, initialsFor, labelFor } from "@/lib/presence-colors";
 
 export interface PresenceViewer {
   userId: string;
@@ -15,35 +16,6 @@ interface PresenceAvatarsProps {
   viewers: PresenceViewer[];
   /** Cap how many circles to render before collapsing into "+N". */
   max?: number;
-}
-
-const PALETTE = [
-  "bg-rose-500",
-  "bg-amber-500",
-  "bg-emerald-500",
-  "bg-sky-500",
-  "bg-violet-500",
-  "bg-pink-500",
-  "bg-teal-500",
-  "bg-indigo-500",
-];
-
-function colorFor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return PALETTE[Math.abs(hash) % PALETTE.length];
-}
-
-function initialsFor(name: string | null, email: string | null): string {
-  const src = (name && name.trim()) || (email && email.trim()) || "?";
-  const parts = src.split(/[\s@._-]+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function labelFor(v: PresenceViewer): string {
-  return (v.name && v.name.trim()) || (v.email && v.email.trim()) || "Viewer";
 }
 
 export function PresenceAvatars({ viewers, max = 4 }: PresenceAvatarsProps) {

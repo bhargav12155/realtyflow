@@ -75,49 +75,86 @@ function isImageProvider(p: Provider): p is ImageProvider {
 }
 
 function pushAssetStatus(
-  userId: string,
+  userIds: string[],
   boardId: string,
   asset: BoardAsset,
   extra?: Record<string, unknown>,
 ) {
-  try {
-    realtimeService.sendToUser(userId, {
-      type: "status_update",
-      data: {
-        scope: "board_asset",
+  // De-dupe so the owner-as-collaborator case never gets two copies of the
+  // same WS frame when the actor is also a recipient.
+  const recipients = Array.from(new Set(userIds.filter((u) => !!u)));
+  for (const userId of recipients) {
+    try {
+      realtimeService.sendToUser(userId, {
+        type: "status_update",
+        data: {
+          scope: "board_asset",
+          boardId,
+          batchId: asset.batchId,
+          assetId: asset.id,
+          status: asset.status,
+          kind: asset.kind,
+          provider: asset.provider,
+          modelLabel: asset.modelLabel,
+          assetUrl: asset.assetUrl,
+          thumbnailUrl: asset.thumbnailUrl,
+          rejectionReason: asset.rejectionReason,
+          ...(extra ?? {}),
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("[boards-chat] websocket push failed:", err);
+    }
+    try {
+      realtimeService.notifyBoardAssetStatus(userId, {
         boardId,
         batchId: asset.batchId,
         assetId: asset.id,
         status: asset.status,
-        kind: asset.kind,
+        assetUrl: asset.assetUrl ?? null,
+        thumbnailUrl: asset.thumbnailUrl ?? null,
+        durationSeconds: asset.durationSeconds ?? null,
+        modelLabel: asset.modelLabel ?? null,
         provider: asset.provider,
-        modelLabel: asset.modelLabel,
-        assetUrl: asset.assetUrl,
-        thumbnailUrl: asset.thumbnailUrl,
-        rejectionReason: asset.rejectionReason,
-        ...(extra ?? {}),
-      },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error("[boards-chat] websocket push failed:", err);
+        rejectionReason: asset.rejectionReason ?? null,
+      });
+    } catch (err) {
+      console.warn("[boards-chat] typed ws emit failed:", err instanceof Error ? err.message : err);
+    }
   }
+}
+
+/**
+ * Resolve every user that should receive live updates for a board: the
+ * board's owner plus every share recipient (and the actor as a fallback so
+ * we never accidentally drop the requester from their own broadcast). Used
+ * by the winner-override and re-evaluate flows so status changes triggered
+ * by a collaborator land on every connected participant's canvas in real
+ * time, mirroring how `server/routes/boards.ts` fans out asset PATCH/POST
+ * updates via `notifyBoardAssetUpdated`.
+ */
+async function resolveBoardRecipients(
+  storage: IStorage,
+  boardId: string,
+  actorUserId: string,
+): Promise<string[]> {
+  const recipientIds = new Set<string>([actorUserId]);
   try {
-    realtimeService.notifyBoardAssetStatus(userId, {
-      boardId,
-      batchId: asset.batchId,
-      assetId: asset.id,
-      status: asset.status,
-      assetUrl: asset.assetUrl ?? null,
-      thumbnailUrl: asset.thumbnailUrl ?? null,
-      durationSeconds: asset.durationSeconds ?? null,
-      modelLabel: asset.modelLabel ?? null,
-      provider: asset.provider,
-      rejectionReason: asset.rejectionReason ?? null,
-    });
+    const access = await storage.getAccessibleBoardForUser(boardId, actorUserId);
+    if (access) {
+      const ownerId = access.userId;
+      recipientIds.add(ownerId);
+      const shares = await storage.getBoardShares(boardId, ownerId);
+      for (const s of shares) recipientIds.add(s.userId);
+    }
   } catch (err) {
-    console.warn("[boards-chat] typed ws emit failed:", err instanceof Error ? err.message : err);
+    console.warn(
+      "[boards-chat] failed to resolve board recipients:",
+      err instanceof Error ? err.message : err,
+    );
   }
+  return Array.from(recipientIds);
 }
 
 const SEEDANCE_MODELS: SeedanceModel[] = [
@@ -619,7 +656,7 @@ async function runBatchInBackground(args: {
             assetUrl: imageResult.imageUrl,
             thumbnailUrl: imageResult.imageUrl,
           });
-          if (updated) pushAssetStatus(userId, boardId, updated);
+          if (updated) pushAssetStatus([userId], boardId, updated);
           return;
         }
         const videoProvider = provider as VideoProvider;
@@ -627,14 +664,14 @@ async function runBatchInBackground(args: {
         const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatched.modelLabel,
         });
-        if (labelled) pushAssetStatus(userId, boardId, labelled);
+        if (labelled) pushAssetStatus([userId], boardId, labelled);
         const result = await pollUntilDone(dispatched.poll);
         if (result.error || !result.videoUrl) {
           const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "failed",
             rejectionReason: result.error || "No output URL returned",
           });
-          if (failed) pushAssetStatus(userId, boardId, failed);
+          if (failed) pushAssetStatus([userId], boardId, failed);
           return;
         }
         const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
@@ -643,7 +680,7 @@ async function runBatchInBackground(args: {
           thumbnailUrl: result.videoUrl,
           durationSeconds: result.durationSeconds ?? null,
         });
-        if (ready) pushAssetStatus(userId, boardId, ready);
+        if (ready) pushAssetStatus([userId], boardId, ready);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Generation failed";
         console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
@@ -651,7 +688,7 @@ async function runBatchInBackground(args: {
           status: "failed",
           rejectionReason: msg,
         });
-        if (failed) pushAssetStatus(userId, boardId, failed);
+        if (failed) pushAssetStatus([userId], boardId, failed);
       }
     }),
   );
@@ -718,6 +755,11 @@ async function runAutoEvalAndApply(args: {
   console.log(
     `[boards-chat] ${source}-eval winner=${evalResult.winnerAssetId} model=${evalResult.modelUsed}`,
   );
+  // Resolve every connected participant on the board (owner + share
+  // recipients) so the resulting status flips and auto-eval summary fan
+  // out live, matching how `notifyBoardAssetUpdated` broadcasts asset
+  // PATCH/POST changes in `server/routes/boards.ts` (Task #237).
+  const recipients = await resolveBoardRecipients(storage, boardId, userId);
   const at = new Date().toISOString();
   const winner = candidates.find((a) => a.id === evalResult.winnerAssetId);
   if (winner) {
@@ -734,7 +776,7 @@ async function runAutoEvalAndApply(args: {
         prevStatus: winner.status,
       }),
     });
-    if (updated) pushAssetStatus(userId, boardId, updated, { autoEval: true });
+    if (updated) pushAssetStatus(recipients, boardId, updated, { autoEval: true });
   }
   await Promise.all(
     evalResult.rejected.map(async (r) => {
@@ -754,22 +796,24 @@ async function runAutoEvalAndApply(args: {
           prevStatus: a.status,
         }),
       });
-      if (updated) pushAssetStatus(userId, boardId, updated, { autoEval: true });
+      if (updated) pushAssetStatus(recipients, boardId, updated, { autoEval: true });
     }),
   );
-  try {
-    realtimeService.notifyBoardAutoEval(userId, {
-      boardId,
-      batchId,
-      winnerAssetId: evalResult.winnerAssetId,
-      rejected: evalResult.rejected,
-      modelUsed: evalResult.modelUsed,
-    });
-  } catch (err) {
-    console.warn(
-      "[boards-chat] ws auto-eval emit failed:",
-      err instanceof Error ? err.message : err,
-    );
+  for (const recipientId of recipients) {
+    try {
+      realtimeService.notifyBoardAutoEval(recipientId, {
+        boardId,
+        batchId,
+        winnerAssetId: evalResult.winnerAssetId,
+        rejected: evalResult.rejected,
+        modelUsed: evalResult.modelUsed,
+      });
+    } catch (err) {
+      console.warn(
+        "[boards-chat] ws auto-eval emit failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
   return {
     applied: true,
@@ -814,6 +858,11 @@ async function applyManualWinnerOverride(args: {
   if (!target.assetUrl) {
     return { applied: false, reason: "Asset has no output to promote" };
   }
+  // Resolve every connected participant on the board (owner + share
+  // recipients) so promotion / demotion fans out live to every viewer's
+  // canvas, not just the actor (Task #237). Mirrors the broadcast pattern
+  // used by `notifyBoardAssetUpdated` in `server/routes/boards.ts`.
+  const recipients = await resolveBoardRecipients(storage, boardId, userId);
   const at = new Date().toISOString();
   const priorWinners = batchAssets.filter(
     (a) => a.id !== target.id && a.status === "ready" && !!a.assetUrl,
@@ -837,7 +886,7 @@ async function applyManualWinnerOverride(args: {
     });
     if (updated) {
       demoted.push(updated);
-      pushAssetStatus(userId, boardId, updated);
+      pushAssetStatus(recipients, boardId, updated);
     }
   }
   const promoted = await storage.updateBoardAssetForUser(boardId, target.id, userId, {
@@ -851,7 +900,7 @@ async function applyManualWinnerOverride(args: {
       prevStatus: target.status,
     }),
   });
-  if (promoted) pushAssetStatus(userId, boardId, promoted);
+  if (promoted) pushAssetStatus(recipients, boardId, promoted);
   return { applied: true, winner: promoted ?? target, demoted };
 }
 
@@ -1447,7 +1496,7 @@ export function registerBoardsChatRoutes(
         const created = await storage.createBoardAssetForUser(boardId, userId, payload);
         if (created) {
           rows.push(created);
-          pushAssetStatus(userId, boardId, created);
+          pushAssetStatus([userId], boardId, created);
         }
       }
 

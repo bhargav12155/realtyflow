@@ -1160,6 +1160,138 @@ describe("Shared collaborators can pick batch winners and re-evaluate (Task #232
     assert.equal(res.status, 200);
     assert.equal((res.body as { winner: BoardAsset }).winner.id, b.id);
   });
+
+  // ----------------------------------------------------------------------
+  // Live broadcast (Task #237): when a collaborator overrides the winner or
+  // re-triggers auto-evaluation, every connected participant on the board —
+  // owner + every share recipient — must receive the resulting asset status
+  // updates and (for re-eval) the auto-eval summary in real time. Mirrors
+  // how `notifyBoardAssetUpdated` fans out asset PATCH/POST changes.
+  // ----------------------------------------------------------------------
+  it("override fans out promoted/demoted asset statuses to owner + every collaborator", async () => {
+    const { app, storage, boardId, a, b, c } = await setupSharedBatch("recipient-2");
+    // Add a second collaborator so we can prove fan-out reaches more than
+    // one share recipient — not just the actor.
+    await storage.shareBoard(boardId, "owner-1", "recipient-3");
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "POST",
+        `/api/boards/${boardId}/batches/batch-x/winner`,
+        { winnerAssetId: b.id },
+      );
+      assert.equal(res.status, 200);
+      // Three assets in this batch (a, b, c). The override demotes a and c
+      // (both previously "ready") and promotes b. So we expect 3 status
+      // updates per recipient, fanned out to each of the 3 participants.
+      const calls = statusSpy.mock.calls.map((c) => c.arguments as [string, { assetId: string }]);
+      const recipientsSeen = new Set(calls.map((c) => c[0]));
+      assert.deepEqual(
+        [...recipientsSeen].sort(),
+        ["owner-1", "recipient-2", "recipient-3"].sort(),
+        "every participant receives at least one asset status update",
+      );
+      // For each affected asset we should have one frame per participant.
+      for (const assetId of [a.id, b.id, c.id]) {
+        const perAsset = calls.filter((c) => c[1].assetId === assetId);
+        const recipientsForAsset = new Set(perAsset.map((c) => c[0]));
+        assert.deepEqual(
+          [...recipientsForAsset].sort(),
+          ["owner-1", "recipient-2", "recipient-3"].sort(),
+          `asset ${assetId} should be broadcast to all 3 participants`,
+        );
+      }
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+
+  it("re-evaluate fans out asset statuses + auto-eval summary to owner + every collaborator", async () => {
+    const { app, storage, boardId, a } = await setupSharedBatch("recipient-2");
+    await storage.shareBoard(boardId, "owner-1", "recipient-3");
+    // Demote one asset first so re-eval has both ready and rejected
+    // candidates to reconsider — matching the production flow.
+    await storage.updateBoardAssetForUser(boardId, a.id, "owner-1", {
+      status: "rejected",
+      rejectionReason: "earlier eval said so",
+    });
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    const autoEvalSpy = mock.method(realtimeService, "notifyBoardAutoEval", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "POST",
+        `/api/boards/${boardId}/batches/batch-x/re-evaluate`,
+        { modelHint: "heuristic", prompt: "pick the best one" },
+      );
+      assert.equal(res.status, 200);
+
+      // The auto-eval summary must reach every participant exactly once.
+      const autoEvalCalls = autoEvalSpy.mock.calls.map(
+        (c) => c.arguments as [string, { boardId: string; batchId: string }],
+      );
+      assert.equal(autoEvalCalls.length, 3);
+      const autoEvalRecipients = autoEvalCalls.map((c) => c[0]).sort();
+      assert.deepEqual(
+        autoEvalRecipients,
+        ["owner-1", "recipient-2", "recipient-3"].sort(),
+      );
+      for (const [, payload] of autoEvalCalls) {
+        assert.equal(payload.boardId, boardId);
+        assert.equal(payload.batchId, "batch-x");
+      }
+
+      // Status updates must reach every participant for at least the
+      // promoted winner (so other collaborators see the new ready asset
+      // without a refresh).
+      const statusCalls = statusSpy.mock.calls.map(
+        (c) => c.arguments as [string, { assetId: string }],
+      );
+      const statusRecipients = new Set(statusCalls.map((c) => c[0]));
+      assert.deepEqual(
+        [...statusRecipients].sort(),
+        ["owner-1", "recipient-2", "recipient-3"].sort(),
+        "every participant receives at least one asset status update",
+      );
+    } finally {
+      statusSpy.mock.restore();
+      autoEvalSpy.mock.restore();
+    }
+  });
+
+  it("override does not push to strangers (no share row)", async () => {
+    const { app, storage, boardId, b } = await setupSharedBatch("recipient-2");
+    // "stranger-9" has no share row on this board.
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "POST",
+        `/api/boards/${boardId}/batches/batch-x/winner`,
+        { winnerAssetId: b.id },
+      );
+      assert.equal(res.status, 200);
+      const calls = statusSpy.mock.calls.map((c) => c.arguments as [string, { assetId: string }]);
+      const recipientsSeen = new Set(calls.map((c) => c[0]));
+      assert.ok(!recipientsSeen.has("stranger-9"));
+      // Sanity: we did broadcast to the legitimate participants so the
+      // negative assertion above is meaningful.
+      assert.ok(recipientsSeen.has("owner-1"));
+      assert.ok(recipientsSeen.has("recipient-2"));
+      // Storage was seeded with one share recipient ("recipient-2") so the
+      // total recipient set must be exactly {owner-1, recipient-2}.
+      assert.deepEqual(
+        [...recipientsSeen].sort(),
+        ["owner-1", "recipient-2"].sort(),
+      );
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
 });
 
 describe("Drawing asset content sanitization", () => {

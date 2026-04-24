@@ -3351,13 +3351,21 @@ export class MemStorage implements IStorage {
 
   // ============== Board Assets (user-scoped via boards.userId) ==============
   async getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]> {
+    // Authorization: any user with access to the board (owner OR shared
+    // collaborator) can list assets. Collaborators are first-class on the
+    // canvas (Tasks #229/#230) — they read and write tiles, kick off chat
+    // batches, and (Task #232) pick winners / re-trigger evaluation, all of
+    // which depend on this listing returning the full set. Owner-only
+    // operations (delete, share management, board rename/delete) re-check
+    // ownership separately via getBoardByIdForUser.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return [];
     const rows = await db
-      .select({ asset: boardAssetsTable })
+      .select()
       .from(boardAssetsTable)
-      .innerJoin(boardsTable, eq(boardsTable.id, boardAssetsTable.boardId))
-      .where(and(eq(boardAssetsTable.boardId, boardId), eq(boardsTable.userId, userId)))
+      .where(eq(boardAssetsTable.boardId, boardId))
       .orderBy(desc(boardAssetsTable.createdAt));
-    return rows.map((r) => r.asset);
+    return rows;
   }
 
   async getBoardAssetByIdForUser(boardId: string, assetId: string, userId: string): Promise<BoardAsset | undefined> {

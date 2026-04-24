@@ -1528,7 +1528,11 @@ export function registerBoardsChatRoutes(
         const batchId = req.params.batchId;
         const body = overrideWinnerSchema.parse(req.body ?? {});
 
-        const board = await storage.getBoardByIdForUser(boardId, userId);
+        // Shared collaborators (Task #232) can pick winners on shared
+        // boards, matching the rest of the collaborative canvas UX (Tasks
+        // #229/#230). Owner-only actions (delete, share management,
+        // rename/delete) stay gated via getBoardByIdForUser elsewhere.
+        const board = await storage.getAccessibleBoardForUser(boardId, userId);
         if (!board) return res.status(404).json({ error: "Board not found" });
 
         const result = await applyManualWinnerOverride({
@@ -1576,7 +1580,11 @@ export function registerBoardsChatRoutes(
         const batchId = req.params.batchId;
         const body = reEvalSchema.parse(req.body ?? {});
 
-        const board = await storage.getBoardByIdForUser(boardId, userId);
+        // Shared collaborators (Task #232) can re-trigger evaluation on
+        // shared boards, matching the rest of the collaborative canvas UX
+        // (Tasks #229/#230). Owner-only actions (delete, share management,
+        // rename/delete) stay gated via getBoardByIdForUser elsewhere.
+        const board = await storage.getAccessibleBoardForUser(boardId, userId);
         if (!board) return res.status(404).json({ error: "Board not found" });
 
         // Use the explicit prompt override when provided; otherwise fall back to
@@ -1595,6 +1603,9 @@ export function registerBoardsChatRoutes(
           modelHint: body.modelHint,
           extraCriteria: body.extraCriteria,
           source: "manual",
+          // Use the same injected auto-eval implementation the background
+          // pass uses so test stubs land here too.
+          autoEvalFn: autoEval,
         });
         if (!result.applied) {
           return res.status(400).json({ error: result.reason || "Re-evaluation skipped" });

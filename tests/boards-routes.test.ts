@@ -225,8 +225,11 @@ class FakeBoardsStorage {
     return true;
   }
   async getBoardAssetsForUser(boardId: string, userId: string): Promise<BoardAsset[]> {
-    const b = await this.getBoardByIdForUser(boardId, userId);
-    if (!b) return [];
+    // Mirrors the real storage (Task #232): owner OR shared collaborator
+    // can list assets, since collaborators need this list to drive winner
+    // overrides and re-evaluation on shared boards.
+    const access = await this.getAccessibleBoardForUser(boardId, userId);
+    if (!access) return [];
     return Array.from(this.assets.values())
       .filter((a) => a.boardId === boardId)
       .sort((a, b2) => b2.createdAt!.getTime() - a.createdAt!.getTime());
@@ -1025,6 +1028,137 @@ describe("Shared collaborators can rearrange tiles (Task #229)", () => {
       moves: [{ id: a!.id, positionX: 1, positionY: 2 }],
     });
     assert.equal(bulk.status, 404);
+  });
+});
+
+describe("Shared collaborators can pick batch winners and re-evaluate (Task #232)", () => {
+  // Seed a shared board with a 3-asset batch so winner-override and
+  // re-evaluate both have something to act on. The signed-in user (`asUser`)
+  // can be either the owner or a shared collaborator depending on the case
+  // we want to exercise.
+  async function setupSharedBatch(asUser: string) {
+    const { app, storage } = buildApp(asUser);
+    const board = await storage.createBoard({ userId: "owner-1", title: "Shared canvas" });
+    const a = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "batch-x", batchLabel: "Batch X", kind: "image", provider: "openai-image",
+      assetUrl: "https://example.com/a.png", thumbnailUrl: "https://example.com/a.png",
+      status: "ready", positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const b = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "batch-x", batchLabel: "Batch X", kind: "image", provider: "openai-image",
+      assetUrl: "https://example.com/b.png", thumbnailUrl: "https://example.com/b.png",
+      status: "ready", positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const c = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "batch-x", batchLabel: "Batch X", kind: "image", provider: "openai-image",
+      assetUrl: "https://example.com/c.png", thumbnailUrl: "https://example.com/c.png",
+      status: "ready", positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    return { app, storage, boardId: board.id, a: a!, b: b!, c: c! };
+  }
+
+  it("collaborator can override the winner of a batch they did not start", async () => {
+    const { app, storage, boardId, a, b, c } = await setupSharedBatch("recipient-2");
+    const res = await callJson(
+      app,
+      "POST",
+      `/api/boards/${boardId}/batches/batch-x/winner`,
+      { winnerAssetId: b.id, reasonForPriorWinner: "collab vote" },
+    );
+    assert.equal(res.status, 200);
+    const body = res.body as {
+      success: boolean;
+      winner: BoardAsset;
+      demoted: BoardAsset[];
+    };
+    assert.equal(body.success, true);
+    assert.equal(body.winner.id, b.id);
+    assert.equal(body.winner.status, "ready");
+    // Both prior "ready" siblings should be demoted by the override.
+    const demotedIds = body.demoted.map((d) => d.id).sort();
+    assert.deepEqual(demotedIds, [a.id, c.id].sort());
+    // Confirm the persisted state reflects the override too.
+    const fresh = await storage.getBoardAssetByIdForUser(boardId, b.id, "owner-1");
+    assert.equal(fresh!.status, "ready");
+    const demotedFresh = await storage.getBoardAssetByIdForUser(boardId, a.id, "owner-1");
+    assert.equal(demotedFresh!.status, "rejected");
+    assert.equal(demotedFresh!.rejectionReason, "collab vote");
+  });
+
+  it("collaborator can re-trigger auto-evaluation on a shared batch", async () => {
+    const { app, storage, boardId, a } = await setupSharedBatch("recipient-2");
+    // Demote one asset first so re-eval has both ready and rejected
+    // candidates to reconsider — matching the production flow.
+    await storage.updateBoardAssetForUser(boardId, a.id, "owner-1", {
+      status: "rejected",
+      rejectionReason: "earlier eval said so",
+    });
+    const res = await callJson(
+      app,
+      "POST",
+      `/api/boards/${boardId}/batches/batch-x/re-evaluate`,
+      { modelHint: "heuristic", prompt: "pick the best one" },
+    );
+    assert.equal(res.status, 200);
+    const body = res.body as {
+      success: boolean;
+      batchId: string;
+      winnerAssetId: string;
+      modelUsed: string;
+      rejected: Array<{ assetId: string; reason: string }>;
+    };
+    assert.equal(body.success, true);
+    assert.equal(body.batchId, "batch-x");
+    assert.equal(body.modelUsed, "heuristic");
+    assert.ok(body.winnerAssetId);
+    assert.ok(body.rejected.length >= 1);
+  });
+
+  it("non-collaborators (no share row) get 404 on winner override", async () => {
+    const { app, storage } = buildApp("stranger-3");
+    const board = await storage.createBoard({ userId: "owner-1", title: "Private" });
+    const a = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "batch-x", batchLabel: "Batch X", kind: "image", provider: "openai-image",
+      assetUrl: "https://example.com/a.png", thumbnailUrl: "https://example.com/a.png",
+      status: "ready", positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const res = await callJson(
+      app,
+      "POST",
+      `/api/boards/${board.id}/batches/batch-x/winner`,
+      { winnerAssetId: a!.id },
+    );
+    assert.equal(res.status, 404);
+  });
+
+  it("non-collaborators (no share row) get 404 on re-evaluate", async () => {
+    const { app, storage } = buildApp("stranger-3");
+    const board = await storage.createBoard({ userId: "owner-1", title: "Private" });
+    await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "batch-x", batchLabel: "Batch X", kind: "image", provider: "openai-image",
+      assetUrl: "https://example.com/a.png", thumbnailUrl: "https://example.com/a.png",
+      status: "ready", positionX: 0, positionY: 0,
+    } as BoardAssetCreate);
+    const res = await callJson(
+      app,
+      "POST",
+      `/api/boards/${board.id}/batches/batch-x/re-evaluate`,
+      { modelHint: "heuristic" },
+    );
+    assert.equal(res.status, 404);
+  });
+
+  it("owner can still override winners on their own boards", async () => {
+    const { app, boardId, b } = await setupSharedBatch("owner-1");
+    const res = await callJson(
+      app,
+      "POST",
+      `/api/boards/${boardId}/batches/batch-x/winner`,
+      { winnerAssetId: b.id },
+    );
+    assert.equal(res.status, 200);
+    assert.equal((res.body as { winner: BoardAsset }).winner.id, b.id);
   });
 });
 

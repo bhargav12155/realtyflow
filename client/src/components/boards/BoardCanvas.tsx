@@ -523,7 +523,7 @@ export function BoardCanvas({
   );
 }
 
-function RemoteCursorLayer({
+export function RemoteCursorLayer({
   cursors,
 }: {
   cursors: Map<

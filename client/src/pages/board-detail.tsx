@@ -246,7 +246,16 @@ export default function BoardDetailPage() {
   // `board_asset_updated`, so the ghost vanishes and the canonical tile
   // slides into place.
   const [remoteDrags, setRemoteDrags] = useState<
-    Map<string, { positionX: number; positionY: number; name: string; userId: string }>
+    Map<
+      string,
+      {
+        positionX: number;
+        positionY: number;
+        userId: string;
+        name: string | null;
+        email: string | null;
+      }
+    >
   >(() => new Map());
   const remoteDragTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const clearRemoteDragTimer = (assetId: string) => {
@@ -416,8 +425,6 @@ export default function BoardDetailPage() {
         // their real one.
         const selfId = user?.id ? String(user.id) : null;
         if (selfId && d.userId === selfId) return;
-        const label =
-          (d.name && d.name.trim()) || (d.email && d.email.trim()) || "Someone";
         setRemoteDrags((prev) => {
           const next = new Map(prev);
           if (d.isEnd) {
@@ -436,8 +443,9 @@ export default function BoardDetailPage() {
             next.set(m.id, {
               positionX: m.positionX,
               positionY: m.positionY,
-              name: label,
               userId: d.userId,
+              name: d.name,
+              email: d.email,
             });
             clearRemoteDragTimer(m.id);
             // Safety expiry: if the dragger goes silent for 3s without an

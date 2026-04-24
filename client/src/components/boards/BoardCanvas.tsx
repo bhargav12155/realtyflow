@@ -103,7 +103,16 @@ interface BoardCanvasProps {
    * remote dragger's current target position plus their display label so the
    * canvas can render a translucent "ghost" tile with their name attached.
    */
-  remoteDrags?: Map<string, { positionX: number; positionY: number; name: string }>;
+  remoteDrags?: Map<
+    string,
+    {
+      positionX: number;
+      positionY: number;
+      userId: string;
+      name: string | null;
+      email: string | null;
+    }
+  >;
   /**
    * Throttled live "where my mouse is" beacon. Fires while the local user
    * moves their cursor over the canvas, and one final time on leave with
@@ -610,7 +619,16 @@ function BatchGroup({
   onTileDragStart?: (assetId: string, e: React.MouseEvent) => void;
   consumeTileClickAfterDrag: () => boolean;
   tileZOrder: Map<string, number>;
-  remoteDrags?: Map<string, { positionX: number; positionY: number; name: string }>;
+  remoteDrags?: Map<
+    string,
+    {
+      positionX: number;
+      positionY: number;
+      userId: string;
+      name: string | null;
+      email: string | null;
+    }
+  >;
 }) {
   const [reEvalOpen, setReEvalOpen] = useState(false);
   const winnerId = pickWinnerId(batch.assets);
@@ -680,7 +698,15 @@ function BatchGroup({
             return (
               <AssetTile
                 key={a.id}
-                remoteDragName={remote?.name ?? null}
+                remoteDragger={
+                  remote
+                    ? {
+                        userId: remote.userId,
+                        name: remote.name,
+                        email: remote.email,
+                      }
+                    : null
+                }
                 asset={a}
                 sourceAsset={source}
                 selected={selectedAssetIds.has(a.id)}
@@ -810,7 +836,7 @@ function AssetTile({
   isDragging,
   onDragStart,
   consumeClickAfterDrag,
-  remoteDragName,
+  remoteDragger,
 }: {
   asset: CanvasAsset;
   sourceAsset?: CanvasAsset | null;
@@ -833,9 +859,15 @@ function AssetTile({
   /**
    * When non-null, another collaborator is currently dragging this tile.
    * The render path treats the tile as a translucent "ghost" and pins a
-   * small badge with their name so viewers can see who is moving it.
+   * small badge with their initials in their per-user color so viewers
+   * can see who is moving it without losing the visual link to that
+   * collaborator's avatar / cursor elsewhere on the canvas.
    */
-  remoteDragName?: string | null;
+  remoteDragger?: {
+    userId: string;
+    name: string | null;
+    email: string | null;
+  } | null;
 }) {
   const flagged = asset.status === "rejected";
   const generating = asset.status === "queued" || asset.status === "generating";
@@ -957,6 +989,21 @@ function AssetTile({
     }
   };
 
+  // Per-user color / label for the remote-drag affordance. Reusing the
+  // same helpers as live cursors / presence avatars guarantees the badge,
+  // the ring around the ghost tile, and that viewer's pointer & avatar
+  // all share one identity so it's obvious at a glance who is moving
+  // what — even with several collaborators dragging different tiles at
+  // once.
+  const remoteDragHex = remoteDragger ? colorHexFor(remoteDragger.userId) : null;
+  const remoteDragBg = remoteDragger ? colorFor(remoteDragger.userId) : null;
+  const remoteDragInitials = remoteDragger
+    ? initialsFor(remoteDragger.name, remoteDragger.email)
+    : null;
+  const remoteDragLabel = remoteDragger
+    ? labelFor({ name: remoteDragger.name, email: remoteDragger.email })
+    : null;
+
   return (
     <div
       ref={tileRef}
@@ -966,16 +1013,23 @@ function AssetTile({
         transform:
           offsetX || offsetY ? `translate(${offsetX}px, ${offsetY}px)` : undefined,
         zIndex: zIndex || undefined,
-        opacity: isDragging ? 0.85 : remoteDragName ? 0.7 : undefined,
+        opacity: isDragging ? 0.85 : remoteDragger ? 0.7 : undefined,
         // While a remote drag is in flight we let the cursor pass through
         // so the local user can still grab tiles underneath without their
         // clicks being eaten by a translucent ghost in motion.
-        pointerEvents: remoteDragName ? "none" : undefined,
-        transition: remoteDragName ? "transform 80ms linear" : undefined,
+        pointerEvents: remoteDragger ? "none" : undefined,
+        transition: remoteDragger ? "transform 80ms linear" : undefined,
+        // Tailwind ring utilities can't take a dynamic hex from the
+        // per-user palette, so we paint the ring directly via boxShadow
+        // (the same trick `ring-2` uses under the hood). This sits on
+        // top of any winner ring so the active dragger's color wins
+        // while they're moving the tile.
+        boxShadow: remoteDragHex ? `0 0 0 2px ${remoteDragHex}` : undefined,
+        borderRadius: remoteDragger ? "0.375rem" : undefined,
       }}
       className={`relative group flex-shrink-0 ${
-        isWinner ? "ring-2 ring-amber-400 rounded-md" : ""
-      } ${remoteDragName ? "ring-2 ring-fuchsia-500 rounded-md" : ""}`}
+        isWinner && !remoteDragger ? "ring-2 ring-amber-400 rounded-md" : ""
+      }`}
       onMouseLeave={() => {
         setHistoryOpen(false);
         setBeforeOpen(false);
@@ -983,14 +1037,23 @@ function AssetTile({
       data-asset-id={asset.id}
       data-tile-offset-x={offsetX || undefined}
       data-tile-offset-y={offsetY || undefined}
-      data-remote-dragger={remoteDragName || undefined}
+      data-remote-dragger={remoteDragLabel || undefined}
+      data-remote-dragger-user-id={remoteDragger?.userId || undefined}
     >
-      {remoteDragName && (
+      {remoteDragger && remoteDragBg && (
+        // The ghost tile body stays click-through (pointerEvents: "none"
+        // on the parent) so the local user can still grab tiles
+        // underneath, but the label re-enables pointer events on itself
+        // so the native `title` tooltip can fire on hover. Mouse events
+        // on this small badge don't get in the way of underlying tile
+        // selection because the badge sits above the tile, not over its
+        // hit-testable surface.
         <div
-          className="absolute -top-5 left-0 px-1.5 py-0.5 rounded bg-fuchsia-500 text-white text-[10px] font-medium leading-none shadow whitespace-nowrap pointer-events-none z-10"
+          className={`absolute -top-5 left-0 px-1.5 py-0.5 rounded ${remoteDragBg} text-white text-[10px] font-semibold leading-none shadow whitespace-nowrap pointer-events-auto z-10`}
+          title={remoteDragLabel ?? undefined}
           data-testid={`tile-remote-dragger-${asset.id}`}
         >
-          {remoteDragName}
+          {remoteDragInitials}
         </div>
       )}
       <div

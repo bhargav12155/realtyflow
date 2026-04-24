@@ -30,7 +30,8 @@ interface WebSocketMessage {
     | "photo_avatar_status_update"
     | "board_presence"
     | "board_typing"
-    | "board_asset_dragging";
+    | "board_asset_dragging"
+    | "board_cursor";
   data: any;
   timestamp: string;
   userId?: number;

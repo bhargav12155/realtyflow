@@ -98,6 +98,22 @@ interface BoardCanvasProps {
    * canvas can render a translucent "ghost" tile with their name attached.
    */
   remoteDrags?: Map<string, { positionX: number; positionY: number; name: string }>;
+  /**
+   * Throttled live "where my mouse is" beacon. Fires while the local user
+   * moves their cursor over the canvas, and one final time on leave with
+   * `null` coordinates so collaborators can clear the cursor immediately
+   * instead of waiting for the idle timeout. Coordinates are in
+   * scroller-content space so they line up across viewers regardless of
+   * each viewer's own scroll position or window size.
+   */
+  onCursorMove?: (x: number | null, y: number | null) => void;
+  /**
+   * Per-user remote cursor positions keyed by userId. Each entry carries
+   * the cursor's position in scroller-content coordinates and the remote
+   * user's display label so the canvas can render a small labelled pointer
+   * exactly where the collaborator's mouse is hovering.
+   */
+  remoteCursors?: Map<string, { x: number; y: number; name: string }>;
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
@@ -129,6 +145,8 @@ export function BoardCanvas({
   onMoveAssets,
   onTileDragging,
   remoteDrags,
+  onCursorMove,
+  remoteCursors,
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
@@ -280,6 +298,41 @@ export function BoardCanvas({
     };
   }, [onMoveAssets, onTileDragging]);
 
+  // Throttled local cursor broadcast. We translate clientX/Y into the
+  // scroller's content space so every viewer pins the remote cursor at the
+  // same logical spot regardless of how their own canvas is scrolled or
+  // sized. The send rate is capped at ~50ms (≈20fps) which feels live but
+  // never floods the websocket. A final `null,null` packet is sent on
+  // mouseleave / pagehide so collaborators can clear the cursor instantly
+  // instead of waiting for the receiver-side idle timeout.
+  const lastCursorBroadcastAtRef = useRef(0);
+  const handleCursorMoveOverScroller = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onCursorMove) return;
+    const root = scrollerRef.current;
+    if (!root) return;
+    const now = Date.now();
+    if (now - lastCursorBroadcastAtRef.current < 50) return;
+    lastCursorBroadcastAtRef.current = now;
+    const rect = root.getBoundingClientRect();
+    const x = e.clientX - rect.left + root.scrollLeft;
+    const y = e.clientY - rect.top + root.scrollTop;
+    onCursorMove(x, y);
+  };
+  const handleCursorLeaveScroller = () => {
+    if (!onCursorMove) return;
+    lastCursorBroadcastAtRef.current = 0;
+    onCursorMove(null, null);
+  };
+  // Send a final clear when the page itself is going away — mouseleave
+  // doesn't fire on tab close, so without this the cursor would linger on
+  // every other viewer's canvas until the 5s idle expiry.
+  useEffect(() => {
+    if (!onCursorMove) return;
+    const onPageHide = () => onCursorMove(null, null);
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [onCursorMove]);
+
   const consumeTileClickAfterDrag = () => {
     if (Date.now() < suppressTileClickUntilRef.current) {
       suppressTileClickUntilRef.current = 0;
@@ -399,6 +452,8 @@ export function BoardCanvas({
         className="absolute inset-0 overflow-auto px-8 py-6"
         onMouseDown={onCanvasMouseDown}
         onClick={() => onSelectAsset(null)}
+        onMouseMove={handleCursorMoveOverScroller}
+        onMouseLeave={handleCursorLeaveScroller}
         data-testid="canvas-scroller"
       >
         {batches.length === 0 ? (
@@ -429,6 +484,9 @@ export function BoardCanvas({
             />
           ))
         )}
+        {remoteCursors && remoteCursors.size > 0 && (
+          <RemoteCursorLayer cursors={remoteCursors} />
+        )}
       </div>
       {marquee && (marquee.w > 0 || marquee.h > 0) && (
         <div
@@ -444,6 +502,52 @@ export function BoardCanvas({
       )}
       <ZoomControls />
     </main>
+  );
+}
+
+function RemoteCursorLayer({
+  cursors,
+}: {
+  cursors: Map<string, { x: number; y: number; name: string }>;
+}) {
+  // Cursors live in the scroller's content layer so they scroll naturally
+  // with the canvas. Each pointer is non-interactive so it can't intercept
+  // clicks on the tiles underneath; the label sits to the bottom-right of
+  // the arrow so it doesn't visually collide with the tip.
+  return (
+    <>
+      {Array.from(cursors.entries()).map(([userId, c]) => (
+        <div
+          key={userId}
+          className="absolute pointer-events-none z-40"
+          style={{ left: c.x, top: c.y, transform: "translate(-2px, -2px)" }}
+          data-testid={`remote-cursor-${userId}`}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.25))" }}
+          >
+            <path
+              d="M2 1 L2 14 L6 11 L8.5 16 L11 15 L8.5 10 L13 10 Z"
+              fill="#a21caf"
+              stroke="white"
+              strokeWidth="1"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <div
+            className="mt-0.5 ml-3 inline-block px-1.5 py-0.5 rounded bg-fuchsia-600 text-white text-[10px] font-medium leading-none shadow whitespace-nowrap"
+            data-testid={`remote-cursor-label-${userId}`}
+          >
+            {c.name}
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 

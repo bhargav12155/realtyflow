@@ -257,6 +257,25 @@ export default function BoardDetailPage() {
     }
   };
 
+  // Live "Figma-style" cursors for collaborators between drags. Key: userId.
+  // Each entry is the most recent scroller-content position the remote user
+  // pinged, plus their display label. We auto-expire each entry a few
+  // seconds after the last update so a viewer who stops moving (or whose
+  // socket dies before sending a `isLeave`) doesn't leave a stale pointer
+  // pinned to the canvas forever. An explicit `isLeave` packet clears the
+  // cursor immediately.
+  const [remoteCursors, setRemoteCursors] = useState<
+    Map<string, { x: number; y: number; name: string }>
+  >(() => new Map());
+  const remoteCursorTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const clearRemoteCursorTimer = (userId: string) => {
+    const t = remoteCursorTimersRef.current[userId];
+    if (t) {
+      clearTimeout(t);
+      delete remoteCursorTimersRef.current[userId];
+    }
+  };
+
   // Listen for asset status updates pushed via WebSocket
   const { isConnected: wsConnected, send: wsSend } = useWebSocket({
     userId: user?.id ? String(user.id) : undefined,
@@ -267,7 +286,25 @@ export default function BoardDetailPage() {
       if (t === "board_presence") {
         const d = msg.data as { boardId: string; viewers: BoardViewer[] };
         if (d.boardId !== boardId) return;
-        setPresenceViewers(Array.isArray(d.viewers) ? d.viewers : []);
+        const viewers = Array.isArray(d.viewers) ? d.viewers : [];
+        setPresenceViewers(viewers);
+        // Proactively drop any remote cursors for users who are no longer
+        // present on this board (e.g. SPA navigation away or socket close
+        // before an explicit `cursor isLeave`). This guarantees instant
+        // cleanup instead of waiting up to 5s for the idle timer.
+        const presentIds = new Set(viewers.map((v) => v.userId));
+        setRemoteCursors((prev) => {
+          let changed = false;
+          const next = new Map(prev);
+          for (const userId of Array.from(next.keys())) {
+            if (!presentIds.has(userId)) {
+              next.delete(userId);
+              clearRemoteCursorTimer(userId);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
         return;
       }
       if (t === "board_typing") {
@@ -309,6 +346,54 @@ export default function BoardDetailPage() {
         } else {
           delete typingTimersRef.current[d.userId];
         }
+        return;
+      }
+      if (t === "board_cursor") {
+        const d = msg.data as {
+          boardId: string;
+          userId: string;
+          name: string | null;
+          email: string | null;
+          x: number | null;
+          y: number | null;
+          isLeave: boolean;
+        };
+        if (d.boardId !== boardId) return;
+        const selfId = user?.id ? String(user.id) : null;
+        if (selfId && d.userId === selfId) return;
+        if (d.isLeave || d.x === null || d.y === null) {
+          clearRemoteCursorTimer(d.userId);
+          setRemoteCursors((prev) => {
+            if (!prev.has(d.userId)) return prev;
+            const next = new Map(prev);
+            next.delete(d.userId);
+            return next;
+          });
+          return;
+        }
+        const label =
+          (d.name && d.name.trim()) || (d.email && d.email.trim()) || "Someone";
+        const x = d.x;
+        const y = d.y;
+        setRemoteCursors((prev) => {
+          const next = new Map(prev);
+          next.set(d.userId, { x, y, name: label });
+          return next;
+        });
+        clearRemoteCursorTimer(d.userId);
+        // Idle expiry: 5s without an update drops the cursor so a viewer
+        // who walks away (or whose socket silently dies before sending an
+        // explicit leave) doesn't leave a stale pointer haunting the
+        // canvas forever.
+        remoteCursorTimersRef.current[d.userId] = setTimeout(() => {
+          setRemoteCursors((cur) => {
+            if (!cur.has(d.userId)) return cur;
+            const out = new Map(cur);
+            out.delete(d.userId);
+            return out;
+          });
+          delete remoteCursorTimersRef.current[d.userId];
+        }, 5000);
         return;
       }
       if (t === "board_asset_dragging") {
@@ -509,6 +594,9 @@ export default function BoardDetailPage() {
     if (!boardId || !wsConnected) return;
     wsSend({ type: "presence_join", boardId });
     return () => {
+      // Send a final cursor leave so peers drop our pointer instantly on
+      // SPA navigation, instead of waiting on their idle timer.
+      wsSend({ type: "cursor", boardId, isLeave: true });
       wsSend({ type: "presence_leave", boardId });
     };
   }, [boardId, wsConnected, wsSend]);
@@ -523,6 +611,9 @@ export default function BoardDetailPage() {
     setRemoteDrags(new Map());
     for (const t of Object.values(remoteDragTimersRef.current)) clearTimeout(t);
     remoteDragTimersRef.current = {};
+    setRemoteCursors(new Map());
+    for (const t of Object.values(remoteCursorTimersRef.current)) clearTimeout(t);
+    remoteCursorTimersRef.current = {};
   }, [boardId]);
 
   // Throttled "I'm typing" beacon for the chat input. Re-sends every 2s while
@@ -1579,6 +1670,15 @@ export default function BoardDetailPage() {
               wsSend({ type: "asset_dragging", boardId, moves, isEnd });
             }}
             remoteDrags={remoteDrags}
+            onCursorMove={(x, y) => {
+              if (!boardId || !wsConnected) return;
+              if (x === null || y === null) {
+                wsSend({ type: "cursor", boardId, isLeave: true });
+              } else {
+                wsSend({ type: "cursor", boardId, x, y });
+              }
+            }}
+            remoteCursors={remoteCursors}
             reEvalPendingBatchId={
               reEvaluateBatch.isPending ? reEvaluateBatch.variables?.batchId ?? null : null
             }

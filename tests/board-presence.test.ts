@@ -283,4 +283,68 @@ describe("Board presence over the websocket", () => {
       b.ws.close();
     },
   );
+
+  it(
+    "fans cursor moves out to other viewers, never echoes them back, and respects isLeave",
+    async () => {
+      const boardId = "board-presence-cursor";
+      const a = await openSocket("presence-cursor-a");
+      const b = await openSocket("presence-cursor-b");
+
+      send(a.ws, { type: "presence_join", boardId });
+      send(b.ws, { type: "presence_join", boardId });
+      // Wait until both sockets agree there are 2 viewers — cursor fan-out
+      // depends on the presence map being populated for both users.
+      await a.waitForNext(
+        (m) =>
+          m.type === "board_presence" &&
+          m.data.boardId === boardId &&
+          m.data.viewers.length === 2,
+      );
+      await b.waitForNext(
+        (m) =>
+          m.type === "board_presence" &&
+          m.data.boardId === boardId &&
+          m.data.viewers.length === 2,
+      );
+
+      const aBefore = a.messages.length;
+
+      // A pings a cursor position — B must receive a board_cursor with the
+      // rounded coordinates and A's userId, and A must NOT see its own.
+      send(a.ws, { type: "cursor", boardId, x: 123.7, y: 456.2 });
+      const bCursor = await b.waitForNext(
+        (m) => m.type === "board_cursor" && m.data.boardId === boardId,
+      );
+      assert.equal(bCursor.data.userId, "presence-cursor-a");
+      assert.equal(bCursor.data.isLeave, false);
+      assert.equal(bCursor.data.x, 124);
+      assert.equal(bCursor.data.y, 456);
+
+      await new Promise((r) => setTimeout(r, 50));
+      const echoed = a.messages
+        .slice(aBefore)
+        .some((m) => m.type === "board_cursor");
+      assert.equal(
+        echoed,
+        false,
+        "sender should not receive their own board_cursor events",
+      );
+
+      // A leaves — B receives an isLeave packet with null coords so it can
+      // clear the cursor immediately instead of waiting for the idle timer.
+      send(a.ws, { type: "cursor", boardId, isLeave: true });
+      const bLeave = await b.waitForNext(
+        (m) =>
+          m.type === "board_cursor" &&
+          m.data.userId === "presence-cursor-a" &&
+          m.data.isLeave === true,
+      );
+      assert.equal(bLeave.data.x, null);
+      assert.equal(bLeave.data.y, null);
+
+      a.ws.close();
+      b.ws.close();
+    },
+  );
 });

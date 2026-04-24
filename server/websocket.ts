@@ -56,7 +56,7 @@ function authenticateRequest(req: IncomingMessage): { userId: string } | null {
 }
 
 export interface WebSocketMessage {
-  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "board_access_revoked" | "notification_created" | "admin_alert" | "board_presence" | "board_typing" | "board_asset_dragging";
+  type: "content_published" | "social_post_scheduled" | "notification" | "status_update" | "photo_generated" | "video_created" | "avatar_group_created" | "motion_added" | "sound_effect_added" | "avatar_ready" | "training_status_update" | "video_generation_complete" | "video_generation_failed" | "motion_complete" | "look_generation_complete" | "look_generation_failed" | "whatsapp_bulk_progress" | "whatsapp_bulk_complete" | "sjinn_video_ready" | "sora2_video_ready" | "voice_clone_complete" | "voice_clone_failed" | "board_asset_status" | "board_asset_updated" | "board_auto_eval" | "board_access_revoked" | "notification_created" | "admin_alert" | "board_presence" | "board_typing" | "board_asset_dragging" | "board_cursor";
   data: any;
   timestamp: string;
   userId?: number;
@@ -169,6 +169,20 @@ export class RealtimeService {
             }
             if (data.type === "typing" && boardId) {
               this.handleTyping(ws, userId, boardId, !!data.isTyping);
+              return;
+            }
+            if (data.type === "cursor" && boardId) {
+              const isLeave = !!data.isLeave;
+              const x = typeof data.x === "number" ? data.x : null;
+              const y = typeof data.y === "number" ? data.y : null;
+              if (isLeave || (x !== null && y !== null)) {
+                void this.handleBoardCursor(
+                  ws,
+                  userId,
+                  boardId,
+                  isLeave ? null : { x: x as number, y: y as number },
+                );
+              }
               return;
             }
             if (data.type === "asset_dragging" && boardId) {
@@ -833,6 +847,49 @@ export class RealtimeService {
         name: info?.name ?? null,
         email: info?.email ?? null,
         isTyping,
+      },
+      timestamp: new Date().toISOString(),
+    };
+    for (const [otherUserId, entry] of users) {
+      if (otherUserId === userId) continue;
+      for (const sock of entry.sockets) {
+        if (sock !== ws) this.sendToClient(sock, message);
+      }
+    }
+  }
+
+  private async handleBoardCursor(
+    ws: WebSocket,
+    userId: string,
+    boardId: string,
+    pos: { x: number; y: number } | null,
+  ): Promise<void> {
+    // Cursor fan-out rides on the existing board presence channel: only
+    // sockets that joined this board's presence map receive the broadcast.
+    // The sender's own sockets are excluded so a viewer never sees a ghost
+    // of their own pointer.
+    const users = this.boardPresence.get(boardId);
+    if (!users) return;
+    let info = users.get(userId);
+    if (!info) {
+      // Defensive: if the cursor packet beat the presence_join (or arrives
+      // from a tab that didn't join for some reason), still resolve their
+      // display info from cache so recipients can label the cursor.
+      info = {
+        ...(await this.resolveUserInfo(userId)),
+        sockets: new Set(),
+      };
+    }
+    const message: WebSocketMessage = {
+      type: "board_cursor",
+      data: {
+        boardId,
+        userId,
+        name: info.name ?? null,
+        email: info.email ?? null,
+        x: pos ? Math.round(pos.x) : null,
+        y: pos ? Math.round(pos.y) : null,
+        isLeave: pos === null,
       },
       timestamp: new Date().toISOString(),
     };

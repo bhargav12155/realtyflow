@@ -307,16 +307,36 @@ import {
   heygenShapeDriftIncidents,
   heygenShapeDriftRetentionRuns,
 } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { gte, like } from "drizzle-orm";
 
-const E2E_RUN_TAG = "e2e-retention-test";
+// Each test gets its own unique fixture tag so its inserts can be
+// distinguished from any rows that other processes (e.g. the dev
+// server, a concurrent test file, or a prior crashed run that didn't
+// clean up after itself) may have written to the same Postgres tables.
+let currentTestTag = "";
+let testStartedAt = new Date(0);
 
-async function clearRetentionTables(): Promise<void> {
-  // Clean any leftover rows from prior test runs so assertions can be
-  // exact. Both tables are admin-only audit tables, so a wholesale wipe
-  // is safe in the test environment.
-  await db.delete(heygenShapeDriftRetentionRuns);
-  await db.delete(heygenShapeDriftIncidents);
+function makeTestTag(): string {
+  return `e2e-retention-test-${process.pid}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
+function endpointPrefix(tag: string): string {
+  return `/v3/${tag}/`;
+}
+
+async function clearTestRetentionRows(tag: string): Promise<void> {
+  // Only delete rows this test created. Both audit tables are shared
+  // with the running dev server in development, so a wholesale wipe
+  // could race with a real incident insert and either lose production
+  // data or leave the test asserting against rows it did not own.
+  await db
+    .delete(heygenShapeDriftIncidents)
+    .where(like(heygenShapeDriftIncidents.endpoint, `${endpointPrefix(tag)}%`));
+  await db
+    .delete(heygenShapeDriftRetentionRuns)
+    .where(gte(heygenShapeDriftRetentionRuns.createdAt, testStartedAt));
 }
 
 async function seedOldIncidents(
@@ -328,9 +348,9 @@ async function seedOldIncidents(
   const cutoff = new Date(Date.now() - (ageDays + 1) * 24 * 60 * 60 * 1000);
   for (let i = 0; i < count; i++) {
     await db.insert(heygenShapeDriftIncidents).values({
-      endpoint: `/v3/${E2E_RUN_TAG}/${i}`,
+      endpoint: `${endpointPrefix(currentTestTag)}${i}`,
       issuePaths: [`data.test.${i}`],
-      message: `${E2E_RUN_TAG} seeded incident ${i}`,
+      message: `${currentTestTag} seeded incident ${i}`,
       userId: null,
       groupId: null,
       createdAt: cutoff,
@@ -338,11 +358,52 @@ async function seedOldIncidents(
   }
 }
 
+// All test-scoped reads (DB + API) filter by `createdAt >= testStartedAt`
+// so concurrent writers (dev server, other workers) cannot inject phantom
+// rows into our assertions.
+function selectTestRetentionRuns() {
+  return db
+    .select()
+    .from(heygenShapeDriftRetentionRuns)
+    .where(gte(heygenShapeDriftRetentionRuns.createdAt, testStartedAt));
+}
+
+function selectTestIncidentIds() {
+  return db
+    .select({ id: heygenShapeDriftIncidents.id })
+    .from(heygenShapeDriftIncidents)
+    .where(
+      like(
+        heygenShapeDriftIncidents.endpoint,
+        `${endpointPrefix(currentTestTag)}%`,
+      ),
+    );
+}
+
+function filterApiRunsToThisTest(
+  runs: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  // The GET endpoint returns every retention run in the table; scope
+  // it down to rows created during this specific test so concurrent
+  // inserts elsewhere can't fail our length/order assertions.
+  const startMs = testStartedAt.getTime();
+  return runs.filter((r) => {
+    const t = new Date(r.createdAt as string).getTime();
+    return Number.isFinite(t) && t >= startMs;
+  });
+}
+
 describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real DB)", () => {
   let app: express.Express;
 
   beforeEach(async () => {
-    await clearRetentionTables();
+    currentTestTag = makeTestTag();
+    // Anchor the start-of-test boundary just before any inserts. We
+    // subtract 1ms because Postgres `now()` is evaluated server-side
+    // and could be a hair earlier than the JS clock under skew, and
+    // we want strictly-greater-than-or-equal to include our own rows.
+    testStartedAt = new Date(Date.now() - 1);
+    await clearTestRetentionRows(currentTestTag);
     app = express();
     app.use(express.json());
     app.use((req: Request, _res: Response, next: NextFunction) => {
@@ -358,21 +419,24 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
   });
 
   afterEach(async () => {
-    await clearRetentionTables();
+    await clearTestRetentionRows(currentTestTag);
   });
 
   it("persists an audit row to the DB and the GET endpoint returns it", async () => {
     process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "5";
     await seedOldIncidents(4, 5);
 
-    // Sanity: the GET endpoint sees an empty audit log to start.
+    // Sanity: the GET endpoint sees no rows from this test to start.
     {
       const { status, body } = await getJson(
         app,
         "/api/v3/admin/heygen-shape-drift-retention-runs",
       );
       assert.equal(status, 200);
-      assert.deepEqual(body.runs, []);
+      const startRuns = filterApiRunsToThisTest(
+        body.runs as Array<Record<string, unknown>>,
+      );
+      assert.deepEqual(startRuns, []);
     }
 
     const deleted = await runShapeDriftRetentionSweep();
@@ -380,7 +444,7 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
 
     // Confirm the row exists in the DB itself before hitting the API,
     // so a failure in the GET path is unambiguously a handler bug.
-    const dbRows = await db.select().from(heygenShapeDriftRetentionRuns);
+    const dbRows = await selectTestRetentionRuns();
     assert.equal(dbRows.length, 1);
     assert.equal(dbRows[0].deletedCount, 4);
     assert.equal(dbRows[0].retentionDays, 5);
@@ -392,7 +456,9 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
       "/api/v3/admin/heygen-shape-drift-retention-runs",
     );
     assert.equal(status, 200);
-    const apiRuns = body.runs as Array<Record<string, unknown>>;
+    const apiRuns = filterApiRunsToThisTest(
+      body.runs as Array<Record<string, unknown>>,
+    );
     assert.equal(apiRuns.length, 1);
     assert.equal(apiRuns[0].id, dbRows[0].id);
     assert.equal(apiRuns[0].deletedCount, 4);
@@ -405,9 +471,7 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
     );
 
     // And the real prune actually removed the seeded rows.
-    const remaining = await db
-      .select({ id: heygenShapeDriftIncidents.id })
-      .from(heygenShapeDriftIncidents);
+    const remaining = await selectTestIncidentIds();
     assert.equal(remaining.length, 0);
   });
 
@@ -422,14 +486,17 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
     await runShapeDriftRetentionSweep();
 
     process.env.HEYGEN_SHAPE_DRIFT_RETENTION_DAYS = "9";
-    // Tag the latest row so we can find it with absolute certainty;
-    // `created_at` ties at millisecond precision are possible on fast
-    // machines, so we also disambiguate by retentionDays below.
-    await db.update(heygenShapeDriftRetentionRuns).set({
-      // Backdate every existing row by 1 second so the new row will be
-      // strictly newer than them.
-      createdAt: sql`now() - interval '1 second'`,
-    });
+    // Pin the two existing rows to a fixed instant just inside this
+    // test's window so they stay visible to `selectTestRetentionRuns`
+    // (which filters by `createdAt >= testStartedAt`) but are still
+    // strictly older than the next sweep's row at millisecond
+    // precision. Sleep briefly so the next `now()` is provably after.
+    const pinnedAt = new Date(testStartedAt.getTime() + 1);
+    await db
+      .update(heygenShapeDriftRetentionRuns)
+      .set({ createdAt: pinnedAt })
+      .where(gte(heygenShapeDriftRetentionRuns.createdAt, testStartedAt));
+    await new Promise((r) => setTimeout(r, 5));
     await runShapeDriftRetentionSweep();
 
     const { status, body } = await getJson(
@@ -437,7 +504,9 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
       "/api/v3/admin/heygen-shape-drift-retention-runs",
     );
     assert.equal(status, 200);
-    const apiRuns = body.runs as Array<Record<string, unknown>>;
+    const apiRuns = filterApiRunsToThisTest(
+      body.runs as Array<Record<string, unknown>>,
+    );
     assert.equal(apiRuns.length, 3);
     // Newest (retentionDays=9) must be first.
     assert.equal(apiRuns[0].retentionDays, 9);
@@ -458,7 +527,7 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
     // No incidents seeded — sweep deletes 0 rows.
     await runShapeDriftRetentionSweep();
 
-    const dbRows = await db.select().from(heygenShapeDriftRetentionRuns);
+    const dbRows = await selectTestRetentionRuns();
     assert.equal(dbRows.length, 1);
     assert.equal(dbRows[0].deletedCount, 0);
     assert.equal(dbRows[0].retentionDays, 30);
@@ -467,7 +536,9 @@ describe("end-to-end: runShapeDriftRetentionSweep -> GET /retention-runs (real D
       app,
       "/api/v3/admin/heygen-shape-drift-retention-runs",
     );
-    const apiRuns = body.runs as Array<Record<string, unknown>>;
+    const apiRuns = filterApiRunsToThisTest(
+      body.runs as Array<Record<string, unknown>>,
+    );
     assert.equal(apiRuns.length, 1);
     assert.equal(apiRuns[0].deletedCount, 0);
     assert.equal(apiRuns[0].retentionDays, 30);

@@ -1464,6 +1464,192 @@ describe("Chat-mode create fans out generation progress to every collaborator (T
   });
 });
 
+describe("Non-chat board entry points fan out asset progress to every collaborator (Task #242)", () => {
+  // Sibling coverage to the chat-mode test above: the upload (POST
+  // /api/boards/:id/assets) and the status-flip PATCH (PATCH
+  // /api/boards/:id/assets/:assetId) flows must broadcast queued/
+  // generating/ready/failed frames to every connected board participant
+  // (owner + every share recipient + actor), not just the actor — without
+  // this a stranger viewing a shared board would see uploaded tiles
+  // appear silently after a manual refresh, or watch a generation tile
+  // sit on "Generating…" forever when the upstream PATCH lands.
+  it("POST /assets broadcasts the new tile to owner + every share recipient", async () => {
+    const { app, storage } = buildApp("recipient-2");
+    const board = await storage.createBoard({
+      userId: "owner-1",
+      title: "Shared canvas",
+    });
+    // Two share recipients to prove fan-out reaches the whole audience,
+    // not just the actor.
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    await storage.shareBoard(board.id, "owner-1", "recipient-3");
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(app, "POST", `/api/boards/${board.id}/assets`, {
+        batchId: "upload-batch",
+        batchLabel: "Uploaded image",
+        kind: "image",
+        provider: "upload",
+        status: "ready",
+        assetUrl: "https://example.com/uploaded.png",
+        thumbnailUrl: "https://example.com/uploaded.png",
+        positionX: 40,
+        positionY: 40,
+        width: 256,
+        height: 256,
+      });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+
+      const recipientsSeen = new Set(
+        statusSpy.mock.calls.map((c) => (c.arguments as [string])[0]),
+      );
+      assert.deepEqual(
+        [...recipientsSeen].sort(),
+        ["owner-1", "recipient-2", "recipient-3"].sort(),
+        "every board participant should receive the new-tile frame",
+      );
+      // And every frame should carry the actual ready URL the actor just
+      // posted, so the collaborator's canvas can show the image rather
+      // than a placeholder skeleton.
+      for (const c of statusSpy.mock.calls) {
+        const payload = (c.arguments as [string, { status: string; assetUrl: string | null }])[1];
+        assert.equal(payload.status, "ready");
+        assert.equal(payload.assetUrl, "https://example.com/uploaded.png");
+      }
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+
+  it("POST /assets does not push to strangers (no share row)", async () => {
+    const { app, storage } = buildApp("recipient-2");
+    const board = await storage.createBoard({
+      userId: "owner-1",
+      title: "Shared canvas",
+    });
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    // "stranger-9" is intentionally not added as a share recipient.
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(app, "POST", `/api/boards/${board.id}/assets`, {
+        batchId: "upload-batch",
+        kind: "image",
+        provider: "upload",
+        status: "ready",
+        assetUrl: "https://example.com/u.png",
+      });
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+
+      const recipientsSeen = new Set(
+        statusSpy.mock.calls.map((c) => (c.arguments as [string])[0]),
+      );
+      assert.ok(!recipientsSeen.has("stranger-9"));
+      // Sanity: the legitimate participants did receive frames so the
+      // negative assertion above is meaningful.
+      assert.deepEqual(
+        [...recipientsSeen].sort(),
+        ["owner-1", "recipient-2"].sort(),
+      );
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+
+  it("PATCH /assets/:assetId fans status flips out to every collaborator", async () => {
+    const { app, storage } = buildApp("owner-1");
+    const board = await storage.createBoard({
+      userId: "owner-1",
+      title: "Shared canvas",
+    });
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    await storage.shareBoard(board.id, "owner-1", "recipient-3");
+    // Seed a generating tile (e.g. a queued upload waiting on a backend
+    // post-processing step) so the PATCH below flips it to ready.
+    const seed = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "upload-batch",
+      kind: "image",
+      provider: "upload",
+      status: "generating",
+    });
+    assert.ok(seed, "seed asset should be created");
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "PATCH",
+        `/api/boards/${board.id}/assets/${seed!.id}`,
+        {
+          status: "ready",
+          assetUrl: "https://example.com/processed.png",
+          thumbnailUrl: "https://example.com/processed.png",
+        },
+      );
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+
+      const recipientsSeen = new Set(
+        statusSpy.mock.calls.map((c) => (c.arguments as [string])[0]),
+      );
+      assert.deepEqual(
+        [...recipientsSeen].sort(),
+        ["owner-1", "recipient-2", "recipient-3"].sort(),
+        "PATCH status flip should broadcast to every board participant",
+      );
+      // Every frame should carry the new ready status + the resolved URL
+      // so the collaborator's tile flips out of the "Generating…"
+      // placeholder.
+      for (const c of statusSpy.mock.calls) {
+        const payload = (c.arguments as [string, { status: string; assetUrl: string | null }])[1];
+        assert.equal(payload.status, "ready");
+        assert.equal(payload.assetUrl, "https://example.com/processed.png");
+      }
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+
+  it("PATCH /assets/:assetId without status/url changes does not push a status frame", async () => {
+    // Drag-only / inline-edit-only PATCHes already broadcast via
+    // `notifyBoardAssetUpdated`; we must not also fire a redundant
+    // `pushAssetStatus` for them or every tile drag would emit two
+    // frames per participant.
+    const { app, storage } = buildApp("owner-1");
+    const board = await storage.createBoard({
+      userId: "owner-1",
+      title: "Shared canvas",
+    });
+    await storage.shareBoard(board.id, "owner-1", "recipient-2");
+    const seed = await storage.createBoardAssetForUser(board.id, "owner-1", {
+      batchId: "upload-batch",
+      kind: "image",
+      provider: "upload",
+      status: "ready",
+      assetUrl: "https://example.com/x.png",
+    });
+    assert.ok(seed);
+
+    const statusSpy = mock.method(realtimeService, "notifyBoardAssetStatus", () => {});
+    try {
+      const res = await callJson(
+        app,
+        "PATCH",
+        `/api/boards/${board.id}/assets/${seed!.id}`,
+        { positionX: 100, positionY: 200 },
+      );
+      assert.equal(res.status, 200, JSON.stringify(res.body));
+      assert.equal(
+        statusSpy.mock.calls.length,
+        0,
+        "drag-only PATCH must not emit a status_update frame",
+      );
+    } finally {
+      statusSpy.mock.restore();
+    }
+  });
+});
+
 describe("Drawing asset content sanitization", () => {
   const validDrawing = JSON.stringify({
     v: 1,

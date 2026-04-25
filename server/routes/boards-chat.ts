@@ -74,7 +74,13 @@ function isImageProvider(p: Provider): p is ImageProvider {
   return (IMAGE_PROVIDERS as readonly string[]).includes(p);
 }
 
-function pushAssetStatus(
+/**
+ * Fan a single asset's status (queued / generating / ready / failed) out to
+ * every connected board participant via WebSocket. Exported so non-chat
+ * entry points (e.g. the upload POST and the generic asset PATCH in
+ * `routes/boards.ts`) can reuse the same fan-out shape — Task #242.
+ */
+export function pushAssetStatus(
   userIds: string[],
   boardId: string,
   asset: BoardAsset,
@@ -134,7 +140,7 @@ function pushAssetStatus(
  * time, mirroring how `server/routes/boards.ts` fans out asset PATCH/POST
  * updates via `notifyBoardAssetUpdated`.
  */
-async function resolveBoardRecipients(
+export async function resolveBoardRecipients(
   storage: IStorage,
   boardId: string,
   actorUserId: string,

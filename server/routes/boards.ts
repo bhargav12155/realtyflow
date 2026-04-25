@@ -19,6 +19,14 @@ import {
   sendBoardLeftEmail,
   getAppBaseUrl,
 } from "../services/mailer";
+// Reuse the chat handler's broadcast helpers so non-chat batch entry points
+// (uploads via POST /assets, status flips via PATCH /assets/:id) fan out the
+// same queued/generating/ready/failed frames to every connected board
+// participant — Task #242. The chat-mode "create" handler already does this
+// (Task #241); without this, a stranger viewing a shared board would either
+// see uploads appear silently after a manual refresh or see a generation
+// tile stuck on "Generating…" forever.
+import { pushAssetStatus, resolveBoardRecipients } from "./boards-chat";
 
 export const ASSET_KINDS = [
   "image",
@@ -816,6 +824,26 @@ export function registerBoardsRoutes(
       const parsed = createAssetSchema.parse(req.body ?? {});
       const asset = await storage.createBoardAssetForUser(req.params.id, userId, parsed);
       if (!asset) return res.status(404).json({ error: "Board not found" });
+      // Fan the new tile out to every board participant (owner + every share
+      // recipient + the actor) so collaborators see uploads, stickies,
+      // drawings, and any other non-chat-created asset appear on their
+      // canvas in real time — without this, a stranger viewing a shared
+      // board would only see the new tile after a manual refresh
+      // (Task #242). Best-effort: a broadcast failure must never fail the
+      // POST itself, so we swallow any error after logging it.
+      try {
+        const recipients = await resolveBoardRecipients(
+          storage,
+          req.params.id,
+          userId,
+        );
+        pushAssetStatus(recipients, req.params.id, asset);
+      } catch (broadcastErr) {
+        console.warn(
+          "[boards] broadcast asset create failed:",
+          broadcastErr instanceof Error ? broadcastErr.message : broadcastErr,
+        );
+      }
       res.json(asset);
     } catch (error: unknown) {
       if (error?.issues) return res.status(400).json({ error: "Invalid body", issues: error.issues });
@@ -886,29 +914,34 @@ export function registerBoardsRoutes(
         updates,
       );
       if (!updated) return res.status(404).json({ error: "Asset not found" });
-      // If the editable text content changed (sticky / text / frame inline
-      // edits) or the tile was repositioned via drag, push a typed WS event
-      // to every collaborator on the board so their canvas updates live
-      // without a manual refetch. Owner + share recipients are resolved
-      // best-effort and any failure is swallowed — the PATCH itself has
-      // already succeeded.
+      // Resolve every connected board participant (owner + every share
+      // recipient + the actor) once and reuse it for both broadcast paths
+      // below: content/position changes use `notifyBoardAssetUpdated`
+      // (a typed asset patch), while generation-progress fields
+      // (status / assetUrl / thumbnailUrl / durationSeconds /
+      // rejectionReason / modelLabel) use `pushAssetStatus` so non-chat
+      // upload-and-PATCH flows fan out the same queued/generating/ready/
+      // failed frames the chat-mode "create" handler already emits — Task
+      // #242. Both paths swallow broadcast failures so a transient WS hiccup
+      // can never fail the PATCH itself.
       const positionChanged =
         updates.positionX !== undefined || updates.positionY !== undefined;
-      if (updates.content !== undefined || positionChanged) {
+      const statusFieldsChanged =
+        updates.status !== undefined ||
+        updates.assetUrl !== undefined ||
+        updates.thumbnailUrl !== undefined ||
+        updates.durationSeconds !== undefined ||
+        updates.rejectionReason !== undefined ||
+        updates.modelLabel !== undefined;
+      if (updates.content !== undefined || positionChanged || statusFieldsChanged) {
         try {
-          const access = await storage.getAccessibleBoardForUser(
+          const recipients = await resolveBoardRecipients(
+            storage,
             req.params.id,
             userId,
           );
-          if (access) {
-            const ownerId = access.userId;
-            const shares = await storage.getBoardShares(
-              req.params.id,
-              ownerId,
-            );
-            const recipientIds = new Set<string>([ownerId]);
-            for (const s of shares) recipientIds.add(s.userId);
-            realtimeService.notifyBoardAssetUpdated(Array.from(recipientIds), {
+          if (updates.content !== undefined || positionChanged) {
+            realtimeService.notifyBoardAssetUpdated(recipients, {
               boardId: req.params.id,
               batchId: updated.batchId,
               assetId: updated.id,
@@ -917,6 +950,9 @@ export function registerBoardsRoutes(
                 ? { positionX: updated.positionX, positionY: updated.positionY }
                 : {}),
             });
+          }
+          if (statusFieldsChanged) {
+            pushAssetStatus(recipients, req.params.id, updated);
           }
         } catch (broadcastErr) {
           console.warn(

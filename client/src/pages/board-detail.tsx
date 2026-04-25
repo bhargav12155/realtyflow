@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
+import { useRenameBoardMutation } from "@/hooks/use-rename-board";
 import { BoardCanvas, type CanvasBatch, type ReEvalModel } from "@/components/boards/BoardCanvas";
 import {
   BoardBottomToolbar,
@@ -1138,52 +1139,11 @@ export default function BoardDetailPage() {
     },
   });
 
-  // Rename mirrors the optimistic pattern in BoardsHomeView so the new title
-  // appears instantly in the header (and inside the chat panel, which reads
-  // `board.title` straight from the same cache entry). On error we roll back
-  // and surface a toast; on settle we reconcile with the server's canonical
-  // title and refresh the boards list so the home grid stays in sync.
-  const renameBoard = useMutation({
-    mutationFn: async (title: string) => {
-      const res = await apiRequest("PATCH", `/api/boards/${boardId}`, { title });
-      return res.json();
-    },
-    onMutate: async (title: string) => {
-      if (!boardId) return { previous: undefined };
-      await queryClient.cancelQueries({ queryKey: ["/api/boards", boardId] });
-      const previous = queryClient.getQueryData<BoardResponse>([
-        "/api/boards",
-        boardId,
-      ]);
-      if (previous) {
-        queryClient.setQueryData<BoardResponse>(
-          ["/api/boards", boardId],
-          { ...previous, title },
-        );
-      }
-      return { previous };
-    },
-    onSuccess: () => {
-      toast({ title: "Board renamed" });
-    },
-    onError: (e: Error, _vars, context) => {
-      if (context?.previous && boardId) {
-        queryClient.setQueryData(["/api/boards", boardId], context.previous);
-      }
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
-      toast({
-        title: "Couldn't rename board",
-        description: errText,
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      if (boardId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
-    },
-  });
+  // Rename uses the shared optimistic mutation (see use-rename-board.ts) so
+  // the new title appears instantly in the header (and inside the chat panel,
+  // which reads `board.title` straight from the same cache entry) and the
+  // home grid stays in sync without any duplicated rollback / toast logic.
+  const renameBoard = useRenameBoardMutation();
 
   // Inline title editing: only owners can flip into edit mode. We keep the
   // draft in local state so a stray cache update mid-edit (e.g. a presence
@@ -1207,6 +1167,7 @@ export default function BoardDetailPage() {
     // edit mode in those cases so blur-without-change doesn't fire a
     // useless PATCH or surface an error toast.
     if (
+      !boardId ||
       trimmed.length === 0 ||
       trimmed.length > BOARD_TITLE_MAX ||
       trimmed === currentTitle
@@ -1214,9 +1175,9 @@ export default function BoardDetailPage() {
       setIsEditingTitle(false);
       return;
     }
-    renameBoard.mutate(trimmed);
+    renameBoard.mutate({ boardId, title: trimmed });
     setIsEditingTitle(false);
-  }, [titleDraft, boardQuery.data?.title, renameBoard]);
+  }, [titleDraft, boardQuery.data?.title, renameBoard, boardId]);
 
   const setWinner = useMutation({
     mutationFn: async ({ batchId, assetId }: { batchId: string; assetId: string }) => {

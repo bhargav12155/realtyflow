@@ -8,6 +8,7 @@ import { NotificationsBell } from "@/components/boards/NotificationsBell";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
+import { useRenameBoardMutation } from "@/hooks/use-rename-board";
 import heygenLogo from "@assets/image_1776641804301.png";
 
 type Tab = "all" | "shared" | "mine";
@@ -157,39 +158,7 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
     },
   });
 
-  const renameBoardMutation = useMutation({
-    mutationFn: async ({ boardId, title }: { boardId: string; title: string }) => {
-      const res = await apiRequest("PATCH", `/api/boards/${boardId}`, { title });
-      return res.json();
-    },
-    onMutate: async ({ boardId, title }) => {
-      await queryClient.cancelQueries({ queryKey: ["/api/boards"] });
-      const previous = queryClient.getQueryData<BoardSummary[]>(["/api/boards"]);
-      if (previous) {
-        queryClient.setQueryData<BoardSummary[]>(
-          ["/api/boards"],
-          previous.map((b) => (b.id === boardId ? { ...b, title } : b)),
-        );
-      }
-      return { previous };
-    },
-    onSuccess: () => {
-      toast({ title: "Board renamed" });
-    },
-    onError: (e: Error, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["/api/boards"], context.previous);
-      }
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
-      toast({ title: "Couldn't rename board", description: errText, variant: "destructive" });
-    },
-    // Always reconcile with the server — both on success (replace optimistic
-    // title with the server's canonical title) and on error (after rollback,
-    // refetch in case another tab made changes).
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
-    },
-  });
+  const renameBoardMutation = useRenameBoardMutation();
 
   const leaveBoardMutation = useMutation({
     mutationFn: async (boardId: string) => {

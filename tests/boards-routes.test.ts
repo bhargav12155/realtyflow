@@ -10,10 +10,18 @@ import {
 } from "../server/routes/boards";
 import {
   registerBoardsChatRoutes,
+  dispatchOne,
+  inferGenMode,
+  pickDefaultProvider,
   type DispatchOne,
   type DispatchImage,
   type DispatchResult,
 } from "../server/routes/boards-chat";
+import { lumaService } from "../server/services/luma";
+import { runwayService } from "../server/services/runway";
+import { sora2Service } from "../server/services/sora2";
+import { veoVideoService } from "../server/services/veo-video";
+import { seedanceService } from "../server/services/seedance";
 import { registerNotificationsRoutes } from "../server/routes/notifications";
 import type { Board, BoardAsset, BoardShare, InsertBoard, InsertNotification, Notification, User } from "@shared/schema";
 import { DRAWING_MAX_CONTENT_BYTES } from "@shared/schema";
@@ -2039,6 +2047,138 @@ describe("Drawing asset content sanitization", () => {
 });
 
 // =====================================================
+// Asset endpoint smoke tests
+// =====================================================
+describe("/api/boards/:id/assets CRUD smoke", () => {
+  it("creates an asset and returns its full row", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+
+    const created = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      batchId: "batch-1",
+      batchLabel: "Batch 1",
+      kind: "image",
+      provider: "luma",
+      assetUrl: "https://example.com/x.png",
+      thumbnailUrl: "https://example.com/x-thumb.png",
+      status: "ready",
+    });
+    assert.equal(created.status, 200);
+    assert.equal(created.body.boardId, id);
+    assert.equal(created.body.kind, "image");
+    assert.equal(created.body.provider, "luma");
+    assert.equal(created.body.batchId, "batch-1");
+    assert.equal(created.body.assetUrl, "https://example.com/x.png");
+    assert.equal(created.body.status, "ready");
+  });
+
+  it("rejects asset payload with invalid kind / provider", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+
+    const bad1 = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      batchId: "b", kind: "audio-bad", provider: "luma",
+    });
+    assert.equal(bad1.status, 400);
+
+    const bad2 = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      batchId: "b", kind: "image", provider: "not-a-provider",
+    });
+    assert.equal(bad2.status, 400);
+
+    const bad3 = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      kind: "image", provider: "luma", // missing batchId
+    });
+    assert.equal(bad3.status, 400);
+  });
+
+  it("returns 404 when creating an asset on an unknown board", async () => {
+    const { app } = buildApp();
+    const res = await callJson(app, "POST", `/api/boards/missing/assets`, {
+      batchId: "b", kind: "image", provider: "luma",
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it("patches an asset's position and status", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+    const created = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      batchId: "b", kind: "image", provider: "luma",
+    });
+    const aid = created.body.id;
+
+    const patched = await callJson(app, "PATCH", `/api/boards/${id}/assets/${aid}`, {
+      positionX: 200,
+      positionY: 300,
+      status: "ready",
+      assetUrl: "https://example.com/y.png",
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.positionX, 200);
+    assert.equal(patched.body.positionY, 300);
+    assert.equal(patched.body.status, "ready");
+    assert.equal(patched.body.assetUrl, "https://example.com/y.png");
+  });
+
+  it("rejects invalid asset patch (bad status)", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+    const created = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      batchId: "b", kind: "image", provider: "luma",
+    });
+    const aid = created.body.id;
+
+    const bad = await callJson(app, "PATCH", `/api/boards/${id}/assets/${aid}`, {
+      status: "totally-bogus",
+    });
+    assert.equal(bad.status, 400);
+  });
+
+  it("returns 404 when patching an unknown asset", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+    const res = await callJson(app, "PATCH", `/api/boards/${id}/assets/missing`, {
+      positionX: 1,
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it("deletes an asset and returns 404 thereafter", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+    const created = await callJson(app, "POST", `/api/boards/${id}/assets`, {
+      batchId: "b", kind: "image", provider: "luma",
+    });
+    const aid = created.body.id;
+
+    const del = await callJson(app, "DELETE", `/api/boards/${id}/assets/${aid}`);
+    assert.equal(del.status, 200);
+    assert.deepEqual(del.body, { success: true });
+
+    // Asset is gone — patch returns 404.
+    const after = await callJson(app, "PATCH", `/api/boards/${id}/assets/${aid}`, {
+      positionX: 0,
+    });
+    assert.equal(after.status, 404);
+  });
+
+  it("returns 404 when deleting an unknown asset", async () => {
+    const { app } = buildApp();
+    const board = await callJson(app, "POST", "/api/boards", { title: "B" });
+    const id = board.body.id;
+    const del = await callJson(app, "DELETE", `/api/boards/${id}/assets/missing`);
+    assert.equal(del.status, 404);
+  });
+});
+
+// =====================================================
 // Inline-edit broadcast: PATCH /api/boards/:id/assets/:assetId with a `content`
 // change must fan out a `board_asset_updated` WS event to the owner and every
 // share recipient (Task #158 wired this; Task #183 covers it with a test).
@@ -2153,5 +2293,366 @@ describe("PATCH asset content broadcasts board_asset_updated", () => {
     } finally {
       spy.mock.restore();
     }
+  });
+});
+
+// =====================================================
+// Chat endpoint payload validation
+// =====================================================
+describe("POST /api/boards/:id/chat — payload validation", () => {
+  async function withBoard(): Promise<{ app: Express; boardId: string }> {
+    const { app } = buildApp();
+    const created = await callJson(app, "POST", "/api/boards", { title: "B" });
+    return { app, boardId: created.body.id as string };
+  }
+
+  it("rejects when message is missing", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      mode: "brainstorm",
+      provider: "luma",
+    });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "Invalid body");
+  });
+
+  it("rejects when message is empty string", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "",
+      mode: "brainstorm",
+      provider: "luma",
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects when message exceeds max length", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "x".repeat(4001),
+      mode: "brainstorm",
+      provider: "luma",
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects when mode is missing or invalid", async () => {
+    const { app, boardId } = await withBoard();
+    const missing = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "hi",
+      provider: "luma",
+    });
+    assert.equal(missing.status, 400);
+
+    const invalid = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "hi",
+      mode: "explain",
+      provider: "luma",
+    });
+    assert.equal(invalid.status, 400);
+  });
+
+  it("rejects when provider is invalid", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "hi",
+      mode: "create",
+      provider: "midjourney",
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects when referencedAssetIds is not an array of strings", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "hi",
+      mode: "create",
+      provider: "luma",
+      referencedAssetIds: [123, true],
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects when variations is out of range", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "hi",
+      mode: "create",
+      provider: "luma",
+      variations: 99,
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("rejects malformed conversationHistory entries", async () => {
+    const { app, boardId } = await withBoard();
+    const res = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
+      message: "hi",
+      mode: "brainstorm",
+      provider: "luma",
+      conversationHistory: [{ role: "system", content: "x" }],
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
+// =====================================================
+// Chat router — gen-mode + provider-pick helpers
+// =====================================================
+describe("Board chat helpers — inferGenMode / pickDefaultProvider", () => {
+  it("infers video-to-video when a video is referenced", () => {
+    assert.equal(inferGenMode(["video"], "make it cinematic"), "video-to-video");
+  });
+
+  it("infers image-to-video when an image is referenced", () => {
+    assert.equal(inferGenMode(["image"], "make it move"), "image-to-video");
+  });
+
+  it("infers text-to-video when no refs", () => {
+    assert.equal(inferGenMode([], "a cat surfing"), "text-to-video");
+  });
+
+  it("honours explicit T2V mention even if a video is referenced", () => {
+    assert.equal(inferGenMode(["video"], "ignore this video, t2v please"), "text-to-video");
+  });
+
+  it("picks Runway as the default v2v provider, Luma when explicitly mentioned", () => {
+    assert.equal(pickDefaultProvider("video-to-video", "restyle this"), "runway");
+    assert.equal(pickDefaultProvider("video-to-video", "use luma to restyle"), "luma");
+  });
+
+  it("picks Luma as the default i2v provider; respects keyword overrides", () => {
+    assert.equal(pickDefaultProvider("image-to-video", "animate this"), "luma");
+    assert.equal(pickDefaultProvider("image-to-video", "use kling please"), "kling");
+    assert.equal(pickDefaultProvider("image-to-video", "use veo please"), "veo");
+    assert.equal(pickDefaultProvider("image-to-video", "use runway please"), "runway");
+  });
+
+  it("picks Luma as the default t2v, with keyword overrides", () => {
+    assert.equal(pickDefaultProvider("text-to-video", "a cat"), "luma");
+    assert.equal(pickDefaultProvider("text-to-video", "try sora"), "sora2");
+    assert.equal(pickDefaultProvider("text-to-video", "use seedance"), "seedance");
+    assert.equal(pickDefaultProvider("text-to-video", "use runway"), "runway");
+  });
+});
+
+// =====================================================
+// Chat dispatch routing — mock-based per provider
+// =====================================================
+function makeAsset(over: Partial<BoardAsset>): BoardAsset {
+  return {
+    id: over.id ?? "ast_x",
+    boardId: over.boardId ?? "brd_x",
+    batchId: over.batchId ?? "b",
+    batchLabel: over.batchLabel ?? null,
+    kind: over.kind ?? "image",
+    assetUrl: over.assetUrl ?? null,
+    thumbnailUrl: over.thumbnailUrl ?? null,
+    durationSeconds: over.durationSeconds ?? null,
+    provider: over.provider ?? "luma",
+    modelLabel: over.modelLabel ?? null,
+    positionX: over.positionX ?? 0,
+    positionY: over.positionY ?? 0,
+    width: over.width ?? 320,
+    height: over.height ?? 180,
+    status: over.status ?? "queued",
+    rejectionReason: over.rejectionReason ?? null,
+    createdAt: over.createdAt ?? new Date(),
+  };
+}
+
+type Restorable = { obj: Record<string, unknown>; key: string; original: unknown };
+function patch(obj: Record<string, unknown>, key: string, value: unknown): Restorable {
+  const original = obj[key];
+  obj[key] = value;
+  return { obj, key, original };
+}
+function restoreAll(patches: Restorable[]) {
+  for (const p of patches) p.obj[p.key] = p.original;
+}
+
+describe("dispatchOne — provider routing matrix", () => {
+  it("routes Luma t2v through lumaService.createVideoTask with default model", async () => {
+    const calls: Array<{ prompt: string; opts: unknown }> = [];
+    const patches = [
+      patch(lumaService as unknown as Record<string, unknown>, "createVideoTask",
+        async (prompt: string, opts: unknown) => {
+          calls.push({ prompt, opts });
+          return { taskId: "luma-task-1" };
+        }),
+      patch(lumaService as unknown as Record<string, unknown>, "getTaskStatus",
+        async () => ({ status: "completed", videoUrl: "https://luma/out.mp4" })),
+    ];
+    try {
+      const r = await dispatchOne("luma", "text-to-video", { prompt: "hello", refAssets: [] });
+      assert.equal(r.taskId, "luma-task-1");
+      assert.equal(r.modelLabel, "ray-2");
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].prompt, "hello");
+      const poll = await r.poll();
+      assert.equal(poll.status, "completed");
+      assert.equal(poll.videoUrl, "https://luma/out.mp4");
+    } finally { restoreAll(patches); }
+  });
+
+  it("routes Luma i2v with the first referenced image as keyframe", async () => {
+    const seen: { opts?: { keyframeImageUrl?: string; model?: string } } = {};
+    const patches = [
+      patch(lumaService as unknown as Record<string, unknown>, "createVideoTask",
+        async (_p: string, opts: { keyframeImageUrl?: string; model?: string }) => {
+          seen.opts = opts;
+          return { taskId: "luma-task-2" };
+        }),
+      patch(lumaService as unknown as Record<string, unknown>, "getTaskStatus",
+        async () => ({ status: "processing" })),
+    ];
+    try {
+      const ref = makeAsset({ kind: "image", assetUrl: "https://img/a.png" });
+      const r = await dispatchOne("luma", "image-to-video", { prompt: "p", refAssets: [ref], forceModel: "ray-flash-2" });
+      assert.equal(seen.opts?.keyframeImageUrl, "https://img/a.png");
+      assert.equal(r.modelLabel, "ray-flash-2");
+    } finally { restoreAll(patches); }
+  });
+
+  it("routes Runway t2v / i2v / v2v to the right service methods", async () => {
+    const seen: { method?: string; args?: unknown[] } = {};
+    function makeStub(method: string) {
+      return async (...args: unknown[]) => {
+        seen.method = method; seen.args = args;
+        return { taskId: `runway-${method}` };
+      };
+    }
+    const patches = [
+      patch(runwayService as unknown as Record<string, unknown>, "createTextToVideoTask", makeStub("t2v")),
+      patch(runwayService as unknown as Record<string, unknown>, "createImageToVideoTask", makeStub("i2v")),
+      patch(runwayService as unknown as Record<string, unknown>, "createVideoToVideoTask", makeStub("v2v")),
+      patch(runwayService as unknown as Record<string, unknown>, "getTaskStatus",
+        async () => ({ status: "completed", videoUrl: "https://r/x.mp4" })),
+    ];
+    try {
+      const t = await dispatchOne("runway", "text-to-video", { prompt: "p", refAssets: [] });
+      assert.equal(seen.method, "t2v");
+      assert.equal(t.taskId, "runway-t2v");
+
+      const img = makeAsset({ kind: "image", assetUrl: "https://img/a.png" });
+      const i = await dispatchOne("runway", "image-to-video", { prompt: "p", refAssets: [img] });
+      assert.equal(seen.method, "i2v");
+      assert.equal(i.taskId, "runway-i2v");
+
+      const vid = makeAsset({ kind: "video", assetUrl: "https://vid/a.mp4" });
+      const v = await dispatchOne("runway", "video-to-video", { prompt: "p", refAssets: [vid] });
+      assert.equal(seen.method, "v2v");
+      assert.equal(v.taskId, "runway-v2v");
+
+      const poll = await v.poll();
+      assert.equal(poll.status, "completed");
+      assert.equal(poll.videoUrl, "https://r/x.mp4");
+    } finally { restoreAll(patches); }
+  });
+
+  it("Runway i2v throws without a referenced image", async () => {
+    const patches = [
+      patch(runwayService as unknown as Record<string, unknown>, "createImageToVideoTask",
+        async () => ({ taskId: "should-not-be-called" })),
+    ];
+    try {
+      await assert.rejects(
+        () => dispatchOne("runway", "image-to-video", { prompt: "p", refAssets: [] }),
+        /requires a referenced image/,
+      );
+    } finally { restoreAll(patches); }
+  });
+
+  it("Runway v2v throws without a referenced video", async () => {
+    const patches = [
+      patch(runwayService as unknown as Record<string, unknown>, "createVideoToVideoTask",
+        async () => ({ taskId: "should-not-be-called" })),
+    ];
+    try {
+      await assert.rejects(
+        () => dispatchOne("runway", "video-to-video", { prompt: "p", refAssets: [] }),
+        /requires a referenced video/,
+      );
+    } finally { restoreAll(patches); }
+  });
+
+  it("routes Sora2 through sora2Service.createVideoTask with imageUrls when present", async () => {
+    const seen: { prompt?: string; opts?: { imageUrls?: string[] } } = {};
+    const patches = [
+      patch(sora2Service as unknown as Record<string, unknown>, "createVideoTask",
+        async (prompt: string, opts: { imageUrls?: string[] }) => {
+          seen.prompt = prompt; seen.opts = opts;
+          return { taskId: "sora-1" };
+        }),
+      patch(sora2Service as unknown as Record<string, unknown>, "getTaskStatus",
+        async () => ({ status: "completed", videoUrl: "https://sora/x.mp4" })),
+    ];
+    try {
+      const img = makeAsset({ kind: "image", assetUrl: "https://img/p.png" });
+      const r = await dispatchOne("sora2", "image-to-video", { prompt: "go", refAssets: [img] });
+      assert.equal(r.taskId, "sora-1");
+      assert.deepEqual(seen.opts?.imageUrls, ["https://img/p.png"]);
+    } finally { restoreAll(patches); }
+  });
+
+  it("routes Veo to veoVideoService.generateVideo, requires an image", async () => {
+    const patches = [
+      patch(veoVideoService as unknown as Record<string, unknown>, "generateVideo",
+        async () => ({ success: true, operationId: "veo-op-1" })),
+      patch(veoVideoService as unknown as Record<string, unknown>, "checkOperationStatus",
+        async () => ({ done: true, videoUrl: "https://veo/x.mp4" })),
+    ];
+    try {
+      await assert.rejects(
+        () => dispatchOne("veo", "image-to-video", { prompt: "p", refAssets: [] }),
+        /requires a referenced image/,
+      );
+      const img = makeAsset({ kind: "image", assetUrl: "https://img/a.png" });
+      const r = await dispatchOne("veo", "image-to-video", { prompt: "p", refAssets: [img] });
+      assert.equal(r.taskId, "veo-op-1");
+      const poll = await r.poll();
+      assert.equal(poll.status, "completed");
+      assert.equal(poll.videoUrl, "https://veo/x.mp4");
+    } finally { restoreAll(patches); }
+  });
+
+  it("Veo bubbles up an error when generateVideo returns success=false", async () => {
+    const patches = [
+      patch(veoVideoService as unknown as Record<string, unknown>, "generateVideo",
+        async () => ({ success: false, error: "quota exceeded" })),
+    ];
+    try {
+      const img = makeAsset({ kind: "image", assetUrl: "https://img/a.png" });
+      await assert.rejects(
+        () => dispatchOne("veo", "image-to-video", { prompt: "p", refAssets: [img] }),
+        /quota exceeded/,
+      );
+    } finally { restoreAll(patches); }
+  });
+
+  it("routes Seedance t2v via createTextToVideo and i2v via createImageToVideo", async () => {
+    const seen: { method?: string } = {};
+    const patches = [
+      patch(seedanceService as unknown as Record<string, unknown>, "createTextToVideo",
+        async () => { seen.method = "t2v"; return { taskId: "sd-t2v" }; }),
+      patch(seedanceService as unknown as Record<string, unknown>, "createImageToVideo",
+        async () => { seen.method = "i2v"; return { taskId: "sd-i2v" }; }),
+      patch(seedanceService as unknown as Record<string, unknown>, "getStatus",
+        async () => ({ status: "ready", videoUrl: "https://sd/x.mp4" })),
+    ];
+    try {
+      const t = await dispatchOne("seedance", "text-to-video", { prompt: "p", refAssets: [] });
+      assert.equal(seen.method, "t2v");
+      assert.equal(t.taskId, "sd-t2v");
+
+      const img = makeAsset({ kind: "image", assetUrl: "https://img/a.png" });
+      const i = await dispatchOne("seedance", "image-to-video", { prompt: "p", refAssets: [img] });
+      assert.equal(seen.method, "i2v");
+      assert.equal(i.taskId, "sd-i2v");
+
+      const poll = await i.poll();
+      assert.equal(poll.status, "completed");
+      assert.equal(poll.videoUrl, "https://sd/x.mp4");
+    } finally { restoreAll(patches); }
   });
 });

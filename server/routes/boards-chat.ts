@@ -286,7 +286,7 @@ export function buildBrainstormSystemPrompt(
   return `${BRAINSTORM_SYSTEM_BASE}\n\n${buildBoardContextSummary(assets, referencedAssetIds)}`;
 }
 
-function inferGenMode(refKinds: string[], message: string): GenMode {
+export function inferGenMode(refKinds: string[], message: string): GenMode {
   const lower = message.toLowerCase();
   // Explicit overrides in the user's message take precedence over reference inference.
   const mentionsV2V = /(video[-\s]?to[-\s]?video|\bv2v\b|from this video|edit this video|restyle (the|this) video)/.test(lower);
@@ -300,7 +300,7 @@ function inferGenMode(refKinds: string[], message: string): GenMode {
   return "text-to-video";
 }
 
-function pickDefaultProvider(genMode: GenMode, message: string): Provider {
+export function pickDefaultProvider(genMode: GenMode, message: string): Provider {
   const lower = message.toLowerCase();
   if (genMode === "video-to-video") {
     // Runway is the only provider with a working v2v integration today; Luma v2v is
@@ -345,7 +345,7 @@ export interface DispatchResult {
   poll: () => Promise<PollResult>;
 }
 
-async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: DispatchContext): Promise<DispatchResult> {
+export async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: DispatchContext): Promise<DispatchResult> {
   const firstImage = ctx.refAssets.find((a) => a.kind === "image")?.assetUrl || undefined;
   const firstVideo = ctx.refAssets.find((a) => a.kind === "video")?.assetUrl || undefined;
 

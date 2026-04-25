@@ -8,6 +8,16 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { useRenameBoardMutation } from "@/hooks/use-rename-board";
@@ -84,6 +94,7 @@ export default function BoardDetailPage() {
 
   const [chatOpen, setChatOpen] = useState(true);
   const [shareOpen, setShareOpen] = useState(false);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
   // Multi-select: an array of asset ids (insertion order preserved). For
@@ -1827,8 +1838,7 @@ export default function BoardDetailPage() {
               type="button"
               onClick={() => {
                 if (leaveBoard.isPending) return;
-                if (typeof window !== "undefined" && !window.confirm("Remove this board from your Shared tab? The owner will keep it.")) return;
-                leaveBoardFromDetail();
+                setLeaveConfirmOpen(true);
               }}
               disabled={leaveBoard.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-100 text-[12px] font-medium disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
@@ -1988,6 +1998,33 @@ export default function BoardDetailPage() {
       <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
       <DrawingModal open={drawOpen} onCancel={() => setDrawOpen(false)} onSave={handleSaveDrawing} />
       <RecordModal open={recordOpen} onCancel={() => setRecordOpen(false)} onSave={handleSaveRecording} />
+      <AlertDialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen}>
+        <AlertDialogContent data-testid="dialog-leave-board">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave this board?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`You'll lose access to "${board.title}". The owner will need to share it with you again to get back in.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-leave-board">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={leaveBoard.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                leaveBoardFromDetail();
+                setLeaveConfirmOpen(false);
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              data-testid="button-confirm-leave-board"
+            >
+              Leave board
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

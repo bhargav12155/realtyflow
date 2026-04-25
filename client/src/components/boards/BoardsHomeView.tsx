@@ -9,6 +9,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { useRenameBoardMutation } from "@/hooks/use-rename-board";
+import { useDeleteBoardMutation } from "@/hooks/use-delete-board";
+import { useLeaveBoardMutation } from "@/hooks/use-leave-board";
 import heygenLogo from "@assets/image_1776641804301.png";
 
 type Tab = "all" | "shared" | "mine";
@@ -129,65 +131,11 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
     },
   });
 
-  const deleteBoardMutation = useMutation({
-    mutationFn: async (boardId: string) => {
-      const res = await apiRequest("DELETE", `/api/boards/${boardId}`);
-      return res.json();
-    },
-    onMutate: async (boardId: string) => {
-      await queryClient.cancelQueries({ queryKey: ["/api/boards"] });
-      const previous = queryClient.getQueryData<BoardSummary[]>(["/api/boards"]);
-      if (previous) {
-        queryClient.setQueryData<BoardSummary[]>(
-          ["/api/boards"],
-          previous.filter((b) => b.id !== boardId),
-        );
-      }
-      return { previous };
-    },
-    onSuccess: () => {
-      toast({ title: "Board deleted", description: "The board and its assets have been removed." });
-      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
-    },
-    onError: (e: Error, _boardId, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["/api/boards"], context.previous);
-      }
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
-      toast({ title: "Couldn't delete board", description: errText, variant: "destructive" });
-    },
-  });
+  const deleteBoardMutation = useDeleteBoardMutation();
 
   const renameBoardMutation = useRenameBoardMutation();
 
-  const leaveBoardMutation = useMutation({
-    mutationFn: async (boardId: string) => {
-      const res = await apiRequest("DELETE", `/api/boards/${boardId}/share/me`);
-      return res.json();
-    },
-    onMutate: async (boardId: string) => {
-      await queryClient.cancelQueries({ queryKey: ["/api/boards"] });
-      const previous = queryClient.getQueryData<BoardSummary[]>(["/api/boards"]);
-      if (previous) {
-        queryClient.setQueryData<BoardSummary[]>(
-          ["/api/boards"],
-          previous.filter((b) => b.id !== boardId),
-        );
-      }
-      return { previous };
-    },
-    onSuccess: () => {
-      toast({ title: "Left board", description: "It has been removed from your Shared tab." });
-      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
-    },
-    onError: (e: Error, _boardId, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["/api/boards"], context.previous);
-      }
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
-      toast({ title: "Couldn't leave board", description: errText, variant: "destructive" });
-    },
-  });
+  const leaveBoardMutation = useLeaveBoardMutation();
 
   const handleQuickAction = (action: QuickAction) => {
     const seed = (prompt.trim() ? prompt.trim() : action.starterPrompt).trim();

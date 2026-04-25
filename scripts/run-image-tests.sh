@@ -24,6 +24,7 @@ cd "$(dirname "$0")/.."
 files=(
   server/services/__tests__/heygenUploadContentType.integration.test.ts
   server/services/__tests__/imageProcessor.test.ts
+  server/services/__tests__/luma.test.ts
 )
 
 MAX_ATTEMPTS=4
@@ -35,7 +36,7 @@ run_file() {
   local out exit_code
   while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     echo "=== Running ${file} (attempt ${attempt}/${MAX_ATTEMPTS}) ==="
-    out="$(node --import tsx --test --test-concurrency=1 "$file" 2>&1)"
+    out="$(node --import tsx --test --test-concurrency=1 --test-force-exit "$file" 2>&1)"
     exit_code=$?
     printf '%s\n' "$out"
     if [ "$exit_code" -eq 0 ]; then

@@ -1138,6 +1138,86 @@ export default function BoardDetailPage() {
     },
   });
 
+  // Rename mirrors the optimistic pattern in BoardsHomeView so the new title
+  // appears instantly in the header (and inside the chat panel, which reads
+  // `board.title` straight from the same cache entry). On error we roll back
+  // and surface a toast; on settle we reconcile with the server's canonical
+  // title and refresh the boards list so the home grid stays in sync.
+  const renameBoard = useMutation({
+    mutationFn: async (title: string) => {
+      const res = await apiRequest("PATCH", `/api/boards/${boardId}`, { title });
+      return res.json();
+    },
+    onMutate: async (title: string) => {
+      if (!boardId) return { previous: undefined };
+      await queryClient.cancelQueries({ queryKey: ["/api/boards", boardId] });
+      const previous = queryClient.getQueryData<BoardResponse>([
+        "/api/boards",
+        boardId,
+      ]);
+      if (previous) {
+        queryClient.setQueryData<BoardResponse>(
+          ["/api/boards", boardId],
+          { ...previous, title },
+        );
+      }
+      return { previous };
+    },
+    onSuccess: () => {
+      toast({ title: "Board renamed" });
+    },
+    onError: (e: Error, _vars, context) => {
+      if (context?.previous && boardId) {
+        queryClient.setQueryData(["/api/boards", boardId], context.previous);
+      }
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({
+        title: "Couldn't rename board",
+        description: errText,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      if (boardId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+    },
+  });
+
+  // Inline title editing: only owners can flip into edit mode. We keep the
+  // draft in local state so a stray cache update mid-edit (e.g. a presence
+  // ping refetch) doesn't clobber what the user is typing.
+  const BOARD_TITLE_MAX = 200;
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const startEditingTitle = useCallback(() => {
+    const current = boardQuery.data?.title ?? "";
+    setTitleDraft(current);
+    setIsEditingTitle(true);
+  }, [boardQuery.data?.title]);
+  const cancelTitleEdit = useCallback(() => {
+    setIsEditingTitle(false);
+  }, []);
+  const commitTitleEdit = useCallback(() => {
+    const trimmed = titleDraft.trim();
+    const currentTitle = (boardQuery.data?.title ?? "").trim();
+    // No-op when blank, unchanged, or over the cap. We silently dismiss
+    // edit mode in those cases so blur-without-change doesn't fire a
+    // useless PATCH or surface an error toast.
+    if (
+      trimmed.length === 0 ||
+      trimmed.length > BOARD_TITLE_MAX ||
+      trimmed === currentTitle
+    ) {
+      setIsEditingTitle(false);
+      return;
+    }
+    renameBoard.mutate(trimmed);
+    setIsEditingTitle(false);
+  }, [titleDraft, boardQuery.data?.title, renameBoard]);
+
   const setWinner = useMutation({
     mutationFn: async ({ batchId, assetId }: { batchId: string; assetId: string }) => {
       const res = await apiRequest(
@@ -1675,12 +1755,51 @@ export default function BoardDetailPage() {
           >
             <ArrowLeft className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60" data-testid="button-title">
-            <span className="text-[10px] font-semibold tracking-wider text-neutral-600 dark:text-neutral-300">
-              {titleHead} {titleTail && <span className="text-neutral-900 dark:text-neutral-100">{titleTail}</span>}
-            </span>
-            <ChevronDown className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
-          </button>
+          {board.isOwner !== false && isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitTitleEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelTitleEdit();
+                }
+              }}
+              onBlur={commitTitleEdit}
+              maxLength={BOARD_TITLE_MAX}
+              aria-label="Board name"
+              placeholder="Board name"
+              className="text-[10px] font-semibold tracking-wider uppercase bg-white border border-neutral-300 rounded px-2 py-1 outline-none focus:border-neutral-500 text-neutral-900 min-w-[160px] dark:bg-neutral-900 dark:border-neutral-700 dark:focus:border-neutral-500 dark:text-neutral-100"
+              data-testid="input-board-title"
+            />
+          ) : board.isOwner !== false ? (
+            <button
+              type="button"
+              onClick={startEditingTitle}
+              title="Rename board"
+              className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
+              data-testid="button-title"
+            >
+              <span className="text-[10px] font-semibold tracking-wider text-neutral-600 dark:text-neutral-300">
+                {titleHead} {titleTail && <span className="text-neutral-900 dark:text-neutral-100">{titleTail}</span>}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+            </button>
+          ) : (
+            <div
+              className="flex items-center gap-1.5 px-2 py-1"
+              data-testid="text-board-title"
+            >
+              <span className="text-[10px] font-semibold tracking-wider text-neutral-600 dark:text-neutral-300">
+                {titleHead} {titleTail && <span className="text-neutral-900 dark:text-neutral-100">{titleTail}</span>}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {board.isShared && otherViewers.length > 0 && (

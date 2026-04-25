@@ -307,6 +307,55 @@ describe("BoardDetailPage inline rename", () => {
     expect(trigger.textContent ?? "").toMatch(/ORIGINAL/);
   });
 
+  it("silently dismisses an over-cap (>200 char) draft on Enter without firing PATCH", async () => {
+    renderBoard({ isOwner: true, title: "Original title" });
+    const trigger0 = await screen.findByTestId("button-title");
+    act(() => {
+      fireEvent.click(trigger0);
+    });
+    const input = (await screen.findByTestId(
+      "input-board-title",
+    )) as HTMLInputElement;
+
+    // Build a 201-char draft. fireEvent.change bypasses the input's
+    // maxLength enforcement (jsdom's keystroke-level cap), which is
+    // exactly the way an automated/programmatic write or a paste-then-edit
+    // could sneak past the guard. The silent-dismiss branch in
+    // commitTitleEdit is what protects the server in that case.
+    const overCap = "a".repeat(201);
+    act(() => {
+      fireEvent.change(input, { target: { value: overCap } });
+      fireEvent.keyDown(input, { key: "Enter" });
+    });
+
+    // Edit mode collapses, no PATCH was issued, and the header still
+    // shows the original title.
+    await waitFor(() => {
+      expect(screen.queryByTestId("input-board-title")).toBeNull();
+    });
+    expect(patchCalls()).toHaveLength(0);
+    const trigger = await screen.findByTestId("button-title");
+    expect(trigger.textContent ?? "").toMatch(/ORIGINAL/);
+  });
+
+  it("caps the input via maxLength so real keystrokes can't exceed BOARD_TITLE_MAX", async () => {
+    renderBoard({ isOwner: true, title: "Original title" });
+    const trigger0 = await screen.findByTestId("button-title");
+    act(() => {
+      fireEvent.click(trigger0);
+    });
+    const input = (await screen.findByTestId(
+      "input-board-title",
+    )) as HTMLInputElement;
+
+    // The native maxLength attribute is what stops a user typing more
+    // than BOARD_TITLE_MAX (200) characters one keystroke at a time. If
+    // this guard is removed, the silent-dismiss branch in
+    // commitTitleEdit becomes unreachable from normal typing and over-
+    // length drafts could start hitting the server.
+    expect(input.maxLength).toBe(200);
+  });
+
   it("rolls back the optimistic title and shows an error toast when PATCH fails", async () => {
     apiRequestMock.mockImplementationOnce(async () => {
       throw new Error("500: Internal Server Error");

@@ -1021,10 +1021,21 @@ function AssetTile({
         transition: remoteDragger ? "transform 80ms linear" : undefined,
         // Tailwind ring utilities can't take a dynamic hex from the
         // per-user palette, so we paint the ring directly via boxShadow
-        // (the same trick `ring-2` uses under the hood). This sits on
-        // top of any winner ring so the active dragger's color wins
-        // while they're moving the tile.
-        boxShadow: remoteDragHex ? `0 0 0 2px ${remoteDragHex}` : undefined,
+        // (the same trick `ring-2` uses under the hood). The dragger's
+        // color sits on the outside; if the tile is also a winner we
+        // tuck a thin amber outline *inside* the per-user ring so both
+        // signals stay readable at the same time without one hiding
+        // the other.
+        boxShadow: (() => {
+          const layers: string[] = [];
+          if (remoteDragHex) layers.push(`0 0 0 2px ${remoteDragHex}`);
+          if (isWinner && remoteDragger) {
+            // amber-400 = #fbbf24; inset so it reads as an inner outline
+            // tucked inside the per-user color ring.
+            layers.push(`inset 0 0 0 2px #fbbf24`);
+          }
+          return layers.length ? layers.join(", ") : undefined;
+        })(),
         borderRadius: remoteDragger ? "0.375rem" : undefined,
       }}
       className={`relative group flex-shrink-0 ${

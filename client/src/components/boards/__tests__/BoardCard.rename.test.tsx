@@ -175,6 +175,74 @@ describe("BoardCard rename", () => {
     expect(onRename).not.toHaveBeenCalled();
   });
 
+  it("renders an inline pencil button next to the title for owners", () => {
+    renderCard({ ...baseBoard, isOwner: true }, { onRename: () => {} });
+    const pencil = screen.getByTestId(`button-rename-inline-${baseBoard.id}`);
+    expect(pencil).toBeTruthy();
+    expect(pencil.getAttribute("aria-label")).toBe("Rename board");
+  });
+
+  it("does not render the inline pencil for non-owner collaborators", () => {
+    renderCard(
+      {
+        ...baseBoard,
+        isOwner: false,
+        owner: { id: "u-other", name: "Other", email: "other@example.com" },
+      },
+      { onRename: () => {}, onLeave: () => {} },
+    );
+    expect(
+      screen.queryByTestId(`button-rename-inline-${baseBoard.id}`),
+    ).toBeNull();
+  });
+
+  it("does not render the inline pencil when no onRename handler is provided", () => {
+    renderCard({ ...baseBoard, isOwner: true });
+    expect(
+      screen.queryByTestId(`button-rename-inline-${baseBoard.id}`),
+    ).toBeNull();
+  });
+
+  it("opens the rename dialog when the inline pencil is clicked without navigating", async () => {
+    const onRename = vi.fn();
+    renderCard({ ...baseBoard, isOwner: true }, { onRename });
+    const pencil = screen.getByTestId(`button-rename-inline-${baseBoard.id}`);
+    const clickEvent = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      pencil.dispatchEvent(clickEvent);
+    });
+    // The pencil must stop the click from triggering the surrounding link
+    // navigation (which would unmount the card before the dialog appears).
+    expect(clickEvent.defaultPrevented).toBe(true);
+    const input = (await screen.findByTestId(
+      `input-rename-board-${baseBoard.id}`,
+    )) as HTMLInputElement;
+    expect(input.value).toBe(baseBoard.title);
+    fireEvent.change(input, { target: { value: "Renamed via pencil" } });
+    fireEvent.click(
+      screen.getByTestId(`button-confirm-rename-${baseBoard.id}`),
+    );
+    expect(onRename).toHaveBeenCalledTimes(1);
+    expect(onRename).toHaveBeenCalledWith(
+      expect.objectContaining({ id: baseBoard.id }),
+      "Renamed via pencil",
+    );
+  });
+
+  it("opens the rename dialog when Enter is pressed on the inline pencil", async () => {
+    renderCard({ ...baseBoard, isOwner: true }, { onRename: () => {} });
+    const pencil = screen.getByTestId(`button-rename-inline-${baseBoard.id}`);
+    act(() => {
+      fireEvent.keyDown(pencil, { key: "Enter" });
+    });
+    expect(
+      await screen.findByTestId(`input-rename-board-${baseBoard.id}`),
+    ).toBeTruthy();
+  });
+
   it("does not call onRename when Cancel is clicked", async () => {
     const onRename = vi.fn();
     renderCard({ ...baseBoard, isOwner: true }, { onRename });

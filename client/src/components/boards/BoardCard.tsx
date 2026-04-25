@@ -330,13 +330,47 @@ export function BoardCard({
     <div className="relative">
       <Link href={`/boards/${board.id}`}>
         <a
-          className={`block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
+          className={`group block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
           data-testid={`card-board-${board.id}`}
         >
           <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300 flex items-center gap-1.5">
             <span>
               {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
             </span>
+            {showRename && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Rename board"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRenameOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRenameOpen(true);
+                      }
+                    }}
+                    className="inline-flex items-center justify-center w-4 h-4 rounded text-neutral-500 dark:text-neutral-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600 outline-none transition-opacity hover:text-neutral-800 dark:hover:text-neutral-200"
+                    data-testid={`button-rename-inline-${board.id}`}
+                  >
+                    <Pencil className="w-3 h-3" strokeWidth={2} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  data-testid={`tooltip-rename-inline-${board.id}`}
+                >
+                  <span className="text-xs">Rename board</span>
+                </TooltipContent>
+              </Tooltip>
+            )}
             {showMutedIndicator && (
               <Tooltip>
                 <TooltipTrigger asChild>

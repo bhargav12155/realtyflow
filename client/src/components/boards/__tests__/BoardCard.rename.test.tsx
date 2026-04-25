@@ -1,5 +1,12 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  act,
+  waitFor,
+} from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -101,6 +108,13 @@ describe("BoardCard rename", () => {
       expect.objectContaining({ id: baseBoard.id }),
       "Updated title",
     );
+    // Dialog should close after a successful Save so the user is returned
+    // to the board grid without needing an extra click.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId(`dialog-rename-board-${baseBoard.id}`),
+      ).toBeNull();
+    });
   });
 
   it("disables Save when the input is empty or unchanged", async () => {

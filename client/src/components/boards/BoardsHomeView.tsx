@@ -175,7 +175,6 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
     },
     onSuccess: () => {
       toast({ title: "Board renamed" });
-      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
     },
     onError: (e: Error, _vars, context) => {
       if (context?.previous) {
@@ -183,6 +182,12 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
       }
       const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
       toast({ title: "Couldn't rename board", description: errText, variant: "destructive" });
+    },
+    // Always reconcile with the server — both on success (replace optimistic
+    // title with the server's canonical title) and on error (after rollback,
+    // refetch in case another tab made changes).
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
     },
   });
 

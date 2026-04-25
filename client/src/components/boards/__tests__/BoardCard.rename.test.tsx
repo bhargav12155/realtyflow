@@ -129,6 +129,38 @@ describe("BoardCard rename", () => {
     expect(onRename).not.toHaveBeenCalled();
   });
 
+  it("disables Save and shows an error when the title exceeds 200 characters", async () => {
+    const onRename = vi.fn();
+    renderCard({ ...baseBoard, isOwner: true }, { onRename });
+    openMenu(baseBoard.id);
+    const item = await screen.findByTestId(`menu-item-rename-${baseBoard.id}`);
+    act(() => {
+      fireEvent.click(item);
+    });
+    const input = (await screen.findByTestId(
+      `input-rename-board-${baseBoard.id}`,
+    )) as HTMLInputElement;
+    const saveBtn = screen.getByTestId(
+      `button-confirm-rename-${baseBoard.id}`,
+    ) as HTMLButtonElement;
+    // 201 non-space chars exceeds the 200 cap. Use fireEvent.input so we
+    // bypass the native maxLength clamp that would otherwise truncate the
+    // value and prevent us from exercising the JS validation path.
+    const tooLong = "a".repeat(201);
+    Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set?.call(input, tooLong);
+    fireEvent.input(input, { target: { value: tooLong } });
+    expect(input.value.length).toBe(201);
+    expect(saveBtn.disabled).toBe(true);
+    expect(
+      screen.queryByTestId(`text-rename-error-${baseBoard.id}`),
+    ).not.toBeNull();
+    fireEvent.click(saveBtn);
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
   it("does not call onRename when Cancel is clicked", async () => {
     const onRename = vi.fn();
     renderCard({ ...baseBoard, isOwner: true }, { onRename });

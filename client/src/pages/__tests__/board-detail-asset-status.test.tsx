@@ -135,7 +135,7 @@ function renderAt(
 }
 
 describe("BoardDetailPage WS board_asset_status handler", () => {
-  it("invalidates the board query when a board_asset_status frame for an unknown asset arrives so a collaborator's new tile appears without a refresh", async () => {
+  it("splices a brand-new collaborator tile into the cache from the fullAsset payload — no full board refetch (Task #244)", async () => {
     const initialBoard: BoardResponseLite = {
       id: "board-1",
       title: "B",
@@ -154,44 +154,8 @@ describe("BoardDetailPage WS board_asset_status handler", () => {
         { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
       ],
     };
-    // After invalidation, the next fetch returns the board with the new tile
-    // included — that's what the user should see on the canvas.
-    const refetchedBoard: BoardResponseLite = {
-      ...initialBoard,
-      batches: [
-        {
-          ...initialBoard.batches[0],
-          assets: [
-            ...initialBoard.batches[0].assets,
-            {
-              id: "asset-new",
-              kind: "image",
-              status: "ready",
-              assetUrl: "https://example.com/new.png",
-              positionX: 50,
-              positionY: 75,
-            },
-          ],
-        },
-      ],
-      assets: [
-        ...initialBoard.assets,
-        {
-          id: "asset-new",
-          kind: "image",
-          status: "ready",
-          assetUrl: "https://example.com/new.png",
-          positionX: 50,
-          positionY: 75,
-        },
-      ],
-    };
 
-    const { qc, getFetchCount } = renderAt(
-      "/boards/board-1",
-      initialBoard,
-      refetchedBoard,
-    );
+    const { qc, getFetchCount } = renderAt("/boards/board-1", initialBoard);
     await waitFor(() => {
       expect(capturedOnMessage).not.toBeNull();
     });
@@ -210,24 +174,256 @@ describe("BoardDetailPage WS board_asset_status handler", () => {
           status: "ready",
           assetUrl: "https://example.com/new.png",
           thumbnailUrl: null,
+          // Server-side `pushAssetStatus` now forwards the entire asset
+          // row so the client can render the tile immediately.
+          fullAsset: {
+            id: "asset-new",
+            kind: "image",
+            status: "ready",
+            assetUrl: "https://example.com/new.png",
+            thumbnailUrl: null,
+            positionX: 50,
+            positionY: 75,
+            width: 256,
+            height: 256,
+            batchId: "batch-1",
+            batchLabel: null,
+            content: null,
+          },
         },
       });
     });
 
-    // The page should have triggered a refetch, and the refetched board
-    // contains the brand-new tile from the collaborator.
+    // The new tile should appear in cache *without* triggering a refetch.
+    const after = qc.getQueryData<BoardResponseLite>(["/api/boards", "board-1"]);
+    expect(after!.batches[0].assets.some((a) => a.id === "asset-new")).toBe(true);
+    expect(after!.assets.some((a) => a.id === "asset-new")).toBe(true);
+    const newTile = after!.batches[0].assets.find((a) => a.id === "asset-new")!;
+    expect(newTile.assetUrl).toBe("https://example.com/new.png");
+    expect(newTile.positionX).toBe(50);
+    expect(newTile.positionY).toBe(75);
+    expect(getFetchCount()).toBe(fetchesBefore);
+  });
+
+  it("creates a new batch entry when fullAsset belongs to a batch we haven't seen yet", async () => {
+    const initialBoard: BoardResponseLite = {
+      id: "board-1b",
+      title: "B",
+      isShared: true,
+      isOwner: false,
+      batches: [
+        {
+          batchId: "batch-1",
+          batchLabel: null,
+          assets: [
+            { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
+          ],
+        },
+      ],
+      assets: [
+        { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
+      ],
+    };
+
+    const { qc, getFetchCount } = renderAt("/boards/board-1b", initialBoard);
+    await waitFor(() => {
+      expect(capturedOnMessage).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(qc.getQueryData(["/api/boards", "board-1b"])).toBeTruthy();
+    });
+    const fetchesBefore = getFetchCount();
+
+    act(() => {
+      capturedOnMessage!({
+        type: "board_asset_status",
+        data: {
+          boardId: "board-1b",
+          batchId: "brand-new-batch",
+          batchLabel: "Uploaded sticky",
+          assetId: "asset-fresh",
+          status: "ready",
+          fullAsset: {
+            id: "asset-fresh",
+            kind: "sticky",
+            status: "ready",
+            content: "hello world",
+            positionX: 0,
+            positionY: 0,
+            width: 200,
+            height: 120,
+            batchId: "brand-new-batch",
+            batchLabel: "Uploaded sticky",
+          },
+        },
+      });
+    });
+
+    const after = qc.getQueryData<BoardResponseLite>(["/api/boards", "board-1b"]);
+    expect(after!.batches.length).toBe(2);
+    const newBatch = after!.batches.find((b) => b.batchId === "brand-new-batch")!;
+    expect(newBatch.batchLabel).toBe("Uploaded sticky");
+    expect(newBatch.assets.map((a) => a.id)).toEqual(["asset-fresh"]);
+    expect(after!.assets.some((a) => a.id === "asset-fresh")).toBe(true);
+    expect(getFetchCount()).toBe(fetchesBefore);
+  });
+
+  it("falls back to invalidating the board when fullAsset is malformed (missing kind)", async () => {
+    const initialBoard: BoardResponseLite = {
+      id: "board-1d",
+      title: "B",
+      isShared: true,
+      isOwner: false,
+      batches: [
+        {
+          batchId: "batch-1",
+          batchLabel: null,
+          assets: [
+            { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
+          ],
+        },
+      ],
+      assets: [
+        { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
+      ],
+    };
+    const refetchedBoard: BoardResponseLite = {
+      ...initialBoard,
+      batches: [
+        {
+          ...initialBoard.batches[0],
+          assets: [
+            ...initialBoard.batches[0].assets,
+            { id: "asset-new", kind: "image", status: "ready" },
+          ],
+        },
+      ],
+      assets: [
+        ...initialBoard.assets,
+        { id: "asset-new", kind: "image", status: "ready" },
+      ],
+    };
+
+    const { qc, getFetchCount } = renderAt(
+      "/boards/board-1d",
+      initialBoard,
+      refetchedBoard,
+    );
+    await waitFor(() => {
+      expect(capturedOnMessage).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(qc.getQueryData(["/api/boards", "board-1d"])).toBeTruthy();
+    });
+    const fetchesBefore = getFetchCount();
+
+    act(() => {
+      capturedOnMessage!({
+        type: "board_asset_status",
+        data: {
+          boardId: "board-1d",
+          batchId: "batch-1",
+          assetId: "asset-new",
+          status: "ready",
+          // fullAsset is present but missing the required `kind` field —
+          // the canvas branches on `kind`, so we'd rather refetch than
+          // splice in a tile we can't render.
+          fullAsset: {
+            id: "asset-new",
+            status: "ready",
+            assetUrl: "https://example.com/new.png",
+          },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(getFetchCount()).toBeGreaterThan(fetchesBefore);
+    });
+  });
+
+  it("falls back to invalidating the board when an unknown asset arrives without a fullAsset payload", async () => {
+    const initialBoard: BoardResponseLite = {
+      id: "board-1c",
+      title: "B",
+      isShared: true,
+      isOwner: false,
+      batches: [
+        {
+          batchId: "batch-1",
+          batchLabel: null,
+          assets: [
+            { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
+          ],
+        },
+      ],
+      assets: [
+        { id: "asset-existing", kind: "image", status: "ready", assetUrl: "https://example.com/a.png" },
+      ],
+    };
+    const refetchedBoard: BoardResponseLite = {
+      ...initialBoard,
+      batches: [
+        {
+          ...initialBoard.batches[0],
+          assets: [
+            ...initialBoard.batches[0].assets,
+            {
+              id: "asset-new",
+              kind: "image",
+              status: "ready",
+              assetUrl: "https://example.com/new.png",
+            },
+          ],
+        },
+      ],
+      assets: [
+        ...initialBoard.assets,
+        {
+          id: "asset-new",
+          kind: "image",
+          status: "ready",
+          assetUrl: "https://example.com/new.png",
+        },
+      ],
+    };
+
+    const { qc, getFetchCount } = renderAt(
+      "/boards/board-1c",
+      initialBoard,
+      refetchedBoard,
+    );
+    await waitFor(() => {
+      expect(capturedOnMessage).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(qc.getQueryData(["/api/boards", "board-1c"])).toBeTruthy();
+    });
+    const fetchesBefore = getFetchCount();
+
+    act(() => {
+      capturedOnMessage!({
+        type: "board_asset_status",
+        data: {
+          boardId: "board-1c",
+          batchId: "batch-1",
+          assetId: "asset-new",
+          status: "ready",
+          assetUrl: "https://example.com/new.png",
+          // Intentionally no fullAsset — exercise the fallback path.
+        },
+      });
+    });
+
     await waitFor(() => {
       expect(getFetchCount()).toBeGreaterThan(fetchesBefore);
     });
     await waitFor(() => {
       const after = qc.getQueryData<BoardResponseLite>([
         "/api/boards",
-        "board-1",
+        "board-1c",
       ]);
-      expect(after!.batches[0].assets.some((a) => a.id === "asset-new")).toBe(
-        true,
-      );
-      expect(after!.assets.some((a) => a.id === "asset-new")).toBe(true);
+      expect(after!.batches[0].assets.some((a) => a.id === "asset-new")).toBe(true);
     });
   });
 

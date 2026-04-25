@@ -124,6 +124,11 @@ export function pushAssetStatus(
         modelLabel: asset.modelLabel ?? null,
         provider: asset.provider,
         rejectionReason: asset.rejectionReason ?? null,
+        // Forward the entire asset row so the receiving client can splice
+        // a brand-new tile into its cache directly (Task #244). For
+        // already-known assets the client will just patch in place and
+        // ignore the extra fields, so it's safe to always include.
+        fullAsset: asset,
       });
     } catch (err) {
       console.warn("[boards-chat] typed ws emit failed:", err instanceof Error ? err.message : err);

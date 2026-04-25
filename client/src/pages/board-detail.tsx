@@ -469,6 +469,7 @@ export default function BoardDetailPage() {
         const d = msg.data as {
           boardId: string;
           batchId: string;
+          batchLabel?: string | null;
           assetId: string;
           status: string;
           assetUrl?: string | null;
@@ -476,6 +477,11 @@ export default function BoardDetailPage() {
           durationSeconds?: number | null;
           modelLabel?: string | null;
           rejectionReason?: string | null;
+          // The full asset row is included by the server on creation
+          // broadcasts (Task #244) so we can splice a brand-new tile into
+          // the cache without refetching the entire board. Status-only
+          // updates may omit it; the patch path below doesn't need it.
+          fullAsset?: CanvasBatch["assets"][number] & { batchId?: string; batchLabel?: string | null };
         };
         if (d.boardId !== boardId) return;
         const cached = queryClient.getQueryData<BoardResponse>([
@@ -488,14 +494,60 @@ export default function BoardDetailPage() {
             cached.batches.some((b) =>
               b.assets.some((a) => a.id === d.assetId),
             ));
-        // If a collaborator just uploaded a brand-new tile (Task #242 fans
-        // these out as `board_asset_status`), the patch-only path below would
-        // silently drop the frame because the assetId isn't in our cache yet.
-        // The status frame doesn't carry the full asset shape (kind /
-        // content / position / dimensions are missing), so we can't safely
-        // synthesize a tile — fall back to refetching the board so the new
-        // asset appears on the canvas without a manual refresh.
+        // Collaborator just uploaded a brand-new tile? If the server fanned
+        // out the full asset shape (Task #244), splice it into the cache
+        // directly so it appears instantly — no full board refetch, no
+        // loading flash. Only fall back to invalidating the board query
+        // when the payload is missing required fields (older server, or a
+        // status update for an asset we never learned about).
         if (!isKnownAsset) {
+          // We need a non-empty cache to splice into; if the board hasn't
+          // even loaded yet, invalidating ensures the next fetch picks up
+          // the new tile rather than silently dropping the frame.
+          const incoming = d.fullAsset;
+          const incomingHasMinimumShape =
+            !!incoming &&
+            typeof incoming === "object" &&
+            incoming.id === d.assetId &&
+            typeof incoming.kind === "string" &&
+            incoming.kind.length > 0;
+          if (cached && incomingHasMinimumShape && incoming) {
+            const incomingBatchId = incoming.batchId ?? d.batchId;
+            const incomingBatchLabel = incoming.batchLabel ?? d.batchLabel ?? null;
+            queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
+              if (!prev) return prev;
+              // Defensive guard against double-delivery: if the asset
+              // already exists by the time this runs (e.g. the same frame
+              // arrived twice or the user just refetched), keep the cache
+              // unchanged rather than duplicating the tile.
+              if (
+                prev.assets.some((a) => a.id === incoming.id) ||
+                prev.batches.some((b) => b.assets.some((a) => a.id === incoming.id))
+              ) {
+                return prev;
+              }
+              const batches = prev.batches.slice();
+              const idx = batches.findIndex((b) => b.batchId === incomingBatchId);
+              if (idx >= 0) {
+                batches[idx] = {
+                  ...batches[idx],
+                  assets: [...batches[idx].assets, incoming],
+                };
+              } else {
+                batches.push({
+                  batchId: incomingBatchId,
+                  batchLabel: incomingBatchLabel,
+                  assets: [incoming],
+                });
+              }
+              return {
+                ...prev,
+                batches,
+                assets: [...prev.assets, incoming],
+              };
+            });
+            return;
+          }
           queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
           return;
         }

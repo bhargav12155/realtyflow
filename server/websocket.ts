@@ -569,7 +569,17 @@ export class RealtimeService {
     });
   }
 
-  // Notify when a board asset's generation status changes
+  // Notify when a board asset's generation status changes.
+  //
+  // When the change is the *creation* of a brand-new asset (e.g. a
+  // collaborator just uploaded a tile, dropped a sticky, or saved a
+  // drawing), pass `fullAsset` with the complete asset row so subscribers
+  // can splice the tile into their cache directly — without that, the
+  // client only knows the assetId and is forced to refetch the entire
+  // board (every batch, every chat history slice) just to render the new
+  // tile (Task #244). Status-only updates (queued → generating → ready
+  // for an already-cached asset) can omit `fullAsset` since the patch
+  // path doesn't need it.
   notifyBoardAssetStatus(
     userId: string,
     payload: {
@@ -583,6 +593,7 @@ export class RealtimeService {
       modelLabel?: string | null;
       provider?: string | null;
       rejectionReason?: string | null;
+      fullAsset?: unknown;
     },
   ) {
     this.sendToUser(userId, {

@@ -478,6 +478,27 @@ export default function BoardDetailPage() {
           rejectionReason?: string | null;
         };
         if (d.boardId !== boardId) return;
+        const cached = queryClient.getQueryData<BoardResponse>([
+          "/api/boards",
+          boardId,
+        ]);
+        const isKnownAsset =
+          !!cached &&
+          (cached.assets.some((a) => a.id === d.assetId) ||
+            cached.batches.some((b) =>
+              b.assets.some((a) => a.id === d.assetId),
+            ));
+        // If a collaborator just uploaded a brand-new tile (Task #242 fans
+        // these out as `board_asset_status`), the patch-only path below would
+        // silently drop the frame because the assetId isn't in our cache yet.
+        // The status frame doesn't carry the full asset shape (kind /
+        // content / position / dimensions are missing), so we can't safely
+        // synthesize a tile — fall back to refetching the board so the new
+        // asset appears on the canvas without a manual refresh.
+        if (!isKnownAsset) {
+          queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+          return;
+        }
         queryClient.setQueryData<BoardResponse>(["/api/boards", boardId], (prev) => {
           if (!prev) return prev;
           const patchAsset = <T extends { id: string }>(a: T): T => {

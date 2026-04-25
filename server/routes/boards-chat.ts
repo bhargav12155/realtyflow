@@ -14,7 +14,7 @@ import type {
 } from "../services/seedance";
 import { autoEvaluateBatch, type AutoEvalModelHint, type AutoEvalResult } from "../services/boardAutoEval";
 import { openaiService } from "../services/openai";
-import { persistImageBuffer } from "../objectStorage";
+import { persistImageBufferPublic } from "../objectStorage";
 import { realtimeService } from "../websocket";
 
 // NOTE: Generation services and chat services are imported lazily (see
@@ -490,7 +490,7 @@ interface ImageDispatchResult {
 
 export interface GeminiImageService {
   editImage(input: { prompt: string; referenceImageUrls: string[] }): Promise<string | null>;
-  generateImage(input: { prompt: string }): Promise<string | null>;
+  generateImage(input: { prompt: string; isPublic?: boolean }): Promise<string | null>;
 }
 
 export interface ImageDispatchDeps {
@@ -541,7 +541,7 @@ async function dispatchImage(
     }
     // openaiService.generateImage is implemented on top of Gemini's
     // gemini-2.5-flash-image model and persists to object storage when available.
-    const url = await geminiImageService.generateImage({ prompt: ctx.prompt });
+    const url = await geminiImageService.generateImage({ prompt: ctx.prompt, isPublic: true });
     if (!url) throw new Error("Gemini image generation returned no result");
     return {
       modelLabel: ctx.forceModel || "gemini-2.5-flash-image",
@@ -604,7 +604,7 @@ async function dispatchImage(
   if (item.b64_json) {
     const buf = Buffer.from(item.b64_json, "base64");
     const filename = `board-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-    const stored = await persistImageBuffer(buf, filename, "image/png");
+    const stored = await persistImageBufferPublic(buf, filename, "image/png");
     imageUrl = stored ?? `data:image/png;base64,${item.b64_json}`;
   } else if (item.url) {
     imageUrl = item.url;

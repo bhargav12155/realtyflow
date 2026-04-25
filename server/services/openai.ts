@@ -615,7 +615,7 @@ RULES:
     }
   }
 
-  async generateImage({ prompt, size = "1024x1024" }: { prompt: string; size?: string }): Promise<string | null> {
+  async generateImage({ prompt, size = "1024x1024", isPublic = false }: { prompt: string; size?: string; isPublic?: boolean }): Promise<string | null> {
     try {
       const genAI = getGeminiClient();
       console.log(`🎨 [ImageGen] Generating image with prompt: "${prompt.substring(0, 100)}..."`);
@@ -641,8 +641,10 @@ RULES:
       const filename = `ai-generated-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
       try {
-        const { persistImageBuffer } = await import("../objectStorage");
-        const storedUrl = await persistImageBuffer(imageBuffer, filename, mimeType);
+        const { persistImageBuffer, persistImageBufferPublic } = await import("../objectStorage");
+        const storedUrl = isPublic
+          ? await persistImageBufferPublic(imageBuffer, filename, mimeType)
+          : await persistImageBuffer(imageBuffer, filename, mimeType);
         if (storedUrl) {
           console.log(`✅ [ImageGen] Image generated and stored: ${storedUrl}`);
           return storedUrl;

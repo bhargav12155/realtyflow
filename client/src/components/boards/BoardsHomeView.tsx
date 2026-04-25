@@ -157,6 +157,35 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
     },
   });
 
+  const renameBoardMutation = useMutation({
+    mutationFn: async ({ boardId, title }: { boardId: string; title: string }) => {
+      const res = await apiRequest("PATCH", `/api/boards/${boardId}`, { title });
+      return res.json();
+    },
+    onMutate: async ({ boardId, title }) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/boards"] });
+      const previous = queryClient.getQueryData<BoardSummary[]>(["/api/boards"]);
+      if (previous) {
+        queryClient.setQueryData<BoardSummary[]>(
+          ["/api/boards"],
+          previous.map((b) => (b.id === boardId ? { ...b, title } : b)),
+        );
+      }
+      return { previous };
+    },
+    onSuccess: () => {
+      toast({ title: "Board renamed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+    },
+    onError: (e: Error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/boards"], context.previous);
+      }
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't rename board", description: errText, variant: "destructive" });
+    },
+  });
+
   const leaveBoardMutation = useMutation({
     mutationFn: async (boardId: string) => {
       const res = await apiRequest("DELETE", `/api/boards/${boardId}/share/me`);
@@ -392,6 +421,8 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
                   isLeaving={leaveBoardMutation.isPending && leaveBoardMutation.variables === b.id}
                   onDelete={(board) => deleteBoardMutation.mutate(board.id)}
                   isDeleting={deleteBoardMutation.isPending && deleteBoardMutation.variables === b.id}
+                  onRename={(board, newTitle) => renameBoardMutation.mutate({ boardId: board.id, title: newTitle })}
+                  isRenaming={renameBoardMutation.isPending && renameBoardMutation.variables?.boardId === b.id}
                 />
               ))}
               {filtered.length === 0 && (boardsQuery.data?.length ?? 0) > 0 && (

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { MoreVertical, Plus, LogOut, Trash2, BellOff } from "lucide-react";
+import { MoreVertical, Plus, LogOut, Trash2, BellOff, Pencil } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,10 +18,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+const BOARD_TITLE_MAX = 200;
 
 export interface BoardCollaborator {
   userId: string;
@@ -266,6 +278,9 @@ export interface BoardCardProps {
   /** When provided and the current user is the owner, a kebab menu with a Delete action is rendered. */
   onDelete?: (board: BoardSummary) => void;
   isDeleting?: boolean;
+  /** When provided and the current user is the owner, a kebab menu with a Rename action is rendered. */
+  onRename?: (board: BoardSummary, newTitle: string) => void;
+  isRenaming?: boolean;
 }
 
 export function BoardCard({
@@ -274,6 +289,8 @@ export function BoardCard({
   isLeaving,
   onDelete,
   isDeleting,
+  onRename,
+  isRenaming,
 }: BoardCardProps) {
   const tint = pickTint(board.id);
   const [first, ...rest] = (board.title || "Untitled board").split(" ");
@@ -285,13 +302,30 @@ export function BoardCard({
   // If the API ever omits `isOwner`, we must not surface a Delete option that
   // would confuse the user (and hide their Leave option).
   const showDelete = !!onDelete && board.isOwner === true;
-  const showMenu = showLeave || showDelete;
+  // Rename mirrors Delete's owner-only gate — the server enforces the same
+  // authorization on PATCH /api/boards/:id, so we must not surface this for
+  // shared collaborators.
+  const showRename = !!onRename && board.isOwner === true;
+  const showMenu = showLeave || showDelete || showRename;
   // Owner-only cue so the user can tell at a glance which boards have
   // collaborator join/leave emails silenced via the share dialog toggle.
   const showMutedIndicator =
     board.isOwner === true && board.notifyOnCollaboratorChange === false;
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState(board.title || "");
+  // Reset the input whenever the dialog opens so it always reflects the
+  // current title (and clears any stale typing from a previous open).
+  useEffect(() => {
+    if (renameOpen) {
+      setRenameValue(board.title || "");
+    }
+  }, [renameOpen, board.title]);
   const titleForCopy = board.title || "Untitled board";
+  const trimmedRename = renameValue.trim();
+  const renameInvalid =
+    trimmedRename.length === 0 || trimmedRename.length > BOARD_TITLE_MAX;
+  const renameUnchanged = trimmedRename === (board.title || "").trim();
   return (
     <div className="relative">
       <Link href={`/boards/${board.id}`}>
@@ -359,6 +393,19 @@ export function BoardCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              {showRename && (
+                <DropdownMenuItem
+                  disabled={isRenaming}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setRenameOpen(true);
+                  }}
+                  data-testid={`menu-item-rename-${board.id}`}
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Rename
+                </DropdownMenuItem>
+              )}
               {showLeave && (
                 <DropdownMenuItem
                   disabled={isLeaving}
@@ -389,6 +436,71 @@ export function BoardCard({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          {showRename && (
+            <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+              <DialogContent
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`dialog-rename-board-${board.id}`}
+              >
+                <DialogHeader>
+                  <DialogTitle>Rename board</DialogTitle>
+                  <DialogDescription>
+                    Pick a new name for "{titleForCopy}".
+                  </DialogDescription>
+                </DialogHeader>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (renameInvalid || renameUnchanged || isRenaming) return;
+                    onRename?.(board, trimmedRename);
+                    setRenameOpen(false);
+                  }}
+                >
+                  <Input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    maxLength={BOARD_TITLE_MAX}
+                    placeholder="Board name"
+                    aria-label="Board name"
+                    data-testid={`input-rename-board-${board.id}`}
+                  />
+                  {trimmedRename.length === 0 ? (
+                    <p
+                      className="mt-2 text-xs text-red-600 dark:text-red-400"
+                      data-testid={`text-rename-error-${board.id}`}
+                    >
+                      Name can't be empty.
+                    </p>
+                  ) : trimmedRename.length > BOARD_TITLE_MAX ? (
+                    <p
+                      className="mt-2 text-xs text-red-600 dark:text-red-400"
+                      data-testid={`text-rename-error-${board.id}`}
+                    >
+                      Name can't be longer than {BOARD_TITLE_MAX} characters.
+                    </p>
+                  ) : null}
+                  <DialogFooter className="mt-4">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setRenameOpen(false)}
+                      data-testid={`button-cancel-rename-${board.id}`}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={renameInvalid || renameUnchanged || isRenaming}
+                      data-testid={`button-confirm-rename-${board.id}`}
+                    >
+                      Save
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent
               onClick={(e) => e.stopPropagation()}

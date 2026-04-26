@@ -185,8 +185,21 @@ export function ChatPanel({
   useEffect(() => {
     setCapDraft(String(chatHistoryCap ?? CHAT_HISTORY_CAP_DEFAULT));
   }, [chatHistoryCap]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Cap the composer at roughly 7 lines before it starts scrolling internally.
+  const CHAT_INPUT_MAX_HEIGHT = 160;
+  // Recalculate the textarea height on every value change so it grows with
+  // content and shrinks back when the field is cleared (e.g. after send).
+  const resizeInput = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, CHAT_INPUT_MAX_HEIGHT);
+    el.style.height = `${next}px`;
+    el.style.overflowY =
+      el.scrollHeight > CHAT_INPUT_MAX_HEIGHT ? "auto" : "hidden";
+  };
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
   const isPlan = mode === "brainstorm";
   const selectedThinkModel =
@@ -220,6 +233,12 @@ export function ChatPanel({
       el.scrollIntoView({ block: "end" });
     }
   }, [messages.length, isSending, waitStage]);
+
+  // Resize the composer whenever its value changes — covers both user typing
+  // and programmatic updates (pre-fill, build-this, send-then-clear).
+  useEffect(() => {
+    resizeInput();
+  }, [input]);
 
   // Apply a parent-provided pre-fill (e.g. the typed idea from the Boards
   // home in Plan mode) once, then clear it so we don't clobber the user's
@@ -583,9 +602,10 @@ export function ChatPanel({
         <div className="border border-neutral-200 rounded-2xl bg-white shadow-sm dark:border-neutral-700 dark:bg-neutral-800">
           <div className="flex items-start gap-2 px-3 pt-3">
             <div className="w-6 h-6 rounded bg-gradient-to-br from-amber-300 via-rose-300 to-violet-400 flex-shrink-0" />
-            <input
+            <textarea
               ref={inputRef}
-              className="flex-1 bg-transparent outline-none text-[13px] text-neutral-800 placeholder:text-neutral-400 py-0.5 dark:text-neutral-100 dark:placeholder:text-neutral-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              rows={1}
+              className="flex-1 bg-transparent outline-none text-[13px] leading-5 text-neutral-800 placeholder:text-neutral-400 py-0.5 resize-none overflow-hidden dark:text-neutral-100 dark:placeholder:text-neutral-500 disabled:opacity-60 disabled:cursor-not-allowed"
               placeholder={
                 isClearingChat
                   ? "Clearing chat — undo within 10 seconds…"

@@ -24,6 +24,11 @@ latest-error-logs.txt
 # Build artifacts
 artifacts/
 
-# Large binary uploads (new subdirs)
-uploads/social-media/
-uploads/videos/
+# Large binary uploads and assets (not source code)
+uploads/
+attached_assets/
+github/
+generated-icon.png
+screenshot.png
+social_final.png
+social_disconnected.png

@@ -11,22 +11,29 @@ interface ObjectUploaderProps {
   onGetUploadParameters: () => Promise<{
     method: "PUT";
     url: string;
+    fileUrl?: string; // Optional: the actual file URL (for S3 presigned URLs)
   }>;
-  onComplete?: (uploadedFileUrl: string) => void;
+  onComplete?: (uploadedFileUrl: string, savedToLibrary?: boolean) => void;
   buttonClassName?: string;
   children: ReactNode;
   disabled?: boolean;
+  saveToLibrary?: boolean; // Whether to save the uploaded file to the user's media library
+  libraryType?: string; // Type for media library (e.g., 'photo', 'avatar', 'video')
+  libraryTitle?: string; // Title for the media library entry
 }
 
 export function ObjectUploader({
   maxNumberOfFiles = 1,
-  maxFileSize = 10485760, // 10MB default
+  maxFileSize = 52428800, // 50MB default - server auto-compresses large images
   acceptedFileTypes = "image/*",
   onGetUploadParameters,
   onComplete,
   buttonClassName,
   children,
   disabled = false,
+  saveToLibrary = false,
+  libraryType = "photo",
+  libraryTitle,
 }: ObjectUploaderProps) {
   const [showModal, setShowModal] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -70,6 +77,21 @@ export function ObjectUploader({
         throw new Error(`Upload failed: ${response.statusText}`);
       }
 
+      // If fileUrl was provided (e.g., S3 presigned URL), use it directly
+      if (uploadParams.fileUrl) {
+        return uploadParams.fileUrl;
+      }
+
+      // Try to parse JSON response which may contain the actual file URL
+      try {
+        const data = await response.json();
+        if (data.url) {
+          return data.url;
+        }
+      } catch {
+        // If response is not JSON, fall back to the original URL
+      }
+
       return uploadParams.url.split('?')[0]; // Remove query parameters to get the file URL
     } catch (error) {
       console.error('Upload error:', error);
@@ -84,19 +106,53 @@ export function ObjectUploader({
     setUploadProgress(0);
     
     try {
-      let uploadedUrl = '';
+      const uploadedUrls: { file: File; url: string }[] = [];
       
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        uploadedUrl = await uploadFile(file);
+        const url = await uploadFile(file);
+        uploadedUrls.push({ file, url });
         setUploadProgress(((i + 1) / selectedFiles.length) * 100);
       }
 
       setUploadComplete(true);
       
-      // Call completion callback with the last uploaded file URL
+      // Save each uploaded file to media library if requested
+      let allSavedSuccessfully = true;
+      if (saveToLibrary) {
+        for (const { file, url } of uploadedUrls) {
+          if (url && url.startsWith('https://')) {
+            try {
+              const response = await fetch('/api/media/save-from-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  url,
+                  type: libraryType,
+                  source: 'upload',
+                  title: libraryTitle || file?.name || `Upload ${Date.now()}`,
+                  mimeType: file?.type || 'image/jpeg',
+                }),
+              });
+              
+              if (response.ok) {
+                console.log('📚 Saved to media library:', url.substring(0, 50));
+              } else {
+                console.warn('Failed to save to media library - server returned error');
+                allSavedSuccessfully = false;
+              }
+            } catch (err) {
+              console.warn('Failed to save to media library:', err);
+              allSavedSuccessfully = false;
+            }
+          }
+        }
+      }
+      
+      // Call completion callback with the last uploaded file URL and library save status
+      const uploadedUrl = uploadedUrls.length > 0 ? uploadedUrls[uploadedUrls.length - 1].url : '';
       if (onComplete && uploadedUrl) {
-        onComplete(uploadedUrl);
+        onComplete(uploadedUrl, saveToLibrary ? allSavedSuccessfully : undefined);
       }
 
       // Reset after a short delay
@@ -165,9 +221,9 @@ export function ObjectUploader({
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Selected Files:</p>
                     {selectedFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-muted rounded">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{file.name}</p>
+                      <div key={index} className="flex items-center justify-between gap-2 p-2 bg-muted rounded overflow-hidden">
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <p className="text-sm truncate" title={file.name}>{file.name}</p>
                           <p className="text-xs text-muted-foreground">
                             {(file.size / 1024 / 1024).toFixed(2)} MB
                           </p>
@@ -176,6 +232,7 @@ export function ObjectUploader({
                           variant="ghost"
                           size="sm"
                           onClick={() => removeFile(index)}
+                          className="flex-shrink-0"
                         >
                           <X className="h-4 w-4" />
                         </Button>

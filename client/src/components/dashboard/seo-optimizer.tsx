@@ -1,12 +1,16 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle, AlertCircle, TrendingUp, TrendingDown, Search, Globe, Smartphone } from "lucide-react";
+import { CheckCircle, AlertCircle, TrendingUp, TrendingDown, Search, Globe, Smartphone, Sparkles, Loader2, Calendar, Info } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
+import { useBusinessType } from "@/lib/businessContext";
 
 interface SeoKeyword {
   id: string;
@@ -29,7 +33,11 @@ const getRankColor = (rank: number) => {
 };
 
 export function SEOOptimizer() {
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const { businessType } = useBusinessType();
   const [showFullReport, setShowFullReport] = useState(false);
+  const [aiGeneratedKeywords, setAiGeneratedKeywords] = useState<SeoKeyword[] | null>(null);
   
   const { data: keywords, isLoading: keywordsLoading } = useQuery<SeoKeyword[]>({
     queryKey: ["/api/seo/keywords"],
@@ -39,7 +47,74 @@ export function SEOOptimizer() {
     queryKey: ["/api/seo/site-health"],
   });
 
+  const generateKeywordsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/seo/keywords/generate', {
+        location: 'Omaha, Nebraska',
+        businessType: 'real estate agent'
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      setAiGeneratedKeywords(data);
+      toast({
+        title: "✨ AI Keywords Generated!",
+        description: `Generated ${data.length} optimized keywords for your real estate business.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Generation Failed",
+        description: "Could not generate keywords. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateContentPlanMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/content/generate-plan', {
+        keywords: displayKeywords || [],
+        durationDays: 30,
+        businessType,
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduled-posts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/content/plan'] });
+      toast({
+        title: "🎯 30-Day Content Plan Created!",
+        description: `Generated ${data.totalPosts || 30} posts based on your SEO keywords. Review and approve.`,
+      });
+      // Navigate to dashboard calendar view using hash navigation
+      setLocation('/dashboard');
+      window.location.hash = '#calendar';
+    },
+    onError: (error) => {
+      toast({
+        title: "Plan Generation Failed",
+        description: "Could not generate content plan. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const isLoading = keywordsLoading || healthLoading;
+  const displayKeywords = aiGeneratedKeywords || keywords;
+  const hasGeneratedRef = useRef(false);
+  
+  // Auto-generate AI keywords on first load if we only have fallback data
+  useEffect(() => {
+    if (!hasGeneratedRef.current && keywords && keywords.length > 0 && !aiGeneratedKeywords) {
+      // Check if these are fallback keywords (they have fb- prefix IDs)
+      const hasFallbackOnly = keywords.every(k => k.id.startsWith('fb-'));
+      if (hasFallbackOnly && !generateKeywordsMutation.isPending) {
+        hasGeneratedRef.current = true;
+        generateKeywordsMutation.mutate();
+      }
+    }
+  }, [keywords, aiGeneratedKeywords]);
 
   if (isLoading) {
     return (
@@ -65,12 +140,53 @@ export function SEOOptimizer() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-foreground">SEO Performance</CardTitle>
-          <Dialog open={showFullReport} onOpenChange={setShowFullReport}>
-            <DialogTrigger asChild>
-              <Button variant="link" className="text-primary hover:text-primary/80 text-sm font-medium" data-testid="button-view-seo-report">
-                View Full Report
-              </Button>
-            </DialogTrigger>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => generateContentPlanMutation.mutate()}
+              disabled={generateContentPlanMutation.isPending || !displayKeywords?.length}
+              variant="default"
+              size="sm"
+              className="text-sm bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+              data-testid="button-generate-content-plan"
+            >
+              {generateContentPlanMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                  Creating Plan...
+                </>
+              ) : (
+                <>
+                  <Calendar className="h-3 w-3 mr-1.5" />
+                  Generate Content Plan
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={() => generateKeywordsMutation.mutate()}
+              disabled={generateKeywordsMutation.isPending}
+              variant="outline"
+              size="sm"
+              className="text-sm"
+              data-testid="button-generate-ai-keywords"
+            >
+              {generateKeywordsMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3 w-3 mr-1.5" />
+                  AI Keywords
+                </>
+              )}
+            </Button>
+            <Dialog open={showFullReport} onOpenChange={setShowFullReport}>
+              <DialogTrigger asChild>
+                <Button variant="link" className="text-primary hover:text-primary/80 text-sm font-medium" data-testid="button-view-seo-report">
+                  View Full Report
+                </Button>
+              </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
@@ -80,10 +196,9 @@ export function SEOOptimizer() {
               </DialogHeader>
               
               <Tabs defaultValue="overview" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="overview">Overview</TabsTrigger>
                   <TabsTrigger value="keywords">Keywords</TabsTrigger>
-                  <TabsTrigger value="technical">Technical</TabsTrigger>
                   <TabsTrigger value="recommendations">Action Items</TabsTrigger>
                 </TabsList>
                 
@@ -101,7 +216,7 @@ export function SEOOptimizer() {
                       <Progress value={siteHealth?.mobileScore || 98} className="mt-2" />
                     </div>
                     <div className="text-center p-4 border rounded-lg">
-                      <div className="text-3xl font-bold text-purple-600 mb-1">{keywords?.length || 12}</div>
+                      <div className="text-3xl font-bold text-purple-600 mb-1">{displayKeywords?.length || 12}</div>
                       <div className="text-sm text-muted-foreground">Tracked Keywords</div>
                     </div>
                   </div>
@@ -136,20 +251,41 @@ export function SEOOptimizer() {
                 </TabsContent>
                 
                 <TabsContent value="keywords" className="space-y-4 mt-4">
+                  <div className="mb-4 p-3 bg-muted/50 rounded-lg text-sm text-muted-foreground">
+                    <strong className="text-foreground">What these numbers mean:</strong>
+                    <div className="mt-1 space-y-1">
+                      • <strong>Monthly Searches</strong> - How many people search this phrase each month
+                      <br />• <strong>Your Ranking</strong> - Where your website appears in Google results (lower is better!)
+                      <br />• <strong>Neighborhood</strong> - The Omaha area this keyword targets
+                    </div>
+                  </div>
                   <div className="space-y-3">
-                    {keywords?.map((keyword, index) => (
-                      <div key={keyword.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    {displayKeywords?.map((keyword, index) => (
+                      <div key={keyword.id} className="flex items-center justify-between p-3 border rounded-lg hover:border-primary/50 transition-colors">
                         <div className="flex-1">
-                          <div className="font-medium text-sm">\u0022{keyword.keyword}\u0022</div>
-                          <div className="text-xs text-muted-foreground">
-                            Search Volume: {keyword.searchVolume?.toLocaleString() || 'N/A'}
-                            {keyword.neighborhood && ` • ${keyword.neighborhood}`}
+                          <div className="font-medium text-sm mb-1.5">{keyword.keyword}</div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Search className="h-3 w-3" />
+                              <strong>{keyword.searchVolume?.toLocaleString() || 'N/A'}</strong> people search this monthly
+                            </span>
+                            {keyword.neighborhood && (
+                              <span className="flex items-center gap-1">
+                                <Globe className="h-3 w-3" />
+                                {keyword.neighborhood} area
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
-                          <Badge variant={keyword.currentRank <= 3 ? 'default' : keyword.currentRank <= 10 ? 'secondary' : 'outline'}>
-                            #{keyword.currentRank}
-                          </Badge>
+                          <div className="text-right">
+                            <Badge variant={keyword.currentRank <= 3 ? 'default' : keyword.currentRank <= 10 ? 'secondary' : 'outline'} className="text-sm">
+                              Rank #{keyword.currentRank}
+                            </Badge>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {keyword.currentRank <= 3 ? '🏆 Top 3!' : keyword.currentRank <= 10 ? '✨ Page 1' : 'Page ' + Math.ceil(keyword.currentRank / 10)}
+                            </div>
+                          </div>
                           {index < 5 ? (
                             <TrendingUp className="h-4 w-4 text-green-600" />
                           ) : (
@@ -171,91 +307,42 @@ export function SEOOptimizer() {
                   </div>
                 </TabsContent>
                 
-                <TabsContent value="technical" className="space-y-4 mt-4">
-                  <div className="grid gap-4">
-                    <div className="border rounded-lg p-4">
-                      <h3 className="font-medium mb-3 flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        Passed Tests
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          SSL Certificate Active
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          Mobile-Friendly Design
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          Meta Descriptions Present
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          Sitemap.xml Found
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="border rounded-lg p-4">
-                      <h3 className="font-medium mb-3 flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        Recently Resolved Issues
-                      </h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          Page load speed optimized (3.2s → 2.0s)
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          LocalBusiness structured data markup implemented
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          All images now have optimized alt text
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-                
                 <TabsContent value="recommendations" className="space-y-4 mt-4">
                   <div className="space-y-4">
-                    <div className="border rounded-lg p-4 bg-green-50 border-green-200">
-                      <h3 className="font-medium text-green-800 mb-2 flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4" />
-                        ✅ High Priority (Completed)
+                    <div className="border rounded-lg p-4 bg-orange-50 border-orange-200 dark:bg-orange-950/20 dark:border-orange-900">
+                      <h3 className="font-medium text-orange-800 dark:text-orange-200 mb-2 flex items-center gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        🔥 Do This Week - High Impact
                       </h3>
-                      <div className="space-y-2 text-sm">
-                        <div>• ✅ Add LocalBusiness schema markup to all pages</div>
-                        <div>• ✅ Optimize images to reduce page load time</div>
-                        <div>• ✅ Create location-specific landing pages for target neighborhoods</div>
+                      <div className="space-y-2 text-sm text-orange-900 dark:text-orange-100">
+                        <div>• Create 1 video about "buying a home in Dundee" (150 people search this monthly)</div>
+                        <div>• Post 3 new property photos to Instagram with neighborhood hashtags</div>
+                        <div>• Write a blog post about "Aksarben neighborhood guide for families"</div>
                       </div>
                     </div>
                     
-                    <div className="border rounded-lg p-4 bg-green-50 border-green-200">
-                      <h3 className="font-medium text-green-800 mb-2 flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4" />
-                        ✅ Medium Priority (Completed)
+                    <div className="border rounded-lg p-4 bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-900">
+                      <h3 className="font-medium text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4" />
+                        📅 Do This Month - Steady Growth
                       </h3>
-                      <div className="space-y-2 text-sm">
-                        <div>• ✅ Build more backlinks from local Omaha websites</div>
-                        <div>• ✅ Create FAQ pages targeting \u0022how-to\u0022 real estate questions</div>
-                        <div>• ✅ Optimize for more long-tail keywords</div>
+                      <div className="space-y-2 text-sm text-blue-900 dark:text-blue-100">
+                        <div>• Get 2 reviews from recent clients on Google Business</div>
+                        <div>• Partner with a local Omaha business for website link exchange</div>
+                        <div>• Update all property listings with better descriptions</div>
+                        <div>• Start an email newsletter for your buyer/seller lists</div>
                       </div>
                     </div>
                     
-                    <div className="border rounded-lg p-4 bg-green-50 border-green-200">
-                      <h3 className="font-medium text-green-800 mb-2 flex items-center gap-2">
+                    <div className="border rounded-lg p-4 bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-900">
+                      <h3 className="font-medium text-green-800 dark:text-green-200 mb-2 flex items-center gap-2">
                         <CheckCircle className="h-4 w-4" />
-                        ✅ Low Priority (Ongoing maintenance)
+                        ✅ Keep Doing - You're On Track
                       </h3>
-                      <div className="space-y-2 text-sm">
-                        <div>• ✅ Continue publishing regular blog content</div>
-                        <div>• ✅ Monitor keyword rankings monthly</div>
-                        <div>• ✅ Update property listings regularly</div>
+                      <div className="space-y-2 text-sm text-green-900 dark:text-green-100">
+                        <div>• Keep posting AI-generated content 3x per week</div>
+                        <div>• Respond to all social media messages within 24 hours</div>
+                        <div>• Monitor which keywords are improving each month</div>
                       </div>
                     </div>
                   </div>
@@ -263,22 +350,44 @@ export function SEOOptimizer() {
               </Tabs>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Top Keywords */}
         <div>
-          <h3 className="text-sm font-medium text-foreground mb-3">Top Performing Keywords</h3>
-          <div className="space-y-2">
-            {keywords?.slice(0, 4).map((keyword) => (
-              <div key={keyword.id} className="flex items-center justify-between" data-testid={`keyword-${keyword.id}`}>
-                <span className="text-sm text-foreground">"{keyword.keyword}"</span>
-                <Badge variant="secondary" className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent hover:bg-secondary/80 text-chart-3 font-medium bg-[#2e4551]">
-                  #{keyword.currentRank}
-                </Badge>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-foreground">
+              {aiGeneratedKeywords ? "AI-Suggested Keywords" : "Suggested Keywords"}
+            </h3>
+            {aiGeneratedKeywords && (
+              <Badge variant="outline" className="text-xs flex items-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                AI Generated
+              </Badge>
+            )}
           </div>
+          <div className="space-y-2">
+            {generateKeywordsMutation.isPending ? (
+              <div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generating AI keywords...
+              </div>
+            ) : (
+              displayKeywords?.slice(0, 4).map((keyword) => (
+                <div key={keyword.id} className="flex items-center justify-between" data-testid={`keyword-${keyword.id}`}>
+                  <span className="text-sm text-foreground">{keyword.keyword}</span>
+                  <Badge variant="secondary" className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent hover:bg-secondary/80 text-chart-3 font-medium bg-[#2e4551]">
+                    ~#{keyword.currentRank}
+                  </Badge>
+                </div>
+              ))
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+            <Info className="h-3 w-3" />
+            Rankings are AI estimates based on market analysis
+          </p>
         </div>
 
         {/* Site Health */}
@@ -309,8 +418,8 @@ export function SEOOptimizer() {
               <div className="text-xs text-muted-foreground">Mobile Score</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-green-600" data-testid="text-monthly-visitors">12K</div>
-              <div className="text-xs text-muted-foreground">Monthly Visitors</div>
+              <div className="text-lg font-bold text-muted-foreground" data-testid="text-monthly-visitors">--</div>
+              <div className="text-xs text-muted-foreground">Visitors (needs Analytics)</div>
             </div>
           </div>
         </div>

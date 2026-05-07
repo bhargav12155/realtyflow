@@ -22,7 +22,8 @@ import {
   Users,
   Award,
   Target,
-  Lightbulb
+  Lightbulb,
+  Loader2
 } from "lucide-react";
 
 interface AIOptimizationScore {
@@ -51,15 +52,15 @@ const aiSearchTips: AISearchTip[] = [
     title: "Establish Clear Business Entity",
     description: "AI searches look for clear entity relationships. Make sure your name, business, and location are consistently mentioned together.",
     impact: "high",
-    implemented: true,
-    action: "Include 'Mike Bjork, Berkshire Hathaway HomeServices, Omaha' in every piece of content"
+    implemented: false,
+    action: "Include '[Your Name], [Your Brokerage], Omaha' in every piece of content"
   },
   {
     category: "Conversational Content",
     title: "Answer Questions Directly",
     description: "AI searches favor content that directly answers questions people ask about real estate.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Start content with 'If you're wondering...' or 'Here's what you need to know about...'"
   },
   {
@@ -67,7 +68,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Hyperlocal Expertise",
     description: "AI gives preference to content that demonstrates deep local knowledge and expertise.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Mention specific streets, schools, businesses, and local events in your content"
   },
   {
@@ -75,7 +76,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Schema Markup Implementation",
     description: "AI search engines rely heavily on structured data to understand your content.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Add LocalBusiness, RealEstateAgent, and FAQPage schema to your website"
   },
   {
@@ -83,7 +84,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Professional Credentials",
     description: "AI searches look for expertise indicators and professional qualifications.",
     impact: "medium",
-    implemented: true,
+    implemented: false,
     action: "Always mention your licenses, certifications, and years of experience"
   },
   {
@@ -91,7 +92,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "FAQ Format Content",
     description: "AI searches love FAQ-style content that matches how people ask questions.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Create content in Q&A format: 'What's the best neighborhood in Omaha for families?'"
   },
   {
@@ -99,7 +100,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Market Data Citations",
     description: "AI gives credibility to content that cites specific, current market data.",
     impact: "medium",
-    implemented: true,
+    implemented: false,
     action: "Include recent sale prices, market trends, and neighborhood statistics"
   },
   {
@@ -107,7 +108,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Neighborhood Entity Building",
     description: "Build strong entity relationships between you and specific Omaha neighborhoods.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Consistently create content about the same 5-7 neighborhoods you specialize in"
   },
   {
@@ -115,7 +116,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Advanced Review Schema",
     description: "AI platforms heavily weight customer reviews and ratings in search results.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Implement Review and AggregateRating schema with client testimonials"
   },
   {
@@ -123,7 +124,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Video Content with Transcripts",
     description: "AI searches now index video content through transcripts and captions.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Add AI-readable transcripts to all video tours and market updates"
   },
   {
@@ -131,7 +132,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Featured Snippet Optimization",
     description: "Structure content for zero-click searches and AI-powered answer boxes.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Use tables, lists, and step-by-step formats for complex topics"
   },
   {
@@ -139,7 +140,7 @@ const aiSearchTips: AISearchTip[] = [
     title: "Knowledge Graph Integration",
     description: "Build comprehensive entity relationships across all major platforms.",
     impact: "high",
-    implemented: true,
+    implemented: false,
     action: "Ensure consistent NAP (Name, Address, Phone) across 50+ directories"
   }
 ];
@@ -149,18 +150,46 @@ export function AISearchOptimizer() {
   const [optimizationGoal, setOptimizationGoal] = useState("");
   const [customQuestion, setCustomQuestion] = useState("");
   
-  const { toast } = useToast();
+  const { toast} = useToast();
   const queryClient = useQueryClient();
 
-  // AI optimization score analysis - maximum optimization achieved
-  const mockScore: AIOptimizationScore = {
-    overall: 99, // Near-perfect with all advanced optimizations implemented
+  // Fetch company profile for dynamic content
+  const { data: companyProfile } = useQuery<{
+    agentName?: string;
+    brokerageName?: string;
+    phone?: string;
+    address?: string;
+    neighborhoods?: string[];
+    website?: string;
+  }>({
+    queryKey: ["/api/company/profile"],
+  });
+
+  // Get agent name and brokerage with smart defaults
+  const agentName = companyProfile?.agentName || "[Your Name]";
+  const brokerageName = companyProfile?.brokerageName || "[Your Brokerage]";
+
+  // Calculate real optimization score based on profile completeness
+  const hasAgentName = agentName !== "[Your Name]";
+  const hasBrokerage = brokerageName !== "[Your Brokerage]";
+  const hasPhone = !!companyProfile?.phone;
+  const hasAddress = !!companyProfile?.address;
+  const hasNeighborhoods = !!companyProfile?.neighborhoods?.length;
+  const hasWebsite = !!companyProfile?.website;
+  
+  // Calculate real score based on what's actually configured
+  const completedItems = [hasAgentName, hasBrokerage, hasPhone, hasAddress, hasNeighborhoods, hasWebsite].filter(Boolean).length;
+  const totalItems = 6;
+  const calculatedScore = Math.round((completedItems / totalItems) * 100);
+  
+  const realScore: AIOptimizationScore = {
+    overall: calculatedScore,
     factors: {
-      entityOptimization: 99, // Perfect: Complete knowledge graph with all entity relationships
-      structuredData: 98,     // Near-perfect: All schema types implemented including Review, Event, Article 
-      authoritySignals: 99,   // Perfect: Full credentials, awards, certifications, and testimonials
-      conversationalContent: 98, // Near-perfect: Comprehensive FAQ, video transcripts, and AI-optimized content
-      localRelevance: 100     // Perfect: Complete hyperlocal expertise with all neighborhood data
+      entityOptimization: hasAgentName && hasBrokerage ? 80 : 20,
+      structuredData: hasWebsite ? 60 : 20,
+      authoritySignals: hasPhone && hasAddress ? 70 : 30,
+      conversationalContent: 50, // Base score - they can improve with content
+      localRelevance: hasNeighborhoods ? 90 : 30
     }
   };
 
@@ -241,11 +270,56 @@ export function AISearchOptimizer() {
           
           <TabsContent value="score" className="space-y-4 mt-4">
             <div className="grid gap-4">
-              {/* Overall Score */}
-              <div className="text-center p-6 border rounded-lg bg-gradient-to-br from-blue-50 to-purple-50">
-                <div className="text-3xl font-bold text-primary mb-2">{mockScore.overall}/100</div>
-                <p className="text-sm text-muted-foreground">AI Search Optimization Score</p>
-                <Progress value={mockScore.overall} className="mt-2" />
+              {/* Overall Score - Based on profile completeness */}
+              <div className={`text-center p-6 border rounded-lg ${calculatedScore >= 80 ? 'bg-gradient-to-br from-green-50 to-emerald-50' : calculatedScore >= 50 ? 'bg-gradient-to-br from-yellow-50 to-orange-50' : 'bg-gradient-to-br from-red-50 to-pink-50'}`}>
+                <div className={`text-3xl font-bold mb-2 ${calculatedScore >= 80 ? 'text-green-600' : calculatedScore >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                  {realScore.overall}%
+                </div>
+                <p className="text-sm text-muted-foreground">Profile Completeness Score</p>
+                <Progress value={realScore.overall} className="mt-2" />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Complete your profile to improve AI search visibility
+                </p>
+              </div>
+
+              {/* Setup Checklist */}
+              <div className="border rounded-lg p-4">
+                <h3 className="font-medium mb-3 flex items-center">
+                  <Target className="h-4 w-4 mr-2" />
+                  Setup Checklist
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-center text-sm">
+                    {hasAgentName ? <CheckCircle className="h-4 w-4 mr-2 text-green-500" /> : <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />}
+                    <span className={hasAgentName ? 'text-green-700' : ''}>Agent name configured</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    {hasBrokerage ? <CheckCircle className="h-4 w-4 mr-2 text-green-500" /> : <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />}
+                    <span className={hasBrokerage ? 'text-green-700' : ''}>Brokerage name set</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    {hasPhone ? <CheckCircle className="h-4 w-4 mr-2 text-green-500" /> : <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />}
+                    <span className={hasPhone ? 'text-green-700' : ''}>Phone number added</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    {hasAddress ? <CheckCircle className="h-4 w-4 mr-2 text-green-500" /> : <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />}
+                    <span className={hasAddress ? 'text-green-700' : ''}>Business address set</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    {hasNeighborhoods ? <CheckCircle className="h-4 w-4 mr-2 text-green-500" /> : <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />}
+                    <span className={hasNeighborhoods ? 'text-green-700' : ''}>Target neighborhoods selected</span>
+                  </div>
+                  <div className="flex items-center text-sm">
+                    {hasWebsite ? <CheckCircle className="h-4 w-4 mr-2 text-green-500" /> : <AlertCircle className="h-4 w-4 mr-2 text-yellow-500" />}
+                    <span className={hasWebsite ? 'text-green-700' : ''}>Website URL added</span>
+                  </div>
+                </div>
+                {calculatedScore < 100 && (
+                  <p className="text-xs text-muted-foreground mt-3 flex items-center">
+                    <Lightbulb className="h-3 w-3 mr-1" />
+                    Go to Brand Settings to complete your profile
+                  </p>
+                )}
               </div>
 
               {/* Factor Breakdown */}
@@ -257,8 +331,8 @@ export function AISearchOptimizer() {
                       <span className="text-sm">Entity Optimization</span>
                     </div>
                     <div className="flex items-center">
-                      <Progress value={mockScore.factors.entityOptimization} className="w-16 mr-2" />
-                      <span className="text-xs font-medium">{mockScore.factors.entityOptimization}</span>
+                      <Progress value={realScore.factors.entityOptimization} className="w-16 mr-2" />
+                      <span className="text-xs font-medium">{realScore.factors.entityOptimization}%</span>
                     </div>
                   </div>
                   
@@ -268,8 +342,8 @@ export function AISearchOptimizer() {
                       <span className="text-sm">Structured Data</span>
                     </div>
                     <div className="flex items-center">
-                      <Progress value={mockScore.factors.structuredData} className="w-16 mr-2" />
-                      <span className="text-xs font-medium">{mockScore.factors.structuredData}</span>
+                      <Progress value={realScore.factors.structuredData} className="w-16 mr-2" />
+                      <span className="text-xs font-medium">{realScore.factors.structuredData}%</span>
                     </div>
                   </div>
                   
@@ -279,8 +353,8 @@ export function AISearchOptimizer() {
                       <span className="text-sm">Authority Signals</span>
                     </div>
                     <div className="flex items-center">
-                      <Progress value={mockScore.factors.authoritySignals} className="w-16 mr-2" />
-                      <span className="text-xs font-medium">{mockScore.factors.authoritySignals}</span>
+                      <Progress value={realScore.factors.authoritySignals} className="w-16 mr-2" />
+                      <span className="text-xs font-medium">{realScore.factors.authoritySignals}%</span>
                     </div>
                   </div>
                 </div>
@@ -292,8 +366,8 @@ export function AISearchOptimizer() {
                       <span className="text-sm">Conversational Content</span>
                     </div>
                     <div className="flex items-center">
-                      <Progress value={mockScore.factors.conversationalContent} className="w-16 mr-2" />
-                      <span className="text-xs font-medium">{mockScore.factors.conversationalContent}</span>
+                      <Progress value={realScore.factors.conversationalContent} className="w-16 mr-2" />
+                      <span className="text-xs font-medium">{realScore.factors.conversationalContent}%</span>
                     </div>
                   </div>
                   
@@ -303,39 +377,9 @@ export function AISearchOptimizer() {
                       <span className="text-sm">Local Relevance</span>
                     </div>
                     <div className="flex items-center">
-                      <Progress value={mockScore.factors.localRelevance} className="w-16 mr-2" />
-                      <span className="text-xs font-medium">{mockScore.factors.localRelevance}</span>
+                      <Progress value={realScore.factors.localRelevance} className="w-16 mr-2" />
+                      <span className="text-xs font-medium">{realScore.factors.localRelevance}%</span>
                     </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Completed Optimizations */}
-              <div className="border rounded-lg p-4 bg-gradient-to-r from-green-50 to-emerald-50">
-                <h3 className="font-medium mb-3 flex items-center">
-                  <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                  🏆 99/100 - Maximum AI Search Optimization Achieved!
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
-                    <span className="font-medium">Advanced schema markup (88→98 = +3 points overall)</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
-                    <span className="font-medium">Video content with transcripts (89→98 = +2 points overall)</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
-                    <span className="font-medium">Featured snippets optimization (93→99 = +2 points overall)</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
-                    <span className="font-medium">Complete knowledge graph (92→99 = +1 point overall)</span>
-                  </div>
-                  <div className="flex items-center text-sm">
-                    <Star className="h-4 w-4 mr-2 text-yellow-500" />
-                    <span className="font-bold text-green-700">Perfect local relevance (93→100)</span>
                   </div>
                 </div>
               </div>
@@ -402,8 +446,17 @@ export function AISearchOptimizer() {
                 className="w-full"
                 data-testid="button-generate-ai-content"
               >
-                <Search className="mr-2 h-4 w-4" />
-                {generateAIOptimizedContent.isPending ? "Generating..." : "Generate AI-Optimized Content"}
+                {generateAIOptimizedContent.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Search className="mr-2 h-4 w-4" />
+                    Generate AI-Optimized Content
+                  </>
+                )}
               </Button>
               
               {/* AI Optimization Preview */}
@@ -413,7 +466,7 @@ export function AISearchOptimizer() {
                   AI Search Optimization Preview
                 </h3>
                 <div className="text-sm space-y-2">
-                  <p><strong>Entity Focus:</strong> Mike Bjork + {selectedNeighborhood || "Omaha"} + Real Estate</p>
+                  <p><strong>Entity Focus:</strong> {agentName} + {selectedNeighborhood || "Omaha"} + Real Estate</p>
                   <p><strong>Question Format:</strong> Direct answers to "{customQuestion || optimizationGoal}"</p>
                   <p><strong>Local Authority:</strong> Specific neighborhood insights and market data</p>
                   <p><strong>Conversational Tone:</strong> Natural language that matches how people ask AI</p>
@@ -464,36 +517,19 @@ export function AISearchOptimizer() {
               ))}
             </div>
             
-            <div className="border rounded-lg p-4 bg-gradient-to-r from-emerald-50 to-teal-50">
+            <div className="border rounded-lg p-4 bg-gradient-to-r from-blue-50 to-indigo-50">
               <h3 className="font-medium mb-2 flex items-center">
-                <Star className="h-4 w-4 mr-2 text-yellow-500" />
-                🏆 99/100 AI Score Achieved! Elite Status Unlocked
+                <Lightbulb className="h-4 w-4 mr-2 text-blue-500" />
+                How to Use These Tips
               </h3>
-              <div className="space-y-3 text-sm">
-                <div className="bg-gradient-to-r from-green-100 to-emerald-100 rounded p-3">
-                  <p className="font-bold text-green-700">🌟 Current Score: 99/100 - MAXIMUM OPTIMIZATION! 🌟</p>
-                  <p className="text-xs text-green-600">Your content dominates AI search results across all platforms</p>
-                </div>
-                <div className="bg-white rounded p-3">
-                  <p className="font-medium text-green-600 mb-1">✅ Advanced Schema Complete (+3 points achieved)</p>
-                  <p className="text-xs text-gray-600">Review, Event, Article, and FAQ schemas fully implemented</p>
-                </div>
-                <div className="bg-white rounded p-3">
-                  <p className="font-medium text-green-600 mb-1">✅ Video Optimization Complete (+2 points achieved)</p>
-                  <p className="text-xs text-gray-600">All video content includes AI-readable transcripts and metadata</p>
-                </div>
-                <div className="bg-white rounded p-3">
-                  <p className="font-medium text-green-600 mb-1">✅ Featured Snippets Optimized (+2 points achieved)</p>
-                  <p className="text-xs text-gray-600">Content structured for zero-click searches and AI extracts</p>
-                </div>
-                <div className="bg-white rounded p-3">
-                  <p className="font-medium text-green-600 mb-1">✅ Knowledge Graph Complete (+1 point achieved)</p>
-                  <p className="text-xs text-gray-600">Full entity relationships established across all platforms</p>
-                </div>
-                <div className="bg-gradient-to-r from-yellow-100 to-orange-100 rounded p-3 mt-2">
-                  <p className="font-bold text-orange-700">🥇 Elite Status: Top 1% of AI-Optimized Real Estate Content</p>
-                  <p className="text-xs text-orange-600">Your content consistently appears as the #1 AI search result</p>
-                </div>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>Work through these recommendations to improve how AI search engines find and recommend your content:</p>
+                <ul className="list-disc list-inside space-y-1 text-xs">
+                  <li><strong>High Impact</strong> tips should be prioritized first</li>
+                  <li>Complete your Brand Settings to unlock personalized tips</li>
+                  <li>Focus on 2-3 tips per week for sustainable progress</li>
+                  <li>Use the Content Optimizer tab to generate AI-ready content</li>
+                </ul>
               </div>
             </div>
           </TabsContent>

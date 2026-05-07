@@ -87,6 +87,7 @@ export function APIKeyManager() {
   return (
     <div className="space-y-4" data-testid="api-key-manager">
       {/* Header Card with Overall Status */}
+      {keyStatus && (
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -149,6 +150,7 @@ export function APIKeyManager() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Key Details */}
       {keyStatus?.keys && keyStatus.keys.length > 0 && (
@@ -189,9 +191,11 @@ export function APIKeyManager() {
                     </div>
                     
                     {/* Cost Tier */}
-                    <Badge className={`text-xs ${getTierColor(key.costTier)}`}>
-                      {key.costTier.charAt(0).toUpperCase() + key.costTier.slice(1)}
-                    </Badge>
+                    {key.costTier && (
+                      <Badge className={`text-xs ${getTierColor(key.costTier)}`}>
+                        {key.costTier.charAt(0).toUpperCase() + key.costTier.slice(1)}
+                      </Badge>
+                    )}
                     
                     {/* Reset Time */}
                     {key.quotaResetTime && (

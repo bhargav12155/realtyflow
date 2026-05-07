@@ -35,7 +35,10 @@ import {
   Volume2,
   Palette,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
+  ExternalLink,
+  Sparkles,
+  Loader2
 } from "lucide-react";
 
 interface Avatar {
@@ -47,6 +50,7 @@ interface Avatar {
   isActive: boolean;
   avatarImageUrl: string | null;
   voiceId: string | null;
+  supportsGestures?: boolean;
 }
 
 const avatarStyles = [
@@ -374,6 +378,67 @@ export function AvatarCreator() {
   };
 
   // Voice recording functions
+  const getRecordingErrorMessage = (error: any): { title: string; description: string } => {
+    const errorName = error?.name || "";
+    const errorMessage = error?.message || "";
+    
+    console.error("Recording error details:", {
+      name: errorName,
+      message: errorMessage,
+      toString: error?.toString?.() || "N/A"
+    });
+
+    switch (errorName) {
+      case "NotAllowedError":
+        return {
+          title: "Microphone Access Denied",
+          description: "Please allow microphone access: Click the lock/info icon in your browser's address bar, find 'Microphone', set it to 'Allow', then refresh the page."
+        };
+      case "NotFoundError":
+        return {
+          title: "No Microphone Found",
+          description: "No microphone was detected. Please connect a microphone and try again."
+        };
+      case "NotReadableError":
+        return {
+          title: "Microphone In Use",
+          description: "Your microphone may be in use by another application. Close other apps using the mic and try again."
+        };
+      case "OverconstrainedError":
+        return {
+          title: "Microphone Error",
+          description: "The microphone settings are not supported. Try using a different microphone."
+        };
+      case "SecurityError":
+        return {
+          title: "Security Error",
+          description: "Microphone access is blocked due to security settings. Make sure you're using HTTPS."
+        };
+      case "AbortError":
+        return {
+          title: "Recording Aborted",
+          description: "The recording was aborted. Please try again."
+        };
+      default:
+        return {
+          title: "Recording Failed",
+          description: errorMessage || `Could not access microphone (${errorName || "unknown error"}). Make sure you've granted microphone permission.`
+        };
+    }
+  };
+
+  const checkMicrophonePermission = async (): Promise<"granted" | "denied" | "prompt" | "unsupported"> => {
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) {
+        return "unsupported";
+      }
+      const result = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      return result.state as "granted" | "denied" | "prompt";
+    } catch {
+      return "unsupported";
+    }
+  };
+
   const requestMicrophonePermission = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -400,12 +465,13 @@ export function AvatarCreator() {
       };
       
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Microphone permission denied:', error);
       setMicrophonePermission('denied');
+      const { title, description } = getRecordingErrorMessage(error);
       toast({
-        title: "Microphone Access Denied",
-        description: "Please allow microphone access to record your voice for the avatar.",
+        title,
+        description,
         variant: "destructive",
       });
       return false;
@@ -413,6 +479,18 @@ export function AvatarCreator() {
   };
 
   const startRecording = async () => {
+    const permissionStatus = await checkMicrophonePermission();
+    console.log("Microphone permission status:", permissionStatus);
+    
+    if (permissionStatus === "denied") {
+      toast({
+        title: "Microphone Access Blocked",
+        description: "Microphone permission is blocked. Click the lock/info icon in your browser's address bar, find 'Microphone', set it to 'Allow', then refresh the page.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (microphonePermission !== 'granted') {
       const hasPermission = await requestMicrophonePermission();
       if (!hasPermission) return;
@@ -470,10 +548,11 @@ export function AvatarCreator() {
           title: "Recording Started",
           description: "Speak for 15-30 seconds for best results. Click stop when finished.",
         });
-      } catch (error) {
+      } catch (error: any) {
+        const { title, description } = getRecordingErrorMessage(error);
         toast({
-          title: "Recording Failed",
-          description: "Could not start recording. Please check your microphone.",
+          title,
+          description,
           variant: "destructive",
         });
       }
@@ -1316,11 +1395,223 @@ export function AvatarCreator() {
                 <TabsContent value="import" className="space-y-4">
                   <div className="space-y-4">
                     <div className="text-center">
-                      <h3 className="text-lg font-medium mb-2">Import Existing HeyGen Avatar</h3>
+                      <h3 className="text-lg font-medium mb-2">Import Gesture-Enabled Avatars</h3>
                       <p className="text-sm text-muted-foreground">
-                        Import an avatar you've already created in your HeyGen account
+                        Import custom gesture-enabled avatars from your HeyGen account for both video generation and streaming
                       </p>
                     </div>
+
+                    {/* Comprehensive Gesture Avatar Creation Guide */}
+                    <Collapsible className="border rounded-lg border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" className="w-full justify-between p-4 hover:bg-primary/10">
+                          <div className="flex items-center gap-2">
+                            <Video className="h-5 w-5 text-primary animate-pulse" />
+                            <span className="font-semibold text-lg">🎬 How to Create Gesture-Enabled Avatars</span>
+                            <Badge variant="secondary" className="ml-2">Step-by-Step Guide</Badge>
+                          </div>
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="p-6 space-y-6 border-t bg-background/50">
+                        {/* Step-by-step guide */}
+                        <div className="space-y-6">
+                          {/* Overview Card */}
+                          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 border-2 border-blue-300 dark:border-blue-700 rounded-xl p-5 shadow-sm">
+                            <h4 className="font-bold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2 text-lg">
+                              <Sparkles className="h-5 w-5" />
+                              What Makes Gesture Avatars Special?
+                            </h4>
+                            <p className="text-sm text-blue-900 dark:text-blue-100 leading-relaxed mb-3">
+                              <strong>Gesture-enabled avatars</strong> bring your videos to life with natural hand movements, facial expressions, and body language perfectly synced to your script. 
+                              Unlike standard avatars that only do lip-sync, gesture avatars can wave, point, nod, and express emotions just like a real person!
+                            </p>
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div className="bg-white/50 dark:bg-black/20 rounded-lg p-2">
+                                <span className="font-semibold">✅ Works With:</span> Both video generation & live streaming
+                              </div>
+                              <div className="bg-white/50 dark:bg-black/20 rounded-lg p-2">
+                                <span className="font-semibold">⏱️ Processing:</span> 5-7 business days after upload
+                              </div>
+                              <div className="bg-white/50 dark:bg-black/20 rounded-lg p-2">
+                                <span className="font-semibold">🎬 Requires:</span> Custom video footage of yourself
+                              </div>
+                              <div className="bg-white/50 dark:bg-black/20 rounded-lg p-2">
+                                <span className="font-semibold">🎭 Gestures:</span> Up to 10 per video
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Watch Tutorial Video */}
+                          <div className="bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2 flex items-center gap-2">
+                              <Play className="h-4 w-4" />
+                              📺 Watch Official HeyGen Tutorial
+                            </h4>
+                            <p className="text-sm text-purple-800 dark:text-purple-200 mb-3">
+                              Before you start, watch this 5-minute official tutorial from HeyGen Academy showing exactly how to film and create gesture-enabled avatars:
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open('https://community.heygen.com/public/resources/heygen-academy-101-gesture-control', '_blank')}
+                              className="w-full bg-white dark:bg-purple-900 border-purple-300"
+                            >
+                              <Play className="h-4 w-4 mr-2" />
+                              Watch HeyGen Academy: Gesture Control Tutorial
+                            </Button>
+                          </div>
+
+                          {/* Step-by-Step Filming Process */}
+                          <div className="space-y-4">
+                            <h3 className="font-bold text-lg flex items-center gap-2 border-b pb-2">
+                              <Camera className="h-5 w-5 text-primary" />
+                              📹 Step-by-Step Filming Process
+                            </h3>
+
+                            {/* STEP 1: Setup Your Recording Space */}
+                            <div className="border-2 border-green-300 dark:border-green-700 rounded-xl p-4 bg-green-50/50 dark:bg-green-950/20">
+                              <div className="flex items-start gap-3">
+                                <div className="bg-green-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shrink-0">1</div>
+                                <div className="space-y-2 flex-1">
+                                  <h5 className="font-bold text-green-900 dark:text-green-100">Setup Your Recording Space</h5>
+                                  <div className="text-sm space-y-2 text-green-900 dark:text-green-100">
+                                    <div className="bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                                      <p className="font-semibold mb-2">📸 Camera & Positioning:</p>
+                                      <ul className="list-disc list-inside ml-2 space-y-1">
+                                        <li>Use 4K camera or modern smartphone (1080p minimum)</li>
+                                        <li>Mount on tripod - <strong>NO handheld!</strong></li>
+                                        <li>Position <strong>2-3 feet</strong> from camera</li>
+                                        <li>Frame yourself <strong>chest-up</strong> (head & shoulders visible)</li>
+                                        <li>Center yourself in frame</li>
+                                      </ul>
+                                    </div>
+                                    <div className="bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                                      <p className="font-semibold mb-2">💡 Lighting Setup:</p>
+                                      <ul className="list-disc list-inside ml-2 space-y-1">
+                                        <li><strong>Natural daylight:</strong> Face a window (not behind you)</li>
+                                        <li><strong>Studio setup:</strong> Two soft lights on each side</li>
+                                        <li><strong>Goal:</strong> No shadows on face or background</li>
+                                        <li>Optional: Backlight behind you for depth</li>
+                                      </ul>
+                                    </div>
+                                    <div className="bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                                      <p className="font-semibold mb-2">🎨 Background:</p>
+                                      <ul className="list-disc list-inside ml-2 space-y-1">
+                                        <li>Clean, simple wall (solid color preferred)</li>
+                                        <li>Green screen optional but recommended</li>
+                                        <li><strong>Avoid:</strong> Busy patterns, other people, moving objects</li>
+                                      </ul>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* STEP 2: Record Your Video */}
+                            <div className="border-2 border-amber-300 dark:border-amber-700 rounded-xl p-4 bg-amber-50/50 dark:bg-amber-950/20">
+                              <div className="flex items-start gap-3">
+                                <div className="bg-amber-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shrink-0">2</div>
+                                <div className="space-y-2 flex-1">
+                                  <h5 className="font-bold text-amber-900 dark:text-amber-100">Record Your Video - Follow This EXACT Structure</h5>
+                                  <div className="text-sm space-y-2 text-amber-900 dark:text-amber-100">
+                                    <div className="bg-white/60 dark:bg-black/20 rounded-lg p-3 border-l-4 border-amber-600">
+                                      <p className="font-bold mb-2">⏱️ CRITICAL TIMING STRUCTURE:</p>
+                                      <div className="space-y-3">
+                                        <div className="pl-3 border-l-2 border-amber-500">
+                                          <p className="font-semibold">Seconds 0-30: <span className="text-amber-700 dark:text-amber-300">Neutral Baseline</span></p>
+                                          <p className="text-xs mt-1">Speak naturally with NO GESTURES at all. This teaches HeyGen your neutral state.</p>
+                                        </div>
+                                        <div className="pl-3 border-l-2 border-green-500">
+                                          <p className="font-semibold">Seconds 31+: <span className="text-green-700 dark:text-green-300">Gesture Phase</span></p>
+                                          <p className="text-xs mt-1"><strong>Perform 1 gesture → Return to neutral → Wait 2 seconds → Next gesture</strong></p>
+                                          <p className="text-xs mt-1">Total: 60-90 seconds with 15-30 different gestures</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                                      <p className="font-semibold mb-2">✅ Example Gestures to Perform:</p>
+                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div>• 👋 Wave hello</div>
+                                        <div>• 👍 Thumbs up</div>
+                                        <div>• 👉 Point forward</div>
+                                        <div>• 👈 Point to side</div>
+                                        <div>• 🙂 Big smile</div>
+                                        <div>• 😊 Friendly nod</div>
+                                        <div>• 🤝 Open palm gesture</div>
+                                        <div>• 🤷 Shrug shoulders</div>
+                                        <div>• 💭 Thinking (hand on chin)</div>
+                                        <div>• 🎯 Counting (1, 2, 3 with fingers)</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* STEP 3: Upload to HeyGen Platform */}
+                            <div className="border-2 border-blue-300 dark:border-blue-700 rounded-xl p-4 bg-blue-50/50 dark:bg-blue-950/20">
+                              <div className="flex items-start gap-3">
+                                <div className="bg-blue-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shrink-0">3</div>
+                                <div className="space-y-2 flex-1">
+                                  <h5 className="font-bold text-blue-900 dark:text-blue-100">Upload Your Video to HeyGen</h5>
+                                  <div className="text-sm space-y-2 text-blue-900 dark:text-blue-100">
+                                    <ol className="list-decimal list-inside space-y-2 bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                                      <li>Log into your <a href="https://app.heygen.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-semibold">HeyGen account</a></li>
+                                      <li>Navigate to <strong>Avatars → Create Avatar</strong></li>
+                                      <li>Select <strong>"Hyper-Realistic Avatar"</strong> (video upload option)</li>
+                                      <li>Upload your gesture-ready video file</li>
+                                      <li>Complete identity verification (required for custom avatars)</li>
+                                      <li>Wait 5-7 business days for processing ⏳</li>
+                                    </ol>
+                                    <div className="flex gap-2 mt-3">
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={() => window.open('https://app.heygen.com/streaming-avatar', '_blank')}
+                                        className="flex-1"
+                                      >
+                                        <Upload className="h-4 w-4 mr-2" />
+                                        Create on HeyGen
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => window.open('https://help.heygen.com/en/articles/8868166-how-to-create-a-custom-avatar', '_blank')}
+                                        className="flex-1"
+                                      >
+                                        <ExternalLink className="h-4 w-4 mr-2" />
+                                        Documentation
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* STEP 4: Import Your Gesture Avatar */}
+                            <div className="border-2 border-purple-300 dark:border-purple-700 rounded-xl p-4 bg-purple-50/50 dark:bg-purple-950/20">
+                              <div className="flex items-start gap-3">
+                                <div className="bg-purple-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold shrink-0">4</div>
+                                <div className="space-y-2 flex-1">
+                                  <h5 className="font-bold text-purple-900 dark:text-purple-100">Import Avatar to RealtyFlow</h5>
+                                  <div className="text-sm space-y-2 text-purple-900 dark:text-purple-100">
+                                    <p className="bg-white/60 dark:bg-black/20 rounded-lg p-3">
+                                      Once HeyGen processes your avatar (you'll get an email), return here and use the <strong>"Import by Avatar ID"</strong> form below. 
+                                      Your gesture-enabled avatar will be available for both video generation and live streaming!
+                                    </p>
+                                    <div className="bg-white/60 dark:bg-black/20 rounded-lg p-3 border-l-4 border-purple-600">
+                                      <p className="font-semibold mb-1">💡 Quick Tip:</p>
+                                      <p className="text-xs">Use the "Browse Your HeyGen Avatars" button to automatically see all your avatars including gesture-enabled ones. They'll be marked with a 🖐️ Gestures badge!</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
 
                     {/* Manual Import by ID */}
                     <div className="border rounded-lg p-4 space-y-3">
@@ -1361,7 +1652,12 @@ export function AvatarCreator() {
                           className="w-full"
                           data-testid="button-import-avatar"
                         >
-                          {importAvatarMutation.isPending ? "Importing..." : "Import Avatar"}
+                          {importAvatarMutation.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Importing...
+                            </>
+                          ) : "Import Avatar"}
                         </Button>
                       </div>
                     </div>
@@ -1430,9 +1726,19 @@ export function AvatarCreator() {
                                     )}
                                   </div>
                                   <div className="flex-1">
-                                    <div className="font-medium text-sm">{avatar.avatar_name}</div>
+                                    <div className="font-medium text-sm flex items-center gap-2">
+                                      {avatar.avatar_name}
+                                      {avatar.avatar_type === 'studio' && (
+                                        <Badge variant="default" className="text-xs">
+                                          🖐️ Gestures
+                                        </Badge>
+                                      )}
+                                    </div>
                                     <div className="text-xs text-muted-foreground">ID: {avatar.avatar_id}</div>
-                                    <div className="text-xs text-muted-foreground">Status: {avatar.status}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      Status: {avatar.status}
+                                      {avatar.avatar_type && ` • Type: ${avatar.avatar_type}`}
+                                    </div>
                                   </div>
                                   {selectedImportAvatar?.avatar_id === avatar.avatar_id && (
                                     <div className="text-primary">
@@ -1462,7 +1768,12 @@ export function AvatarCreator() {
                           className="w-full"
                           data-testid="button-import-selected-avatar"
                         >
-                          {importAvatarMutation.isPending ? "Importing..." : `Import "${selectedImportAvatar.avatar_name}"`}
+                          {importAvatarMutation.isPending ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Importing...
+                            </>
+                          ) : `Import "${selectedImportAvatar.avatar_name}"`}
                         </Button>
                       )}
                     </div>
@@ -1487,7 +1798,12 @@ export function AvatarCreator() {
                     disabled={createAvatarMutation.isPending}
                     data-testid="button-save-avatar"
                   >
-                    {createAvatarMutation.isPending ? "Creating..." : "Create Avatar"}
+                    {createAvatarMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : "Create Avatar"}
                   </Button>
                 </div>
               </Tabs>
@@ -1871,7 +2187,12 @@ export function AvatarCreator() {
                     disabled={updateAvatarMutation.isPending}
                     data-testid="button-save-edit-avatar"
                   >
-                    {updateAvatarMutation.isPending ? "Updating..." : "Save Changes"}
+                    {updateAvatarMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Updating...
+                      </>
+                    ) : "Save Changes"}
                   </Button>
                 </div>
               </div>

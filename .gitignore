@@ -4,7 +4,26 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
-# Environment variables
+
+# Sensitive / credentials
 .env
-.env.local
 .env.*
+
+# Replit runtime folders
+.local/
+.agents/
+.config/
+
+# Source folder (already merged into root)
+multi-users-realtyflow/
+
+# Runtime logs
+server-logs.txt
+latest-error-logs.txt
+
+# Build artifacts
+artifacts/
+
+# Large binary uploads (new subdirs)
+uploads/social-media/
+uploads/videos/

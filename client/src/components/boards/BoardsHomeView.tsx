@@ -208,33 +208,48 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
             })}
           </div>
           <div
-            className="w-[560px] max-w-full bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-neutral-200/80 px-5 py-4 dark:bg-neutral-900 dark:border-neutral-800"
+            className="group relative w-[560px] max-w-full rounded-2xl p-[1.5px] bg-gradient-to-br from-indigo-200 via-fuchsia-200 to-amber-200 shadow-[0_8px_30px_-12px_rgba(99,102,241,0.25)] hover:shadow-[0_12px_40px_-12px_rgba(99,102,241,0.35)] focus-within:shadow-[0_12px_40px_-12px_rgba(99,102,241,0.45)] transition-shadow dark:from-indigo-500/40 dark:via-fuchsia-500/30 dark:to-amber-500/30"
             data-overlay-keep
           >
-            <input
-              className="w-full bg-transparent outline-none text-[14px] placeholder:text-neutral-400 dark:placeholder:text-neutral-500 dark:text-neutral-100"
-              placeholder="Describe what you want to create..."
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handlePromptSubmit();
-                }
-              }}
-              data-testid="input-prompt"
-            />
-            <div className="flex items-center justify-end gap-3 mt-6">
-              <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-attach"><Paperclip className="w-4 h-4" /></button>
-              <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-mic"><Mic className="w-4 h-4" /></button>
-              <button
-                onClick={handlePromptSubmit}
-                disabled={createBoardMutation.isPending}
-                className="w-7 h-7 rounded-full bg-neutral-300 hover:bg-neutral-400 disabled:opacity-50 flex items-center justify-center dark:bg-neutral-700 dark:hover:bg-neutral-600"
-                data-testid="button-prompt-send"
-              >
-                <ArrowUp className="w-3.5 h-3.5 text-neutral-700 dark:text-neutral-200" />
-              </button>
+            <div className="rounded-[14px] bg-white/95 backdrop-blur-sm px-5 py-4 dark:bg-neutral-900/95">
+              <input
+                className="w-full bg-transparent outline-none text-[15px] placeholder:text-neutral-400 dark:placeholder:text-neutral-500 dark:text-neutral-100"
+                placeholder="Describe what you want to create…"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handlePromptSubmit();
+                  }
+                }}
+                data-testid="input-prompt"
+              />
+              <div className="flex items-center justify-end gap-2 mt-5">
+                <button
+                  className="w-8 h-8 rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors flex items-center justify-center dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800"
+                  data-testid="button-attach"
+                  title="Attach a file"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+                <button
+                  className="w-8 h-8 rounded-full text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors flex items-center justify-center dark:text-neutral-400 dark:hover:text-neutral-100 dark:hover:bg-neutral-800"
+                  data-testid="button-mic"
+                  title="Voice input"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handlePromptSubmit}
+                  disabled={createBoardMutation.isPending}
+                  className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-fuchsia-500 to-rose-500 text-white shadow-sm hover:shadow-md hover:brightness-110 active:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-all"
+                  data-testid="button-prompt-send"
+                  title="Create"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
           <div className="mt-4 flex items-start justify-center gap-6" data-overlay-keep>

@@ -210,9 +210,242 @@ const chatBodySchema = z.object({
 
 export type ChatModelId = "claude" | "gemini" | "openai";
 
+// ---------------------------------------------------------------------------
+// Agentic Think → Build hand-off (Task #264)
+// ---------------------------------------------------------------------------
+// When the user is brainstorming, the assistant reply MAY append a structured
+// suggestion block at the very end of its message:
+//
+//   <<<SUGGESTIONS>>>
+//   [{"kind":"image","provider":"uni-1-image","prompt":"...",
+//     "count":2,"aspectRatio":"16:9","rationale":"..."}]
+//   <<<END>>>
+//
+// The boards-chat handler parses + strips this block before the human-readable
+// reply is shown, then surfaces the suggestions as a typed `suggestions` field
+// on the chat response. The client renders them as inline "Generate this"
+// cards. Models that don't emit the block simply produce an empty array — the
+// chat UX stays unchanged.
+
+const SUGGESTION_BLOCK_OPEN = "<<<SUGGESTIONS>>>";
+const SUGGESTION_BLOCK_CLOSE = "<<<END>>>";
+
+const SUGGESTION_IMAGE_PROVIDERS: ImageProvider[] = [
+  "uni-1-image",
+  "gemini-image",
+  "openai-image",
+  "uni-1-max-image",
+];
+const SUGGESTION_VIDEO_PROVIDERS: VideoProvider[] = [
+  "luma",
+  "sora2",
+  "runway",
+  "kling",
+  "seedance",
+  "veo",
+];
+
+const SUGGESTION_ASPECT_RATIOS = [
+  "1:1",
+  "16:9",
+  "9:16",
+  "4:3",
+  "3:4",
+  "4:5",
+  "5:4",
+  "3:2",
+  "2:3",
+] as const;
+type SuggestionAspectRatio = (typeof SUGGESTION_ASPECT_RATIOS)[number];
+
+export interface BoardChatSuggestion {
+  /** Stable id for client-side keys + dispatch correlation. */
+  id: string;
+  kind: "image" | "video";
+  provider: Provider;
+  prompt: string;
+  count: number;
+  aspectRatio: SuggestionAspectRatio;
+  rationale?: string;
+  /** Set when health-aware remap swapped the model's pick. */
+  fallbackReason?: string;
+  /** Provider the model originally requested before remap. */
+  originalProvider?: Provider;
+}
+
+function clampInt(n: unknown, min: number, max: number, fallback: number): number {
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+function normalizeAspectRatio(input: unknown): SuggestionAspectRatio {
+  if (typeof input !== "string") return "16:9";
+  const v = input.trim();
+  if ((SUGGESTION_ASPECT_RATIOS as readonly string[]).includes(v)) {
+    return v as SuggestionAspectRatio;
+  }
+  switch (v.toLowerCase()) {
+    case "square":
+      return "1:1";
+    case "landscape":
+    case "wide":
+      return "16:9";
+    case "portrait":
+    case "tall":
+    case "story":
+      return "9:16";
+    default:
+      return "16:9";
+  }
+}
+
+/**
+ * Strip a `<<<SUGGESTIONS>>>...<<<END>>>` block from the assistant reply and
+ * parse the embedded JSON array. Tolerates: missing block, malformed JSON,
+ * unknown providers, missing fields. Always returns a valid `cleanText` and
+ * an array (possibly empty) of well-typed suggestions.
+ *
+ * Exported for unit testing.
+ */
+export function extractSuggestions(raw: string): {
+  cleanText: string;
+  suggestions: BoardChatSuggestion[];
+} {
+  if (!raw) return { cleanText: "", suggestions: [] };
+  const openIdx = raw.indexOf(SUGGESTION_BLOCK_OPEN);
+  if (openIdx === -1) return { cleanText: raw.trim(), suggestions: [] };
+  const afterOpen = openIdx + SUGGESTION_BLOCK_OPEN.length;
+  const closeIdx = raw.indexOf(SUGGESTION_BLOCK_CLOSE, afterOpen);
+  const jsonRaw = (closeIdx === -1
+    ? raw.slice(afterOpen)
+    : raw.slice(afterOpen, closeIdx)
+  ).trim();
+  // Always strip the marker block from the text. If the model included copy
+  // *after* <<<END>>> too (rare but possible), preserve it so the user-facing
+  // reply isn't truncated.
+  const trailing =
+    closeIdx === -1
+      ? ""
+      : raw.slice(closeIdx + SUGGESTION_BLOCK_CLOSE.length).trim();
+  const head = raw.slice(0, openIdx).trim();
+  const cleanText = trailing ? `${head}\n\n${trailing}`.trim() : head;
+  // The model may wrap the JSON in a code fence; tolerate ```json ... ```.
+  const fenced = jsonRaw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const jsonText = (fenced ? fenced[1] : jsonRaw).trim();
+  if (!jsonText) return { cleanText, suggestions: [] };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    // Try to salvage by trimming trailing junk after the last `]`.
+    const lastBracket = jsonText.lastIndexOf("]");
+    if (lastBracket > 0) {
+      try {
+        parsed = JSON.parse(jsonText.slice(0, lastBracket + 1));
+      } catch {
+        return { cleanText, suggestions: [] };
+      }
+    } else {
+      return { cleanText, suggestions: [] };
+    }
+  }
+
+  const list = Array.isArray(parsed) ? parsed : [parsed];
+  const out: BoardChatSuggestion[] = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const kindRaw = typeof r.kind === "string" ? r.kind.toLowerCase() : "";
+    const kind: "image" | "video" | null =
+      kindRaw === "image" || kindRaw === "video" ? kindRaw : null;
+    if (!kind) continue;
+    const providerRaw = typeof r.provider === "string" ? r.provider : "";
+    const allowed: readonly string[] =
+      kind === "image" ? SUGGESTION_IMAGE_PROVIDERS : SUGGESTION_VIDEO_PROVIDERS;
+    const provider = (allowed.includes(providerRaw)
+      ? providerRaw
+      : kind === "image"
+        ? "uni-1-image"
+        : "luma") as Provider;
+    const prompt = typeof r.prompt === "string" ? r.prompt.trim() : "";
+    if (!prompt) continue;
+    const count = clampInt(r.count, 1, 4, kind === "image" ? 2 : 1);
+    const aspectRatio = normalizeAspectRatio(r.aspectRatio);
+    const rationale =
+      typeof r.rationale === "string" && r.rationale.trim().length > 0
+        ? r.rationale.trim().slice(0, 280)
+        : undefined;
+    out.push({
+      id: randomUUID(),
+      kind,
+      provider,
+      prompt: prompt.slice(0, 2000),
+      count,
+      aspectRatio,
+      rationale,
+    });
+    if (out.length >= 3) break; // cap so a runaway model can't flood the UI
+  }
+  return { cleanText, suggestions: out };
+}
+
+/**
+ * Swap any suggested provider that is currently unhealthy for the next
+ * available one in the documented fallback chain, and annotate the swap so
+ * the UI can show "swapped to X because Y is down".
+ *
+ * Image fallback order: uni-1-image → gemini-image → openai-image
+ * Video fallback order: luma → sora2 → runway → kling
+ *
+ * Exported for unit testing.
+ */
+export function remapSuggestionsForHealth(
+  suggestions: BoardChatSuggestion[],
+  unhealthyImageProviders: Set<ImageProvider> = new Set(),
+  unhealthyVideoProviders: Set<VideoProvider> = new Set(),
+): BoardChatSuggestion[] {
+  const imageOrder: ImageProvider[] = ["uni-1-image", "gemini-image", "openai-image"];
+  const videoOrder: VideoProvider[] = ["luma", "sora2", "runway", "kling"];
+  return suggestions.map((s) => {
+    const isUnhealthy =
+      s.kind === "image"
+        ? unhealthyImageProviders.has(s.provider as ImageProvider)
+        : unhealthyVideoProviders.has(s.provider as VideoProvider);
+    if (!isUnhealthy) return s;
+    const order: Provider[] = s.kind === "image" ? imageOrder : videoOrder;
+    const replacement = order.find((p) => {
+      if (p === s.provider) return false;
+      return s.kind === "image"
+        ? !unhealthyImageProviders.has(p as ImageProvider)
+        : !unhealthyVideoProviders.has(p as VideoProvider);
+    });
+    if (!replacement) return s; // every provider down — keep original; UI will show it red
+    return {
+      ...s,
+      provider: replacement,
+      originalProvider: s.provider,
+      fallbackReason: `${s.provider} is currently unavailable, swapped to ${replacement}.`,
+    };
+  });
+}
+
 const BRAINSTORM_SYSTEM_BASE = `You are a creative director assisting on a visual board.
 Help the user brainstorm, refine prompts, and plan generations.
-Be concise (under 200 words) and propose a concrete next prompt the user could send in "create" mode when appropriate.`;
+Be concise (under 200 words) and propose a concrete next prompt the user could send in "create" mode when appropriate.
+
+When (and only when) the user has reached a concrete creative idea that is ready to generate, you MAY append a single structured block at the very end of your message describing 1–3 generation suggestions:
+
+${SUGGESTION_BLOCK_OPEN}
+[{"kind":"image|video","provider":"uni-1-image|gemini-image|openai-image|luma|sora2|runway|kling","prompt":"a polished, ready-to-run prompt","count":1-4,"aspectRatio":"1:1|16:9|9:16|4:3|3:4|4:5|5:4|3:2|2:3","rationale":"one short sentence why"}]
+${SUGGESTION_BLOCK_CLOSE}
+
+Rules:
+- The block must be the very last thing in your message; do NOT mention the block itself in the natural-language reply.
+- Only emit the block when there is a clearly actionable next generation. For pure planning, Q&A, or refinement of ideas, omit it entirely.
+- Prefer "uni-1-image" for image suggestions and "luma" for video suggestions unless the user has expressed a different preference.
+- Each suggestion's "prompt" must be self-contained (the user should not need to add anything to run it).`;
 
 /** Cap how many assets we describe in the per-asset bullet list to keep the
  * system prompt bounded. Aggregate counts always include every asset. */
@@ -1205,6 +1438,8 @@ interface BrainstormReplyResult {
   allFailed: boolean;
   /** Human-readable note for the client (e.g. "Claude was unavailable, used Gemini instead."). */
   notice?: string;
+  /** Structured generation suggestions parsed from the model's reply (may be empty). */
+  suggestions: BoardChatSuggestion[];
 }
 
 async function brainstormReply(
@@ -1250,7 +1485,15 @@ async function brainstormReply(
         const notice = fallbackUsed
           ? `${CHAT_MODEL_DISPLAY[preferred]} was unavailable, so I used ${CHAT_MODEL_DISPLAY[id]} for this reply.`
           : undefined;
-        return { message: r.message, usedModel: id, fallbackUsed, allFailed: false, notice };
+        const { cleanText, suggestions } = extractSuggestions(r.message);
+        return {
+          message: cleanText || r.message,
+          usedModel: id,
+          fallbackUsed,
+          allFailed: false,
+          notice,
+          suggestions,
+        };
       }
       lastError = r.error || lastError;
       const verdict = classifyChatError(r.error);
@@ -1282,6 +1525,7 @@ async function brainstormReply(
     fallbackUsed: true,
     allFailed: true,
     notice: undefined,
+    suggestions: [],
   };
 }
 
@@ -1571,6 +1815,21 @@ export function registerBoardsChatRoutes(
             persistErr instanceof Error ? persistErr.message : persistErr,
           );
         }
+        // Health-aware remap so we never recommend a provider that's currently
+        // known-down. We only consult the snapshots; we don't probe live keys.
+        const imgSnap = getImageProviderHealthSnapshot();
+        const unhealthyImageProviders = new Set<ImageProvider>(
+          imgSnap.unhealthy.map((u) => u.id),
+        );
+        // Video providers don't yet have a per-provider health map; treat all
+        // as healthy for now (the dispatch layer will retry/fallback at run
+        // time). Plumbed as an explicit set so a future video health map can
+        // wire in here without touching the parser.
+        const remapped = remapSuggestionsForHealth(
+          result.suggestions,
+          unhealthyImageProviders,
+          new Set(),
+        );
         return res.json({
           mode: "brainstorm",
           reply: result.message,
@@ -1580,6 +1839,7 @@ export function registerBoardsChatRoutes(
           allFailed: result.allFailed,
           notice: result.notice,
           attachedImageCount: visionImages.length,
+          suggestions: remapped,
         });
       }
 

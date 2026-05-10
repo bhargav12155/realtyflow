@@ -36,7 +36,7 @@ import {
 } from "@/lib/boardUpload";
 import { DrawingModal } from "@/components/boards/DrawingModal";
 import { RecordModal } from "@/components/boards/RecordModal";
-import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
+import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId, type BoardChatSuggestion } from "@/components/boards/ChatPanel";
 import { PresenceAvatars } from "@/components/boards/PresenceAvatars";
 import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
@@ -112,6 +112,31 @@ export default function BoardDetailPage() {
   const [chatModelManuallyPicked, setChatModelManuallyPicked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
+  // Tracks suggestions currently being dispatched (one-click "Generate")
+  // so the card can disable both buttons + show a "Starting…" label.
+  // Cleared once the first WS asset event arrives or the dispatch fails.
+  const [dispatchingSuggestionIds, setDispatchingSuggestionIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  // Opt-in: when ON, an assistant message with suggestions[] auto-runs the
+  // first suggestion if the user's NEXT reply matches an affirmative keyword
+  // ("yes", "go", "do it", "ship it", "generate"). Persisted per browser so
+  // the choice survives reloads. Defaults OFF to preserve current behavior.
+  const [autoGenerateFirst, setAutoGenerateFirst] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("boards.autoGenerateFirst") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const handleAutoGenerateFirstChange = (next: boolean) => {
+    setAutoGenerateFirst(next);
+    try {
+      localStorage.setItem("boards.autoGenerateFirst", next ? "1" : "0");
+    } catch {
+      /* ignore storage failures (private mode, etc.) */
+    }
+  };
   // Hydrate the chat panel from the server exactly once per board so the
   // user's prior conversation is restored on reload/navigation. We never
   // re-overwrite local state after the first hydration — the chat handler
@@ -913,13 +938,25 @@ export default function BoardDetailPage() {
       // exposing the raw upstream provider error.
       const notice = typeof data?.notice === "string" ? data.notice : null;
       const reply = notice ? `_${notice}_\n\n${baseReply}` : baseReply;
+      // Attach any structured "Generate this" suggestions emitted by the
+      // brainstorm reply (Task #264). The server already remapped them to
+      // healthy providers, so we trust the wire shape here. Defensive cast:
+      // ignore non-array payloads instead of throwing in render.
+      const rawSuggestions = data?.suggestions;
+      const suggestions: BoardChatSuggestion[] = Array.isArray(rawSuggestions)
+        ? (rawSuggestions as BoardChatSuggestion[])
+        : [];
       // If the server reports every provider was down, also re-check the
       // health endpoint so the Think model picker reflects the new defaults.
       if (data?.allFailed || data?.fallbackUsed) {
         queryClient.invalidateQueries({ queryKey: ["/api/boards/chat/health"] });
       }
       setMessages((m) =>
-        m.map((msg) => (msg.id === ctx?.pendingId ? { ...msg, content: reply, pending: false } : msg)),
+        m.map((msg) =>
+          msg.id === ctx?.pendingId
+            ? { ...msg, content: reply, pending: false, suggestions }
+            : msg,
+        ),
       );
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
       // The server persisted both the user turn and the assistant reply, so
@@ -951,6 +988,99 @@ export default function BoardDetailPage() {
       chatAbortRef.current = null;
     },
   });
+
+  // One-click dispatch for a structured "Generate this" suggestion (Task #264).
+  // Posts directly to /chat with mode=create and the suggestion's provider +
+  // prompt, bypassing the Build picker entirely. Adds an optimistic user
+  // bubble so the conversation reads as a normal turn, then lets the server
+  // pipeline (which already streams asset events over WS) handle the rest.
+  const dispatchSuggestion = (s: BoardChatSuggestion) => {
+    if (dispatchingSuggestionIds.has(s.id)) return;
+    setDispatchingSuggestionIds((prev) => {
+      const next = new Set(prev);
+      next.add(s.id);
+      return next;
+    });
+    const userMsg: ChatMessage = {
+      id: `u-sg-${Date.now()}`,
+      role: "user",
+      content: `Generate: ${s.prompt}`,
+      author: selfAuthorTag,
+    };
+    const pendingMsg: ChatMessage = {
+      id: `a-sg-${Date.now()}`,
+      role: "assistant",
+      content: "",
+      pending: true,
+    };
+    setMessages((m) => [...m, userMsg, pendingMsg]);
+    apiRequest(
+      "POST",
+      `/api/boards/${boardId}/chat`,
+      {
+        message: s.prompt,
+        mode: "create",
+        provider: s.provider,
+        // Honor the suggestion's recommended count (1–4) for image
+        // providers; video providers ignore the field server-side.
+        variations: Math.max(1, Math.min(4, s.count || 1)),
+        // Echo current build picker state so the dispatcher has sane
+        // defaults for fields the suggestion doesn't carry.
+        generationMode,
+        referencedAssetIds,
+        ...(s.provider === "seedance" ? { seedanceOptions } : {}),
+      },
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        const replyText =
+          typeof data?.reply === "string"
+            ? data.reply
+            : data?.reply?.content ?? "Started generating — assets will appear on the board.";
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === pendingMsg.id
+              ? { ...msg, content: replyText, pending: false }
+              : msg,
+          ),
+        );
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId, "messages"] });
+      })
+      .catch((err: Error) => {
+        const errText = err?.message?.replace(/^\d+:\s*/, "") ?? String(err);
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === pendingMsg.id
+              ? { ...msg, content: `Error: ${errText}`, pending: false }
+              : msg,
+          ),
+        );
+        toast({ title: "Generation error", description: errText, variant: "destructive" });
+      })
+      .finally(() => {
+        setDispatchingSuggestionIds((prev) => {
+          const next = new Set(prev);
+          next.delete(s.id);
+          return next;
+        });
+      });
+  };
+
+  // "Edit prompt" on a suggestion card: switch to Build, pre-fill the
+  // composer with the polished prompt, and align the picker to the
+  // recommended provider so the user can tweak before dispatching.
+  const editSuggestion = (s: BoardChatSuggestion) => {
+    setMode("create");
+    setProvider(s.provider);
+    setPendingInput(s.prompt);
+  };
+
+  // Affirmative-reply detector for the Auto-generate-first toggle. Matches
+  // short utterances only ("yes", "go", "do it", "ship it", "generate") so
+  // we don't accidentally hijack a reply that just contains the word "yes".
+  const AFFIRMATIVE_RE =
+    /^(yes(?:\s*please)?|y|yep|yeah|go(?:\s+ahead)?|do it|ship(?:\s+it)?|generate|run it|build(?:\s+it)?|let's go|sure|ok|okay|👍|✅|🚀)[.!\s]*$/i;
 
   // Cancel the in-flight chat request and clear the optimistic pending bubble
   // so the conversation doesn't show an orphan "…" message. Used by both the
@@ -1973,8 +2103,30 @@ export default function BoardDetailPage() {
                 sendSelfAvatarCta(text);
                 return;
               }
+              // Auto-generate-first short-circuit (Task #264). When the
+              // toggle is ON, the user is in Think mode, the most recent
+              // assistant turn carries suggestions[], and the reply is a
+              // short affirmative ("yes", "go", "do it"…), bypass the chat
+              // mutation and dispatch the top suggestion directly. The
+              // user's literal text is still echoed as their bubble inside
+              // dispatchSuggestion's optimistic update path.
+              if (autoGenerateFirst && mode === "brainstorm" && AFFIRMATIVE_RE.test(text.trim())) {
+                const lastAssistant = [...messages].reverse().find(
+                  (m) => m.role === "assistant" && !m.pending,
+                );
+                const top = lastAssistant?.suggestions?.[0];
+                if (top) {
+                  dispatchSuggestion(top);
+                  return;
+                }
+              }
               sendChat.mutate(text);
             }}
+            onGenerateSuggestion={dispatchSuggestion}
+            onEditSuggestion={editSuggestion}
+            dispatchingSuggestionIds={dispatchingSuggestionIds}
+            autoGenerateFirst={autoGenerateFirst}
+            onAutoGenerateFirstChange={handleAutoGenerateFirstChange}
             isSending={sendChat.isPending}
             onStop={handleStopChat}
             pendingInput={pendingInput}

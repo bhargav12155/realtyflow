@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon } from "lucide-react";
+import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Image as ImageIcon, Square, Settings as SettingsIcon, Zap } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   PlatformPicker,
@@ -8,6 +8,19 @@ import {
   type GenerationMode,
   type SeedanceOptions,
 } from "./PlatformPicker";
+
+/** Generation suggestion attached to an assistant brainstorm reply. */
+export interface BoardChatSuggestion {
+  id: string;
+  kind: "image" | "video";
+  provider: ProviderId;
+  prompt: string;
+  count: number;
+  aspectRatio: string;
+  rationale?: string;
+  fallbackReason?: string;
+  originalProvider?: ProviderId;
+}
 
 export type ChatMode = "brainstorm" | "create";
 
@@ -44,6 +57,8 @@ export interface ChatMessage {
    *  hasn't been told the board has collaborators) no author tag renders,
    *  which preserves the existing single-user look on private boards. */
   author?: ChatMessageAuthor;
+  /** Inline "Generate this" suggestions emitted by the brainstorm reply. */
+  suggestions?: BoardChatSuggestion[];
 }
 
 /**
@@ -110,6 +125,17 @@ interface ChatPanelProps {
    *  a typing beacon over the websocket. The panel debounces internally —
    *  callers should still throttle if they relay every event verbatim. */
   onTypingChange?: (isTyping: boolean) => void;
+  /** One-click dispatch for an inline "Generate this" suggestion (Task #264). */
+  onGenerateSuggestion?: (s: BoardChatSuggestion) => void;
+  /** Open the Build picker pre-filled with this suggestion's params. */
+  onEditSuggestion?: (s: BoardChatSuggestion) => void;
+  /** Suggestion ids currently being dispatched (so cards can disable + show progress). */
+  dispatchingSuggestionIds?: Set<string>;
+  /** When true, "Auto-generate first suggestion" toggle reads ON; user replies of "yes"/"go"
+   *  trigger auto-dispatch in the parent. */
+  autoGenerateFirst?: boolean;
+  /** Persist toggle change. Omit to hide the toggle entirely. */
+  onAutoGenerateFirstChange?: (next: boolean) => void;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
@@ -172,6 +198,11 @@ export function ChatPanel({
   isSavingChatHistoryCap,
   typingUserNames,
   onTypingChange,
+  onGenerateSuggestion,
+  onEditSuggestion,
+  dispatchingSuggestionIds,
+  autoGenerateFirst,
+  onAutoGenerateFirstChange,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -440,7 +471,93 @@ export function ChatPanel({
                 )}
               </div>
               </div>
-              {suggested && (
+              {/* Inline structured suggestion cards (Task #264). When the
+               *  brainstorm reply emitted a structured `suggestions[]` array,
+               *  we render a compact card per suggestion with a primary
+               *  Generate button (one-click dispatch in Build) and a
+               *  secondary Edit prompt button (opens picker pre-filled).
+               *  These coexist with the legacy "Build this" fallback below
+               *  for models that didn't emit the structured block. */}
+              {isPlan && m.role === "assistant" && !m.pending && m.suggestions && m.suggestions.length > 0 && (
+                <div className="mt-2 space-y-2 max-w-[300px]" data-testid={`suggestions-${m.id}`}>
+                  {m.suggestions.map((s) => {
+                    const providerLabel =
+                      PLATFORMS.find((p) => p.id === s.provider)?.name ?? s.provider;
+                    const isVideo = s.kind === "video";
+                    const dispatching = dispatchingSuggestionIds?.has(s.id) === true;
+                    return (
+                      <div
+                        key={s.id}
+                        className="rounded-xl border border-violet-200 bg-violet-50/60 p-2.5 dark:border-violet-500/30 dark:bg-violet-500/10"
+                        data-testid={`suggestion-card-${s.id}`}
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px] font-medium text-violet-800 dark:text-violet-200">
+                          {isVideo ? <Film className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
+                          <span data-testid={`text-suggestion-provider-${s.id}`}>
+                            {providerLabel}
+                          </span>
+                          <span className="text-violet-400">·</span>
+                          <span>{s.kind}</span>
+                          <span className="text-violet-400">·</span>
+                          <span>{s.count}×</span>
+                          <span className="text-violet-400">·</span>
+                          <span>{s.aspectRatio}</span>
+                        </div>
+                        <p
+                          className="mt-1 text-[12px] text-neutral-800 dark:text-neutral-100 leading-snug whitespace-pre-wrap line-clamp-3"
+                          data-testid={`text-suggestion-prompt-${s.id}`}
+                        >
+                          {s.prompt}
+                        </p>
+                        {s.fallbackReason && (
+                          <p
+                            className="mt-1 text-[11px] text-amber-700 dark:text-amber-300 italic"
+                            data-testid={`text-suggestion-fallback-${s.id}`}
+                          >
+                            {s.fallbackReason}
+                          </p>
+                        )}
+                        {s.rationale && !s.fallbackReason && (
+                          <p
+                            className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400 italic"
+                            data-testid={`text-suggestion-rationale-${s.id}`}
+                          >
+                            {s.rationale}
+                          </p>
+                        )}
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => onGenerateSuggestion?.(s)}
+                            disabled={dispatching || !onGenerateSuggestion}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-[11px] font-medium"
+                            data-testid={`button-generate-suggestion-${s.id}`}
+                          >
+                            <Zap className="w-3 h-3" />
+                            {dispatching ? "Starting…" : "Generate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onEditSuggestion?.(s)}
+                            disabled={dispatching || !onEditSuggestion}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white hover:bg-neutral-50 text-violet-700 text-[11px] font-medium border border-violet-200 disabled:opacity-50 dark:bg-neutral-800 dark:hover:bg-neutral-700 dark:text-violet-200 dark:border-violet-500/30"
+                            data-testid={`button-edit-suggestion-${s.id}`}
+                          >
+                            <Wand2 className="w-3 h-3" />
+                            Edit prompt
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Legacy fallback: when the model didn't emit a structured
+               *  suggestions block, fall back to the heuristic "Build this"
+               *  pill so users still get a one-click hand-off. Suppressed
+               *  whenever structured suggestions exist to avoid duplicate
+               *  CTAs on the same message. */}
+              {suggested && !(m.suggestions && m.suggestions.length > 0) && (
                 <div className="mt-1.5">
                   <button
                     type="button"
@@ -698,7 +815,29 @@ export function ChatPanel({
                     </div>
                   </PopoverContent>
                 </Popover>
-              ) : (
+              ) : null}
+              {isPlan && onAutoGenerateFirstChange && (
+                <button
+                  type="button"
+                  onClick={() => onAutoGenerateFirstChange(!autoGenerateFirst)}
+                  className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border ${
+                    autoGenerateFirst
+                      ? "bg-violet-600 text-white border-violet-600 hover:bg-violet-500"
+                      : "bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-300 dark:border-neutral-700 dark:hover:bg-neutral-700"
+                  }`}
+                  data-testid="button-auto-generate-toggle"
+                  aria-pressed={autoGenerateFirst === true}
+                  title={
+                    autoGenerateFirst
+                      ? "Auto-generate ON: replying 'yes' / 'go' runs the top suggestion"
+                      : "Auto-generate OFF: suggestions wait for a click"
+                  }
+                >
+                  <Zap className="w-3 h-3" />
+                  Auto
+                </button>
+              )}
+              {!isPlan && (
                 <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                   <PopoverTrigger asChild>
                     <button

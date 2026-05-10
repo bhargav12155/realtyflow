@@ -204,7 +204,10 @@ type ChatCall = {
   images?: { url: string; mediaType?: string }[];
 };
 
-function makeFakeChat(label: string, opts: { fail?: boolean; empty?: boolean } = {}) {
+function makeFakeChat(
+  label: string,
+  opts: { fail?: boolean; empty?: boolean; reply?: string } = {},
+) {
   const calls: ChatCall[] = [];
   const svc = {
     calls,
@@ -217,6 +220,7 @@ function makeFakeChat(label: string, opts: { fail?: boolean; empty?: boolean } =
       calls.push({ message, systemPrompt, images });
       if (opts.fail) return { success: false, error: `${label} unavailable` };
       if (opts.empty) return { success: true, message: "" };
+      if (opts.reply !== undefined) return { success: true, message: opts.reply };
       return { success: true, message: `${label}: ${message}` };
     },
   };
@@ -1771,5 +1775,227 @@ describe("POST /api/boards/:id/chat — UNI-1 image flow", () => {
     } finally {
       if (prev !== undefined) process.env.LUMA_AGENTS_API_KEY = prev;
     }
+  });
+});
+
+// =====================================================
+// Task #264 — agentic Think → Build hand-off (suggestions)
+// =====================================================
+import {
+  extractSuggestions,
+  remapSuggestionsForHealth,
+  __resetImageProviderHealthForTests,
+} from "../server/routes/boards-chat";
+
+describe("extractSuggestions() — brainstorm reply parser", () => {
+  it("strips the suggestions block from the human reply and returns parsed cards", () => {
+    const raw = [
+      "Here are three coastal-ad directions worth trying.",
+      "",
+      "<<<SUGGESTIONS>>>",
+      JSON.stringify([
+        {
+          kind: "image",
+          provider: "uni-1-image",
+          prompt: "Sun-drenched cliff overlooking the Pacific at golden hour",
+          count: 4,
+          aspectRatio: "1:1",
+          rationale: "hero shot",
+        },
+        {
+          kind: "video",
+          provider: "luma",
+          prompt: "Drone reveal of a hidden cove",
+          count: 1,
+          aspectRatio: "16:9",
+        },
+      ]),
+      "<<<END>>>",
+    ].join("\n");
+    const { cleanText, suggestions } = extractSuggestions(raw);
+    assert.equal(cleanText.includes("<<<SUGGESTIONS>>>"), false);
+    assert.equal(cleanText.includes("<<<END>>>"), false);
+    assert.equal(cleanText.trim(), "Here are three coastal-ad directions worth trying.");
+    assert.equal(suggestions.length, 2);
+    assert.equal(suggestions[0].kind, "image");
+    assert.equal(suggestions[0].provider, "uni-1-image");
+    assert.equal(suggestions[0].count, 4);
+    assert.equal(suggestions[1].kind, "video");
+    assert.equal(suggestions[1].provider, "luma");
+    // Each card gets a stable id assigned by the parser.
+    assert.ok(typeof suggestions[0].id === "string" && suggestions[0].id.length > 0);
+  });
+
+  it("tolerates a code-fence-wrapped JSON block", () => {
+    const raw = [
+      "Sure!",
+      "<<<SUGGESTIONS>>>",
+      "```json",
+      JSON.stringify([
+        { kind: "image", provider: "gemini-image", prompt: "p", count: 1, aspectRatio: "1:1" },
+      ]),
+      "```",
+      "<<<END>>>",
+    ].join("\n");
+    const { suggestions } = extractSuggestions(raw);
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0].provider, "gemini-image");
+  });
+
+  it("returns no suggestions on malformed JSON without throwing", () => {
+    const raw = "Some thoughts.\n<<<SUGGESTIONS>>>{not valid json<<<END>>>";
+    const { cleanText, suggestions } = extractSuggestions(raw);
+    assert.equal(suggestions.length, 0);
+    // Even a malformed block must be stripped from the user-facing reply.
+    assert.equal(cleanText.includes("<<<SUGGESTIONS>>>"), false);
+  });
+
+  it("returns the original text unchanged when no block is present", () => {
+    const raw = "Just brainstorming, no cards this round.";
+    const { cleanText, suggestions } = extractSuggestions(raw);
+    assert.equal(cleanText, raw);
+    assert.equal(suggestions.length, 0);
+  });
+
+  it("caps the parsed cards at 3 even if the model returns more", () => {
+    const many = Array.from({ length: 8 }).map((_, i) => ({
+      kind: "image" as const,
+      provider: "gemini-image" as const,
+      prompt: `idea ${i}`,
+      count: 1,
+      aspectRatio: "1:1",
+    }));
+    const raw = `Lots of ideas.\n<<<SUGGESTIONS>>>${JSON.stringify(many)}<<<END>>>`;
+    const { suggestions } = extractSuggestions(raw);
+    assert.equal(suggestions.length, 3);
+  });
+
+  it("coerces unknown providers to the modality's default instead of throwing", () => {
+    const raw = `Mixed.\n<<<SUGGESTIONS>>>${JSON.stringify([
+      { kind: "image", provider: "no-such-provider", prompt: "x", count: 1, aspectRatio: "1:1" },
+      { kind: "image", provider: "openai-image", prompt: "y", count: 1, aspectRatio: "1:1" },
+    ])}<<<END>>>`;
+    const { suggestions } = extractSuggestions(raw);
+    assert.equal(suggestions.length, 2);
+    assert.equal(suggestions[0].provider, "uni-1-image");
+    assert.equal(suggestions[1].provider, "openai-image");
+  });
+});
+
+describe("remapSuggestionsForHealth() — provider fallback", () => {
+  it("remaps an unhealthy uni-1-image card to gemini-image and records the original", () => {
+    const input = [
+      {
+        id: "s1",
+        kind: "image" as const,
+        provider: "uni-1-image" as const,
+        prompt: "x",
+        count: 1,
+        aspectRatio: "1:1",
+      },
+    ];
+    const out = remapSuggestionsForHealth(input, new Set(["uni-1-image"]), new Set());
+    assert.equal(out.length, 1);
+    assert.equal(out[0].provider, "gemini-image");
+    assert.equal(out[0].originalProvider, "uni-1-image");
+    assert.ok(out[0].fallbackReason);
+  });
+
+  it("leaves healthy providers untouched", () => {
+    const input = [
+      {
+        id: "s1",
+        kind: "image" as const,
+        provider: "uni-1-image" as const,
+        prompt: "x",
+        count: 1,
+        aspectRatio: "1:1",
+      },
+    ];
+    const out = remapSuggestionsForHealth(input, new Set(), new Set());
+    assert.equal(out[0].provider, "uni-1-image");
+    assert.equal(out[0].originalProvider, undefined);
+    assert.equal(out[0].fallbackReason, undefined);
+  });
+
+  it("keeps the original provider when every fallback is also down (UI surfaces the failure)", () => {
+    const input = [
+      {
+        id: "s1",
+        kind: "image" as const,
+        provider: "uni-1-image" as const,
+        prompt: "x",
+        count: 1,
+        aspectRatio: "1:1",
+      },
+    ];
+    const out = remapSuggestionsForHealth(
+      input,
+      new Set(["uni-1-image", "gemini-image", "openai-image"]),
+      new Set(),
+    );
+    assert.equal(out.length, 1);
+    assert.equal(out[0].provider, "uni-1-image");
+  });
+});
+
+describe("POST /api/boards/:id/chat — brainstorm suggestions on the wire", () => {
+  it("returns parsed suggestions in the response body and strips the block from reply", async () => {
+    __resetChatProviderHealthForTests();
+    __resetImageProviderHealthForTests();
+    const reply = [
+      "Here's a polished direction.",
+      "<<<SUGGESTIONS>>>",
+      JSON.stringify([
+        { kind: "image", provider: "gemini-image", prompt: "Sunset cliff", count: 2, aspectRatio: "16:9" },
+      ]),
+      "<<<END>>>",
+    ].join("\n");
+    const anthropic = makeFakeChat("anthropic", { reply });
+    const { app, storage } = buildApp({ providers: { anthropic } });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "ideate",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.reply.includes("<<<SUGGESTIONS>>>"), false);
+    assert.ok(Array.isArray(res.body.suggestions));
+    assert.equal(res.body.suggestions.length, 1);
+    assert.equal(res.body.suggestions[0].provider, "gemini-image");
+    assert.equal(res.body.suggestions[0].count, 2);
+  });
+
+  it("returns an empty suggestions[] when the model emits no block", async () => {
+    __resetChatProviderHealthForTests();
+    __resetImageProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic", { reply: "Just a chat reply, no cards." });
+    const { app, storage } = buildApp({ providers: { anthropic } });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "hi",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.suggestions, []);
+  });
+
+  it("returns suggestions:[] when every provider fails (allFailed path)", async () => {
+    __resetChatProviderHealthForTests();
+    __resetImageProviderHealthForTests();
+    const anthropic = makeFakeChat("anthropic", { fail: true });
+    const gemini = makeFakeChat("gemini", { fail: true });
+    const openaiBrainstorm = makeFakeOpenAIBrainstorm({ fail: true });
+    const { app, storage } = buildApp({
+      providers: { anthropic, gemini, openaiBrainstorm: openaiBrainstorm.fn },
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "broken",
+      mode: "brainstorm",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.allFailed, true);
+    assert.deepEqual(res.body.suggestions, []);
   });
 });

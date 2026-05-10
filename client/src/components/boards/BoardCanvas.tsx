@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History } from "lucide-react";
+import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Image as ImageIcon, Film, Loader2, AlertCircle } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
 import {
@@ -1240,9 +1240,62 @@ function AssetTile({
         ) : src ? (
           <img src={src} alt="" className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">
-            {generating ? "generating…" : "no preview"}
-          </div>
+          (() => {
+            const isVideoKind = asset.kind === "video";
+            const KindIcon = isVideoKind ? Film : ImageIcon;
+            const isFailed = asset.status === "failed" || asset.status === "rejected";
+            const isQueued = asset.status === "queued";
+            const isGenerating = asset.status === "generating";
+            let label = "Preview unavailable";
+            let hint: string | null = null;
+            if (isQueued) label = "Queued";
+            else if (isGenerating) label = "Generating…";
+            else if (asset.status === "ready") label = "Loading preview…";
+            else if (asset.status === "failed") {
+              label = "Generation failed";
+              hint = "Try again";
+            } else if (asset.status === "rejected") {
+              label = "Rejected";
+            }
+            const tintClass = isFailed
+              ? "bg-red-50/60 dark:bg-red-950/30 text-red-600 dark:text-red-300"
+              : "text-neutral-500 dark:text-neutral-400";
+            const showSpinner = isQueued || isGenerating;
+            const FailIcon = AlertCircle;
+            const showLabel = (asset.height ?? 0) >= 70;
+            return (
+              <div
+                className={`w-full h-full flex flex-col items-center justify-center gap-1 px-2 ${tintClass}`}
+                data-testid={`placeholder-${asset.id}`}
+              >
+                <div className="relative flex items-center justify-center">
+                  <KindIcon
+                    className={`w-6 h-6 opacity-70 ${isQueued ? "animate-pulse" : ""}`}
+                    strokeWidth={1.5}
+                  />
+                  {showSpinner && isGenerating && (
+                    <Loader2 className="absolute -bottom-1 -right-1 w-3 h-3 animate-spin text-blue-500" />
+                  )}
+                  {isFailed && (
+                    <FailIcon className="absolute -bottom-1 -right-1 w-3 h-3 text-red-500 dark:text-red-400" />
+                  )}
+                </div>
+                {showLabel && (
+                  <div
+                    className="text-[10px] font-medium text-center leading-tight truncate max-w-full"
+                    data-testid={`placeholder-status-${asset.id}`}
+                  >
+                    {label}
+                  </div>
+                )}
+                {showLabel && hint && (asset.height ?? 0) >= 90 && (
+                  <div className="text-[9px] text-center leading-tight opacity-80 truncate max-w-full">
+                    {hint}
+                  </div>
+                )}
+              </div>
+            );
+          })()
         )}
         {generating && (
           <div

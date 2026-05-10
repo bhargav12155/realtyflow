@@ -25,7 +25,12 @@ import { realtimeService } from "../websocket";
 // in tests that inject their own dependencies.
 
 const VIDEO_PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
-const IMAGE_PROVIDERS = ["openai-image", "gemini-image"] as const;
+const IMAGE_PROVIDERS = [
+  "openai-image",
+  "gemini-image",
+  "uni-1-image",
+  "uni-1-max-image",
+] as const;
 export const PROVIDERS = [...VIDEO_PROVIDERS, ...IMAGE_PROVIDERS] as const;
 export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
 export type ImageProvider = (typeof IMAGE_PROVIDERS)[number];
@@ -498,9 +503,27 @@ export interface GeminiImageService {
   generateImage(input: { prompt: string; isPublic?: boolean }): Promise<string | null>;
 }
 
+export interface LumaAgentsImageService {
+  generateImage(input: {
+    prompt: string;
+    model?: "uni-1" | "uni-1-max";
+    referenceImageUrls?: string[];
+    aspectRatio?: string | null;
+  }): Promise<string>;
+  editImage(input: {
+    prompt: string;
+    source: string;
+    model?: "uni-1" | "uni-1-max";
+    referenceImageUrls?: string[];
+    aspectRatio?: string | null;
+  }): Promise<string>;
+  isConfigured(): boolean;
+}
+
 export interface ImageDispatchDeps {
   openaiClientFactory?: () => OpenAI;
   geminiImageService?: GeminiImageService;
+  lumaAgentsService?: LumaAgentsImageService;
 }
 
 async function fetchAsUploadable(url: string, fallbackName: string): Promise<Uploadable> {
@@ -528,6 +551,46 @@ async function dispatchImage(
   const refImageUrls = ctx.refAssets
     .filter((a) => a.kind === "image" && !!a.assetUrl)
     .map((a) => a.assetUrl as string);
+
+  // Luma UNI-1 / UNI-1 Max image (and image-edit) — separate Luma product from
+  // Dream Machine video. Falls back silently to gemini-image when the upstream
+  // key is missing so users never see a hard error from a missing optional key.
+  if (provider === "uni-1-image" || provider === "uni-1-max-image") {
+    const lumaModel: "uni-1" | "uni-1-max" =
+      provider === "uni-1-max-image" ? "uni-1-max" : "uni-1";
+    const lumaSvc =
+      deps.lumaAgentsService ??
+      (await import("../services/luma-agents")).lumaAgentsService;
+    if (!deps.lumaAgentsService && !lumaSvc.isConfigured()) {
+      console.warn(
+        `[boards-chat] ${provider} requested but LUMA_AGENTS_API_KEY missing — falling back to gemini-image`,
+      );
+      return dispatchImage("gemini-image", ctx, deps);
+    }
+    if (refImageUrls.length > 0) {
+      const [source, ...extraRefs] = refImageUrls;
+      const url = await lumaSvc.editImage({
+        prompt: ctx.prompt,
+        source,
+        model: lumaModel,
+        referenceImageUrls: extraRefs,
+      });
+      return {
+        modelLabel: ctx.forceModel || `${lumaModel} (edit)`,
+        imageUrl: url,
+        edited: true,
+      };
+    }
+    const url = await lumaSvc.generateImage({
+      prompt: ctx.prompt,
+      model: lumaModel,
+    });
+    return {
+      modelLabel: ctx.forceModel || lumaModel,
+      imageUrl: url,
+      edited: false,
+    };
+  }
 
   if (provider === "gemini-image") {
     const geminiImageService: GeminiImageService =
@@ -1162,6 +1225,11 @@ export interface BoardsChatDeps {
   /** Test/extension hook: overrides the openaiService import used by the
    * default gemini-image dispatch (editImage / generateImage). */
   geminiImageService?: GeminiImageService;
+  /** Test/extension hook: overrides the Luma Agents (UNI-1 / UNI-1 Max) image
+   * service used by the uni-1-image / uni-1-max-image dispatch. When omitted
+   * and `LUMA_AGENTS_API_KEY` is unset, the dispatcher silently falls back to
+   * gemini-image so users never see a hard error from a missing optional key. */
+  lumaAgentsService?: LumaAgentsImageService;
   autoEvaluateBatch?: (input: {
     prompt: string;
     assets: BoardAsset[];
@@ -1204,6 +1272,7 @@ export function registerBoardsChatRoutes(
   const imageDispatchDeps: ImageDispatchDeps = {
     openaiClientFactory: deps.openaiClientFactory,
     geminiImageService: deps.geminiImageService,
+    lumaAgentsService: deps.lumaAgentsService,
   };
   const dispatchImageFn: DispatchImage =
     deps.dispatchImage ?? ((provider, ctx) => dispatchImage(provider, ctx, imageDispatchDeps));

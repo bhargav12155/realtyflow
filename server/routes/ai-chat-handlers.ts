@@ -49,6 +49,36 @@ export interface AiAssistantDeps {
 const IMAGE_PATTERNS =
   /\b(generate|create|make|draw|design|produce|show me|give me)\b.*\b(image|photo|picture|illustration|graphic|visual|artwork|poster|flyer|banner)\b|\b(image|photo|picture|illustration|graphic|visual|artwork|poster|flyer|banner)\b.*\b(of|for|showing|featuring|with)\b/i;
 
+// Detects "use uni-1", "with uni-1 max", "via luma uni", etc. so the AI
+// Assistant can route image generation through the Luma Agents (UNI-1)
+// service instead of the default OpenAI / Gemini path.
+const UNI1_INTENT = /\b(?:uni[\s-]*1(?:\s*max)?|luma\s*uni)\b/i;
+
+async function generateAssistantImage(
+  message: string,
+  fallbackImageService: { generateImage: (opts: { prompt: string }) => Promise<string | null> },
+): Promise<string | null> {
+  const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
+  if (UNI1_INTENT.test(message)) {
+    try {
+      const { lumaAgentsService } = await import("../services/luma-agents");
+      if (lumaAgentsService.isConfigured()) {
+        const wantsMax = /\bmax\b/i.test(message);
+        return await lumaAgentsService.generateImage({
+          prompt: imagePrompt,
+          model: wantsMax ? "uni-1-max" : "uni-1",
+        });
+      }
+    } catch (lumaErr: any) {
+      console.error(
+        "❌ [AI Chat] UNI-1 image generation failed, falling back:",
+        lumaErr?.message,
+      );
+    }
+  }
+  return await fallbackImageService.generateImage({ prompt: imagePrompt });
+}
+
 const GENERIC_SYSTEM_PROMPT =
   "You are a helpful AI assistant. Help the user with whatever they ask. Be clear and concise.";
 
@@ -215,12 +245,9 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         }
 
         let geminiImageUrl: string | null = null;
-        if (IMAGE_PATTERNS.test(message)) {
+        if (IMAGE_PATTERNS.test(message) || UNI1_INTENT.test(message)) {
           try {
-            const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
-            geminiImageUrl = await deps.openaiService.generateImage({
-              prompt: imagePrompt,
-            });
+            geminiImageUrl = await generateAssistantImage(message, (deps as any).openaiService ?? { generateImage: async () => null });
           } catch (imgError: any) {
             console.error(
               "❌ [AI Chat/Gemini] Image generation failed:",
@@ -304,12 +331,9 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
       }
 
       let imageUrl: string | null = null;
-      if (IMAGE_PATTERNS.test(message)) {
+      if (IMAGE_PATTERNS.test(message) || UNI1_INTENT.test(message)) {
         try {
-          const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
-          imageUrl = await deps.openaiService.generateImage({
-            prompt: imagePrompt,
-          });
+          imageUrl = await generateAssistantImage(message, deps.openaiService);
         } catch (imgError: any) {
           console.error(
             "❌ [AI Chat] Image generation failed:",

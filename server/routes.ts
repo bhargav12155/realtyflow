@@ -2524,7 +2524,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   app.post("/api/images/generate", requireAuth, async (req, res) => {
     try {
       const userId = String(req.user!.id);
-      const { prompt, aspectRatio = "1:1", style = "photorealistic", logoOption, referenceImageUrl } = req.body;
+      const { prompt, aspectRatio = "1:1", style = "photorealistic", logoOption, referenceImageUrl, provider } = req.body;
 
       if (!prompt) {
         return res.status(400).json({ error: "Prompt is required" });
@@ -2559,11 +2559,36 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         }
       }
 
-      // Use the existing openaiService to get the best API key
-      let imageUrl = await openaiService.generateImage({
-        prompt: enhancedPrompt,
-        size: size as "1024x1024" | "1792x1024" | "1024x1792",
-      });
+      // Provider routing — defaults preserve historical OpenAI behavior. UNI-1
+      // and UNI-1 Max go through the separate Luma Agents service (NOT the
+      // Dream Machine video service). Falls back to OpenAI when the optional
+      // LUMA_AGENTS_API_KEY is missing so this route never hard-errors.
+      let imageUrl: string | null = null;
+      const wantsLuma = provider === "uni-1" || provider === "uni-1-max";
+      if (wantsLuma) {
+        try {
+          const { lumaAgentsService } = await import("./services/luma-agents");
+          if (lumaAgentsService.isConfigured()) {
+            imageUrl = await lumaAgentsService.generateImage({
+              prompt: enhancedPrompt,
+              model: provider === "uni-1-max" ? "uni-1-max" : "uni-1",
+              aspectRatio,
+              referenceImageUrls: referenceImageUrl ? [referenceImageUrl] : [],
+            });
+          } else {
+            console.warn(`[/api/images/generate] ${provider} requested but LUMA_AGENTS_API_KEY missing — falling back to OpenAI`);
+          }
+        } catch (lumaErr) {
+          console.error(`[/api/images/generate] ${provider} failed:`, lumaErr);
+        }
+      }
+      if (!imageUrl) {
+        // Use the existing openaiService to get the best API key
+        imageUrl = await openaiService.generateImage({
+          prompt: enhancedPrompt,
+          size: size as "1024x1024" | "1792x1024" | "1024x1792",
+        });
+      }
 
       if (!imageUrl) {
         return res.status(500).json({ error: "Failed to generate image" });

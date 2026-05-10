@@ -13,6 +13,8 @@ export type ProviderId =
   | "kling"
   | "gemini-image"
   | "openai-image"
+  | "uni-1-image"
+  | "uni-1-max-image"
   | "heygen";
 
 export const PROVIDER_IDS: readonly ProviderId[] = [
@@ -24,6 +26,8 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   "kling",
   "gemini-image",
   "openai-image",
+  "uni-1-image",
+  "uni-1-max-image",
   "heygen",
 ];
 
@@ -58,6 +62,8 @@ export const PLATFORMS: Platform[] = [
   // Gemini's image model by default.
   { id: "gemini-image", name: "Gemini Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-blue-400 to-cyan-400", brandIcon: SiGoogle },
   { id: "openai-image", name: "OpenAI Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-zinc-700 to-zinc-900", brandIcon: SiOpenai },
+  { id: "uni-1-image", name: "Luma UNI-1", tagline: "Multi-reference image gen + edit", v2v: false, kind: "image", badge: "Image", accent: "from-violet-500 to-fuchsia-500", monogram: "U" },
+  { id: "uni-1-max-image", name: "Luma UNI-1 Max", tagline: "Highest-quality UNI-1 tier", v2v: false, kind: "image", badge: "Image", accent: "from-fuchsia-600 to-purple-700", monogram: "U+" },
   { id: "heygen", name: "HeyGen Avatar", tagline: "Talking-head avatars", v2v: false, kind: "avatar", badge: "Avatar", accent: "from-pink-500 to-purple-500", monogram: "H" },
 ];
 

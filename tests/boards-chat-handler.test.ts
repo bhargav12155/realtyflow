@@ -248,6 +248,7 @@ interface BuildOpts {
   autoEvaluateBatch?: (i: { prompt: string; assets: BoardAsset[] }) => Promise<AutoEvalResult>;
   openaiClientFactory?: () => OpenAI;
   geminiImageService?: GeminiImageService;
+  lumaAgentsService?: any;
 }
 
 interface BuildResult {
@@ -297,6 +298,7 @@ function buildApp(opts: BuildOpts & { userId?: string; userEmail?: string } = {}
       (async () => ({ winnerAssetId: "noop", rejected: [], modelUsed: "heuristic" })),
     openaiClientFactory: opts.openaiClientFactory,
     geminiImageService: opts.geminiImageService,
+    lumaAgentsService: opts.lumaAgentsService,
     onBatchScheduled: (p) => bgPromises.push(p),
   });
 
@@ -1482,5 +1484,122 @@ describe("Shared boards — collaborator chat history", () => {
       "stranger",
     );
     assert.equal(post.status, 404);
+  });
+});
+
+// =====================================================
+// UNI-1 / UNI-1 Max image dispatch (Luma Agents service)
+// =====================================================
+
+function makeFakeLumaAgentsService(opts: { failConfigured?: boolean } = {}) {
+  const editCalls: Array<{
+    prompt: string;
+    source: string;
+    model?: string;
+    referenceImageUrls?: string[];
+  }> = [];
+  const generateCalls: Array<{
+    prompt: string;
+    model?: string;
+    referenceImageUrls?: string[];
+  }> = [];
+  const svc = {
+    isConfigured: () => !opts.failConfigured,
+    async generateImage(input: any) {
+      generateCalls.push(input);
+      return `https://luma.example/gen-${input.model ?? "uni-1"}.png`;
+    },
+    async editImage(input: any) {
+      editCalls.push(input);
+      return `https://luma.example/edit-${input.model ?? "uni-1"}.png`;
+    },
+  };
+  return { svc, editCalls, generateCalls };
+}
+
+describe("POST /api/boards/:id/chat — UNI-1 image flow", () => {
+  it("routes uni-1-image (no refs) through lumaAgentsService.generateImage", async () => {
+    __resetChatProviderHealthForTests();
+    const luma = makeFakeLumaAgentsService();
+    const { app, storage, bgPromises } = buildApp({
+      lumaAgentsService: luma.svc,
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "neon street market at dusk",
+      mode: "create",
+      provider: "uni-1-image",
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.provider, "uni-1-image");
+    assert.equal(res.body.isImageEdit, false);
+
+    await Promise.all(bgPromises);
+    assert.equal(luma.generateCalls.length, 1);
+    assert.equal(luma.editCalls.length, 0);
+    assert.equal(luma.generateCalls[0].model, "uni-1");
+    assert.equal(luma.generateCalls[0].prompt, "neon street market at dusk");
+  });
+
+  it("routes uni-1-max-image with a reference asset through lumaAgentsService.editImage", async () => {
+    __resetChatProviderHealthForTests();
+    const luma = makeFakeLumaAgentsService();
+    const { app, storage, bgPromises } = buildApp({
+      lumaAgentsService: luma.svc,
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const ref = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "seed",
+      kind: "image",
+      provider: "uni-1-max-image",
+      assetUrl: "https://example.com/source.png",
+      status: "ready",
+    } as BoardAssetCreate);
+
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "make it look like a watercolour",
+      mode: "create",
+      provider: "uni-1-max-image",
+      referencedAssetIds: [ref!.id],
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.provider, "uni-1-max-image");
+    assert.equal(res.body.isImageEdit, true);
+
+    await Promise.all(bgPromises);
+    assert.equal(luma.editCalls.length, 1);
+    assert.equal(luma.generateCalls.length, 0);
+    assert.equal(luma.editCalls[0].model, "uni-1-max");
+    assert.equal(luma.editCalls[0].source, "https://example.com/source.png");
+  });
+
+  it("falls back to gemini-image when LUMA_AGENTS_API_KEY is missing and no DI override", async () => {
+    __resetChatProviderHealthForTests();
+    // No lumaAgentsService injected → dispatcher dynamic-imports the real
+    // service, which sees no LUMA_AGENTS_API_KEY and triggers fallback.
+    const prev = process.env.LUMA_AGENTS_API_KEY;
+    delete process.env.LUMA_AGENTS_API_KEY;
+    try {
+      const gem = makeFakeGeminiImageService();
+      const { app, storage, bgPromises } = buildApp({ geminiImageService: gem.svc });
+      const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+      const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+        message: "a cinematic forest at dawn",
+        mode: "create",
+        provider: "uni-1-image",
+        variations: 1,
+      });
+      assert.equal(res.status, 200);
+      await Promise.all(bgPromises);
+      // Fallback should have hit Gemini exactly once.
+      assert.equal(gem.generateCalls.length, 1);
+      assert.equal(gem.editCalls.length, 0);
+    } finally {
+      if (prev !== undefined) process.env.LUMA_AGENTS_API_KEY = prev;
+    }
   });
 });

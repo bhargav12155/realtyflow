@@ -90,6 +90,7 @@ export function ImagePicker({
     platform ? PLATFORM_ASPECT_SUGGESTIONS[platform] || "1:1" : "1:1"
   );
   const [style, setStyle] = useState("photorealistic");
+  const [aiProvider, setAiProvider] = useState<"gemini" | "openai" | "uni-1" | "uni-1-max">("gemini");
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [logoOption, setLogoOption] = useState<"none" | "primary" | "broker" | "both">("none");
   const [imageReferenceUrl, setImageReferenceUrl] = useState<string | null>(null);
@@ -153,7 +154,7 @@ export function ImagePicker({
 
   // AI Generate mutation
   const generateMutation = useMutation({
-    mutationFn: async (params: { prompt: string; aspectRatio: string; style: string; logoOption?: string }) => {
+    mutationFn: async (params: { prompt: string; aspectRatio: string; style: string; logoOption?: string; provider?: string; referenceImageUrl?: string }) => {
       const response = await apiRequest("POST", "/api/images/generate", params);
       return response.json();
     },
@@ -191,6 +192,7 @@ export function ImagePicker({
       style, 
       logoOption: logoOption !== "none" ? logoOption : undefined,
       referenceImageUrl: imageReferenceUrl || undefined,
+      provider: aiProvider,
     });
   };
 
@@ -577,6 +579,17 @@ export function ImagePicker({
             <div className="flex items-center justify-between">
               <Label htmlFor="ai-prompt">Image Description</Label>
               <div className="flex items-center gap-2">
+                <Select value={aiProvider} onValueChange={(v) => setAiProvider(v as typeof aiProvider)}>
+                  <SelectTrigger className="w-[150px] h-8 text-xs" data-testid="select-image-provider">
+                    <SelectValue placeholder="Model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gemini">Gemini Image</SelectItem>
+                    <SelectItem value="openai">OpenAI Image</SelectItem>
+                    <SelectItem value="uni-1">Luma UNI-1</SelectItem>
+                    <SelectItem value="uni-1-max">Luma UNI-1 Max</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={logoOption} onValueChange={(v) => setLogoOption(v as typeof logoOption)}>
                   <SelectTrigger className="w-[160px] h-8 text-xs" data-testid="select-logo-option">
                     <SelectValue placeholder="Add logo..." />

@@ -56,7 +56,11 @@ const IMAGE_PATTERNS =
 // Detects "use uni-1", "with uni-1 max", "via luma uni", etc. so the AI
 // Assistant can route image generation through the Luma Agents (UNI-1)
 // service instead of the default OpenAI / Gemini path.
-const UNI1_INTENT = /\b(?:uni[\s-]*1(?:\s*max)?|luma\s*uni)\b/i;
+// Match explicit UNI-1 phrasing as well as the generic "luma image" / "luma
+// picture" call-outs the user may use to route image generation through the
+// new Luma Agents service instead of the default OpenAI/Gemini path.
+const UNI1_INTENT =
+  /\b(?:uni[\s-]*1(?:\s*max)?|luma\s*uni|luma\s+(?:image|images|picture|pictures|photo|photos))\b/i;
 
 async function generateAssistantImage(
   message: string,

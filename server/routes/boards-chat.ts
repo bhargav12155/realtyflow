@@ -563,14 +563,16 @@ async function dispatchImage(
     const lumaSvc =
       deps.lumaAgentsService ??
       (await import("../services/luma-agents")).lumaAgentsService;
-    const downReason = isImageProviderDown(provider)
-      ? `previously marked down`
-      : !deps.lumaAgentsService && !lumaSvc.isConfigured()
-        ? "LUMA_AGENTS_API_KEY missing"
-        : null;
-    if (downReason) {
+    // Treat a missing LUMA_AGENTS_API_KEY as a permanent failure so the same
+    // 30-min TTL applies — we don't want to re-probe the dynamic import on
+    // every request when the key isn't even set.
+    if (!deps.lumaAgentsService && !lumaSvc.isConfigured() && !isImageProviderDown(provider)) {
+      markImageProviderDown(provider, "LUMA_AGENTS_API_KEY missing");
+    }
+    if (isImageProviderDown(provider)) {
+      const reason = imageProviderHealth.get(provider)?.reason ?? "previously marked down";
       console.warn(
-        `[boards-chat] ${provider} skipped (${downReason}) — falling back to gemini-image`,
+        `[boards-chat] ${provider} skipped (${reason}) — falling back to gemini-image`,
       );
       return dispatchImage("gemini-image", ctx, deps);
     }
@@ -1160,6 +1162,25 @@ export function __resetImageProviderHealthForTests() {
   imageProviderHealth.clear();
 }
 
+/** Lightweight snapshot of UNI image provider health for /api/boards/chat/health. */
+export function getImageProviderHealthSnapshot(): {
+  healthy: ImageProvider[];
+  unhealthy: { id: ImageProvider; reason: string }[];
+} {
+  const tracked: ImageProvider[] = ["uni-1-image", "uni-1-max-image"];
+  const healthy: ImageProvider[] = [];
+  const unhealthy: { id: ImageProvider; reason: string }[] = [];
+  for (const id of tracked) {
+    if (isImageProviderDown(id)) {
+      const entry = imageProviderHealth.get(id)!;
+      unhealthy.push({ id, reason: entry.reason });
+    } else {
+      healthy.push(id);
+    }
+  }
+  return { healthy, unhealthy };
+}
+
 /** Test-only: clear the health cache between cases. */
 export function __resetChatProviderHealthForTests() {
   providerHealth.clear();
@@ -1347,10 +1368,15 @@ export function registerBoardsChatRoutes(
   // error strings to the client; just the IDs.
   app.get("/api/boards/chat/health", requireAuth, (_req: Request, res: Response) => {
     const snap = getChatProviderHealthSnapshot();
+    const imgSnap = getImageProviderHealthSnapshot();
     res.json({
       healthy: snap.healthy,
       unhealthy: snap.unhealthy.map((u) => u.id),
       default: snap.default,
+      images: {
+        healthy: imgSnap.healthy,
+        unhealthy: imgSnap.unhealthy.map((u) => u.id),
+      },
     });
   });
 

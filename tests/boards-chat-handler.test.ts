@@ -887,6 +887,68 @@ describe("GET /api/boards/chat/health", () => {
     }
   });
 
+  it("includes UNI image provider health (healthy by default, unhealthy after permanent failure)", async () => {
+    __resetChatProviderHealthForTests();
+    // Snapshot when nothing is down: both UNI providers should be healthy.
+    {
+      const { app } = buildApp();
+      const server = app.listen(0);
+      try {
+        const addr = server.address();
+        if (!addr || typeof addr === "string") throw new Error("no addr");
+        const res = await fetch(`http://127.0.0.1:${addr.port}/api/boards/chat/health`);
+        const body = await res.json();
+        assert.equal(res.status, 200);
+        assert.ok(body.images, "response should carry an images snapshot");
+        assert.deepEqual(body.images.healthy, ["uni-1-image", "uni-1-max-image"]);
+        assert.deepEqual(body.images.unhealthy, []);
+      } finally {
+        await new Promise<void>((r) => server.close(() => r()));
+      }
+    }
+
+    // Trigger a 401 on uni-1-image so it gets marked down for the TTL.
+    {
+      const failingLuma = {
+        isConfigured: () => true,
+        generateImage: async () => {
+          throw new Error("Luma agents 401 unauthorized: invalid_api_key");
+        },
+        editImage: async () => {
+          throw new Error("Luma agents 401 unauthorized: invalid_api_key");
+        },
+      };
+      const gem = makeFakeGeminiImageService();
+      const { app, storage, bgPromises } = buildApp({
+        lumaAgentsService: failingLuma,
+        geminiImageService: gem.svc,
+      });
+      const board = await storage.createBoard({ userId: "user-1", title: "B" });
+      await postJson(app, `/api/boards/${board.id}/chat`, {
+        message: "trigger 401",
+        mode: "create",
+        provider: "uni-1-image",
+        variations: 1,
+      });
+      await Promise.all(bgPromises);
+
+      const server = app.listen(0);
+      try {
+        const addr = server.address();
+        if (!addr || typeof addr === "string") throw new Error("no addr");
+        const res = await fetch(`http://127.0.0.1:${addr.port}/api/boards/chat/health`);
+        const body = await res.json();
+        assert.equal(res.status, 200);
+        assert.ok(!body.images.healthy.includes("uni-1-image"));
+        assert.deepEqual(body.images.unhealthy, ["uni-1-image"]);
+        // uni-1-max-image was not exercised, so still healthy.
+        assert.ok(body.images.healthy.includes("uni-1-max-image"));
+      } finally {
+        await new Promise<void>((r) => server.close(() => r()));
+      }
+    }
+  });
+
   it("excludes a provider once it has returned a permanent (401) error", async () => {
     __resetChatProviderHealthForTests();
     const anthropic = {

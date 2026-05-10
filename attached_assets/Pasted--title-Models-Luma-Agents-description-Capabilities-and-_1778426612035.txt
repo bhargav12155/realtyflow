@@ -1,0 +1,109 @@
+---
+title: Models | Luma Agents
+description: Capabilities and pricing for the uni-1 family — uni-1 and uni-1-max (higher-quality output at a higher price).
+---
+
+The uni-1 family handles **image generation** (text to image) and **image editing** (modifying existing images with text instructions) through a single API endpoint. Two models share the same wire format and capability set; `uni-1-max` produces higher-quality output than `uni-1` at a higher per-image price. Both models are available to all accounts.
+
+## At a glance
+
+| Model       | When to use                                                                            | Per-image price (text-to-image, 2K) |
+| ----------- | -------------------------------------------------------------------------------------- | ----------------------------------: |
+| `uni-1`     | Default — fast, photorealistic, multi-panel, text rendering                            |                             $0.0404 |
+| `uni-1-max` | When you want higher-quality output than `uni-1` and the higher per-image cost is fine |                             $0.1000 |
+
+See [Pricing](/guides/pricing/index.md) for the full per-task table and Provisioned Throughput plans.
+
+## Capabilities
+
+Both models support the same capabilities and the same wire format. The only differences are output quality and per-image price.
+
+| Capability                      | Description                                                                                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Text rendering**              | Renders readable text on signs, labels, book covers, and other surfaces. Put exact text in quotes in your prompt.                                       |
+| **Spatial reasoning**           | Produces accurate shadows, correct perspective, and physically plausible object layouts.                                                                |
+| **Cultural styles**             | Understands visual traditions — manga panels with screentone shading, ukiyo-e woodblock prints, film noir lighting, art house cinema framing, and more. |
+| **Reference-guided generation** | Accepts up to 9 reference images via `image_ref` for text-to-image, or up to 8 for image editing (where the `source` image occupies its own slot).      |
+| **Image editing**               | Modifies existing images via `source` — change backgrounds, swap objects, transfer styles while preserving unmentioned parts.                           |
+| **Web search grounding**        | When `web_search: true`, searches the web for visual references before generating.                                                                      |
+| **Multi-panel output**          | Generates multi-panel sequences (e.g., storyboards) with consistent style when described in the prompt.                                                 |
+
+## Parameters
+
+| Parameter       | Type           | Default              | Description                                                                                                                                              |
+| --------------- | -------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`        | string         | **required**         | Text description of the image (1–6,000 characters)                                                                                                       |
+| `type`          | string         | `"image"`            | `"image"` for generation, `"image_edit"` for editing                                                                                                     |
+| `model`         | string         | `"uni-1"`            | `"uni-1"` or `"uni-1-max"`                                                                                                                               |
+| `aspect_ratio`  | string \| null | `null` (model picks) | Output dimensions ([9 options](/guides/image-generation#aspect_ratio/index.md)). When `style="manga"`, restricted to portrait ratios                     |
+| `style`         | string         | `"auto"`             | `"auto"` or `"manga"`. `"manga"` is portrait-only — see [aspect-ratio constraint](/guides/image-generation#style-manga-aspect-ratio-constraint/index.md) |
+| `output_format` | string \| null | `null` (model picks) | `"png"` or `"jpeg"`                                                                                                                                      |
+| `web_search`    | boolean        | `false`              | Search the web for visual references before generating                                                                                                   |
+| `image_ref`     | array          | `[]`                 | Up to 9 reference images for `type: "image"`, or 8 for `type: "image_edit"` (URL or base64)                                                              |
+| `source`        | object \| null | —                    | Source image for editing (required when `type: "image_edit"`)                                                                                            |
+
+For detailed parameter documentation, see [Image generation](/guides/image-generation/index.md) and [Image editing](/guides/image-editing/index.md).
+
+## Strengths
+
+- **Photorealistic scenes** — Natural lighting, material textures, and depth of field
+- **Text rendering** — Readable text on signs, labels, and surfaces with accurate letterforms
+- **Multi-panel consistency** — Multiple views of the same scene with consistent perspective
+- **Style transfer** — Faithfully adopts artistic styles from reference images or text descriptions
+- **Spatial precision** — Correct object placement, shadows, reflections, and perspective
+- **Cultural visual language** — Manga, cinematic framing, traditional art styles
+
+## Output specifications
+
+### Aspect ratios
+
+| Value  | Orientation          | Typical use case                |
+| ------ | -------------------- | ------------------------------- |
+| `3:1`  | Ultra-wide landscape | Panoramic banners               |
+| `2:1`  | Wide landscape       | Website headers                 |
+| `16:9` | Standard widescreen  | Hero images, desktop wallpapers |
+| `3:2`  | Classic landscape    | Traditional photography         |
+| `1:1`  | Square               | Profile pictures, social media  |
+| `2:3`  | Classic portrait     | Book covers, posters            |
+| `9:16` | Standard portrait    | Mobile wallpapers, stories      |
+| `1:2`  | Tall portrait        | Vertical banners                |
+| `1:3`  | Ultra-tall portrait  | Tall signage                    |
+
+When `style: "manga"` is set on `type: "image"`, only the four portrait ratios (`2:3`, `9:16`, `1:2`, `1:3`) are accepted; the five landscape and square ratios return HTTP 422. See [`style: "manga"` aspect-ratio constraint](/guides/image-generation#style-manga-aspect-ratio-constraint/index.md) for the full contract.
+
+### Output formats
+
+| Format | Best for                       |
+| ------ | ------------------------------ |
+| `png`  | Lossless quality               |
+| `jpeg` | Smaller file size, photographs |
+
+When `output_format` is omitted, the model picks a format based on the prompt.
+
+### Presigned URL expiry
+
+Generated images are delivered as presigned URLs that expire after **1 hour**. Download images promptly or request a fresh URL by polling `GET /v1/generations/{id}` again.
+
+## `uni-1`
+
+The default. Use it for the broad set of image-generation and image-editing tasks — see [Capabilities](#capabilities) above. Defaults to `model: "uni-1"` when omitted from the request.
+
+See [Pricing — `uni-1`](/guides/pricing#uni-1--per-image-pricing/index.md) for the per-task table.
+
+## `uni-1-max`
+
+`uni-1-max` produces higher-quality output than `uni-1`. Same wire format and parameter set — same prompts, same `aspect_ratio`, same `image_ref` semantics. Pass `"model": "uni-1-max"` on `POST /v1/generations`.
+
+```
+{ "model": "uni-1-max", "prompt": "A neon-lit Tokyo alley in the rain" }
+```
+
+See [Pricing — `uni-1-max`](/guides/pricing#uni-1-max--per-image-pricing/index.md) for the per-task table.
+
+## Next steps
+
+- [**Image generation**](/guides/image-generation/index.md) — Full parameter reference
+- [**Image editing**](/guides/image-editing/index.md) — Modify existing images with text prompts and reference images
+- [**Pricing**](/guides/pricing/index.md) — Pay-as-you-go and Provisioned Throughput plans
+- [**FAQ**](/guides/faq/index.md) — Quick answers to common questions
+- [**API Reference**](/api/index.md) — Complete endpoint specifications

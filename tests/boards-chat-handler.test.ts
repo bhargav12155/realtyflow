@@ -1576,6 +1576,114 @@ describe("POST /api/boards/:id/chat — UNI-1 image flow", () => {
     assert.equal(luma.editCalls[0].source, "https://example.com/source.png");
   });
 
+  it("falls back to gemini-image on a 401 auth error and skips uni-1-image for the TTL afterwards", async () => {
+    __resetChatProviderHealthForTests();
+    const failingLuma = {
+      isConfigured: () => true,
+      generateImage: async () => {
+        throw new Error("Luma agents 401 unauthorized: invalid_api_key");
+      },
+      editImage: async () => {
+        throw new Error("Luma agents 401 unauthorized: invalid_api_key");
+      },
+    };
+    const gem = makeFakeGeminiImageService();
+    const { app, storage, bgPromises } = buildApp({
+      lumaAgentsService: failingLuma,
+      geminiImageService: gem.svc,
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    // First request: UNI-1 throws 401 -> dispatcher classifies permanent,
+    // marks provider down, and falls back to gemini-image.
+    const res1 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "a calm beach",
+      mode: "create",
+      provider: "uni-1-image",
+      variations: 1,
+    });
+    assert.equal(res1.status, 200);
+    await Promise.all(bgPromises);
+    assert.equal(gem.generateCalls.length, 1);
+
+    // Second request within the TTL: UNI-1 should be skipped without even
+    // calling the failing service again — straight to gemini-image.
+    let secondCallReached = false;
+    const trippedLuma = {
+      isConfigured: () => true,
+      generateImage: async () => {
+        secondCallReached = true;
+        throw new Error("should not be called");
+      },
+      editImage: async () => {
+        secondCallReached = true;
+        throw new Error("should not be called");
+      },
+    };
+    const gem2 = makeFakeGeminiImageService();
+    const { app: app2, storage: storage2, bgPromises: bg2 } = buildApp({
+      lumaAgentsService: trippedLuma,
+      geminiImageService: gem2.svc,
+    });
+    const board2 = await storage2.createBoard({ userId: "user-1", title: "B2" });
+    const res2 = await postJson(app2, `/api/boards/${board2.id}/chat`, {
+      message: "another beach",
+      mode: "create",
+      provider: "uni-1-image",
+      variations: 1,
+    });
+    assert.equal(res2.status, 200);
+    await Promise.all(bg2);
+    assert.equal(secondCallReached, false, "tripped UNI-1 should be skipped within TTL");
+    assert.equal(gem2.generateCalls.length, 1);
+  });
+
+  it("falls back to gemini-image on a transient 429 but does NOT mark the provider down", async () => {
+    __resetChatProviderHealthForTests();
+    let calls = 0;
+    const flakyLuma = {
+      isConfigured: () => true,
+      generateImage: async (input: any) => {
+        calls += 1;
+        if (calls === 1) throw new Error("Luma agents 429 rate_limited");
+        return `https://luma.example/recovered-${input.model ?? "uni-1"}.png`;
+      },
+      editImage: async () => {
+        throw new Error("not used");
+      },
+    };
+    const gem = makeFakeGeminiImageService();
+    const { app, storage, bgPromises } = buildApp({
+      lumaAgentsService: flakyLuma,
+      geminiImageService: gem.svc,
+    });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    // First request: 429 -> falls back to gemini.
+    const res1 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "first try",
+      mode: "create",
+      provider: "uni-1-image",
+      variations: 1,
+    });
+    assert.equal(res1.status, 200);
+    await Promise.all(bgPromises);
+    assert.equal(gem.generateCalls.length, 1);
+
+    // Second request: provider is NOT marked down, so UNI-1 is tried again
+    // and this time succeeds — gemini should not be called a second time.
+    const res2 = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "second try",
+      mode: "create",
+      provider: "uni-1-image",
+      variations: 1,
+    });
+    assert.equal(res2.status, 200);
+    await Promise.all(bgPromises);
+    assert.equal(calls, 2, "transient should be retried next request");
+    assert.equal(gem.generateCalls.length, 1, "gemini should not be hit on the recovered call");
+  });
+
   it("falls back to gemini-image when LUMA_AGENTS_API_KEY is missing and no DI override", async () => {
     __resetChatProviderHealthForTests();
     // No lumaAgentsService injected → dispatcher dynamic-imports the real

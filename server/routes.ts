@@ -2561,25 +2561,36 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
       // Provider routing — defaults preserve historical OpenAI behavior. UNI-1
       // and UNI-1 Max go through the separate Luma Agents service (NOT the
-      // Dream Machine video service). Falls back to OpenAI when the optional
-      // LUMA_AGENTS_API_KEY is missing so this route never hard-errors.
+      // Dream Machine video service). When a referenceImageUrl is supplied we
+      // route to image_edit (source = the reference); otherwise text→image.
+      // Falls back to OpenAI on missing key OR upstream failure so this route
+      // never hard-errors.
       let imageUrl: string | null = null;
       const wantsLuma = provider === "uni-1" || provider === "uni-1-max";
       if (wantsLuma) {
         try {
           const { lumaAgentsService } = await import("./services/luma-agents");
           if (lumaAgentsService.isConfigured()) {
-            imageUrl = await lumaAgentsService.generateImage({
-              prompt: enhancedPrompt,
-              model: provider === "uni-1-max" ? "uni-1-max" : "uni-1",
-              aspectRatio,
-              referenceImageUrls: referenceImageUrl ? [referenceImageUrl] : [],
-            });
+            const lumaModel = provider === "uni-1-max" ? "uni-1-max" : "uni-1";
+            if (referenceImageUrl) {
+              imageUrl = await lumaAgentsService.editImage({
+                prompt: enhancedPrompt,
+                source: referenceImageUrl,
+                model: lumaModel,
+                aspectRatio,
+              });
+            } else {
+              imageUrl = await lumaAgentsService.generateImage({
+                prompt: enhancedPrompt,
+                model: lumaModel,
+                aspectRatio,
+              });
+            }
           } else {
             console.warn(`[/api/images/generate] ${provider} requested but LUMA_AGENTS_API_KEY missing — falling back to OpenAI`);
           }
         } catch (lumaErr) {
-          console.error(`[/api/images/generate] ${provider} failed:`, lumaErr);
+          console.error(`[/api/images/generate] ${provider} failed, falling back to OpenAI:`, lumaErr);
         }
       }
       if (!imageUrl) {

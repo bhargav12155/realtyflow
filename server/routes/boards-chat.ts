@@ -554,42 +554,61 @@ async function dispatchImage(
 
   // Luma UNI-1 / UNI-1 Max image (and image-edit) — separate Luma product from
   // Dream Machine video. Falls back silently to gemini-image when the upstream
-  // key is missing so users never see a hard error from a missing optional key.
+  // key is missing OR when an auth/quota error has been recorded as permanent
+  // within the 30-min provider-health TTL. Transient errors fall back for the
+  // current request only and are re-tried next time.
   if (provider === "uni-1-image" || provider === "uni-1-max-image") {
     const lumaModel: "uni-1" | "uni-1-max" =
       provider === "uni-1-max-image" ? "uni-1-max" : "uni-1";
     const lumaSvc =
       deps.lumaAgentsService ??
       (await import("../services/luma-agents")).lumaAgentsService;
-    if (!deps.lumaAgentsService && !lumaSvc.isConfigured()) {
+    const downReason = isImageProviderDown(provider)
+      ? `previously marked down`
+      : !deps.lumaAgentsService && !lumaSvc.isConfigured()
+        ? "LUMA_AGENTS_API_KEY missing"
+        : null;
+    if (downReason) {
       console.warn(
-        `[boards-chat] ${provider} requested but LUMA_AGENTS_API_KEY missing — falling back to gemini-image`,
+        `[boards-chat] ${provider} skipped (${downReason}) — falling back to gemini-image`,
       );
       return dispatchImage("gemini-image", ctx, deps);
     }
-    if (refImageUrls.length > 0) {
-      const [source, ...extraRefs] = refImageUrls;
-      const url = await lumaSvc.editImage({
+    try {
+      if (refImageUrls.length > 0) {
+        const [source, ...extraRefs] = refImageUrls;
+        const url = await lumaSvc.editImage({
+          prompt: ctx.prompt,
+          source,
+          model: lumaModel,
+          referenceImageUrls: extraRefs,
+        });
+        return {
+          modelLabel: ctx.forceModel || `${lumaModel} (edit)`,
+          imageUrl: url,
+          edited: true,
+        };
+      }
+      const url = await lumaSvc.generateImage({
         prompt: ctx.prompt,
-        source,
         model: lumaModel,
-        referenceImageUrls: extraRefs,
       });
       return {
-        modelLabel: ctx.forceModel || `${lumaModel} (edit)`,
+        modelLabel: ctx.forceModel || lumaModel,
         imageUrl: url,
-        edited: true,
+        edited: false,
       };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const kind = classifyImageError(msg);
+      if (kind === "permanent") {
+        markImageProviderDown(provider, msg);
+      }
+      console.warn(
+        `[boards-chat] ${provider} ${kind} failure — falling back to gemini-image: ${msg}`,
+      );
+      return dispatchImage("gemini-image", ctx, deps);
     }
-    const url = await lumaSvc.generateImage({
-      prompt: ctx.prompt,
-      model: lumaModel,
-    });
-    return {
-      modelLabel: ctx.forceModel || lumaModel,
-      imageUrl: url,
-      edited: false,
-    };
   }
 
   if (provider === "gemini-image") {
@@ -1110,9 +1129,41 @@ export function getChatProviderHealthSnapshot(): {
   return { healthy, unhealthy, default: healthy[0] ?? null };
 }
 
+// ---------------------------------------------------------------------------
+// Image provider health (separate map keyed by image-provider id). Same
+// permanent/transient classification + 30-min TTL so a missing or revoked
+// LUMA_AGENTS_API_KEY doesn't keep retrying every dispatch for 30 minutes —
+// we mark it down once, fall back silently, and re-probe after the TTL.
+// ---------------------------------------------------------------------------
+const imageProviderHealth = new Map<ImageProvider, ProviderHealthEntry>();
+
+function classifyImageError(err: string | undefined): "permanent" | "transient" {
+  return classifyChatError(err);
+}
+
+function markImageProviderDown(id: ImageProvider, reason: string) {
+  imageProviderHealth.set(id, { downSince: Date.now(), reason });
+}
+
+function isImageProviderDown(id: ImageProvider): boolean {
+  const entry = imageProviderHealth.get(id);
+  if (!entry) return false;
+  if (Date.now() - entry.downSince > PROVIDER_DOWN_TTL_MS) {
+    imageProviderHealth.delete(id);
+    return false;
+  }
+  return true;
+}
+
+/** Test-only: clear the image provider health cache between cases. */
+export function __resetImageProviderHealthForTests() {
+  imageProviderHealth.clear();
+}
+
 /** Test-only: clear the health cache between cases. */
 export function __resetChatProviderHealthForTests() {
   providerHealth.clear();
+  imageProviderHealth.clear();
 }
 
 const FRIENDLY_ALL_DOWN =

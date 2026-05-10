@@ -44,6 +44,10 @@ export interface AiAssistantDeps {
   s3UploadService: S3UploadLike;
   loadAnthropic: () => Promise<{ anthropicService: ChatService }>;
   loadGemini: () => Promise<{ geminiService: ChatService }>;
+  /** Optional fallback image generator for the Gemini branch when the user's
+   * message triggers IMAGE_PATTERNS or UNI1_INTENT. When omitted, the Gemini
+   * branch simply returns no image (the chat reply still goes out). */
+  openaiService?: OpenAIServiceLike;
 }
 
 const IMAGE_PATTERNS =
@@ -56,7 +60,7 @@ const UNI1_INTENT = /\b(?:uni[\s-]*1(?:\s*max)?|luma\s*uni)\b/i;
 
 async function generateAssistantImage(
   message: string,
-  fallbackImageService: { generateImage: (opts: { prompt: string }) => Promise<string | null> },
+  fallbackImageService: OpenAIServiceLike | undefined,
 ): Promise<string | null> {
   const imagePrompt = `Professional high-quality marketing image: ${message}. Photorealistic, well-lit, suitable for social media and marketing. Do not include any text, logos, watermarks, branding, labels, or written words in the image.`;
   if (UNI1_INTENT.test(message)) {
@@ -69,13 +73,12 @@ async function generateAssistantImage(
           model: wantsMax ? "uni-1-max" : "uni-1",
         });
       }
-    } catch (lumaErr: any) {
-      console.error(
-        "❌ [AI Chat] UNI-1 image generation failed, falling back:",
-        lumaErr?.message,
-      );
+    } catch (lumaErr) {
+      const msg = lumaErr instanceof Error ? lumaErr.message : String(lumaErr);
+      console.error("❌ [AI Chat] UNI-1 image generation failed, falling back:", msg);
     }
   }
+  if (!fallbackImageService) return null;
   return await fallbackImageService.generateImage({ prompt: imagePrompt });
 }
 
@@ -247,7 +250,7 @@ Be professional, helpful, and focused on real estate marketing. Keep responses c
         let geminiImageUrl: string | null = null;
         if (IMAGE_PATTERNS.test(message) || UNI1_INTENT.test(message)) {
           try {
-            geminiImageUrl = await generateAssistantImage(message, (deps as any).openaiService ?? { generateImage: async () => null });
+            geminiImageUrl = await generateAssistantImage(message, deps.openaiService);
           } catch (imgError: any) {
             console.error(
               "❌ [AI Chat/Gemini] Image generation failed:",

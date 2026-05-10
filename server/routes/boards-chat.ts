@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomUUID } from "crypto";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
-import type { BoardAsset, BoardAssetEvalHistoryEntry, BoardMessageCta } from "@shared/schema";
+import type { BoardAsset, BoardAssetEvalHistoryEntry, BoardAssetGenContext, BoardMessageCta } from "@shared/schema";
 import type { BoardAssetCreate, BoardMessageCreate } from "../storage";
 import OpenAI, { type Uploadable } from "openai";
 import type { LumaModel } from "../services/luma";
@@ -963,6 +963,86 @@ async function pollUntilDone(
   return { error: "Generation timed out after 5 minutes" };
 }
 
+/**
+ * Run a single asset row through the same dispatch + poll pipeline that
+ * `runBatchInBackground` uses for each row. Extracted so the retry endpoint
+ * (Task #263) can re-run a single failed tile without re-creating the row,
+ * sharing 100% of the status-flip + WS fan-out logic with the original
+ * batch-time path.
+ */
+async function runOneAssetInBackground(args: {
+  storage: IStorage;
+  boardId: string;
+  userId: string;
+  row: BoardAsset;
+  prompt: string;
+  provider: Provider;
+  genMode: GenMode;
+  refAssets: BoardAsset[];
+  forceModel?: string;
+  seedanceOptions?: DispatchContext["seedanceOptions"];
+  dispatch: DispatchOne;
+  dispatchImageFn: DispatchImage;
+  recipients: string[];
+}): Promise<void> {
+  const { storage, boardId, userId, row, prompt, provider, genMode, refAssets, forceModel, seedanceOptions, dispatch, dispatchImageFn, recipients } = args;
+  try {
+    if (isImageProvider(provider)) {
+      const imageResult = await dispatchImageFn(provider, { prompt, refAssets, forceModel });
+      const updated = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+        status: "ready",
+        modelLabel: imageResult.modelLabel,
+        assetUrl: imageResult.imageUrl,
+        thumbnailUrl: imageResult.imageUrl,
+        rejectionReason: null,
+      });
+      if (updated) pushAssetStatus(recipients, boardId, updated);
+      return;
+    }
+    const videoProvider = provider as VideoProvider;
+    const dispatched = await dispatch(videoProvider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
+    const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+      modelLabel: dispatched.modelLabel,
+    });
+    if (labelled) pushAssetStatus(recipients, boardId, labelled);
+    const result = await pollUntilDone(dispatched.poll);
+    if (result.error || !result.videoUrl) {
+      const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+        status: "failed",
+        rejectionReason: result.error || "No output URL returned",
+      });
+      if (failed) pushAssetStatus(recipients, boardId, failed);
+      return;
+    }
+    const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+      status: "ready",
+      assetUrl: result.videoUrl,
+      thumbnailUrl: result.videoUrl,
+      durationSeconds: result.durationSeconds ?? null,
+      rejectionReason: null,
+    });
+    if (ready) pushAssetStatus(recipients, boardId, ready);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Generation failed";
+    console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
+    // Mark video providers down on permanent failures (missing key,
+    // 401/403, "not configured") so the next brainstorm reply remaps
+    // suggestions away from this provider for PROVIDER_DOWN_TTL_MS.
+    // Image providers are already tracked inside dispatchImage's own
+    // catch with markImageProviderDown.
+    if (!isImageProvider(provider)) {
+      if (classifyChatError(msg) === "permanent") {
+        markVideoProviderDown(provider as VideoProvider, msg);
+      }
+    }
+    const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+      status: "failed",
+      rejectionReason: msg,
+    });
+    if (failed) pushAssetStatus(recipients, boardId, failed);
+  }
+}
+
 async function runBatchInBackground(args: {
   storage: IStorage;
   boardId: string;
@@ -990,61 +1070,23 @@ async function runBatchInBackground(args: {
   const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
 
   await Promise.all(
-    rows.map(async (row) => {
-      try {
-        if (isImageProvider(provider)) {
-          const imageResult = await dispatchImageFn(provider, { prompt, refAssets, forceModel });
-          const updated = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
-            status: "ready",
-            modelLabel: imageResult.modelLabel,
-            assetUrl: imageResult.imageUrl,
-            thumbnailUrl: imageResult.imageUrl,
-          });
-          if (updated) pushAssetStatus(recipients, boardId, updated);
-          return;
-        }
-        const videoProvider = provider as VideoProvider;
-        const dispatched = await dispatch(videoProvider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
-        const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
-          modelLabel: dispatched.modelLabel,
-        });
-        if (labelled) pushAssetStatus(recipients, boardId, labelled);
-        const result = await pollUntilDone(dispatched.poll);
-        if (result.error || !result.videoUrl) {
-          const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
-            status: "failed",
-            rejectionReason: result.error || "No output URL returned",
-          });
-          if (failed) pushAssetStatus(recipients, boardId, failed);
-          return;
-        }
-        const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
-          status: "ready",
-          assetUrl: result.videoUrl,
-          thumbnailUrl: result.videoUrl,
-          durationSeconds: result.durationSeconds ?? null,
-        });
-        if (ready) pushAssetStatus(recipients, boardId, ready);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Generation failed";
-        console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
-        // Mark video providers down on permanent failures (missing key,
-        // 401/403, "not configured") so the next brainstorm reply remaps
-        // suggestions away from this provider for PROVIDER_DOWN_TTL_MS.
-        // Image providers are already tracked inside dispatchImage's own
-        // catch with markImageProviderDown.
-        if (!isImageProvider(provider)) {
-          if (classifyChatError(msg) === "permanent") {
-            markVideoProviderDown(provider as VideoProvider, msg);
-          }
-        }
-        const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
-          status: "failed",
-          rejectionReason: msg,
-        });
-        if (failed) pushAssetStatus(recipients, boardId, failed);
-      }
-    }),
+    rows.map((row) =>
+      runOneAssetInBackground({
+        storage,
+        boardId,
+        userId,
+        row,
+        prompt,
+        provider,
+        genMode,
+        refAssets,
+        forceModel,
+        seedanceOptions,
+        dispatch,
+        dispatchImageFn,
+        recipients,
+      }),
+    ),
   );
 
   try {
@@ -1053,6 +1095,7 @@ async function runBatchInBackground(args: {
     console.error("[boards-chat] auto-eval pass failed:", err instanceof Error ? err.message : err);
   }
 }
+
 
 function appendEvalHistory(
   asset: BoardAsset,
@@ -1972,6 +2015,16 @@ export function registerBoardsChatRoutes(
       // + every share recipient + actor) so collaborators see the new
       // tiles flip from "Generating…" → ready/failed without a refresh.
       const recipients = await resolveBoardRecipients(storage, boardId, userId);
+      // Snapshot of the dispatch inputs persisted on every generated row so
+      // a failed tile's Retry button (Task #263) can re-run the exact same
+      // generation later — same prompt, same refs, same provider knobs.
+      const genContext: BoardAssetGenContext = {
+        prompt: body.message,
+        refAssetIds: refAssets.map((a) => a.id),
+        genMode,
+        ...(body.forceModel ? { forceModel: body.forceModel } : {}),
+        ...(body.seedanceOptions ? { seedanceOptions: body.seedanceOptions } : {}),
+      };
       const rows: BoardAsset[] = [];
       for (let i = 0; i < variations; i++) {
         const payload: BoardAssetCreate = {
@@ -1990,6 +2043,7 @@ export function registerBoardsChatRoutes(
           durationSeconds: null,
           rejectionReason: null,
           sourceAssetId: editSourceAssetId,
+          genContext,
         };
         const created = await storage.createBoardAssetForUser(boardId, userId, payload);
         if (created) {
@@ -2107,6 +2161,108 @@ export function registerBoardsChatRoutes(
         }
         console.error("[boards-chat] override-winner error:", error);
         const message = error instanceof Error ? error.message : "Override failed";
+        return res.status(500).json({ error: message });
+      }
+    },
+  );
+
+  // ---- Retry a failed/rejected generated tile ----
+  // Re-runs the original generation using the snapshot persisted on the
+  // asset row at create time (`genContext`). Same provider, same prompt,
+  // same referenced inputs, same forceModel/seedance options, same genMode
+  // — so the user doesn't have to re-type or re-pick anything. Flips the
+  // row back to "generating" + clears the rejection reason synchronously
+  // (so the response returns the new state) and dispatches the actual work
+  // in the background, broadcasting WS status updates exactly like the
+  // batch-time path.
+  app.post(
+    "/api/boards/:id/assets/:assetId/retry",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = String(req.user!.id);
+        const boardId = req.params.id;
+        const assetId = req.params.assetId;
+
+        // Shared collaborators (Task #232) can retry on shared boards,
+        // matching the rest of the collaborative canvas UX.
+        const board = await storage.getAccessibleBoardForUser(boardId, userId);
+        if (!board) return res.status(404).json({ error: "Board not found" });
+
+        const existing = await storage.getBoardAssetByIdForUser(boardId, assetId, userId);
+        if (!existing) return res.status(404).json({ error: "Asset not found" });
+        if (existing.status !== "failed" && existing.status !== "rejected") {
+          return res.status(400).json({
+            error: "Only failed or rejected tiles can be retried",
+            status: existing.status,
+          });
+        }
+        if (existing.kind !== "image" && existing.kind !== "video") {
+          return res.status(400).json({
+            error: "Retry is only supported for image and video tiles",
+            kind: existing.kind,
+          });
+        }
+        const ctx = existing.genContext as BoardAssetGenContext | null | undefined;
+        if (!ctx || typeof ctx.prompt !== "string" || !Array.isArray(ctx.refAssetIds)) {
+          return res.status(409).json({
+            error:
+              "This tile is missing the original generation context and can't be retried automatically. Re-run the prompt from chat.",
+            code: "missing_gen_context",
+          });
+        }
+        if (!existing.provider) {
+          return res.status(409).json({
+            error: "This tile has no recorded provider and can't be retried automatically.",
+            code: "missing_provider",
+          });
+        }
+
+        // Re-resolve referenced assets via the same per-user reader the
+        // create handler uses so a deleted reference is silently skipped
+        // rather than crashing the dispatch.
+        const refAssets: BoardAsset[] = [];
+        for (const id of ctx.refAssetIds) {
+          const a = await storage.getBoardAssetByIdForUser(boardId, id, userId);
+          if (a) refAssets.push(a);
+        }
+
+        const recipients = await resolveBoardRecipients(storage, boardId, userId);
+        // Flip the row back to a fresh "generating" state and clear the
+        // prior rejection reason so the canvas re-renders the spinner
+        // overlay immediately. The new model label arrives once the
+        // dispatch resolves (mirrors the batch-time flow).
+        const reset = await storage.updateBoardAssetForUser(boardId, assetId, userId, {
+          status: "generating",
+          rejectionReason: null,
+          assetUrl: null,
+          thumbnailUrl: null,
+          durationSeconds: null,
+        });
+        if (!reset) return res.status(500).json({ error: "Failed to reset asset state" });
+        pushAssetStatus(recipients, boardId, reset);
+
+        const bgPromise = runOneAssetInBackground({
+          storage,
+          boardId,
+          userId,
+          row: reset,
+          prompt: ctx.prompt,
+          provider: existing.provider as Provider,
+          genMode: ctx.genMode,
+          refAssets,
+          forceModel: ctx.forceModel,
+          seedanceOptions: ctx.seedanceOptions,
+          dispatch,
+          dispatchImageFn,
+          recipients,
+        }).catch((err) => console.error("[boards-chat] retry background error:", err));
+        deps.onBatchScheduled?.(bgPromise);
+
+        return res.json({ success: true, asset: reset });
+      } catch (error: unknown) {
+        console.error("[boards-chat] retry error:", error);
+        const message = error instanceof Error ? error.message : "Retry failed";
         return res.status(500).json({ error: message });
       }
     },

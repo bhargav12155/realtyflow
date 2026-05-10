@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Image as ImageIcon, Film, Loader2, AlertCircle } from "lucide-react";
+import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Image as ImageIcon, Film, Loader2, AlertCircle, RotateCcw } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
 import {
@@ -135,6 +135,10 @@ interface BoardCanvasProps {
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
+  /** Re-run generation for a failed/rejected image or video tile. */
+  onRetryAsset?: (assetId: string) => void;
+  /** assetId currently being retried, so the tile can show a pending state. */
+  retryPendingAssetId?: string | null;
 }
 
 interface MarqueeBox {
@@ -157,6 +161,8 @@ export function BoardCanvas({
   onSelectAll,
   onDeleteAsset,
   onClearRejection,
+  onRetryAsset,
+  retryPendingAssetId,
   onSetWinner,
   onReEvaluate,
   onResizeAsset,
@@ -488,6 +494,8 @@ export function BoardCanvas({
               onSelectAsset={onSelectAsset}
               onDeleteAsset={onDeleteAsset}
               onClearRejection={onClearRejection}
+              onRetryAsset={onRetryAsset}
+              retryPendingAssetId={retryPendingAssetId}
               onSetWinner={onSetWinner}
               onReEvaluate={onReEvaluate}
               onResizeAsset={onResizeAsset}
@@ -588,6 +596,8 @@ function BatchGroup({
   onSelectAsset,
   onDeleteAsset,
   onClearRejection,
+  onRetryAsset,
+  retryPendingAssetId,
   onSetWinner,
   onReEvaluate,
   onResizeAsset,
@@ -606,6 +616,8 @@ function BatchGroup({
   onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
   onDeleteAsset: (id: string) => void;
   onClearRejection: (id: string) => void;
+  onRetryAsset?: (id: string) => void;
+  retryPendingAssetId?: string | null;
   onSetWinner?: (batchId: string, assetId: string) => void;
   onReEvaluate?: (
     batchId: string,
@@ -715,6 +727,12 @@ function BatchGroup({
                 onSelectSource={source ? () => onSelectAsset(source.id) : undefined}
                 onDelete={() => onDeleteAsset(a.id)}
                 onClearRejection={() => onClearRejection(a.id)}
+                onRetry={
+                  onRetryAsset && (a.kind === "image" || a.kind === "video")
+                    ? () => onRetryAsset(a.id)
+                    : undefined
+                }
+                retryPending={retryPendingAssetId === a.id}
                 onSetWinner={
                   onSetWinner ? () => onSetWinner(batch.batchId, a.id) : undefined
                 }
@@ -826,6 +844,8 @@ function AssetTile({
   onSelectSource,
   onDelete,
   onClearRejection,
+  onRetry,
+  retryPending,
   onSetWinner,
   onResize,
   setWinnerPending,
@@ -846,6 +866,9 @@ function AssetTile({
   onSelectSource?: () => void;
   onDelete: () => void;
   onClearRejection: () => void;
+  /** When defined, the failed-state placeholder renders a Retry button (Task #263). */
+  onRetry?: () => void;
+  retryPending?: boolean;
   onSetWinner?: () => void;
   onResize?: (width: number, height: number) => void;
   setWinnerPending?: boolean;
@@ -1292,6 +1315,22 @@ function AssetTile({
                   <div className="text-[9px] text-center leading-tight opacity-80 truncate max-w-full">
                     {hint}
                   </div>
+                )}
+                {isFailed && onRetry && (asset.height ?? 0) >= 80 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetry();
+                    }}
+                    disabled={!!retryPending}
+                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-600 text-white text-[10px] font-medium hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    data-testid={`button-retry-${asset.id}`}
+                    title="Re-run this generation"
+                  >
+                    <RotateCcw className={`w-2.5 h-2.5 ${retryPending ? "animate-spin" : ""}`} />
+                    {retryPending ? "Retrying…" : "Retry"}
+                  </button>
                 )}
               </div>
             );

@@ -12,7 +12,7 @@ import {
   type GeminiImageService,
 } from "../server/routes/boards-chat";
 import OpenAI from "openai";
-import type { Board, BoardAsset, InsertBoard } from "@shared/schema";
+import type { Board, BoardAsset, BoardAssetGenContext, InsertBoard } from "@shared/schema";
 import type {
   IStorage,
   BoardAssetCreate,
@@ -80,8 +80,12 @@ class FakeStorage {
       height: asset.height ?? 180,
       status: asset.status ?? "queued",
       rejectionReason: asset.rejectionReason ?? null,
+      // Persisted snapshot of the chat-mode dispatch inputs (Task #263) so
+      // a failed tile's Retry button can re-run the original generation
+      // without re-deriving it from chat history.
+      genContext: (asset as { genContext?: unknown }).genContext ?? null,
       createdAt: new Date(),
-    };
+    } as BoardAsset;
     this.assets.set(created.id, created);
     return created;
   }
@@ -1173,6 +1177,107 @@ describe("POST /api/boards/:id/chat — create mode", () => {
     assert.equal(dispatched.length, 1);
     assert.equal(dispatched[0].provider, "sora2");
     assert.equal(dispatched[0].forceModel, "sora-2");
+  });
+});
+
+describe("POST /api/boards/:id/assets/:assetId/retry — Task #263", () => {
+  it("re-runs the original generation using the persisted genContext (image)", async () => {
+    let imageCalls = 0;
+    const dispatchedPrompts: string[] = [];
+    // First image generation will fail; the failed row should be retryable.
+    let shouldFail = true;
+    const gem = {
+      async generateImage(opts: { prompt: string }) {
+        dispatchedPrompts.push(opts.prompt);
+        imageCalls += 1;
+        if (shouldFail) throw new Error("upstream image error");
+        return "https://x/img.png";
+      },
+      async editImage() {
+        throw new Error("editImage not expected");
+      },
+    } as unknown as GeminiImageService;
+
+    const { app, storage, bgPromises } = buildApp({ geminiImageService: gem });
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+
+    // Kick off a 1-variation gemini-image batch that the dispatch will fail.
+    const res = await postJson(app, `/api/boards/${board.id}/chat`, {
+      message: "a serene mountain lake at golden hour",
+      mode: "create",
+      provider: "gemini-image",
+      variations: 1,
+    });
+    assert.equal(res.status, 200);
+    await Promise.all(bgPromises.splice(0));
+
+    const failed = Array.from(storage.assets.values())[0];
+    assert.equal(failed.status, "failed");
+    assert.ok(failed.rejectionReason);
+    // Persisted snapshot must carry the original prompt + provider knobs.
+    const ctx = (failed as unknown as { genContext: BoardAssetGenContext }).genContext;
+    assert.equal(ctx.prompt, "a serene mountain lake at golden hour");
+    assert.deepEqual(ctx.refAssetIds, []);
+
+    // Second pass succeeds.
+    shouldFail = false;
+    const retry = await postJson(
+      app,
+      `/api/boards/${board.id}/assets/${failed.id}/retry`,
+      {},
+    );
+    assert.equal(retry.status, 200);
+    assert.equal(retry.body.success, true);
+    assert.equal(retry.body.asset.status, "generating");
+    assert.equal(retry.body.asset.rejectionReason, null);
+
+    await Promise.all(bgPromises);
+    const after = storage.assets.get(failed.id)!;
+    assert.equal(after.status, "ready");
+    assert.equal(after.assetUrl, "https://x/img.png");
+    assert.equal(imageCalls, 2, "dispatch should have run again on retry");
+    assert.deepEqual(dispatchedPrompts, [
+      "a serene mountain lake at golden hour",
+      "a serene mountain lake at golden hour",
+    ]);
+  });
+
+  it("rejects retry when the asset is not in a failed/rejected state", async () => {
+    const { app, storage } = buildApp();
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const a = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "b1",
+      kind: "image",
+      provider: "gemini-image",
+      status: "ready",
+      assetUrl: "https://x/img.png",
+      thumbnailUrl: "https://x/img.png",
+    } as unknown as BoardAssetCreate);
+    const res = await postJson(
+      app,
+      `/api/boards/${board.id}/assets/${a!.id}/retry`,
+      {},
+    );
+    assert.equal(res.status, 400);
+  });
+
+  it("returns 409 when genContext is missing (legacy row)", async () => {
+    const { app, storage } = buildApp();
+    const board = await storage.createBoard({ userId: "user-1", title: "B" });
+    const a = await storage.createBoardAssetForUser(board.id, "user-1", {
+      batchId: "b1",
+      kind: "image",
+      provider: "gemini-image",
+      status: "failed",
+      rejectionReason: "boom",
+    } as unknown as BoardAssetCreate);
+    const res = await postJson(
+      app,
+      `/api/boards/${board.id}/assets/${a!.id}/retry`,
+      {},
+    );
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, "missing_gen_context");
   });
 });
 

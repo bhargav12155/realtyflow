@@ -303,6 +303,7 @@ class FakeBoardsStorage {
       status: asset.status ?? "queued",
       rejectionReason: asset.rejectionReason ?? null,
       content: asset.content ?? null,
+      genContext: (asset as { genContext?: unknown }).genContext ?? null,
       createdAt: new Date(),
     } as BoardAsset;
     this.assets.set(created.id, created);

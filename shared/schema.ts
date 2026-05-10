@@ -2000,6 +2000,14 @@ export const boardAssets = pgTable("board_assets", {
   // board (image edit flow), this points to the source asset id so the UI can
   // surface a before/after view. Nullable for non-edit batches.
   sourceAssetId: varchar("source_asset_id"),
+  // Snapshot of the chat-mode generation parameters that produced this row,
+  // captured by the create-mode handler in `server/routes/boards-chat.ts`.
+  // Persisted so a failed tile can be retried (Task #263) by re-running the
+  // exact same dispatch — same prompt, same referenced asset ids, same
+  // forceModel/seedance options/genMode — without the user having to re-type
+  // anything. Null for non-generated kinds (sticky, text, frame, drawing,
+  // upload) and for legacy rows that pre-date the column.
+  genContext: jsonb("gen_context").$type<BoardAssetGenContext>(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("IDX_board_assets_board").on(table.boardId),
@@ -2016,6 +2024,29 @@ export type BoardAssetEvalHistoryEntry = {
   extraCriteria?: string;
   actorUserId?: string;
   prevStatus?: string;
+};
+
+/**
+ * Persisted snapshot of the inputs the chat-mode create handler passed to
+ * the dispatcher when this asset was generated. Stored on the asset row so
+ * a failed tile's Retry button (Task #263) can re-run the exact same
+ * generation without re-deriving anything from chat history.
+ */
+export type BoardAssetGenContext = {
+  /** The user's chat message that produced the row (verbatim). */
+  prompt: string;
+  /** IDs of the board assets the user attached as references at request time. */
+  refAssetIds: string[];
+  /** Original `genMode` ("text-to-video" / "image-to-video" / "video-to-video"); image providers also use "text-to-video" as a label-only value. */
+  genMode: "text-to-video" | "image-to-video" | "video-to-video";
+  /** Optional model override forwarded from the request body. */
+  forceModel?: string;
+  /** Seedance-only knobs forwarded verbatim. */
+  seedanceOptions?: {
+    model?: string;
+    aspectRatio?: string;
+    durationSeconds?: number;
+  };
 };
 
 export const insertBoardAssetSchema = createInsertSchema(boardAssets).omit({

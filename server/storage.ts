@@ -3433,7 +3433,12 @@ export class MemStorage implements IStorage {
     if (!access) return undefined;
     const [created] = await db
       .insert(boardAssetsTable)
-      .values({ ...asset, boardId })
+      // Cast: drizzle-zod doesn't propagate `.$type<BoardAssetGenContext>()`
+      // through `createInsertSchema(jsonb)` (it stays loose `Json`), so we
+      // need to assert here that the spread payload matches the table's
+      // strict insert shape. Same pattern is needed for the `cta` column
+      // on board_messages.
+      .values({ ...asset, boardId } as typeof boardAssetsTable.$inferInsert)
       .returning();
     // Bump parent board's updatedAt unconditionally — touchBoardForUser is
     // owner-scoped and would silently no-op for shared collaborators.

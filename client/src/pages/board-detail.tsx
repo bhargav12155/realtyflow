@@ -1480,6 +1480,27 @@ export default function BoardDetailPage() {
     },
   });
 
+  // Re-run generation for a failed/rejected image or video tile (Task #263).
+  // The server side reads the original prompt + provider + refs from the row
+  // and dispatches the same provider in the background; the canvas updates
+  // live via WS as the row flips back to "generating" and then to ready/failed.
+  const retryAsset = useMutation({
+    mutationFn: async (assetId: string) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/boards/${boardId}/assets/${assetId}/retry`,
+      );
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+    },
+    onError: (e: Error) => {
+      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      toast({ title: "Couldn't retry", description: errText, variant: "destructive" });
+    },
+  });
+
   const moveAssets = useMutation({
     mutationFn: async (
       moves: Array<{ id: string; positionX: number; positionY: number }>,
@@ -2052,6 +2073,8 @@ export default function BoardDetailPage() {
             onSelectAll={handleSelectAll}
             onDeleteAsset={(id) => deleteAsset.mutate(id)}
             onClearRejection={(id) => clearRejection.mutate(id)}
+            onRetryAsset={(id) => retryAsset.mutate(id)}
+            retryPendingAssetId={retryAsset.isPending ? (retryAsset.variables as string) : null}
             onSetWinner={(batchId, assetId) => setWinner.mutate({ batchId, assetId })}
             onReEvaluate={(batchId, payload) =>
               reEvaluateBatch.mutate({ batchId, ...payload })

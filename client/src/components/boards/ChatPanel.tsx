@@ -136,6 +136,10 @@ interface ChatPanelProps {
   autoGenerateFirst?: boolean;
   /** Persist toggle change. Omit to hide the toggle entirely. */
   onAutoGenerateFirstChange?: (next: boolean) => void;
+  /** Bumped by the parent (via Date.now() or a counter) to programmatically
+   *  open the Build platform picker — used by the "Edit prompt" handoff on
+   *  a Think-mode suggestion card so the user lands directly on the picker. */
+  openPickerSignal?: number;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
@@ -203,6 +207,7 @@ export function ChatPanel({
   dispatchingSuggestionIds,
   autoGenerateFirst,
   onAutoGenerateFirstChange,
+  openPickerSignal,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -293,6 +298,16 @@ export function ChatPanel({
     if (isPlan) setPickerOpen(false);
     else setModelPickerOpen(false);
   }, [isPlan]);
+
+  // Parent-driven open of the Build platform picker. Fires whenever
+  // openPickerSignal changes to a truthy value while in Build mode — used
+  // by the "Edit prompt" hand-off on a Think suggestion card so the user
+  // lands on the picker pre-aligned to the recommended provider.
+  useEffect(() => {
+    if (!openPickerSignal) return;
+    if (isPlan) return;
+    setPickerOpen(true);
+  }, [openPickerSignal, isPlan]);
 
   const submit = () => {
     const text = input.trim();

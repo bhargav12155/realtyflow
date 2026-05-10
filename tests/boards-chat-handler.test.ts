@@ -1785,6 +1785,8 @@ import {
   extractSuggestions,
   remapSuggestionsForHealth,
   __resetImageProviderHealthForTests,
+  markVideoProviderDown,
+  getVideoProviderHealthSnapshot,
 } from "../server/routes/boards-chat";
 
 describe("extractSuggestions() — brainstorm reply parser", () => {
@@ -1936,6 +1938,62 @@ describe("remapSuggestionsForHealth() — provider fallback", () => {
     );
     assert.equal(out.length, 1);
     assert.equal(out[0].provider, "uni-1-image");
+  });
+
+  it("remaps an unhealthy luma video card to sora2 and records the original", () => {
+    const input = [
+      {
+        id: "s1",
+        kind: "video" as const,
+        provider: "luma" as const,
+        prompt: "x",
+        count: 1,
+        aspectRatio: "16:9",
+      },
+    ];
+    const out = remapSuggestionsForHealth(input, new Set(), new Set(["luma"]));
+    assert.equal(out.length, 1);
+    assert.equal(out[0].provider, "sora2");
+    assert.equal(out[0].originalProvider, "luma");
+    assert.ok(out[0].fallbackReason);
+  });
+
+  it("video fallback follows luma → sora2 → runway → kling and stops at the first healthy", () => {
+    const input = [
+      {
+        id: "s1",
+        kind: "video" as const,
+        provider: "luma" as const,
+        prompt: "x",
+        count: 1,
+        aspectRatio: "16:9",
+      },
+    ];
+    const out = remapSuggestionsForHealth(
+      input,
+      new Set(),
+      new Set(["luma", "sora2"]),
+    );
+    assert.equal(out[0].provider, "runway");
+  });
+});
+
+describe("video provider health tracking", () => {
+  it("markVideoProviderDown surfaces the provider in getVideoProviderHealthSnapshot.unhealthy with its reason", () => {
+    __resetChatProviderHealthForTests();
+    markVideoProviderDown("luma", "missing LUMA_API_KEY");
+    const snap = getVideoProviderHealthSnapshot();
+    assert.ok(snap.unhealthy.find((u) => u.id === "luma" && u.reason.includes("LUMA")));
+    assert.equal(snap.healthy.includes("luma"), false);
+    // Untouched providers still appear under healthy.
+    assert.equal(snap.healthy.includes("sora2"), true);
+  });
+
+  it("__resetChatProviderHealthForTests clears the video provider health cache", () => {
+    markVideoProviderDown("runway", "401");
+    __resetChatProviderHealthForTests();
+    const snap = getVideoProviderHealthSnapshot();
+    assert.equal(snap.unhealthy.length, 0);
   });
 });
 

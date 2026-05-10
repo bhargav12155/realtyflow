@@ -46,6 +46,7 @@ import {
   isProviderId,
   type GenerationMode,
   type ProviderId,
+  type SeedanceAspectRatio,
   type SeedanceOptions,
 } from "@/components/boards/PlatformPicker";
 
@@ -120,23 +121,53 @@ export default function BoardDetailPage() {
   );
   // Opt-in: when ON, an assistant message with suggestions[] auto-runs the
   // first suggestion if the user's NEXT reply matches an affirmative keyword
-  // ("yes", "go", "do it", "ship it", "generate"). Persisted per browser so
-  // the choice survives reloads. Defaults OFF to preserve current behavior.
-  const [autoGenerateFirst, setAutoGenerateFirst] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("boards.autoGenerateFirst") === "1";
-    } catch {
-      return false;
-    }
+  // ("yes", "go", "do it", "ship it", "generate"). Persisted server-side via
+  // the existing /api/user/preferences endpoint so the choice follows the
+  // user across browsers and devices. Defaults OFF to preserve current
+  // behavior; reads optimistically from cache so the toggle is responsive.
+  const userPrefsQuery = useQuery<{ boardsAutoGenerateFirst?: boolean | null }>({
+    queryKey: ["/api/user/preferences"],
+  });
+  const autoGenerateFirst = userPrefsQuery.data?.boardsAutoGenerateFirst === true;
+  const updateAutoGenerateFirst = useMutation({
+    mutationFn: async (next: boolean) => {
+      const res = await apiRequest("PUT", "/api/user/preferences", {
+        boardsAutoGenerateFirst: next,
+      });
+      return res.json();
+    },
+    onMutate: async (next: boolean) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/user/preferences"] });
+      const prev = queryClient.getQueryData<{ boardsAutoGenerateFirst?: boolean | null }>(
+        ["/api/user/preferences"],
+      );
+      queryClient.setQueryData(["/api/user/preferences"], {
+        ...(prev ?? {}),
+        boardsAutoGenerateFirst: next,
+      });
+      return { prev };
+    },
+    onError: (_err, _next, ctx) => {
+      if (ctx?.prev !== undefined) {
+        queryClient.setQueryData(["/api/user/preferences"], ctx.prev);
+      }
+      toast({
+        title: "Couldn't save preference",
+        description: "We'll keep trying — your auto-generate choice didn't stick.",
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/preferences"] });
+    },
   });
   const handleAutoGenerateFirstChange = (next: boolean) => {
-    setAutoGenerateFirst(next);
-    try {
-      localStorage.setItem("boards.autoGenerateFirst", next ? "1" : "0");
-    } catch {
-      /* ignore storage failures (private mode, etc.) */
-    }
+    updateAutoGenerateFirst.mutate(next);
   };
+  // Bumped to ask the ChatPanel to programmatically open its Build picker —
+  // used by the "Edit prompt" hand-off so the user lands on the picker
+  // pre-aligned to the suggestion's recommended provider.
+  const [openPickerSignal, setOpenPickerSignal] = useState(0);
   // Hydrate the chat panel from the server exactly once per board so the
   // user's prior conversation is restored on reload/navigation. We never
   // re-overwrite local state after the first hydration — the chat handler
@@ -898,6 +929,10 @@ export default function BoardDetailPage() {
     mutationFn: async (text: string) => {
       const controller = new AbortController();
       chatAbortRef.current = controller;
+      // One-shot variations override staged by editSuggestion. Read-and-clear
+      // so subsequent normal sends fall back to the picker default.
+      const stagedVariations = pendingVariationsRef.current;
+      pendingVariationsRef.current = null;
       const res = await apiRequest(
         "POST",
         `/api/boards/${boardId}/chat`,
@@ -909,6 +944,7 @@ export default function BoardDetailPage() {
           referencedAssetIds,
           ...(provider === "seedance" ? { seedanceOptions } : {}),
           ...(mode === "brainstorm" ? { chatModel } : {}),
+          ...(stagedVariations && mode === "create" ? { variations: stagedVariations } : {}),
         },
         { signal: controller.signal },
       );
@@ -1068,13 +1104,38 @@ export default function BoardDetailPage() {
   };
 
   // "Edit prompt" on a suggestion card: switch to Build, pre-fill the
-  // composer with the polished prompt, and align the picker to the
-  // recommended provider so the user can tweak before dispatching.
+  // composer with the polished prompt, align the picker to the recommended
+  // provider, prefill the per-provider count/aspect-ratio fields where the
+  // picker has them (seedance), and pop the picker open so the user lands
+  // on it rather than having to discover where to tweak.
   const editSuggestion = (s: BoardChatSuggestion) => {
     setMode("create");
     setProvider(s.provider);
     setPendingInput(s.prompt);
+    // Stash the suggestion's count so the next Build send honors it. The
+    // picker doesn't render a count input today, so we keep it on a ref
+    // that sendChat reads when present and clears after one use.
+    pendingVariationsRef.current = Math.max(1, Math.min(4, s.count || 1));
+    // Seedance has explicit aspect-ratio buttons in its picker. Map the
+    // suggestion's aspectRatio onto the picker's whitelist; ignore values
+    // outside it (gemini/openai image suggestions, e.g. "1:1") rather than
+    // pushing an invalid value into the seedance state.
+    if (s.provider === "seedance") {
+      const allowed: SeedanceAspectRatio[] = ["16:9", "9:16", "1:1", "4:3", "3:4"];
+      const ar = allowed.includes(s.aspectRatio as SeedanceAspectRatio)
+        ? (s.aspectRatio as SeedanceAspectRatio)
+        : seedanceOptions.aspectRatio;
+      setSeedanceOptions({ ...seedanceOptions, aspectRatio: ar });
+    }
+    // Bump the open-picker signal so ChatPanel pops the picker on the next
+    // render. We use a counter (not a boolean) so consecutive edits each
+    // re-open it, even if it was closed by hand in between.
+    setOpenPickerSignal((n) => n + 1);
   };
+  // One-shot count override consumed by sendChat — set by editSuggestion
+  // and cleared the moment it's read so subsequent normal sends revert to
+  // the picker default.
+  const pendingVariationsRef = useRef<number | null>(null);
 
   // Affirmative-reply detector for the Auto-generate-first toggle. Matches
   // short utterances only ("yes", "go", "do it", "ship it", "generate") so
@@ -2127,6 +2188,7 @@ export default function BoardDetailPage() {
             dispatchingSuggestionIds={dispatchingSuggestionIds}
             autoGenerateFirst={autoGenerateFirst}
             onAutoGenerateFirstChange={handleAutoGenerateFirstChange}
+            openPickerSignal={openPickerSignal}
             isSending={sendChat.isPending}
             onStop={handleStopChat}
             pendingInput={pendingInput}

@@ -487,6 +487,133 @@ describe("ChatPanel collaborator typing indicator", () => {
   });
 });
 
+describe("ChatPanel inline suggestion cards (Task #264)", () => {
+  const suggestion = {
+    id: "sg1",
+    kind: "image" as const,
+    provider: "gemini-image" as const,
+    prompt: "A cinematic sunset over the ocean, golden hour, ultra-wide.",
+    count: 2,
+    aspectRatio: "16:9",
+    rationale: "Image works best for moodboard pinning.",
+  };
+
+  it("renders a suggestion card under a Think-mode assistant message with provider, count, aspect ratio, and prompt", () => {
+    const messages: ChatMessage[] = [
+      { id: "a1", role: "assistant", content: "Here's a direction.", suggestions: [suggestion] },
+    ];
+    renderPanel({ mode: "brainstorm", messages });
+    expect(screen.getByTestId("suggestions-a1")).not.toBeNull();
+    expect(screen.getByTestId("suggestion-card-sg1")).not.toBeNull();
+    expect(screen.getByTestId("text-suggestion-provider-sg1").textContent).toBe(
+      "Gemini Image",
+    );
+    expect(screen.getByTestId("text-suggestion-prompt-sg1").textContent).toContain(
+      "cinematic sunset",
+    );
+    // Generate + Edit prompt buttons both render.
+    expect(screen.getByTestId("button-generate-suggestion-sg1")).not.toBeNull();
+    expect(screen.getByTestId("button-edit-suggestion-sg1")).not.toBeNull();
+  });
+
+  it("does not render suggestion cards in Build mode (cards are a Think-mode hand-off only)", () => {
+    const messages: ChatMessage[] = [
+      { id: "a1", role: "assistant", content: "OK", suggestions: [suggestion] },
+    ];
+    renderPanel({ mode: "create", messages });
+    expect(screen.queryByTestId("suggestion-card-sg1")).toBeNull();
+  });
+
+  it("clicking Generate calls onGenerateSuggestion with the full suggestion object", () => {
+    const onGenerateSuggestion = vi.fn();
+    const messages: ChatMessage[] = [
+      { id: "a1", role: "assistant", content: "go", suggestions: [suggestion] },
+    ];
+    renderPanel({ mode: "brainstorm", messages, onGenerateSuggestion });
+    fireEvent.click(screen.getByTestId("button-generate-suggestion-sg1"));
+    expect(onGenerateSuggestion).toHaveBeenCalledTimes(1);
+    expect(onGenerateSuggestion).toHaveBeenCalledWith(suggestion);
+  });
+
+  it("clicking Edit prompt calls onEditSuggestion with the same suggestion", () => {
+    const onEditSuggestion = vi.fn();
+    const messages: ChatMessage[] = [
+      { id: "a1", role: "assistant", content: "go", suggestions: [suggestion] },
+    ];
+    renderPanel({ mode: "brainstorm", messages, onEditSuggestion });
+    fireEvent.click(screen.getByTestId("button-edit-suggestion-sg1"));
+    expect(onEditSuggestion).toHaveBeenCalledTimes(1);
+    expect(onEditSuggestion).toHaveBeenCalledWith(suggestion);
+  });
+
+  it("when the suggestion id is in dispatchingSuggestionIds, both buttons disable and the Generate label flips to Starting…", () => {
+    const messages: ChatMessage[] = [
+      { id: "a1", role: "assistant", content: "go", suggestions: [suggestion] },
+    ];
+    renderPanel({
+      mode: "brainstorm",
+      messages,
+      onGenerateSuggestion: vi.fn(),
+      onEditSuggestion: vi.fn(),
+      dispatchingSuggestionIds: new Set(["sg1"]),
+    });
+    const gen = screen.getByTestId("button-generate-suggestion-sg1") as HTMLButtonElement;
+    const edit = screen.getByTestId("button-edit-suggestion-sg1") as HTMLButtonElement;
+    expect(gen.disabled).toBe(true);
+    expect(edit.disabled).toBe(true);
+    expect(gen.textContent).toContain("Starting");
+  });
+
+  it("suppresses the legacy Build-this pill on the same message when structured suggestions exist", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "a1",
+        role: "assistant",
+        content: 'Try this prompt: "A cinematic shot of a sunset over the ocean, golden hour"',
+        suggestions: [suggestion],
+      },
+    ];
+    renderPanel({ mode: "brainstorm", messages });
+    expect(screen.queryByTestId("button-build-this-a1")).toBeNull();
+    expect(screen.getByTestId("suggestion-card-sg1")).not.toBeNull();
+  });
+});
+
+describe("ChatPanel auto-generate-first toggle", () => {
+  it("does not render the toggle in Build mode", () => {
+    renderPanel({
+      mode: "create",
+      autoGenerateFirst: false,
+      onAutoGenerateFirstChange: vi.fn(),
+    });
+    expect(screen.queryByTestId("button-auto-generate-toggle")).toBeNull();
+  });
+
+  it("renders in Think mode and clicking it calls onAutoGenerateFirstChange with the negated value", () => {
+    const onAutoGenerateFirstChange = vi.fn();
+    renderPanel({
+      mode: "brainstorm",
+      autoGenerateFirst: false,
+      onAutoGenerateFirstChange,
+    });
+    const btn = screen.getByTestId("button-auto-generate-toggle");
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(btn);
+    expect(onAutoGenerateFirstChange).toHaveBeenCalledWith(true);
+  });
+
+  it("aria-pressed reflects the current ON state", () => {
+    renderPanel({
+      mode: "brainstorm",
+      autoGenerateFirst: true,
+      onAutoGenerateFirstChange: vi.fn(),
+    });
+    expect(
+      screen.getByTestId("button-auto-generate-toggle").getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+});
+
 describe("extractSuggestedPrompt", () => {
   it("pulls the contents of the first fenced code block", () => {
     expect(extractSuggestedPrompt("Sure!\n```\nA red barn at dawn\n```\nLet me know.")).toBe(

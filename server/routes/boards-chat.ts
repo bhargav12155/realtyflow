@@ -1020,6 +1020,16 @@ async function runBatchInBackground(args: {
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Generation failed";
         console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
+        // Mark video providers down on permanent failures (missing key,
+        // 401/403, "not configured") so the next brainstorm reply remaps
+        // suggestions away from this provider for PROVIDER_DOWN_TTL_MS.
+        // Image providers are already tracked inside dispatchImage's own
+        // catch with markImageProviderDown.
+        if (!isImageProvider(provider)) {
+          if (classifyChatError(msg) === "permanent") {
+            markVideoProviderDown(provider as VideoProvider, msg);
+          }
+        }
         const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           status: "failed",
           rejectionReason: msg,
@@ -1414,10 +1424,55 @@ export function getImageProviderHealthSnapshot(): {
   return { healthy, unhealthy };
 }
 
+// ---------------------------------------------------------------------------
+// Video provider health tracking — mirrors the image provider map so the
+// brainstorm "Generate this" suggestions don't recommend a video provider
+// whose key is missing or whose upstream returned a permanent auth/config
+// error in the last PROVIDER_DOWN_TTL_MS. Marked from the per-row catch in
+// generateBatch where we already classify the failure reason.
+// ---------------------------------------------------------------------------
+const videoProviderHealth = new Map<VideoProvider, ProviderHealthEntry>();
+
+export function markVideoProviderDown(id: VideoProvider, reason: string) {
+  videoProviderHealth.set(id, { downSince: Date.now(), reason });
+}
+
+function isVideoProviderDown(id: VideoProvider): boolean {
+  const entry = videoProviderHealth.get(id);
+  if (!entry) return false;
+  if (Date.now() - entry.downSince > PROVIDER_DOWN_TTL_MS) {
+    videoProviderHealth.delete(id);
+    return false;
+  }
+  return true;
+}
+
+/** Lightweight snapshot of video provider health for the brainstorm remap
+ *  and /api/boards/chat/health. We surface every video provider in
+ *  VIDEO_PROVIDERS so the client can show a green/red indicator if it
+ *  wants to. */
+export function getVideoProviderHealthSnapshot(): {
+  healthy: VideoProvider[];
+  unhealthy: { id: VideoProvider; reason: string }[];
+} {
+  const healthy: VideoProvider[] = [];
+  const unhealthy: { id: VideoProvider; reason: string }[] = [];
+  for (const id of VIDEO_PROVIDERS) {
+    if (isVideoProviderDown(id)) {
+      const entry = videoProviderHealth.get(id)!;
+      unhealthy.push({ id, reason: entry.reason });
+    } else {
+      healthy.push(id);
+    }
+  }
+  return { healthy, unhealthy };
+}
+
 /** Test-only: clear the health cache between cases. */
 export function __resetChatProviderHealthForTests() {
   providerHealth.clear();
   imageProviderHealth.clear();
+  videoProviderHealth.clear();
 }
 
 const FRIENDLY_ALL_DOWN =
@@ -1613,6 +1668,7 @@ export function registerBoardsChatRoutes(
   app.get("/api/boards/chat/health", requireAuth, (_req: Request, res: Response) => {
     const snap = getChatProviderHealthSnapshot();
     const imgSnap = getImageProviderHealthSnapshot();
+    const vidSnap = getVideoProviderHealthSnapshot();
     res.json({
       healthy: snap.healthy,
       unhealthy: snap.unhealthy.map((u) => u.id),
@@ -1620,6 +1676,10 @@ export function registerBoardsChatRoutes(
       images: {
         healthy: imgSnap.healthy,
         unhealthy: imgSnap.unhealthy.map((u) => u.id),
+      },
+      videos: {
+        healthy: vidSnap.healthy,
+        unhealthy: vidSnap.unhealthy.map((u) => u.id),
       },
     });
   });
@@ -1821,14 +1881,14 @@ export function registerBoardsChatRoutes(
         const unhealthyImageProviders = new Set<ImageProvider>(
           imgSnap.unhealthy.map((u) => u.id),
         );
-        // Video providers don't yet have a per-provider health map; treat all
-        // as healthy for now (the dispatch layer will retry/fallback at run
-        // time). Plumbed as an explicit set so a future video health map can
-        // wire in here without touching the parser.
+        const vidSnap = getVideoProviderHealthSnapshot();
+        const unhealthyVideoProviders = new Set<VideoProvider>(
+          vidSnap.unhealthy.map((u) => u.id),
+        );
         const remapped = remapSuggestionsForHealth(
           result.suggestions,
           unhealthyImageProviders,
-          new Set(),
+          unhealthyVideoProviders,
         );
         return res.json({
           mode: "brainstorm",

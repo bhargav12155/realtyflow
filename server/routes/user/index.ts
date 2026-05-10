@@ -90,6 +90,7 @@ const updatePreferencesSchema = z.object({
   communities: z.array(z.string()).optional(),
   agentPhotoUrl: z.string().optional(),
   onboardingCompleted: z.boolean().optional(),
+  boardsAutoGenerateFirst: z.boolean().optional(),
 });
 
 // Get current user's preferences (create default if not exists)
@@ -165,6 +166,7 @@ router.put("/preferences", requireAuth, async (req: Request, res: Response) => {
           communities: updates.communities,
           agentPhotoUrl: updates.agentPhotoUrl,
           onboardingCompleted: updates.onboardingCompleted ?? false,
+          boardsAutoGenerateFirst: updates.boardsAutoGenerateFirst ?? false,
         })
         .returning();
     }

@@ -65,6 +65,7 @@ export const userPreferences = pgTable("user_preferences", {
   communities: text("communities").array(), // List of neighborhoods/communities
   agentPhotoUrl: text("agent_photo_url"), // URL to agent's profile photo/avatar
   onboardingCompleted: boolean("onboarding_completed").default(false),
+  boardsAutoGenerateFirst: boolean("boards_auto_generate_first").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

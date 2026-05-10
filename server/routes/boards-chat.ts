@@ -408,12 +408,16 @@ export function remapSuggestionsForHealth(
 ): BoardChatSuggestion[] {
   const imageOrder: ImageProvider[] = ["uni-1-image", "gemini-image", "openai-image"];
   const videoOrder: VideoProvider[] = ["luma", "sora2", "runway", "kling"];
-  return suggestions.map((s) => {
+  const out: BoardChatSuggestion[] = [];
+  for (const s of suggestions) {
     const isUnhealthy =
       s.kind === "image"
         ? unhealthyImageProviders.has(s.provider as ImageProvider)
         : unhealthyVideoProviders.has(s.provider as VideoProvider);
-    if (!isUnhealthy) return s;
+    if (!isUnhealthy) {
+      out.push(s);
+      continue;
+    }
     const order: Provider[] = s.kind === "image" ? imageOrder : videoOrder;
     const replacement = order.find((p) => {
       if (p === s.provider) return false;
@@ -421,14 +425,18 @@ export function remapSuggestionsForHealth(
         ? !unhealthyImageProviders.has(p as ImageProvider)
         : !unhealthyVideoProviders.has(p as VideoProvider);
     });
-    if (!replacement) return s; // every provider down — keep original; UI will show it red
-    return {
+    // No healthy provider in the entire fallback chain — drop the suggestion
+    // entirely so the UI never recommends an unhealthy provider. The chat
+    // health endpoint is the authoritative surface for the outage.
+    if (!replacement) continue;
+    out.push({
       ...s,
       provider: replacement,
       originalProvider: s.provider,
       fallbackReason: `${s.provider} is currently unavailable, swapped to ${replacement}.`,
-    };
-  });
+    });
+  }
+  return out;
 }
 
 const BRAINSTORM_SYSTEM_BASE = `You are a creative director assisting on a visual board.

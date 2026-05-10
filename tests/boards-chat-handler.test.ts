@@ -1920,7 +1920,7 @@ describe("remapSuggestionsForHealth() — provider fallback", () => {
     assert.equal(out[0].fallbackReason, undefined);
   });
 
-  it("keeps the original provider when every fallback is also down (UI surfaces the failure)", () => {
+  it("drops the suggestion when every provider in the fallback chain is also down (never recommend unhealthy)", () => {
     const input = [
       {
         id: "s1",
@@ -1930,14 +1930,41 @@ describe("remapSuggestionsForHealth() — provider fallback", () => {
         count: 1,
         aspectRatio: "1:1",
       },
+      {
+        id: "s2",
+        kind: "image" as const,
+        provider: "gemini-image" as const,
+        prompt: "y",
+        count: 1,
+        aspectRatio: "1:1",
+      },
     ];
     const out = remapSuggestionsForHealth(
       input,
       new Set(["uni-1-image", "gemini-image", "openai-image"]),
       new Set(),
     );
-    assert.equal(out.length, 1);
-    assert.equal(out[0].provider, "uni-1-image");
+    // Both image suggestions dropped; no unhealthy providers leak through.
+    assert.equal(out.length, 0);
+  });
+
+  it("drops a video suggestion when the entire video fallback chain is down", () => {
+    const input = [
+      {
+        id: "v1",
+        kind: "video" as const,
+        provider: "luma" as const,
+        prompt: "x",
+        count: 1,
+        aspectRatio: "16:9",
+      },
+    ];
+    const out = remapSuggestionsForHealth(
+      input,
+      new Set(),
+      new Set(["luma", "sora2", "runway", "kling"]),
+    );
+    assert.equal(out.length, 0);
   });
 
   it("remaps an unhealthy luma video card to sora2 and records the original", () => {

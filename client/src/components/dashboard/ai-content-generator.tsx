@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { InstagramPermissionChecklist, isInstagramPermissionError } from "@/components/dashboard/instagram-permission-banner";
 import { useBusinessType } from "@/lib/businessContext";
 import { getIndustryContent } from "@shared/industryContent";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -989,11 +990,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       setSelectedInstagramForPosting(null);
     },
     onError: (error: any, variables) => {
-      toast({
-        title: "Posting Failed",
-        description: `Failed to post to ${variables.platform}: ${error.message}`,
-        variant: "destructive",
-      });
+      const message = error?.message || "Unknown error";
+      if (variables.platform.toLowerCase() === "instagram" && isInstagramPermissionError(message)) {
+        toast({
+          title: "Instagram permissions not approved yet",
+          description: <InstagramPermissionChecklist />,
+          variant: "destructive",
+          duration: 15000,
+        });
+      } else {
+        toast({
+          title: "Posting Failed",
+          description: `Failed to post to ${variables.platform}: ${message}`,
+          variant: "destructive",
+        });
+      }
       setPostingTo(null);
       // Reset dialog-specific state after failed posting
       setSelectedPageForPosting(null);

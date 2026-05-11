@@ -1,4 +1,5 @@
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { InstagramPermissionChecklist, isInstagramPermissionError } from "@/components/dashboard/instagram-permission-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1688,9 +1689,19 @@ export function SocialMediaManager() {
       }
     },
     onError: (error: any) => {
+      const message = error?.message || "Failed to post to social media";
+      if (isInstagramPermissionError(message)) {
+        toast({
+          title: "Instagram permissions not approved yet",
+          description: <InstagramPermissionChecklist />,
+          variant: "destructive",
+          duration: 15000,
+        });
+        return;
+      }
       toast({
         title: "Posting Failed",
-        description: error.message || "Failed to post to social media",
+        description: message,
         variant: "destructive",
       });
     },

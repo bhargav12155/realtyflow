@@ -378,31 +378,14 @@ export async function persistImageBuffer(
   contentType: string = "image/jpeg"
 ): Promise<string | null> {
   try {
-    const objectStorage = new ObjectStorageService();
-    if (!objectStorage.isConfigured()) {
-      console.warn("Object storage not configured, cannot persist image");
-      return null;
-    }
-
-    console.log(`📥 Saving image buffer to storage: ${filename}`);
-    
-    const privateDir = objectStorage.getPrivateObjectDir();
-    const fullPath = `${privateDir}/photos/${filename}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-
-    await file.save(imageBuffer, {
-      contentType,
-      resumable: false,
-      metadata: {
-        cacheControl: "private, max-age=31536000",
-      },
-    });
-
-    console.log(`✅ Image saved to: ${fullPath}`);
-    return `/objects/photos/${filename}`;
+    const { unifiedUploadService } = await import("./services/unifiedUpload");
+    const key = `photos/${filename}`;
+    const url = await unifiedUploadService.uploadBuffer(imageBuffer, key, contentType);
+    const backend = url.startsWith("/public-objects/") || url.includes("/public-objects/")
+      ? "object-storage"
+      : "s3";
+    console.log(`✅ Image persisted (${backend}): ${url}`);
+    return url;
   } catch (error) {
     console.error("Failed to persist image buffer:", error);
     return null;
@@ -459,30 +442,12 @@ export async function persistImageBufferPublic(
   subdir: string = "api-safe"
 ): Promise<string | null> {
   try {
-    const objectStorage = new ObjectStorageService();
-    if (!objectStorage.hasPublicPaths()) {
-      console.warn("Public object paths not configured, cannot persist image publicly");
-      return null;
-    }
-
-    const publicPaths = objectStorage.getPublicObjectSearchPaths();
-    const basePath = publicPaths[0];
-    const fullPath = `${basePath}/${subdir}/${filename}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-
-    await file.save(imageBuffer, {
-      contentType,
-      resumable: false,
-      metadata: {
-        cacheControl: "public, max-age=31536000",
-      },
-    });
-
-    console.log(`✅ Public image saved to: ${fullPath}`);
-    return `/public-objects/${subdir}/${filename}`;
+    const { unifiedUploadService } = await import("./services/unifiedUpload");
+    const key = `${subdir}/${filename}`;
+    const url = await unifiedUploadService.uploadBuffer(imageBuffer, key, contentType);
+    const backend = url.includes("/public-objects/") ? "object-storage" : "s3";
+    console.log(`✅ Public image persisted (${backend}): ${url}`);
+    return url;
   } catch (error) {
     console.error("Failed to persist public image buffer:", error);
     return null;
@@ -494,12 +459,6 @@ export async function persistImageFromUrl(
   filename: string
 ): Promise<string | null> {
   try {
-    const objectStorage = new ObjectStorageService();
-    if (!objectStorage.isConfigured()) {
-      console.warn("Object storage not configured, cannot persist image");
-      return null;
-    }
-
     console.log(`📥 Downloading image to persist: ${filename}`);
     const response = await fetch(imageUrl);
     if (!response.ok) {
@@ -510,24 +469,12 @@ export async function persistImageFromUrl(
     const imageBuffer = Buffer.from(await response.arrayBuffer());
     const contentType = response.headers.get("content-type") || "image/jpeg";
 
-    const publicPaths = objectStorage.getPublicObjectSearchPaths();
-    const basePath = publicPaths[0];
-    const fullPath = `${basePath}/avatars/${filename}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-
-    await file.save(imageBuffer, {
-      contentType,
-      resumable: false,
-      metadata: {
-        cacheControl: "public, max-age=31536000",
-      },
-    });
-
-    console.log(`✅ Image persisted to: ${fullPath}`);
-    return `/public-objects/avatars/${filename}`;
+    const { unifiedUploadService } = await import("./services/unifiedUpload");
+    const key = `avatars/${filename}`;
+    const url = await unifiedUploadService.uploadBuffer(imageBuffer, key, contentType);
+    const backend = url.includes("/public-objects/") ? "object-storage" : "s3";
+    console.log(`✅ Image persisted (${backend}): ${url}`);
+    return url;
   } catch (error) {
     console.error("Failed to persist image:", error);
     return null;

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Check, Image as ImageIcon, Film, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { SiOpenai, SiGoogle } from "react-icons/si";
+import { SiGoogle } from "react-icons/si";
 import type { IconType } from "react-icons";
 
 export type ProviderId =
@@ -48,11 +48,12 @@ export interface Platform {
 // Providers without API keys configured are excluded from the visible list.
 // Keep their entries here (commented) so re-enabling is a one-line change.
 // Hidden: kling (no KLING_ACCESS_KEY/KLING_SECRET_KEY), openai-image (no OPENAI_API_KEY)
+// Hidden: runway, sora2, seedance — routing all video to Luma for now
 export const PLATFORMS: Platform[] = [
   { id: "luma", name: "Luma Ray 2", tagline: "Best motion + camera control", v2v: true, accent: "from-violet-500 to-fuchsia-500", monogram: "L" },
-  { id: "runway", name: "Runway Gen-4", tagline: "Cinematic v2v transforms", v2v: true, accent: "from-emerald-500 to-teal-500", monogram: "R" },
-  { id: "sora2", name: "Sora 2", tagline: "Coherent long shots", v2v: false, badge: "OpenAI", accent: "from-neutral-700 to-neutral-900", brandIcon: SiOpenai },
-  { id: "seedance", name: "Seedance", tagline: "ByteDance fast t2v + i2v", v2v: false, accent: "from-rose-500 to-orange-500", monogram: "S" },
+  // { id: "runway", ... } — hidden: routing all video to Luma for now
+  // { id: "sora2", ... } — hidden: routing all video to Luma for now
+  // { id: "seedance", ... } — hidden: routing all video to Luma for now
   { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", brandIcon: SiGoogle },
   // { id: "kling", ... } — hidden: no KLING_ACCESS_KEY / KLING_SECRET_KEY
   { id: "gemini-image", name: "Gemini Image", tagline: "Generates + edits referenced images", v2v: false, kind: "image", badge: "Image", accent: "from-blue-400 to-cyan-400", brandIcon: SiGoogle },

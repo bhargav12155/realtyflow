@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -110,6 +110,8 @@ interface ChatPanelProps {
    *  a typing beacon over the websocket. The panel debounces internally —
    *  callers should still throttle if they relay every event verbatim. */
   onTypingChange?: (isTyping: boolean) => void;
+  /** Called when the user picks or drops files from their device to attach as references. */
+  onAttachFiles?: (files: File[]) => void;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
@@ -172,6 +174,7 @@ export function ChatPanel({
   isSavingChatHistoryCap,
   typingUserNames,
   onTypingChange,
+  onAttachFiles,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -187,6 +190,9 @@ export function ChatPanel({
   }, [chatHistoryCap]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
   // Cap the composer at roughly 7 lines before it starts scrolling internally.
   const CHAT_INPUT_MAX_HEIGHT = 160;
   // Recalculate the textarea height on every value change so it grows with
@@ -263,6 +269,39 @@ export function ChatPanel({
     else setModelPickerOpen(false);
   }, [isPlan]);
 
+  const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !onAttachFiles) return;
+    onAttachFiles(Array.from(e.target.files));
+    e.target.value = "";
+  }, [onAttachFiles]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    if (!onAttachFiles) return;
+    const files = Array.from(e.dataTransfer.files).filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+    );
+    if (files.length > 0) onAttachFiles(files);
+  }, [onAttachFiles]);
+
   const submit = () => {
     const text = input.trim();
     if (!text || isSending || isClearingChat) return;
@@ -293,7 +332,28 @@ export function ChatPanel({
   };
 
   return (
-    <aside className="w-[360px] flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800">
+    <aside
+      className="w-[360px] flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800 relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-violet-50/90 dark:bg-violet-950/80 border-2 border-dashed border-violet-400 rounded-none pointer-events-none">
+          <Paperclip className="w-8 h-8 text-violet-500 mb-2" />
+          <span className="text-sm font-medium text-violet-700 dark:text-violet-300">Drop to attach</span>
+        </div>
+      )}
+      {/* hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={handleFilePick}
+      />
       <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
         <div className="flex items-center gap-1 font-medium text-[13px] text-neutral-900 truncate dark:text-neutral-100">
           <span className="truncate" data-testid="text-chat-board-title">{boardTitle}</span>
@@ -732,7 +792,15 @@ export function ChatPanel({
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-attach"><Paperclip className="w-3.5 h-3.5" /></button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200"
+                data-testid="button-attach"
+                title="Attach image or video from device"
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+              </button>
               <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-mic"><Mic className="w-3.5 h-3.5" /></button>
               <button
                 onClick={submit}

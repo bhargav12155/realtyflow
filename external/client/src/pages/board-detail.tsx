@@ -1574,6 +1574,29 @@ export default function BoardDetailPage() {
     [boardId, startUpload],
   );
 
+  // Upload files from the chat panel's paperclip / drag-drop, then immediately
+  // select the resulting asset so it becomes a referenced asset in the chat.
+  const handleChatAttachFiles = useCallback(
+    async (files: File[]) => {
+      if (!boardId) return;
+      for (const file of files) {
+        try {
+          const result = await uploadFileToBoard(boardId, file);
+          if (result) {
+            queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+            setSelectedAssetIds((prev) =>
+              prev.includes(result.id) ? prev : [...prev, result.id],
+            );
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          toast({ title: `Couldn't attach ${file.name}`, description: msg, variant: "destructive" });
+        }
+      }
+    },
+    [boardId, toast],
+  );
+
   const handleRetryUpload = useCallback(
     (id: string) => {
       const entry = uploadChips.find((u) => u.id === id);
@@ -2032,6 +2055,7 @@ export default function BoardDetailPage() {
             isSavingChatHistoryCap={updateChatHistoryCap.isPending}
             typingUserNames={board.isShared ? typingNames : []}
             onTypingChange={board.isShared ? handleChatTypingChange : undefined}
+            onAttachFiles={handleChatAttachFiles}
           />
         )}
       </div>

@@ -303,21 +303,15 @@ export function inferGenMode(refKinds: string[], message: string): GenMode {
 export function pickDefaultProvider(genMode: GenMode, message: string): Provider {
   const lower = message.toLowerCase();
   if (genMode === "video-to-video") {
-    // Runway is the only provider with a working v2v integration today; Luma v2v is
-    // not yet wired (see preflight rule). Default to Runway and only honour an
-    // explicit Luma mention so the request is rejected with a clear, actionable error.
-    if (lower.includes("luma")) return "luma";
-    return "runway";
-  }
-  if (genMode === "image-to-video") {
-    if (lower.includes("kling")) return "kling";
-    if (lower.includes("veo")) return "veo";
-    if (lower.includes("runway")) return "runway";
+    // All v2v routed to Luma for now.
     return "luma";
   }
-  if (lower.includes("seedance")) return "seedance";
-  if (lower.includes("sora")) return "sora2";
-  if (lower.includes("runway")) return "runway";
+  if (genMode === "image-to-video") {
+    if (lower.includes("veo")) return "veo";
+    return "luma";
+  }
+  // text-to-video — VEO only override; everything else goes to Luma.
+  if (lower.includes("veo")) return "veo";
   return "luma";
 }
 
@@ -1393,10 +1387,22 @@ export function registerBoardsChatRoutes(
           boardAssetsForContext,
           body.referencedAssetIds ?? [],
         );
+        // Load conversation history from the DB so the AI remembers prior
+        // turns even when the client doesn't send conversationHistory.
+        // Cap at the last 20 messages to stay within model context limits.
+        const persistedHistory = body.conversationHistory
+          ?? await storage.getBoardMessagesWithAuthorsForUser(boardId, userId)
+            .then((msgs) =>
+              msgs
+                .filter((m) => m.role === "user" || m.role === "assistant")
+                .slice(-20)
+                .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+            )
+            .catch(() => undefined);
         const result = await brainstormReply(
           body.message,
           chatProviders,
-          body.conversationHistory,
+          persistedHistory,
           requestedModel,
           visionImages.length > 0 ? visionImages : undefined,
           dynamicSystemPrompt,
@@ -1473,7 +1479,7 @@ export function registerBoardsChatRoutes(
         }
       }
 
-      const variations = body.variations ?? (isImage ? 2 : 1);
+      const variations = body.variations ?? (isImage ? 3 : 1);
       const batchId = randomUUID();
       const kind: "image" | "video" = isImage ? "image" : "video";
       const refImageCount = refAssets.filter((a) => a.kind === "image").length;

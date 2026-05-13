@@ -1028,12 +1028,12 @@ export function ContentCalendar() {
         <div className="space-y-4">
           {/* Month View */}
           <div>
-            <div className="flex items-center justify-between mb-4 gap-4">
+            <div className="flex items-center justify-between mb-3 gap-3">
               <Select
                 value={`${format(selectedDate, "MMMM")} ${format(selectedDate, "yyyy")}`}
                 onValueChange={handleMonthYearChange}
               >
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-44 h-8 text-sm font-medium">
                   <SelectValue placeholder="Select month" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1046,14 +1046,13 @@ export function ContentCalendar() {
                   )}
                 </SelectContent>
               </Select>
-              
-              {/* Status Filter */}
+
               <Select
                 value={statusFilter}
                 onValueChange={setStatusFilter}
               >
-                <SelectTrigger className="w-40" data-testid="select-status-filter">
-                  <SelectValue placeholder="Filter by status" />
+                <SelectTrigger className="w-36 h-8 text-sm" data-testid="select-status-filter">
+                  <SelectValue placeholder="Filter" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Posts</SelectItem>
@@ -1066,72 +1065,84 @@ export function ContentCalendar() {
             </div>
             
             {/* Calendar Header */}
-            <div className="grid grid-cols-7 gap-1 text-center mb-2">
+            <div className="grid grid-cols-7 mb-1">
               {calendarDays.map((day) => (
-                <div key={day} className="text-xs font-medium text-muted-foreground py-2">
+                <div key={day} className="text-[11px] font-semibold text-muted-foreground text-center py-1.5 uppercase tracking-wide">
                   {day}
                 </div>
               ))}
             </div>
-            
+
             {/* Calendar Grid */}
-            <div className="grid grid-cols-7 gap-1 text-center">
-              {calendarGrid.map((week, weekIndex) => 
+            <div className="grid grid-cols-7 border-l border-t">
+              {calendarGrid.map((week, weekIndex) =>
                 week.map((day, dayIndex) => {
                   const dayContent = getContentForDate(day.fullDate);
                   const holiday = getHolidayForDate(day.fullDate);
-                  
+
                   return (
                     <div
                       key={`${weekIndex}-${dayIndex}`}
                       className={`
-                        relative min-h-[80px] p-1 border rounded-sm
+                        relative min-h-[36px] sm:min-h-[56px] p-0.5 sm:p-1.5 border-r border-b
                         ${
-                          day.isCurrentMonth
-                            ? day.isToday
-                              ? "bg-primary/10 border-primary text-foreground font-medium"
-                              : "text-foreground hover:bg-muted/50"
-                            : "text-muted-foreground bg-muted/20"
+                          !day.isCurrentMonth
+                            ? "bg-muted/30"
+                            : "bg-background hover:bg-muted/20 transition-colors"
                         }
                       `}
                       data-testid={`calendar-day-${day.date}`}
                     >
-                      <div className="text-xs font-medium mb-1">{day.date}</div>
-                      
-                      {/* Holiday Recommendations */}
+                      {/* Day number */}
+                      <div className={`
+                        text-[10px] sm:text-xs font-medium w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center rounded-full mb-0.5 sm:mb-1 mx-auto
+                        ${
+                          day.isToday
+                            ? "bg-primary text-primary-foreground"
+                            : day.isCurrentMonth
+                            ? "text-foreground"
+                            : "text-muted-foreground/50"
+                        }
+                      `}>
+                        {day.date}
+                      </div>
+
+                      {/* Holiday dot */}
                       {holiday && (
-                        <div className="space-y-1 mb-1">
-                          {holiday.recommendations.map((rec, index) => (
+                        <div className="flex justify-center gap-0.5 mb-0.5">
+                          {holiday.recommendations.slice(0, 2).map((rec, index) => (
                             <div
                               key={index}
-                              className={`text-xs p-1 rounded ${rec.color} text-white cursor-pointer hover:opacity-80`}
+                              className={`w-1 h-1 rounded-full ${rec.color} cursor-pointer`}
                               title={`${holiday.holiday}: ${rec.description}`}
-                            >
-                              {rec.type}
-                            </div>
+                            />
                           ))}
                         </div>
                       )}
-                      
-                      {/* Scheduled Content */}
-                      {dayContent.map((content) => (
-                        <div
-                          key={content.id}
-                          className={`text-xs p-1.5 rounded ${content.color} text-white cursor-pointer hover:opacity-80 mb-1 overflow-hidden`}
-                          onClick={() => handlePreview(content)}
-                          title={`${content.title} - ${content.time}\n${content.content?.substring(0, 100)}`}
-                        >
-                          <div className="flex items-center justify-between gap-1">
-                            <div className="font-semibold truncate text-[11px] flex-1">{content.title}</div>
-                            {(content as any).isAiGenerated && (
-                              <div className="flex-shrink-0 scale-75 origin-right">
-                                <AiGeneratedBadge size="sm" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-[10px] opacity-80 truncate mt-0.5">{content.platform} • {content.time}</div>
+
+                      {/* Mobile: dot indicator when day has content */}
+                      {dayContent.length > 0 && (
+                        <div className="flex justify-center sm:hidden">
+                          <div className="w-1 h-1 rounded-full bg-primary" />
                         </div>
-                      ))}
+                      )}
+
+                      {/* Scheduled Content — pill per item, hidden on mobile */}
+                      <div className="hidden sm:block space-y-0.5">
+                        {dayContent.slice(0, 2).map((content) => (
+                          <div
+                            key={content.id}
+                            className={`text-[10px] px-1 py-0.5 rounded-sm ${content.color} text-white cursor-pointer hover:opacity-80 truncate leading-tight`}
+                            onClick={() => handlePreview(content)}
+                            title={`${content.title} - ${content.time}\n${content.content?.substring(0, 100)}`}
+                          >
+                            {content.title}
+                          </div>
+                        ))}
+                        {dayContent.length > 2 && (
+                          <div className="text-[10px] text-muted-foreground text-center">+{dayContent.length - 2}</div>
+                        )}
+                      </div>
                     </div>
                   );
                 })

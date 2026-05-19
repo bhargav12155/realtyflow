@@ -133,13 +133,14 @@ const navigationItems = [
         key: "video-generation",
         isPageLink: true,
       },
-      {
-        icon: Radio,
-        label: "Streaming Avatar",
-        href: "/dashboard#streaming-avatar",
-        key: "streaming-avatar",
-        isPageLink: true,
-      },
+      // HIDDEN: Streaming Avatar — re-enable when ready
+      // {
+      //   icon: Radio,
+      //   label: "Streaming Avatar",
+      //   href: "/dashboard#streaming-avatar",
+      //   key: "streaming-avatar",
+      //   isPageLink: true,
+      // },
       {
         icon: Home,
         label: "Property Tours",
@@ -153,13 +154,14 @@ const navigationItems = [
   },
   { icon: Search, label: "SEO Optimizer", href: "/dashboard#seo", key: "seo", isPageLink: true },
   { icon: MapPin, label: "Local Market Tools", href: "/dashboard#market", key: "market", isPageLink: true },
-  {
-    icon: Palette,
-    label: "Brand Settings",
-    href: "/dashboard#brand-settings",
-    key: "brand-settings",
-    isPageLink: true,
-  },
+  // HIDDEN: Brand Settings — re-enable when ready
+  // {
+  //   icon: Palette,
+  //   label: "Brand Settings",
+  //   href: "/dashboard#brand-settings",
+  //   key: "brand-settings",
+  //   isPageLink: true,
+  // },
   { icon: BarChart3, label: "Analytics", href: "/dashboard#analytics", key: "analytics", isPageLink: true },
   {
     icon: AlertTriangle,
@@ -177,13 +179,14 @@ const navigationItems = [
     isPageLink: true,
     adminOnly: true,
   },
-  {
-    icon: Target,
-    label: "Advanced Advertising",
-    href: "/dashboard#advertising",
-    key: "advertising",
-    isPageLink: true,
-  },
+  // HIDDEN: Advanced Advertising — not yet functional, re-enable when ready
+  // {
+  //   icon: Target,
+  //   label: "Advanced Advertising",
+  //   href: "/dashboard#advertising",
+  //   key: "advertising",
+  //   isPageLink: true,
+  // },
   {
     icon: Shield,
     label: "Admin",
@@ -201,11 +204,12 @@ const navigationItems = [
   },
 ];
 
-const quickActions = [
-  { icon: Plus, label: "New Blog Post", href: "/dashboard?type=blog#ai-content", contentType: "blog" },
-  { icon: Camera, label: "Social Post", href: "/dashboard?type=social#ai-content", contentType: "social" },
-  { icon: Home, label: "Property Feature", href: "/dashboard?type=property_feature#ai-content", contentType: "property_feature" },
-];
+// HIDDEN: Quick Actions — not yet functional, re-enable when ready
+// const quickActions = [
+//   { icon: Plus, label: "New Blog Post", href: "/dashboard?type=blog#ai-content", contentType: "blog" },
+//   { icon: Camera, label: "Social Post", href: "/dashboard?type=social#ai-content", contentType: "social" },
+//   { icon: Home, label: "Property Feature", href: "/dashboard?type=property_feature#ai-content", contentType: "property_feature" },
+// ];
 
 interface SidebarProps {
   activeView?: string;
@@ -301,7 +305,8 @@ function SidebarContent({
         window.dispatchEvent(new Event('popstate'));
         // Dispatch hashchange for dashboard's activeView listener (using Event for Safari compatibility)
         window.dispatchEvent(new Event('hashchange'));
-      } else {
+      } else if (currentPath !== path && !(currentPath === '/' && path === '/dashboard')) {
+        // Only navigate if we're not already on this page (prevents scroll-to-top on re-click)
         setLocation(fullPath);
       }
     }
@@ -527,6 +532,7 @@ function SidebarContent({
           })}
         </div>
 
+{/* HIDDEN: Quick Actions section — re-enable when ready
         {!isCollapsed && (
           <div className="mt-8">
             <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
@@ -550,6 +556,7 @@ function SidebarContent({
             </div>
           </div>
         )}
+*/}
       </nav>
 
       {/* User Profile */}

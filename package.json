@@ -4,7 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "dev": "PORT=${PORT:-5001} NODE_ENV=development NODE_TLS_REJECT_UNAUTHORIZED=0 tsx external/server/index.ts",
+    "dev": "node scripts/dev.mjs",
     "build": "vite build && esbuild external/server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "PORT=${PORT:-5001} NODE_ENV=production node dist/index.js",
     "check": "tsc",

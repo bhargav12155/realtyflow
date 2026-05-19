@@ -174,8 +174,19 @@ const sourceFormSchema = z.object({
   }, "Please enter a valid calendar URL or Google Calendar ID"),
 });
 
+const schedulePostFormSchema = z.object({
+  platform: z.enum(["facebook", "instagram", "linkedin", "x", "youtube", "tiktok"], {
+    required_error: "Please select a platform",
+  }),
+  content: z.string().min(1, "Post content is required").max(5000, "Content is too long"),
+  date: z.string().min(1, "Date is required"),
+  time: z.string().min(1, "Time is required"),
+  postType: z.string().default("manual"),
+});
+
 type EventFormData = z.infer<typeof eventFormSchema>;
 type SourceFormData = z.infer<typeof sourceFormSchema>;
+type SchedulePostFormData = z.infer<typeof schedulePostFormSchema>;
 
 const platformColors: Record<string, string> = {
   facebook: "bg-blue-500",
@@ -204,8 +215,39 @@ const postTypeLabels: Record<string, string> = {
   open_houses: "Open House",
   just_listed: "Just Listed",
   just_sold: "Just Sold",
+  just_sold_sale: "Just Sold",
   price_improvement: "Price Drop",
+  event_post: "Event Post",
 };
+
+// Normalize post content: extract from raw JSON if AI response was stored un-parsed,
+// then strip leftover markdown formatting.
+function normalizePostContent(content: string): string {
+  if (!content) return content;
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{")) {
+    // Try direct parse
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed.content) content = parsed.content;
+    } catch {
+      // Try extracting the first {...} block (handles code-fenced responses)
+      const objMatch = trimmed.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        try {
+          const parsed = JSON.parse(objMatch[0]);
+          if (parsed.content) content = parsed.content;
+        } catch { /* keep original */ }
+      }
+    }
+  }
+  // Strip markdown bold/italic that AI sometimes adds
+  return content
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1");
+}
 
 export default function UnifiedCalendarPage() {
   const { toast } = useToast();
@@ -217,8 +259,11 @@ export default function UnifiedCalendarPage() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [showAddSourceDialog, setShowAddSourceDialog] = useState(false);
   const [showAddEventDialog, setShowAddEventDialog] = useState(false);
+  const [showSchedulePostDialog, setShowSchedulePostDialog] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewContent, setPreviewContent] = useState<any>(null);
+  const [selectedDayDetails, setSelectedDayDetails] = useState<{ date: Date; items: any[] } | null>(null);
+  const [lastGeneratedEventId, setLastGeneratedEventId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewFilter, setViewFilter] = useState<"all" | "events" | "posts">("all");
   const [weeklyPlanSuggestions, setWeeklyPlanSuggestions] = useState<WeeklyPlanSuggestion[]>([]);
@@ -228,6 +273,9 @@ export default function UnifiedCalendarPage() {
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
   const [editContent, setEditContent] = useState<string>("");
   const [editImageUrl, setEditImageUrl] = useState<string>("");
+  const [editPlatform, setEditPlatform] = useState<string>("facebook");
+  const [editDate, setEditDate] = useState<string>("");
+  const [editTime, setEditTime] = useState<string>("");
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [mediaUploading, setMediaUploading] = useState(false);
   const [showCreateImageDialog, setShowCreateImageDialog] = useState(false);
@@ -321,12 +369,36 @@ export default function UnifiedCalendarPage() {
     },
   });
 
+  const schedulePostForm = useForm<SchedulePostFormData>({
+    resolver: zodResolver(schedulePostFormSchema),
+    defaultValues: {
+      platform: "facebook",
+      content: "",
+      date: (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      })(),
+      time: "09:00",
+      postType: "manual",
+    },
+  });
+
   const { data: sourcesData, isLoading: sourcesLoading } = useQuery<{ sources: EventSource[] }>({
-    queryKey: ["/api/events/sources"],
+    queryKey: ["/api/events/sources", businessType],
+    queryFn: async () => {
+      const response = await fetch(`/api/events/sources?businessType=${encodeURIComponent(businessType)}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch event sources");
+      return await response.json();
+    },
   });
 
   const { data: eventsData, isLoading: eventsLoading } = useQuery<{ events: Event[] }>({
-    queryKey: ["/api/events"],
+    queryKey: ["/api/events", businessType],
+    queryFn: async () => {
+      const response = await fetch(`/api/events?businessType=${encodeURIComponent(businessType)}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch events");
+      return await response.json();
+    },
   });
 
   const { data: suggestionsData, refetch: refetchSuggestions } = useQuery<{ suggestions: EventPostSuggestion[] }>({
@@ -341,20 +413,33 @@ export default function UnifiedCalendarPage() {
   const { data: companyProfile } = useQuery<any>({ queryKey: ["/api/company/profile"] });
 
   const { data: apiScheduledPosts = [], isLoading: postsLoading } = useQuery<ScheduledPost[]>({
-    queryKey: ["/api/scheduled-posts", statusFilter],
+    queryKey: ["/api/scheduled-posts", statusFilter, businessType],
+    staleTime: 0,
     queryFn: async () => {
-      const url = statusFilter === "all" 
-        ? "/api/scheduled-posts"
-        : `/api/scheduled-posts?status=${statusFilter}`;
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      params.set("businessType", businessType);
+      const url = params.size > 0
+        ? `/api/scheduled-posts?${params.toString()}`
+        : "/api/scheduled-posts";
       const response = await fetch(url, { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch scheduled posts");
       return await response.json();
     },
   });
 
+  const industryScheduledPosts = useMemo(() => {
+    return apiScheduledPosts.filter((post) => {
+      const postBusinessType = typeof post.metadata?.businessType === "string"
+        ? post.metadata.businessType
+        : "real_estate";
+      return postBusinessType === businessType;
+    });
+  }, [apiScheduledPosts, businessType]);
+
   const createSourceMutation = useMutation({
     mutationFn: async (data: { name: string; type: string; config: any }) => {
-      const res = await apiRequest("POST", "/api/events/sources", data);
+      const res = await apiRequest("POST", "/api/events/sources", { ...data, businessType });
       return res.json();
     },
     onSuccess: () => {
@@ -365,6 +450,39 @@ export default function UnifiedCalendarPage() {
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const createScheduledPostMutation = useMutation({
+    mutationFn: async (data: SchedulePostFormData) => {
+      const scheduledFor = new Date(`${data.date}T${data.time}:00`).toISOString();
+      const res = await apiRequest("POST", "/api/scheduled-posts", {
+        platform: data.platform,
+        content: data.content,
+        scheduledFor,
+        postType: data.postType,
+        status: "pending",
+        metadata: { businessType },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Post Scheduled", description: "Your post has been added to the calendar." });
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      setShowSchedulePostDialog(false);
+      schedulePostForm.reset({
+        platform: "facebook",
+        content: "",
+        date: (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        })(),
+        time: "09:00",
+        postType: "manual",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to Schedule", description: error.message, variant: "destructive" });
     },
   });
 
@@ -382,7 +500,7 @@ export default function UnifiedCalendarPage() {
 
   const syncSourceMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/events/sources/${id}/sync`);
+      const res = await apiRequest("POST", `/api/events/sources/${id}/sync`, { businessType });
       return res.json();
     },
     onSuccess: (data) => {
@@ -400,7 +518,7 @@ export default function UnifiedCalendarPage() {
 
   const syncAllMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/events/sync-all");
+      const res = await apiRequest("POST", "/api/events/sync-all", { businessType });
       return res.json();
     },
     onSuccess: (data) => {
@@ -415,7 +533,7 @@ export default function UnifiedCalendarPage() {
 
   const createEventMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/events", data);
+      const res = await apiRequest("POST", "/api/events", { ...data, businessType });
       return res.json();
     },
     onSuccess: () => {
@@ -435,8 +553,9 @@ export default function UnifiedCalendarPage() {
       const res = await apiRequest("POST", `/api/events/${eventId}/generate-posts`);
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Posts Generated", description: "AI has created post suggestions for this event." });
+    onSuccess: (_data, eventId) => {
+      toast({ title: "Posts Generated!", description: "4 platform posts created. Check the Events tab to review them." });
+      setLastGeneratedEventId(eventId);
       refetchSuggestions();
     },
     onError: (error: Error) => {
@@ -449,10 +568,19 @@ export default function UnifiedCalendarPage() {
       const res = await apiRequest("POST", `/api/events/suggestions/${suggestionId}/accept`);
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Post Scheduled", description: "The post has been added to your schedule." });
+    onSuccess: (data) => {
+      const scheduledFor = data?.scheduledPost?.scheduledFor;
+      const dateLabel = scheduledFor
+        ? format(new Date(scheduledFor), "MMM d")
+        : null;
+      toast({
+        title: "Post Scheduled",
+        description: dateLabel
+          ? `Added to your calendar on ${dateLabel}. Switch to the Calendar tab to see it.`
+          : "The post has been added to your schedule.",
+      });
       refetchSuggestions();
-      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      queryClient.refetchQueries({ queryKey: ["/api/scheduled-posts"] });
     },
   });
 
@@ -470,6 +598,7 @@ export default function UnifiedCalendarPage() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/events/generate-weekly-plan", {
         platforms: ['facebook', 'instagram', 'linkedin', 'x'],
+        businessType,
       });
       return res.json();
     },
@@ -490,11 +619,18 @@ export default function UnifiedCalendarPage() {
       const res = await apiRequest("POST", `/api/events/suggestions/${suggestionId}/accept`);
       return res.json();
     },
-    onSuccess: (_, suggestionId) => {
+    onSuccess: (data, suggestionId) => {
       setWeeklyPlanSuggestions(prev => 
         prev.map(s => s.id === suggestionId ? { ...s, status: 'accepted' } : s)
       );
-      toast({ title: "Post Scheduled", description: "The post has been added to your schedule." });
+      const scheduledFor = data?.scheduledPost?.scheduledFor;
+      const dateLabel = scheduledFor ? format(new Date(scheduledFor), "MMM d") : null;
+      toast({
+        title: "Post Scheduled",
+        description: dateLabel
+          ? `Added to your calendar on ${dateLabel}. Switch to the Calendar tab to see it.`
+          : "The post has been added to your schedule.",
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
     },
   });
@@ -665,10 +801,12 @@ export default function UnifiedCalendarPage() {
   });
 
   const updatePostMutation = useMutation({
-    mutationFn: async ({ id, content, metadata }: { id: string; content?: string; metadata?: any }) => {
+    mutationFn: async ({ id, content, metadata, platform, scheduledFor }: { id: string; content?: string; metadata?: any; platform?: string; scheduledFor?: string }) => {
       const body: any = {};
       if (content !== undefined) body.content = content;
       if (metadata !== undefined) body.metadata = metadata;
+      if (platform !== undefined) body.platform = platform;
+      if (scheduledFor !== undefined) body.scheduledFor = scheduledFor;
       const res = await apiRequest("PATCH", `/api/scheduled-posts/${id}`, body);
       return res.json();
     },
@@ -682,6 +820,9 @@ export default function UnifiedCalendarPage() {
       setEditingPost(null);
       setEditContent("");
       setEditImageUrl("");
+      setEditPlatform("facebook");
+      setEditDate("");
+      setEditTime("");
     },
     onError: (error: Error) => {
       toast({
@@ -710,15 +851,28 @@ export default function UnifiedCalendarPage() {
 
   // Filtered posts for the Scheduled Posts Manager section
   const filteredPosts = useMemo(() => {
-    return apiScheduledPosts
+    return industryScheduledPosts
       .filter(post => postManagerPlatformFilter === "all" || post.platform.toLowerCase() === postManagerPlatformFilter)
       .filter(post => postManagerStatusFilter === "all" || post.status.toLowerCase() === postManagerStatusFilter);
-  }, [apiScheduledPosts, postManagerPlatformFilter, postManagerStatusFilter]);
+  }, [industryScheduledPosts, postManagerPlatformFilter, postManagerStatusFilter]);
 
   // Clear selection when filters change
   useEffect(() => {
     setSelectedPostIds(new Set());
   }, [postManagerPlatformFilter, postManagerStatusFilter]);
+
+  useEffect(() => {
+    if (selectedEvent && !events.some((event) => event.id === selectedEvent.id)) {
+      setSelectedEvent(null);
+    }
+  }, [events, selectedEvent]);
+
+  useEffect(() => {
+    if (activeTab === "calendar") {
+      queryClient.refetchQueries({ queryKey: ["/api/scheduled-posts"] });
+      queryClient.refetchQueries({ queryKey: ["/api/events"] });
+    }
+  }, [activeTab]);
 
   const platformLimits: Record<string, { optimal: number; max: number }> = {
     x: { optimal: 280, max: 280 },
@@ -773,14 +927,16 @@ export default function UnifiedCalendarPage() {
   };
 
   const scheduledContent = useMemo(() => {
-    return apiScheduledPosts.map((post) => {
+    return industryScheduledPosts.map((post) => {
       const scheduledDate = new Date(post.scheduledFor);
       const platformKey = post.platform.toLowerCase() as keyof typeof platformColors;
       
       return {
         id: `post-${post.id}`,
         originalId: post.id,
-        title: post.postType ? postTypeLabels[post.postType] || post.postType : "Social Post",
+        title: post.metadata?.eventTitle
+          ? post.metadata.eventTitle
+          : post.postType ? postTypeLabels[post.postType] || post.postType : "Social Post",
         type: "post" as const,
         date: scheduledDate,
         time: format(scheduledDate, "h:mm a"),
@@ -793,7 +949,7 @@ export default function UnifiedCalendarPage() {
         status: post.status,
       };
     });
-  }, [apiScheduledPosts]);
+  }, [industryScheduledPosts]);
 
   const calendarEvents = useMemo(() => {
     return events.map(event => ({
@@ -1163,6 +1319,116 @@ export default function UnifiedCalendarPage() {
                           <Plus className="w-4 h-4 mr-2" />
                         )}
                         Create Event
+                      </Button>
+                    </form>
+                  </Form>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={showSchedulePostDialog} onOpenChange={(open) => {
+                setShowSchedulePostDialog(open);
+                if (!open) schedulePostForm.reset();
+              }}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="btn-schedule-post">
+                    <Send className="w-4 h-4 mr-2" />
+                    Schedule Post
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Schedule a Post</DialogTitle>
+                    <DialogDescription>
+                      Create and schedule a social media post directly on the calendar.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Form {...schedulePostForm}>
+                    <form onSubmit={schedulePostForm.handleSubmit((data) => createScheduledPostMutation.mutate(data))} className="space-y-4">
+                      <FormField
+                        control={schedulePostForm.control}
+                        name="platform"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Platform</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select platform" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="facebook">Facebook</SelectItem>
+                                <SelectItem value="instagram">Instagram</SelectItem>
+                                <SelectItem value="linkedin">LinkedIn</SelectItem>
+                                <SelectItem value="x">X (Twitter)</SelectItem>
+                                <SelectItem value="youtube">YouTube</SelectItem>
+                                <SelectItem value="tiktok">TikTok</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={schedulePostForm.control}
+                        name="content"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Post Content</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                {...field}
+                                placeholder="Write your post content..."
+                                rows={4}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={schedulePostForm.control}
+                          name="date"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Date</FormLabel>
+                              <FormControl>
+                                <Input type="date" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={schedulePostForm.control}
+                          name="time"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Time</FormLabel>
+                              <FormControl>
+                                <Input type="time" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <Button
+                        type="submit"
+                        className="w-full"
+                        disabled={createScheduledPostMutation.isPending}
+                      >
+                        {createScheduledPostMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Scheduling...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4 mr-2" />
+                            Schedule Post
+                          </>
+                        )}
                       </Button>
                     </form>
                   </Form>
@@ -1579,15 +1845,73 @@ export default function UnifiedCalendarPage() {
                           </div>
                         ))}
                         {dayItems.length > 3 && (
-                          <div className="text-[10px] text-muted-foreground">
+                          <button
+                            type="button"
+                            className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                            onClick={() => setSelectedDayDetails({ date: day.fullDate, items: dayItems })}
+                            data-testid={`calendar-more-${format(day.fullDate, "yyyy-MM-dd")}`}
+                          >
                             +{dayItems.length - 3} more
-                          </div>
+                          </button>
                         )}
                       </div>
                     );
                   })
                 )}
               </div>
+
+              <Dialog
+                open={!!selectedDayDetails}
+                onOpenChange={(open) => {
+                  if (!open) setSelectedDayDetails(null);
+                }}
+              >
+                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {selectedDayDetails ? `Scheduled Items for ${format(selectedDayDetails.date, "MMMM d, yyyy")}` : "Scheduled Items"}
+                    </DialogTitle>
+                    <DialogDescription>
+                      Review every event and post scheduled for this day.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    {selectedDayDetails?.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="w-full text-left p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                        onClick={() => {
+                          handlePreview(item);
+                        }}
+                        data-testid={`calendar-day-detail-${item.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge className={item.color}>
+                                {item.type === "event" ? "Event" : item.platform || "Post"}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">{item.time}</span>
+                            </div>
+                            <p className="font-medium truncate">{item.title}</p>
+                            {item.type === "post" ? (
+                              <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-3 mt-1">
+                                {normalizePostContent(item.content || "")}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                                {item.location || item.description || "No additional details"}
+                              </p>
+                            )}
+                          </div>
+                          <Eye className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               <div className="mt-4 flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
@@ -1670,6 +1994,7 @@ export default function UnifiedCalendarPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="pending">Pending Approval</SelectItem>
                       <SelectItem value="scheduled">Scheduled</SelectItem>
                       <SelectItem value="posted">Posted</SelectItem>
                       <SelectItem value="failed">Failed</SelectItem>
@@ -1831,13 +2156,19 @@ export default function UnifiedCalendarPage() {
                                 size="sm"
                                 onClick={() => {
                                   const platformKey = post.platform.toLowerCase() as keyof typeof platformColors;
+                                  const sd = new Date(post.scheduledFor);
                                   setEditingPost(post);
                                   setEditContent(post.content);
                                   setEditImageUrl((post.metadata as any)?.imageUrl || "");
+                                  setEditPlatform(post.platform);
+                                  setEditDate(`${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`);
+                                  setEditTime(`${String(sd.getHours()).padStart(2, "0")}:${String(sd.getMinutes()).padStart(2, "0")}`);
                                   handlePreview({
                                     id: `post-${post.id}`,
                                     originalId: post.id,
-                                    title: post.postType ? postTypeLabels[post.postType] || post.postType : "Social Post",
+                                    title: post.metadata?.eventTitle
+                                      ? post.metadata.eventTitle
+                                      : post.postType ? postTypeLabels[post.postType] || post.postType : "Social Post",
                                     type: "post" as const,
                                     date: scheduledDate,
                                     time: format(scheduledDate, "h:mm a"),
@@ -1951,7 +2282,7 @@ export default function UnifiedCalendarPage() {
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm line-clamp-3">{suggestion.content}</p>
+                          <p className="text-sm line-clamp-3 whitespace-pre-wrap">{normalizePostContent(suggestion.content)}</p>
                         </div>
                       ))}
                     </div>
@@ -2026,7 +2357,7 @@ export default function UnifiedCalendarPage() {
                                 </Button>
                               </div>
                             </div>
-                            <p className="text-sm">{suggestion.content}</p>
+                            <p className="text-sm whitespace-pre-wrap">{normalizePostContent(suggestion.content)}</p>
                             {suggestion.hashtags && suggestion.hashtags.length > 0 && (
                               <div className="flex flex-wrap gap-1 mt-2">
                                 {suggestion.hashtags.map((tag, i) => (
@@ -2437,24 +2768,52 @@ export default function UnifiedCalendarPage() {
                   {previewContent.description && (
                     <p className="text-sm">{previewContent.description}</p>
                   )}
-                  <Button
-                    className="w-full"
-                    onClick={() => {
-                      const event = events.find(e => e.id === previewContent.originalId);
-                      if (event) {
-                        generatePostsMutation.mutate(event.id);
-                      }
-                    }}
-                    disabled={generatePostsMutation.isPending}
-                    data-testid="btn-generate-from-preview"
-                  >
-                    {generatePostsMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 mr-2" />
-                    )}
-                    Generate Posts for This Event
-                  </Button>
+                  {lastGeneratedEventId === previewContent.originalId ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 rounded-md p-3">
+                        <Check className="w-4 h-4 shrink-0" />
+                        <span>Posts generated! Go to <strong>Events → Events tab</strong> to review and schedule them.</span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          setShowPreview(false);
+                          setLastGeneratedEventId(null);
+                          const event = events.find(e => e.id === previewContent.originalId);
+                          if (event) generatePostsMutation.mutate(event.id);
+                        }}
+                        disabled={generatePostsMutation.isPending}
+                        data-testid="btn-generate-from-preview"
+                      >
+                        {generatePostsMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 mr-2" />
+                        )}
+                        Regenerate Posts
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        const event = events.find(e => e.id === previewContent.originalId);
+                        if (event) {
+                          generatePostsMutation.mutate(event.id);
+                        }
+                      }}
+                      disabled={generatePostsMutation.isPending}
+                      data-testid="btn-generate-from-preview"
+                    >
+                      {generatePostsMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 mr-2" />
+                      )}
+                      Generate Posts for This Event
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -2475,6 +2834,44 @@ export default function UnifiedCalendarPage() {
                   </p>
                   {editingPost?.id === previewContent.originalId ? (
                     <div className="space-y-2">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">Platform</Label>
+                        <Select value={editPlatform} onValueChange={setEditPlatform}>
+                          <SelectTrigger className="h-8 text-sm" data-testid="select-edit-platform">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="facebook">Facebook</SelectItem>
+                            <SelectItem value="instagram">Instagram</SelectItem>
+                            <SelectItem value="linkedin">LinkedIn</SelectItem>
+                            <SelectItem value="x">X (Twitter)</SelectItem>
+                            <SelectItem value="youtube">YouTube</SelectItem>
+                            <SelectItem value="tiktok">TikTok</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-sm font-medium">Date</Label>
+                          <Input
+                            type="date"
+                            value={editDate}
+                            onChange={(e) => setEditDate(e.target.value)}
+                            className="h-8 text-sm"
+                            data-testid="input-edit-date"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-sm font-medium">Time</Label>
+                          <Input
+                            type="time"
+                            value={editTime}
+                            onChange={(e) => setEditTime(e.target.value)}
+                            className="h-8 text-sm"
+                            data-testid="input-edit-time"
+                          />
+                        </div>
+                      </div>
                       <Textarea
                         value={editContent}
                         onChange={(e) => setEditContent(e.target.value)}
@@ -2608,10 +3005,15 @@ export default function UnifiedCalendarPage() {
                               ...previewContent.metadata,
                               imageUrl: editImageUrl || undefined
                             };
+                            const newScheduledFor = editDate && editTime
+                              ? new Date(`${editDate}T${editTime}:00`).toISOString()
+                              : undefined;
                             updatePostMutation.mutate({
                               id: previewContent.originalId,
                               content: editContent,
                               metadata: updatedMetadata,
+                              platform: editPlatform !== editingPost?.platform ? editPlatform : undefined,
+                              scheduledFor: newScheduledFor,
                             });
                             setEditingPost(null);
                             if (previewContent) {
@@ -2641,7 +3043,7 @@ export default function UnifiedCalendarPage() {
                     </div>
                   ) : (
                     <div className="p-3 bg-muted rounded-lg">
-                      <p className="text-sm whitespace-pre-wrap">{previewContent.content}</p>
+                      <p className="text-sm whitespace-pre-wrap">{normalizePostContent(previewContent.content)}</p>
                     </div>
                   )}
                   {(() => {
@@ -2735,9 +3137,13 @@ export default function UnifiedCalendarPage() {
                         onClick={() => {
                           const post = apiScheduledPosts.find(p => p.id === previewContent.originalId);
                           if (post) {
+                            const sd = new Date(post.scheduledFor);
                             setEditingPost(post);
                             setEditContent(post.content);
                             setEditImageUrl((post.metadata as any)?.imageUrl || "");
+                            setEditPlatform(post.platform);
+                            setEditDate(`${sd.getFullYear()}-${String(sd.getMonth() + 1).padStart(2, "0")}-${String(sd.getDate()).padStart(2, "0")}`);
+                            setEditTime(`${String(sd.getHours()).padStart(2, "0")}:${String(sd.getMinutes()).padStart(2, "0")}`);
                           }
                         }}
                         data-testid="btn-edit-post-preview"

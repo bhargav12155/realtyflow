@@ -233,7 +233,7 @@ export default function HelpGuidesPage() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {isAuthenticated && <Sidebar />}
+      {isAuthenticated && <Sidebar activeView="help" />}
       <main className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto px-4 py-6 md:px-8">
           {!isAuthenticated && (

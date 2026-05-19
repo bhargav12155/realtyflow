@@ -186,7 +186,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     itemCapitalized: "Item",
     itemsCapitalized: "Items",
     catalog: "Catalog",
-    addItem: "Add New Item",
+    addItem: "Add New Offering",
     editItem: "Edit Item",
     searchItem: "Search items...",
     role: "Business Professional",
@@ -196,7 +196,7 @@ const TERMINOLOGY: Record<BusinessType, BusinessTerminology> = {
     dashboardTitle: "AI Marketing Dashboard",
     dashboardSubtitle: "Automated content generation for business marketing",
     catalogPage: "Business Catalog",
-    catalogDescription: "Manage your items and generate AI content for each one",
+    catalogDescription: "Manage your business offerings",
     featureLabel: "Feature Post",
     features: {
       mlsSearch: false,

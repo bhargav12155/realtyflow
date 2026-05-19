@@ -31,11 +31,14 @@ export interface MarketIntelligence {
 }
 
 export class MarketIntelligenceService {
-  async generateIntelligence(marketData: any[]): Promise<MarketIntelligence> {
+  async generateIntelligence(marketData: any[], location?: { city?: string; state?: string; zipCode?: string }): Promise<MarketIntelligence> {
+    const city = location?.city || 'your area';
+    const state = location?.state || '';
+    const locationLabel = state ? `${city}, ${state}` : city;
     try {
       if (!process.env.GEMINI_API_KEY) {
         console.warn('⚠️  GEMINI_API_KEY not found - returning basic market intelligence');
-        return this.getBasicIntelligence(marketData);
+        return this.getBasicIntelligence(marketData, locationLabel);
       }
 
       if (!marketData || marketData.length === 0) {
@@ -58,7 +61,7 @@ export class MarketIntelligenceService {
         trend: d.trend
       }));
 
-      const prompt = `You are a real estate market analyst specializing in Omaha, Nebraska. Analyze this market data and provide actionable insights.
+      const prompt = `You are a real estate market analyst specializing in ${locationLabel}. Analyze this market data and provide actionable insights.
 
 **MARKET DATA:**
 ${JSON.stringify(marketSummary, null, 2)}
@@ -237,7 +240,7 @@ Return ONLY a valid JSON object with this structure:
     });
   }
 
-  private getBasicIntelligence(marketData: any[]): MarketIntelligence {
+  private getBasicIntelligence(marketData: any[], locationLabel?: string): MarketIntelligence {
     const overview = this.calculateOverview(marketData);
     
     const trendingNeighborhoods = marketData
@@ -262,7 +265,7 @@ Return ONLY a valid JSON object with this structure:
     return {
       overview,
       trendingNeighborhoods,
-      aiSummary: `The Omaha real estate market is ${overview.marketCondition} with a median home price of $${overview.medianHomePrice.toLocaleString()} and homes selling in an average of ${overview.avgDaysOnMarket} days.`,
+      aiSummary: `The ${locationLabel || 'local'} real estate market is ${overview.marketCondition} with a median home price of $${overview.medianHomePrice.toLocaleString()} and homes selling in an average of ${overview.avgDaysOnMarket} days.`,
       contentOpportunities: [
         {
           title: 'Market Update Report',

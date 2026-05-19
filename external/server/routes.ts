@@ -594,56 +594,1314 @@ function getRealEstateStockImages(query: string): Array<{
   }));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCH INTENT DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+type SearchIntent =
+  | "recommendation"
+  | "local_search"
+  | "urgent_service"
+  | "pricing"
+  | "educational"
+  | "advice"
+  | "family_focused"
+  | "romantic"
+  | "comparison"
+  | "investment"
+  | "listing"
+  | "general";
+
+function detectSearchIntent(goal: string): SearchIntent {
+  if (!goal) return "general";
+  const t = goal.toLowerCase();
+  if (/emergency|urgent|broken|leaking|not working|flooded|no heat|no ac|no power|burst pipe/.test(t)) return "urgent_service";
+  if (/date night|romantic|couples|anniversary|valentine/.test(t)) return "romantic";
+  if (/\bfamily\b|kids|children|school|parents?/.test(t)) return "family_focused";
+  if (/how much|cost|price|affordable|cheap|rate\b|fee\b|quote|budget/.test(t)) return "pricing";
+  if (/how to\b|guide|learn|steps|tutorial|what is/.test(t)) return "educational";
+  if (/\btips?\b|advice|should i|suggestion/.test(t)) return "advice";
+  if (/\bbest\b|\btop\b|most popular|highly rated|favorite/.test(t)) return "recommendation";
+  if (/near me/.test(t)) return "local_search";
+  if (/\bvs\b|versus|compare|difference/.test(t)) return "comparison";
+  if (/invest|roi|appreciation|return on|rental income/.test(t)) return "investment";
+  if (/\bbuy\b|\bsell\b|for sale|listing|mls|moving/.test(t)) return "listing";
+  return "general";
+}
+
 function generateAIOptimizedContent(
   neighborhood: string,
   goal: string,
-  question?: string
+  question?: string,
+  businessType: string = "real_estate",
+  profile?: { agentName?: string; brokerageName?: string; phone?: string }
 ): string {
+  const safeNeighborhood = neighborhood || "your area";
+  const safeGoal = goal || "local expertise";
+  const ownerName = profile?.agentName || "our team";
+  const businessName = profile?.brokerageName || "our business";
+  const phone = profile?.phone || "";
+  const contactLine = phone ? `**Call us:** ${phone}` : "";
+  const intent = detectSearchIntent(safeGoal);
+
   const questionStart =
     question ||
-    `What's the best information about ${goal.toLowerCase()} in ${neighborhood}?`;
+    `What's the best information about ${safeGoal.toLowerCase()} in ${safeNeighborhood}?`;
 
-  return `# ${questionStart}
+  // ── RESTAURANT ────────────────────────────────────────────────────────────
+  if (businessType === "restaurant") {
 
-**Direct Answer:** ${neighborhood} is an excellent choice for ${goal.toLowerCase()}. Here's what you need to know as someone considering this area.
+    if (intent === "romantic") {
+      return `# ${questionStart}
 
-## Why ${neighborhood} Works for ${goal}
+**Your Local Guide:** ${safeNeighborhood} has some of Omaha's most romantic dining experiences — from candlelit corners to intimate chef-driven menus perfect for a memorable evening.
 
-${neighborhood} offers unique advantages that make it ideal for ${goal.toLowerCase()}:
+## Most Romantic Restaurants in ${safeNeighborhood}
 
-### Local Market Insights
-- **Current Market:** ${neighborhood} homes typically range from $250K-$450K depending on size and location
-- **Neighborhood Character:** Well-established community with strong property values
-- **Growth Potential:** Consistent appreciation over the past 5 years
+The best date night restaurants share a few things in common: exceptional ambience, thoughtfully crafted menus, and service that makes you feel like the only people in the room.
 
-### What Makes ${neighborhood} Special
-- **Community:** Active neighborhood associations and local events
-- **Convenience:** Close to major employers, schools, and Omaha amenities
-- **Investment Value:** Properties hold value well and attract quality buyers
+### What Makes the Perfect Date Night Spot
+- **Ambience & Atmosphere:** Soft lighting, intimate seating, and low noise levels designed for real conversation
+- **Menu Craftsmanship:** Chef-driven dishes with seasonal ingredients, wine-pairing options, and desserts worth sharing
+- **Private & Semi-Private Dining:** Many top spots in ${safeNeighborhood} offer reserved booths or private rooms for special occasions
+- **Sommelier & Cocktail Programs:** A strong wine list and creative cocktail menu elevate any romantic evening
 
-## Professional Guidance You Can Trust
+### Best Ambience for Couples
 
-As your local ${neighborhood} expert, I'm Mike Bjork with Berkshire Hathaway HomeServices. I've helped hundreds of families find their perfect home in this area.
+Look for:
+- Warm lighting and natural materials (wood, stone, candlelight)
+- Generous table spacing — not packed in shoulder-to-shoulder
+- Background music at conversation volume
+- Attentive-but-not-intrusive service style
 
-**Why work with me?**
-- 15+ years specializing in ${neighborhood} and surrounding areas
-- Licensed Nebraska realtor with deep local market knowledge
-- Access to off-market properties and exclusive listings
+### Popular Date Night Dishes
 
-## Ready to Explore ${neighborhood}?
+From hand-rolled pasta to dry-aged steaks and fresh seafood — the dining scene here offers something for every couple's palate. Seasonal tasting menus are especially popular for anniversaries and milestone celebrations.
 
-Whether you're a first-time buyer, growing family, or savvy investor, I'll help you understand if ${neighborhood} aligns with your goals.
+### Wine & Cocktail Recommendations
 
-**Contact Mike Bjork:**
-- Phone: (402) 555-0123
-- Email: mike@bjorkgroup.com
-- Office: Berkshire Hathaway HomeServices
+Ask about house-selected wine flights or the sommelier's pairing suggestions. Many ${safeNeighborhood} restaurants stock boutique labels and small-batch spirits you won't find at chain restaurants.
 
-*Serving ${neighborhood}, Omaha, and surrounding communities with personalized real estate expertise since 2008.*
+### Reservation Tips
+- Book 3–7 days in advance for weekend evenings
+- Request window or corner seating — usually the most intimate spots
+- Mention special occasions so staff can prepare a surprise
+
+### Best Time for a Romantic Dinner
+
+Weeknight dinners (Tuesday–Thursday) tend to be quieter and more intimate. If weekends are the only option, aim for early (6pm) or late (8:30pm) seatings to avoid the rush.
+
+## About ${businessName}
+
+${ownerName} at ${businessName} curates an evening experience rooted in locally sourced ingredients, attentive hospitality, and a setting designed for connection.
+
+**Reserve your table tonight**
+${contactLine}
+*${safeNeighborhood}, Omaha*
 
 ---
-*This content was optimized for AI search engines to provide direct, helpful answers about ${neighborhood} real estate.*`;
+*AI-optimized dining guide for: ${safeGoal} in ${safeNeighborhood}*`;
+    }
+
+    if (intent === "family_focused") {
+      return `# ${questionStart}
+
+**Family Dining in ${safeNeighborhood}:** Finding a restaurant that genuinely works for the whole family — from toddlers to teens — takes more than a good kids' menu. Here's what to look for.
+
+## Best Family-Friendly Restaurants in ${safeNeighborhood}
+
+Great family restaurants balance kid-friendly appeal with food quality adults actually enjoy.
+
+### What to Look for in a Family Restaurant
+- **Kids Menus Done Right:** More than chicken fingers — look for balanced options, smaller portions, and allergy-aware preparation
+- **Noise Level & Space:** Spacious booths, high chairs, and a lively atmosphere where kids don't ruin anyone's evening
+- **Speed of Service:** Families with young children need efficient service that doesn't mean a 45-minute wait
+- **Outdoor Seating:** Patios give kids room to breathe and reduce stress for parents
+
+### Activities & Entertainment for Kids
+
+Some restaurants in ${safeNeighborhood} go the extra mile with:
+- Crayons and activity sheets
+- Outdoor play areas or nearby parks
+- Weekend entertainment (magic shows, face painting at family brunch)
+- Interactive ordering that keeps kids engaged
+
+### Menu Highlights for Families
+
+Look for:
+- Grilled and baked options alongside fried favorites
+- Build-your-own meals (tacos, burgers, pizza) that picky eaters love
+- Fresh fruit and vegetable sides as standard options
+- Dessert menus with sharing-size options
+
+### Pricing & Value for Families
+
+Family dining adds up fast. The best spots offer:
+- Kids eat free nights (typically weekdays)
+- Family meal deals and combo pricing
+- Loyalty programs with rewards for repeat visits
+
+## About ${businessName}
+
+${ownerName} at ${businessName} believes every family deserves a stress-free, delicious dining experience. We've designed our space and menu with families in mind from the start.
+
+**Bring the whole family — we're ready for you!**
+${contactLine}
+*Family-friendly dining in ${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized dining guide for: ${safeGoal} in ${safeNeighborhood}*`;
+    }
+
+    if (intent === "pricing") {
+      return `# ${questionStart}
+
+**Dining Costs in ${safeNeighborhood}:** Whether you're looking for a budget-friendly lunch or planning a special splurge, here's a realistic breakdown of what to expect.
+
+## What Does Dining Out Cost in ${safeNeighborhood}?
+
+### Price Range Overview
+
+| Dining Tier | Average Per Person | What to Expect |
+|---|---|---|
+| Casual / Fast-Casual | $10–$18 | Counter service, quick turnaround, comfort food |
+| Mid-Range Sit-Down | $20–$45 | Table service, full bar, appetizers + entrees |
+| Upscale / Fine Dining | $60–$120+ | Chef-driven menus, wine pairings, formal service |
+
+### When to Go for the Best Value
+- **Lunch Menus:** Most upscale restaurants in ${safeNeighborhood} offer lunch versions of dinner menus at 30–40% less
+- **Happy Hour:** Typically 3–6pm weekdays — discounted drinks, appetizers, and bar bites
+- **Early Bird Specials:** Many spots offer prix-fixe deals before 6pm
+- **Restaurant Week:** Omaha's annual event brings fixed-price menus to top restaurants
+
+### Hidden Costs to Watch For
+- Service charges on large parties (usually 18–20%)
+- Valet parking in the entertainment district
+- Corkage fees if you bring your own wine
+- Specialty tasting menus require full-table participation
+
+### Best Budget-Friendly Options
+
+Look for local lunch counters, food trucks on weekends, and neighborhood cafes that punch above their price point with fresh, house-made food.
+
+## About ${businessName}
+
+${ownerName} at ${businessName} believes outstanding food doesn't require an outstanding bill. We're committed to genuine value with every visit.
+
+**See our current menu and pricing**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized dining guide for: ${safeGoal} in ${safeNeighborhood}*`;
+    }
+
+    if (intent === "recommendation" || intent === "local_search") {
+      return `# ${questionStart}
+
+**Local's Pick:** ${safeNeighborhood} has developed a genuine dining identity — with restaurants that reflect the neighborhood's character, not just the food trend of the moment.
+
+## Best Restaurants in ${safeNeighborhood}
+
+### What Separates the Best Spots
+- **Locally Owned & Operated:** Chefs who live in the community, source from local farms, and cook with a personal stake in what they serve
+- **Consistent Quality:** Places the neighborhood has rallied behind for years — not just the newest opening
+- **Signature Dishes:** Every standout spot has something iconic that locals recommend to out-of-towners
+- **Atmosphere with Personality:** Spaces that feel like they belong here — not a copy-paste chain interior
+
+### Cuisine Diversity in ${safeNeighborhood}
+- American comfort food and elevated pub fare
+- International cuisine: Italian, Asian, Latin, Mediterranean
+- Plant-based and health-focused menus
+- Bakeries, coffee shops, and brunch destinations
+
+### Neighborhood Dining Culture
+
+${safeNeighborhood} has a strong "regulars" culture — restaurants here build real relationships with diners. Expect staff to remember your preferences after a few visits, and a genuine sense of community when you walk in.
+
+### How to Choose the Right Spot
+- Check recent Google and Yelp reviews (within the last 6 months)
+- Look for restaurant Instagram pages to preview current dishes
+- Call ahead about daily specials — many top spots rotate their menus seasonally
+
+## About ${businessName}
+
+${ownerName} at ${businessName} has been a proud part of the ${safeNeighborhood} dining scene, earning loyal regulars who keep coming back for the food, the atmosphere, and the people behind it.
+
+**Come see why ${safeNeighborhood} eats here first.**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized dining guide for: ${safeGoal} in ${safeNeighborhood}*`;
+    }
+
+    // Restaurant general / advice fallback
+    return `# ${questionStart}
+
+**Insider Guide:** ${safeNeighborhood}'s dining scene is one of Omaha's best-kept secrets — here's what you need to know before your next meal.
+
+## Dining in ${safeNeighborhood}: What to Know
+
+### The Local Food Culture
+
+${safeNeighborhood} has built a food scene on:
+- Independent restaurants with passionate owner-operators
+- Strong farm-to-table connections with local producers
+- A mix of neighborhood staples and innovative newcomers
+- Inviting atmospheres designed for lingering over good food
+
+### Making the Most of Your Dining Experience
+
+**Before You Go:**
+- Check hours online — many restaurants modify hours seasonally
+- Make reservations for dinner, especially on weekends
+- Browse the menu ahead of time if you have dietary restrictions
+
+**When You Arrive:**
+- Ask your server about off-menu specials and chef's recommendations
+- Be open to pairing suggestions — local staff know the menu inside out
+- Don't rush — the best meals here are the ones savored slowly
+
+### What Sets ${safeNeighborhood} Dining Apart
+- Walkable restaurant clusters make it easy to explore multiple spots in one evening
+- Strong brunch culture with weekend-only menus worth planning around
+- Active community of food writers and local voices who spotlight the best spots
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is part of what makes ${safeNeighborhood}'s dining scene special — committed to hospitality, quality, and community with every plate.
+
+**Join us for your next great meal.**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized dining guide for: ${safeGoal} in ${safeNeighborhood}*`;
+  }
+
+  // ── HOME SERVICES ─────────────────────────────────────────────────────────
+  if (businessType === "home_services") {
+
+    if (intent === "urgent_service") {
+      return `# ${questionStart}
+
+**Act Quickly:** Home emergencies require immediate action. Here's what to do right now and what to expect when you call a professional in ${safeNeighborhood}.
+
+## Emergency Home Services in ${safeNeighborhood}
+
+Don't wait — the right response in the first hour can prevent thousands in additional damage.
+
+### Common HVAC Emergencies
+- Complete heating failure during winter — especially dangerous for elderly residents and young children
+- AC failure during extreme heat warnings
+- Burning smells or electrical odors from your unit
+- Carbon monoxide detector activation near your furnace
+
+### Common Plumbing Emergencies
+- Burst or frozen pipes with active water flow
+- Sewage backup in multiple drains — sign of a main line blockage
+- Water heater failure or visible leaks around the unit
+- No water pressure throughout the home
+
+### Common Electrical Emergencies
+- Tripping breakers that won't reset
+- Visible sparks or burning smells from outlets or panels
+- Complete power loss to a section of the home
+- Outdoor wiring damage after storms
+
+### Signs You Need Immediate Help — Don't Delay
+- Visible water accumulating faster than you can manage
+- Gas smell anywhere in the home — leave immediately and call your gas company first
+- Smoke, sparks, or heat from walls or ceilings
+- HVAC making loud grinding or banging sounds
+
+### What to Do While Waiting for the Technician
+
+1. **Water issues:** Locate and shut off your main water valve
+2. **HVAC issues:** Turn the system off at the thermostat and breaker
+3. **Electrical issues:** Switch off the affected circuit at the panel
+4. **Gas leak:** Do not use any switches — leave immediately
+
+### Expected Response Times in ${safeNeighborhood}
+- Emergency/same-day service: Most reputable companies offer 2–4 hour response windows
+- After-hours premium: Expect 1.5–2x standard rates for nights and weekends
+- Priority dispatch: Ask if they offer emergency priority for existing customers
+
+### How to Choose a Reliable Emergency Technician
+- **Licensed & insured** — non-negotiable for any home entry
+- **Transparent emergency pricing** — get a written estimate before authorizing work
+- **Local company** — local crews arrive faster and are accountable in your community
+- **24/7 availability** — verify they're genuinely available, not just an answering service
+
+### Preventing Future Breakdowns
+- Schedule annual HVAC tune-ups before winter and summer
+- Insulate pipes in unheated spaces before temperature drops
+- Have your electrical panel inspected if your home is 15+ years old
+- Keep your water heater flushed annually
+
+## About ${businessName}
+
+${ownerName} at ${businessName} provides rapid-response emergency services to homeowners in ${safeNeighborhood}. We're available when you need us most.
+
+**Call now for emergency support**
+${contactLine}
+*Serving ${safeNeighborhood} and surrounding Omaha communities — available 24/7*
+
+---
+*AI-optimized emergency home services guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "pricing") {
+      return `# ${questionStart}
+
+**Cost Guide:** Home service pricing varies widely. Here's an honest breakdown of what ${safeNeighborhood} homeowners typically pay for common repairs and services.
+
+## Home Service Costs in ${safeNeighborhood}
+
+### HVAC Pricing
+
+| Service | Typical Range |
+|---|---|
+| Annual tune-up / maintenance | $80–$150 |
+| Refrigerant recharge | $150–$400 |
+| Blower motor replacement | $300–$600 |
+| Full system replacement (AC + furnace) | $5,000–$12,000 |
+| Emergency diagnostic visit | $125–$250 |
+
+### Plumbing Pricing
+
+| Service | Typical Range |
+|---|---|
+| Drain clearing (basic) | $100–$250 |
+| Toilet replacement | $250–$500 installed |
+| Water heater replacement | $900–$2,500 installed |
+| Pipe leak repair | $200–$800 depending on access |
+| Sewer line inspection | $150–$300 |
+
+### Electrical Pricing
+
+| Service | Typical Range |
+|---|---|
+| Outlet replacement | $100–$200 |
+| Circuit breaker replacement | $150–$250 |
+| Panel upgrade (100A → 200A) | $1,800–$3,500 |
+| Whole-home inspection | $150–$300 |
+| Emergency service call | $150–$300+ |
+
+### What Drives Costs Up or Down
+
+**Factors that increase price:**
+- After-hours or weekend scheduling (premium rates)
+- Older homes requiring code-compliance upgrades
+- Limited access (crawl spaces, walls, attic runs)
+- Permit requirements for structural or electrical work
+
+**Ways to reduce costs:**
+- Bundle multiple services in one visit (saves on dispatch fees)
+- Annual maintenance contracts (locked-in lower rates)
+- Get 2–3 written quotes for any job over $500
+- Ask about off-season scheduling for non-urgent HVAC work
+
+### Red Flags to Watch Out For
+- Verbal-only estimates with no written documentation
+- Full upfront payment required before work starts
+- No license or insurance documentation provided when asked
+- Urgency tactics pushing expensive unnecessary upgrades
+
+## About ${businessName}
+
+${ownerName} at ${businessName} believes in transparent, honest pricing. We provide written estimates before any work begins and never surprise our customers with hidden costs.
+
+**Get a free estimate today**
+${contactLine}
+*Serving ${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized home services pricing guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "educational") {
+      return `# ${questionStart}
+
+**Homeowner's Guide:** Understanding your home's systems makes you a smarter consumer and helps you avoid costly surprises. Here's a practical breakdown for ${safeNeighborhood} homeowners.
+
+## Home Systems & Services: What You Need to Know
+
+### How Your HVAC System Works
+
+Your HVAC system has three main components:
+
+**Furnace / Air Handler:** Heats or circulates air through ductwork. Typical lifespan: 15–25 years.
+
+**Air Conditioner / Heat Pump:** Removes heat from indoor air in summer. Typical lifespan: 12–18 years.
+
+**Ductwork & Ventilation:** Distributes conditioned air. Duct leaks can waste 20–30% of your energy.
+
+**DIY Maintenance You Can Do:**
+- Replace air filters every 1–3 months
+- Clear debris from outdoor condenser unit
+- Keep vents unobstructed
+- Check thermostat calibration seasonally
+
+**When to Call a Professional:**
+- Annual tune-ups before heating and cooling seasons
+- Any refrigerant-related issue — illegal to handle without certification
+- Unusual noises, odors, or unexplained energy bill spikes
+
+### Understanding Your Plumbing
+
+Your home's plumbing has two systems: supply (pressurized water in) and drain-waste-vent (gravity-fed out).
+
+**Signs of Trouble:**
+- Slow drains across multiple fixtures (main line issue)
+- Low water pressure throughout the home
+- Discolored water (rust or sediment)
+- High water bills with no explanation (hidden leak)
+
+**DIY vs Professional:**
+- You can: unclog a single drain, replace a toilet flapper, fix a running toilet
+- Call a pro: main supply lines, water heater work, sewer access
+
+### Electrical Basics for Homeowners
+
+Modern homes run on 200-amp service. Older homes (pre-1980) may have 100-amp panels that can't safely handle today's appliance loads.
+
+**Know Your Panel:**
+- Label every circuit breaker so you can quickly isolate issues
+- Test GFCI outlets monthly (the reset button outlets near water sources)
+- AFCI breakers are now code-required in bedrooms
+
+## About ${businessName}
+
+${ownerName} at ${businessName} believes an informed homeowner is our best customer. We offer free consultations and honest assessments for all ${safeNeighborhood} homeowners.
+
+**Schedule a home assessment**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized homeowner education guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "advice") {
+      return `# ${questionStart}
+
+**Expert Tips:** Proactive home maintenance in ${safeNeighborhood} saves thousands in avoidable repairs. Here's what experienced homeowners and contractors recommend.
+
+## Home Maintenance Tips for ${safeNeighborhood} Homeowners
+
+### Seasonal Maintenance Calendar
+
+**Spring:**
+- Schedule AC tune-up before the heat hits
+- Inspect roof and gutters after winter (ice dam damage)
+- Check outdoor hose bibs and irrigation systems
+- Test smoke and carbon monoxide detectors
+
+**Summer:**
+- Clean dryer vent (leading cause of house fires)
+- Check attic ventilation — heat buildup shortens roof life
+- Inspect deck boards, railings, and stair stringers
+- Trim trees and shrubs away from the foundation and roof
+
+**Fall:**
+- Schedule furnace tune-up before first cold snap
+- Drain and winterize outdoor faucets
+- Clean gutters after leaves fall
+- Seal gaps around doors and windows before heating season
+
+**Winter:**
+- Insulate pipes in unheated spaces (garage, crawlspace)
+- Know where your main water shutoff is
+- Keep cabinet doors open during extreme cold to prevent pipe freezing
+- Keep a backup heat source if your primary system fails
+
+### The 1% Rule for Home Maintenance
+
+Budget 1% of your home's value annually for maintenance and repairs. A $300,000 home should have ~$3,000/year set aside. This prevents small issues from becoming costly emergencies.
+
+### How to Find a Trustworthy Contractor
+
+1. Ask neighbors in ${safeNeighborhood} for referrals — word-of-mouth is still the most reliable source
+2. Verify license and insurance before allowing any work
+3. Get at least 2 written quotes for any job over $500
+4. Check BBB, Google, and Angi reviews from the last 12 months
+5. Never pay more than 30% upfront for a project
+
+### When DIY Makes Sense (and When It Doesn't)
+
+**Safe DIY:** Painting, caulking, minor drywall patches, replacing light fixtures (breaker off first), installing a new toilet or faucet, landscaping and fence repairs.
+
+**Always Hire a Pro:** Anything involving gas lines, main electrical panel work, structural modifications, HVAC refrigerant handling.
+
+## About ${businessName}
+
+${ownerName} at ${businessName} offers honest, expert home services to ${safeNeighborhood} homeowners — from routine maintenance to full system replacements.
+
+**Schedule your annual maintenance visit**
+${contactLine}
+*${safeNeighborhood} and surrounding Omaha communities*
+
+---
+*AI-optimized home maintenance tips for ${safeNeighborhood}*`;
+    }
+
+    // Home services general / recommendation fallback
+    return `# ${questionStart}
+
+**Local Contractor Guide:** Finding the right home service professional in ${safeNeighborhood} doesn't have to be stressful. Here's how to identify quality, local companies.
+
+## Home Services in ${safeNeighborhood}: What to Look For
+
+### Signs of a Quality Home Service Company
+- **Licensed, bonded, and insured** — the non-negotiable starting point
+- **Local reputation** — look for companies with 50+ verified local reviews
+- **Clear communication** — they explain what's wrong, what's needed, and what it costs before starting
+- **Written estimates** — never accept verbal-only pricing
+- **Warranty on parts and labor** — quality companies stand behind their work
+
+### Common Services Available in ${safeNeighborhood}
+- **HVAC:** Heating, cooling, air quality, and ventilation systems
+- **Plumbing:** Drain, supply, and fixture work from service calls to full remodels
+- **Electrical:** From outlet replacement to full panel upgrades
+- **General Repairs:** Handyman services, drywall, carpentry, painting
+- **Roofing & Exterior:** Roof repairs, gutters, siding, and window replacement
+
+### What Great Service Looks Like
+- On-time arrivals with a courtesy call when en route
+- Clean work area left behind — no debris, no damage to your home
+- Explanation of completed work and any follow-up needs
+- Invoice that matches the original estimate
+
+## About ${businessName}
+
+${ownerName} at ${businessName} has built a reputation for honest, reliable home services throughout ${safeNeighborhood}. We show up when promised, do the work right, and stand behind it.
+
+**Book a service call today**
+${contactLine}
+*Serving ${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized home services guide for: ${safeGoal} in ${safeNeighborhood}*`;
+  }
+
+  // ── REAL ESTATE ───────────────────────────────────────────────────────────
+  if (businessType === "real_estate") {
+
+    if (intent === "family_focused") {
+      return `# ${questionStart}
+
+**For Families:** Choosing a neighborhood is one of the most important decisions a family makes. Here's an honest, detailed look at what ${safeNeighborhood} offers.
+
+## Is ${safeNeighborhood} Right for Your Family?
+
+### School District Quality
+
+School quality is consistently the #1 factor for families. ${safeNeighborhood} offers:
+- Access to highly rated public elementary, middle, and high schools
+- Proximity to private and charter school options for families seeking alternatives
+- Strong parent involvement and active PTA/PTO organizations
+- Above-average graduation rates in the local district
+- Before and after-school programs that work for working parents
+
+*Pro tip: Visit SchoolDigger.com and GreatSchools.org to review detailed ratings before deciding.*
+
+### Family-Friendly Amenities
+
+What families love about ${safeNeighborhood}:
+- **Parks & Playgrounds:** Multiple neighborhood parks within walking distance, including splash pads and sports fields
+- **Recreation Centers:** Indoor pools, youth sports leagues, and after-school programs
+- **Family Dining:** Restaurants with genuine kids' menus and welcoming atmospheres
+- **Libraries:** Active public library branches with strong children's programming
+- **Safe Streets:** Low traffic speeds, sidewalks, and bike paths throughout the neighborhood
+
+### Safety & Community Feel
+- Low crime rates compared to city averages — check Omaha Police Department's crime mapping tool
+- Active neighborhood watch programs and engaged HOAs in many sections
+- Strong sense of community with annual block parties, seasonal events, and school fundraisers
+- Neighbors who know each other — the kind of street where kids can play outside
+
+### Property Types for Families
+- 3–4 bedroom single-family homes with yards
+- Finished basements providing extra living and play space
+- Attached garages — important for Nebraska winters
+- Larger lot sizes than comparable neighborhoods closer to the city center
+
+### Current Market for Family Homes
+- Median family home price: $280,000–$400,000 depending on size and street
+- Competition is strongest in spring — serious buyers should get pre-approved early
+- Homes with strong school district positioning tend to hold value better long-term
+
+## Work with a Family-Focused Agent
+
+${ownerName}${businessName !== "our business" ? ` at ${businessName}` : ""} specializes in helping families find the right home in the right neighborhood — not just a property that fits a price point.
+
+**Schedule a family-focused home search**
+${contactLine}
+*Serving ${safeNeighborhood} and surrounding Omaha communities*
+
+---
+*AI-optimized family real estate guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "investment") {
+      return `# ${questionStart}
+
+**Investor's Overview:** ${safeNeighborhood} has shown consistent investment fundamentals that appeal to both long-term holders and active real estate investors.
+
+## Real Estate Investment Analysis: ${safeNeighborhood}
+
+### Why Investors Are Looking at ${safeNeighborhood}
+- **Steady Appreciation:** Properties have appreciated consistently, outperforming the Omaha market average in recent years
+- **Low Vacancy Rates:** Strong rental demand driven by proximity to employment centers, universities, and healthcare
+- **Accessible Entry Point:** More accessible price points than comparable neighborhoods in larger metro markets
+- **Infrastructure Investment:** City-funded improvements signal long-term confidence in the area
+
+### Rental Income Potential
+
+| Property Type | Typical Monthly Rent | Est. Annual Gross |
+|---|---|---|
+| 2BR / 1BA | $1,100–$1,500 | $13,200–$18,000 |
+| 3BR / 2BA | $1,500–$2,200 | $18,000–$26,400 |
+| 4BR / 2BA | $2,000–$2,800 | $24,000–$33,600 |
+
+*Actual returns depend on condition, management costs, and vacancy rates*
+
+### Key Investment Metrics to Evaluate
+- **Gross Rent Multiplier (GRM):** Target below 12x in ${safeNeighborhood} for strong rental yield
+- **Cap Rate:** Local single-family rentals typically yield 5–7% depending on price point
+- **Cash-on-Cash Return:** With 20–25% down, expect 4–8% COC on well-managed properties
+- **Appreciation Upside:** New commercial development and school improvements drive long-term value
+
+### What to Watch Out For
+- **Deferred Maintenance:** Older housing stock can carry hidden costs — always include inspection contingency
+- **HOA Restrictions:** Some sections restrict short-term rentals (Airbnb/VRBO)
+- **Property Tax Assessment:** Nebraska property taxes vary by county — verify before making an offer
+- **Market Competition:** The best investment properties move quickly — have pre-approval and clear criteria
+
+### Build-to-Rent & Multi-Family Opportunities
+
+Investors looking at higher return potential should also explore:
+- Duplex and triplex properties in the neighborhood
+- Permitted ADU potential on larger lots
+- Value-add opportunities — cosmetic renovations with strong rent upside
+
+## Work with a Real Estate Investment Specialist
+
+${ownerName}${businessName !== "our business" ? ` at ${businessName}` : ""} works with investors to identify below-market opportunities, run accurate underwriting, and execute transactions efficiently.
+
+**Book an investor consultation**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized real estate investment guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "pricing") {
+      return `# ${questionStart}
+
+**Market Reality Check:** Understanding what properties actually sell for in ${safeNeighborhood} — not just asking prices — gives buyers and sellers a real advantage.
+
+## ${safeNeighborhood} Real Estate Pricing Guide
+
+### Current Price Ranges by Property Type
+
+| Property Type | Price Range | Key Variables |
+|---|---|---|
+| Condo / Townhome | $185,000–$320,000 | Floor, HOA, amenities |
+| Single-Family (starter) | $240,000–$320,000 | Lot size, age, condition |
+| Single-Family (mid-range) | $320,000–$475,000 | Schools, updates, garage |
+| Executive / Premium | $475,000–$700,000+ | Custom builds, large lots |
+
+### What Moves the Price
+
+**Strong price premiums for:**
+- Homes zoned for the highest-rated elementary schools (up to 8–12% premium)
+- Updated kitchens and primary bathrooms
+- Finished basements
+- South-facing lots with good natural light
+- Original owners with documented maintenance history
+
+**Price discounts you'll see on:**
+- Deferred maintenance (roofs, HVAC, windows)
+- Backing to busy roads or commercial zones
+- Original 1970s–1980s kitchens and baths
+- Awkward floor plans or obsolete layouts
+
+### Buyer's Cost Reality (Beyond the List Price)
+
+Budget for:
+- **Closing costs:** Typically 2–3% of purchase price (~$6,000–$12,000)
+- **Home inspection:** $350–$600 depending on size
+- **Appraisal:** $500–$750 (required for most financing)
+- **Moving costs:** $1,500–$4,000 for local Omaha moves
+- **Immediate updates:** Paint, carpet, and cosmetics after move-in
+
+### Seller Pricing Strategy in ${safeNeighborhood}
+- Overpricing by more than 5% above market typically results in longer days-on-market and eventual price cuts
+- Homes priced at or slightly below market value in ${safeNeighborhood} consistently attract multiple offers
+- Current average days-on-market: 18–35 days depending on price point
+
+## Your Local Market Expert
+
+${ownerName}${businessName !== "our business" ? ` at ${businessName}` : ""} provides free, no-obligation comparative market analyses for buyers and sellers in ${safeNeighborhood}.
+
+**Get an accurate market valuation**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized real estate pricing guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "listing") {
+      return `# ${questionStart}
+
+**Buyer & Seller Guide:** Whether you're entering the market or preparing to list, understanding how ${safeNeighborhood} moves right now gives you a clear advantage.
+
+## Buying & Selling in ${safeNeighborhood}: Current Market Conditions
+
+### For Buyers: What to Know Before You Start
+
+**Getting Pre-Approved First**
+
+In ${safeNeighborhood}'s competitive market, sellers take pre-approved buyers more seriously. Get pre-approval (not just pre-qualification) from a local lender who can close quickly.
+
+**What the Inventory Looks Like**
+- Homes in desirable sections often receive offers within 7–14 days of listing
+- Off-market opportunities exist — working with an active local agent gives you early access before MLS
+- New construction and resale both available — weigh the tradeoffs for your situation
+
+**Making a Competitive Offer**
+- Know your walk-away number before you fall in love with a property
+- Escalation clauses help in multiple-offer situations
+- Understand inspection contingency vs. inspection for information only
+
+### For Sellers: Preparing to List
+
+**What Buyers Will Pay More For**
+- Updated kitchens (even refreshed paint + hardware) and bathrooms
+- Fresh neutral paint, cleaned carpets, and staged spaces photograph better and sell faster
+- HVAC, roof, and water heater documentation — buyers love knowing big systems are recently serviced
+
+**Setting the Right Price**
+- Comparative market analysis using recent sales within 0.5 miles is your most accurate pricing tool
+- The first two weeks on market are when you have maximum buyer attention — don't waste it by overpricing
+- Professional photography increases online engagement by 40%+ and directly impacts showing volume
+
+**What to Expect Timeline-Wise**
+- Average listing-to-contract: 18–35 days in ${safeNeighborhood}
+- Typical closing timeline after contract: 30–45 days for financed buyers
+- Cash sales can close in as little as 10–14 days
+
+## Ready to Buy or Sell?
+
+${ownerName}${businessName !== "our business" ? ` at ${businessName}` : ""} brings proven market expertise and local relationships to every transaction in ${safeNeighborhood}.
+
+**Schedule your free strategy call**
+${contactLine}
+*Serving ${safeNeighborhood} and surrounding Omaha communities*
+
+---
+*AI-optimized real estate buyer and seller guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "recommendation") {
+      return `# ${questionStart}
+
+**Neighborhood Expert:** Not all streets in ${safeNeighborhood} are equal — here's a data-backed, local guide to the best pockets of the neighborhood based on your priorities.
+
+## Best Areas & Properties in ${safeNeighborhood}
+
+### What Makes ${safeNeighborhood} Stand Out
+- **Established Character:** Mature trees, owner-occupied properties with pride of ownership, and stable long-term residents
+- **Appreciation History:** Consistent year-over-year price growth outpacing many comparable Omaha neighborhoods
+- **Walkability:** Strong walk scores for daily errands — grocery, coffee, parks, and dining within comfortable distance
+- **Commute Access:** Positioned near major corridors with reasonable commute times to West Omaha and downtown
+
+### The Best Sections for Different Buyers
+
+**For families with young children:**
+Best proximity to top-rated elementary schools; quiet residential streets with low cut-through traffic; cul-de-sac sections with active neighbor communities.
+
+**For first-time buyers:**
+Entry-level sections offer strong value without compromising on the neighborhood's amenities; starter homes with genuine long-term appreciation upside.
+
+**For downsizers:**
+Townhome and patio home communities provide maintenance-free living while keeping you in the neighborhood you love.
+
+**For investors:**
+Near-campus and transit-adjacent sections show the strongest rental demand and lowest vacancy.
+
+### Community Highlights
+- Active neighborhood association with seasonal events and communications
+- Local business corridor with restaurants, coffee shops, and specialty retail
+- Park and trail access within walking distance of most residential areas
+- Strong civic engagement — a reliable indicator of community investment
+
+## Local Market Expert
+
+${ownerName}${businessName !== "our business" ? ` at ${businessName}` : ""} knows ${safeNeighborhood} block by block — and can match you to the right section of the neighborhood based on your lifestyle and goals.
+
+**Start your ${safeNeighborhood} search today**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized real estate neighborhood guide for ${safeNeighborhood}*`;
+    }
+
+    // Real estate general fallback
+    return `# ${questionStart}
+
+**Your ${safeNeighborhood} Real Estate Resource:** Whether you're buying, upgrading, downsizing, or investing — here's everything that matters about this market right now.
+
+## ${safeNeighborhood} Real Estate Overview
+
+### Why People Choose ${safeNeighborhood}
+- **Location & Access:** Well-positioned for Omaha's major employment, healthcare, and entertainment centers
+- **Community Quality:** Active neighborhood associations, excellent maintained public spaces, and a strong sense of belonging
+- **Housing Diversity:** A range of price points and property types accommodating different life stages
+- **Investment Stability:** Consistent demand from both owner-occupants and investors keeps the market balanced
+
+### Current Market Snapshot
+- Homes are moving within 3–5 weeks on average
+- Multiple offer situations are common on well-priced, updated properties
+- Interest rate environment favoring buyers who can move decisively
+- Seller concessions available on higher price-point and longer-listed properties
+
+### The Buying Process in ${safeNeighborhood}
+
+1. Get pre-approved with a local lender familiar with the Omaha market
+2. Define your must-haves vs. nice-to-haves before touring
+3. Move quickly on properties that check your boxes — hesitation is costly here
+4. Don't skip the inspection — even in competitive markets, knowledge is protection
+
+## Your Local Real Estate Partner
+
+${ownerName}${businessName !== "our business" ? ` at ${businessName}` : ""} brings deep, neighborhood-level knowledge to every buyer and seller transaction in ${safeNeighborhood}.
+
+**Schedule a free consultation**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized real estate guide for: ${safeGoal} in ${safeNeighborhood}*`;
+  }
+
+  // ── RETAIL ────────────────────────────────────────────────────────────────
+  if (businessType === "retail") {
+
+    if (intent === "recommendation" || intent === "local_search") {
+      return `# ${questionStart}
+
+**Local Shopping Guide:** ${safeNeighborhood} has developed a distinct retail identity centered on independent boutiques, specialty shops, and experiences big-box stores simply can't replicate.
+
+## Best Shops & Stores in ${safeNeighborhood}
+
+### What Sets ${safeNeighborhood} Retail Apart
+- **Curated Selections:** Independent shop owners personally select their inventory — you'll find things here that aren't available at major retailers
+- **Expert Advice:** Staff who genuinely know their products and can help you find exactly what you need
+- **Community Investment:** Shopping local here means your money supports families who live and work in ${safeNeighborhood}
+- **Unique Finds:** One-of-a-kind items, local artisan goods, and limited-edition products you won't see everywhere
+
+### Shopping Categories Well-Represented in ${safeNeighborhood}
+- **Fashion & Apparel:** Boutique clothing, accessories, and curated fashion for men and women
+- **Home Goods & Décor:** Locally crafted furniture, art, and distinctive home accessories
+- **Specialty Food & Beverage:** Artisan grocers, wine shops, local roasters, and specialty markets
+- **Wellness & Beauty:** Independent beauty shops, wellness studios, and apothecaries
+- **Books, Gifts & Lifestyle:** Independent bookstores, gift shops, and design-forward lifestyle boutiques
+
+### How to Make the Most of Local Shopping
+- **Follow shops on Instagram:** Most local boutiques preview new arrivals and announce sales on social media
+- **Join loyalty programs:** Independent shops often offer better rewards than chain programs
+- **Shop weekday mornings:** Best selection and most personalized attention when traffic is lower
+- **Ask about custom orders:** Many local retailers can source specific items or customize products
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is proud to be part of ${safeNeighborhood}'s independent retail community — offering a carefully curated selection that reflects the neighborhood's character.
+
+**Discover your next favorite find.**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized shopping guide for: ${safeGoal} in ${safeNeighborhood}*`;
+    }
+
+    if (intent === "pricing") {
+      return `# ${questionStart}
+
+**Value Guide:** Shopping local doesn't always mean paying more. Here's a realistic look at pricing in ${safeNeighborhood}'s retail scene and where to find the best value.
+
+## Shopping Value in ${safeNeighborhood}
+
+### When Local Beats the Chain Price
+
+Independent retailers in ${safeNeighborhood} often offer competitive pricing because:
+- Lower overhead than mall-based retail
+- Direct relationships with makers and wholesalers
+- Price-matching policies on comparable nationally available products
+
+### Where to Find Deals
+
+**Seasonal Sales:**
+- End-of-season clearance at clothing boutiques (February and August)
+- Holiday promotions and gift-with-purchase events
+- Anniversary and birthday sales for loyal customers
+
+**Loyalty & Membership Programs:**
+- Sign up for email lists — first-purchase discounts are common
+- Ask about loyalty stamp cards or points programs
+- Referral bonuses for bringing in new customers
+
+**Event-Based Savings:**
+- Small Business Saturday (late November) — significant store-wide promotions
+- Local neighborhood market events with vendor discounts
+- Pop-up shops with introductory pricing on new products
+
+### Price Comparison Framework
+
+| Category | Big Box / Chain | Local ${safeNeighborhood} Retailer |
+|---|---|---|
+| Standard items | Lower initial price | Often within 10–15% |
+| Specialty/unique | Usually unavailable | Fair market pricing |
+| Expert service | Minimal | Included — adds real value |
+| Return experience | Policy-driven | Flexible, human |
+
+## About ${businessName}
+
+${ownerName} at ${businessName} believes quality and value aren't mutually exclusive. We price fairly and back every product with expertise and personal service.
+
+**Shop smart, shop local.**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized retail value guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "family_focused") {
+      return `# ${questionStart}
+
+**Family Shopping in ${safeNeighborhood}:** Finding stores that cater to families — from baby gear to back-to-school essentials — is easier when you know where to look.
+
+## Best Family-Friendly Shops in ${safeNeighborhood}
+
+### What Makes a Great Family Retail Experience
+- **Stroller-Accessible Layout:** Wide aisles and easy navigation with a stroller or young children
+- **Kid-Friendly Atmosphere:** Welcoming to children — not the kind of store where you feel nervous about breakables
+- **Family-Focused Product Selection:** Items designed for real family life at every stage
+- **Knowledgeable Staff:** Employees who can guide parents through product decisions confidently
+
+### Top Shopping Categories for Families in ${safeNeighborhood}
+- **Children's Clothing & Shoes:** Boutique kids' clothing with better quality than fast-fashion alternatives
+- **Toys & Educational Products:** Independent toy stores with developmental and play-focused selections
+- **Baby & Nursery:** Local baby specialty stores with expert guidance on gear and registry decisions
+- **Family Home Goods:** Practical, durable home products suited to family life
+- **Books & Activity Kits:** Independent bookstores with strong children's sections and reading programs
+
+### Smart Shopping Tips for Families
+- Ask about buy-back or consignment programs for outgrown kids' items
+- Look for seasonal kids' gear swaps organized by local parent groups
+- Many local toy stores will wrap gifts and hold items for pickup — perfect for busy parents
+- Sign up for kids' birthday clubs — local retailers often offer birthday rewards
+
+## About ${businessName}
+
+${ownerName} at ${businessName} understands what families need — and we stock our store accordingly. From first birthday gifts to family home essentials, we've got ${safeNeighborhood} families covered.
+
+**Come in with the whole family.**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized family shopping guide for ${safeNeighborhood}*`;
+    }
+
+    // Retail general fallback
+    return `# ${questionStart}
+
+**Your ${safeNeighborhood} Shopping Guide:** From everyday essentials to unique gifts and local finds — here's how to make the most of the retail scene in ${safeNeighborhood}.
+
+## Shopping in ${safeNeighborhood}: What to Expect
+
+### The Local Retail Character
+
+${safeNeighborhood} has cultivated a retail ecosystem that rewards exploration:
+- **Independent Ownership:** Most shops here are family or locally operated — real accountability and personalized service
+- **Rotating Inventory:** New arrivals, seasonal collections, and curated specials keep the selection fresh
+- **Community-Anchored:** Stores here are part of the neighborhood, not just businesses in it
+
+### Services That Set Local Retail Apart
+- **Personal Shopping:** Many boutiques will pull selections for you based on style, size, and budget
+- **Gift Services:** Gift wrapping, custom orders, and delivery available at most independent shops
+- **Events & Workshops:** Product demonstrations, tasting events, and in-store experiences you won't find online
+- **Flexible Returns:** Local shops work with you — not against you — when returns or exchanges are needed
+
+### Best Practices for Shopping in ${safeNeighborhood}
+- Arrive on weekday mornings for the most attentive service
+- Bring a list but stay open — unexpected finds are part of the experience
+- Support shops that support the community — ask about local sourcing and charitable partnerships
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is your go-to destination for ${safeGoal.toLowerCase()} in ${safeNeighborhood}. We take pride in offering something you won't find just anywhere.
+
+**Come explore what's new.**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized shopping guide for: ${safeGoal} in ${safeNeighborhood}*`;
+  }
+
+  // ── PROFESSIONAL SERVICES ─────────────────────────────────────────────────
+  if (businessType === "professional_services") {
+
+    if (intent === "advice") {
+      return `# ${questionStart}
+
+**Expert Guidance:** Getting the most from professional services means knowing what questions to ask, when to engage, and how to choose the right firm.
+
+## Professional Services Advice: ${safeGoal}
+
+### Common Mistakes Professionals See
+
+- **Waiting too long:** Most professional service issues (tax, legal, financial) get more expensive the longer they're left unaddressed
+- **Using generalists for specialized problems:** A general attorney isn't the right choice for a complex tax audit
+- **Not reviewing agreements:** Always read engagement letters and fee agreements before signing
+- **Assuming all credentials are equal:** Verify active licenses, ask about relevant specialization, and request references from similar engagements
+
+### How to Get Maximum Value from Your Advisor
+- **Prepare before every meeting:** Time spent with a CPA, attorney, or consultant costs money — come organized
+- **Ask about total cost:** Distinguish between hourly, retainer, and project-based fee structures upfront
+- **Request a roadmap:** Good advisors give you a clear plan — not just answers to your immediate questions
+- **Check in proactively:** Don't wait for annual reviews — quarterly check-ins with your key advisors prevent surprises
+
+### Questions to Ask When Hiring
+
+1. What is your experience with clients in my industry or situation?
+2. Who specifically will be working on my account day-to-day?
+3. How do you communicate updates — email, portal, phone?
+4. What is your policy if we disagree on strategy?
+5. Can you provide two or three recent client references?
+
+### When DIY Professional Services Becomes Expensive
+
+Many business owners and individuals try to handle complex matters independently. Common areas where DIY creates greater costs later:
+- Tax planning (missed deductions, incorrect filings, penalties)
+- Business contracts (missing protection clauses discovered only after a dispute)
+- Estate planning (outdated documents, probate costs, family conflict)
+- HR compliance (wage-and-hour violations discovered in audits)
+
+## About ${businessName}
+
+${ownerName} at ${businessName} brings specialized expertise to ${safeNeighborhood}'s business and professional community — guiding clients from immediate needs to long-term strategy.
+
+**Book a strategy consultation**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized professional services guide for: ${safeGoal} in ${safeNeighborhood}*`;
+    }
+
+    if (intent === "educational") {
+      return `# ${questionStart}
+
+**Clear Explanation:** Understanding how professional services work makes you a better client and helps you get more value from every engagement.
+
+## ${safeGoal}: What You Need to Know
+
+### The Professional Services Landscape
+
+**Accounting & Tax Services:**
+- CPA firms handle tax preparation, bookkeeping, payroll, and financial reporting
+- Tax strategists (distinct from preparers) focus on proactive planning to minimize liability
+- CFO-for-hire services provide financial leadership to businesses without an internal CFO
+
+**Legal Services:**
+- Corporate and business law: entity formation, contracts, mergers, employment agreements
+- Personal law: estate planning, family law, personal injury, real estate transactions
+- Specialized practice: IP, immigration, healthcare law, nonprofit governance
+
+**Business Consulting:**
+- Strategy consultants: market positioning, growth planning, competitive analysis
+- Operations consultants: process improvement, cost reduction, organizational design
+- Marketing consultants: brand strategy, digital marketing, go-to-market execution
+
+### How Professional Services Are Priced
+- **Hourly billing:** Most common in legal; expect $200–$500/hour for mid-market specialists
+- **Fixed fee:** Common for defined-scope work (tax returns, contract review, business formation)
+- **Retainer:** Monthly access to services up to a set number of hours
+- **Value-based or contingency:** Common in litigation and some business development engagements
+
+### What a Good Engagement Looks Like
+
+1. Initial consultation (often free or discounted) to assess fit and define scope
+2. Signed engagement letter with clear fee structure and deliverables
+3. Regular communication cadence defined upfront
+4. Deliverables reviewed together, not just delivered
+5. Ongoing availability for questions between formal engagements
+
+## About ${businessName}
+
+${ownerName} at ${businessName} believes professional services should be transparent, accessible, and genuinely valuable for every client in ${safeNeighborhood}.
+
+**Schedule a free introductory call**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized professional services education guide for ${safeNeighborhood}*`;
+    }
+
+    if (intent === "pricing") {
+      return `# ${questionStart}
+
+**Cost Guide:** Professional services pricing varies widely by specialty, firm size, and project complexity. Here's a realistic breakdown for businesses and individuals in ${safeNeighborhood}.
+
+## Professional Services Pricing in ${safeNeighborhood}
+
+### Accounting & Tax Services
+
+| Service | Typical Range |
+|---|---|
+| Individual tax return (simple) | $200–$450 |
+| Individual tax return (complex) | $500–$1,200 |
+| Small business tax return | $800–$2,500 |
+| Monthly bookkeeping | $300–$1,500/month |
+| Payroll services (5–10 employees) | $150–$400/month |
+| Business formation + setup | $500–$1,500 |
+
+### Legal Services
+
+| Service | Typical Range |
+|---|---|
+| Standard hourly rate | $200–$450/hour |
+| Business contract review | $300–$800 |
+| LLC/Corp formation | $500–$1,500 |
+| Simple will and POA | $400–$1,200 |
+| Employment agreement | $600–$2,000 |
+| Trademark registration | $800–$2,500 |
+
+### Business Consulting
+
+| Service | Typical Range |
+|---|---|
+| Fractional CMO/CFO (monthly) | $2,000–$8,000 |
+| Strategy project (defined scope) | $3,000–$20,000+ |
+| Marketing audit | $1,500–$5,000 |
+| Business plan development | $2,000–$8,000 |
+
+### How to Reduce Professional Services Costs
+- **Bundle services:** CPA firms offering bookkeeping + tax get better rates than piecemeal engagement
+- **Fixed-fee projects:** For defined work, negotiate a fixed fee rather than open-ended hourly
+- **Retainer agreements:** For ongoing needs, retainers typically provide better value than hourly billing
+- **Be organized:** Time spent organizing your materials before meetings directly reduces billable hours
+
+### Red Flags on Pricing
+- No written engagement letter or fee agreement
+- Vague scope with open-ended billing
+- Pressure to pay large retainers upfront for new engagements
+- Fees significantly below market — often a sign of inexperience or a bait-and-switch
+
+## About ${businessName}
+
+${ownerName} at ${businessName} offers transparent, fair pricing with written agreements for all engagements. No hidden fees, no surprises.
+
+**Get a free quote today**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized professional services pricing guide for ${safeNeighborhood}*`;
+    }
+
+    // Professional services general / recommendation fallback
+    return `# ${questionStart}
+
+**Your Professional Services Guide:** Finding the right advisor in ${safeNeighborhood} can make a significant difference in your outcomes — for business or personal needs. Here's what to look for.
+
+## Professional Services in ${safeNeighborhood}: How to Choose Well
+
+### What Separates Great Advisors from Average Ones
+- **Proactive communication:** They don't wait for you to call — they reach out with relevant updates and opportunities
+- **Industry-specific experience:** Ask about their experience with your type of business or situation
+- **Transparent pricing:** Clear, written fee structures with no surprises
+- **Accessible and responsive:** Returning calls within 24 hours is a baseline expectation
+- **Genuine interest in your success:** Great advisors think of your wins as their wins
+
+### Services Available in ${safeNeighborhood}
+- **Accounting:** Tax strategy, financial reporting, bookkeeping, payroll
+- **Legal:** Business law, contracts, estate planning, litigation
+- **Financial Planning:** Investment strategy, retirement planning, insurance review
+- **Consulting:** Business strategy, operations, marketing, HR
+- **Technology:** IT managed services, cybersecurity, software implementation
+
+### How to Evaluate a Firm Before Engaging
+
+1. Review their website for relevant case studies or client testimonials
+2. Ask for references from clients in similar industries or situations
+3. Schedule a free consultation to assess communication style and fit
+4. Verify credentials through Nebraska state licensing boards
+5. Get a written engagement letter before any paid work begins
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is committed to delivering expert, personalized professional services to individuals and businesses in ${safeNeighborhood}.
+
+**Book a consultation today**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized professional services guide for: ${safeGoal} in ${safeNeighborhood}*`;
+  }
+
+  // ── GENERAL BUSINESS (fallback) ────────────────────────────────────────────
+  return `# ${questionStart}
+
+**Your Local Resource:** ${safeNeighborhood} has a vibrant business community built on quality, trust, and genuine community investment.
+
+## ${safeGoal} in ${safeNeighborhood}
+
+### What the Local Business Community Offers
+
+${safeNeighborhood} is home to businesses that treat customers as neighbors — because they are:
+- **Personalized Service:** Locally owned businesses provide individualized attention that large chains can't match
+- **Community Knowledge:** Years of operating here means deep understanding of local needs and preferences
+- **Accountability:** When a local business makes a commitment, they stand behind it — their reputation depends on it
+- **Competitive Value:** Local businesses often match or beat chain pricing while delivering superior service
+
+### What to Look for When Choosing a Local Business
+- Active Google and Yelp presence with recent, verified reviews
+- Clear communication and responsive to inquiries
+- Written quotes or agreements for any significant purchase or service
+- Involvement in local community events and organizations
+
+### Why Supporting Local in ${safeNeighborhood} Matters
+
+Every dollar spent at a locally owned business recirculates in the community at a rate 3x higher than spending at a chain. Local businesses:
+- Employ neighborhood residents
+- Contribute to community events and nonprofits
+- Maintain the unique character that makes ${safeNeighborhood} worth living in and visiting
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is proud to serve the ${safeNeighborhood} community with integrity, expertise, and a genuine commitment to your satisfaction.
+
+**Let's connect**
+${contactLine}
+*${safeNeighborhood}, Omaha*
+
+---
+*AI-optimized local business content for: ${safeGoal} in ${safeNeighborhood}*`;
 }
+
 
 const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) => {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -2840,12 +4098,30 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
   // AI-optimized content generation endpoint
   app.post("/api/content/ai-optimized", async (req, res) => {
     try {
-      const { neighborhood, goal, question } = req.body;
+      const { neighborhood, goal, question, businessType: clientBusinessType } = req.body;
+
+      // Fetch the user's company profile to get contact info
+      const userId = (req as any).user?.id;
+      let companyProfile: any = null;
+      if (userId) {
+        companyProfile = await storage.getCompanyProfile(userId);
+      }
+
+      // Client-sent businessType takes priority (reflects sidebar selection);
+      // fall back to the profile value, then to real_estate as a safe default
+      const businessType: string =
+        (typeof clientBusinessType === "string" && clientBusinessType.trim())
+          ? clientBusinessType.trim()
+          : (companyProfile?.businessType || "real_estate");
 
       // Generate AI-optimized content with specific formatting for AI search engines
       const aiOptimizedContent = {
         title: question ? question : `${goal} in ${neighborhood}`,
-        content: generateAIOptimizedContent(neighborhood, goal, question),
+        content: generateAIOptimizedContent(neighborhood, goal, question, businessType, {
+          agentName: companyProfile?.agentName,
+          brokerageName: companyProfile?.brokerageName,
+          phone: companyProfile?.phone,
+        }),
         type: "ai_optimized",
         optimizations: {
           entityOptimization: true,
@@ -2856,7 +4132,7 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         targetQueries: [
           question || `${goal} ${neighborhood}`,
           `best ${goal.toLowerCase()} ${neighborhood}`,
-          `${neighborhood} real estate ${goal.toLowerCase()}`,
+          `${neighborhood} ${businessType.replace(/_/g, " ")} ${goal.toLowerCase()}`,
         ],
       };
 
@@ -7222,7 +8498,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         const { AIMarketDataGenerator } = await import(
           "./services/ai-market-generator"
         );
-        const generator = new AIMarketDataGenerator(userId);
+        const profile = await storage.getCompanyProfile(userId);
+        const location = {
+          city: (profile as any)?.city || undefined,
+          state: (profile as any)?.state || undefined,
+          zipCode: (profile as any)?.zipCode || undefined,
+        };
+        const generator = new AIMarketDataGenerator(userId, location);
 
         let generatedData;
         try {
@@ -7284,7 +8566,13 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const { AIMarketDataGenerator } = await import(
         "./services/ai-market-generator"
       );
-      const generator = new AIMarketDataGenerator(userId);
+      const profile = await storage.getCompanyProfile(userId);
+      const location = {
+        city: (profile as any)?.city || undefined,
+        state: (profile as any)?.state || undefined,
+        zipCode: (profile as any)?.zipCode || undefined,
+      };
+      const generator = new AIMarketDataGenerator(userId, location);
 
       let generatedData;
       try {
@@ -7339,7 +8627,27 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         return res.json([]);
       }
 
-      res.json(opportunities);
+      // Map DB rows to the shape the frontend expects
+      const intToPriority = (p: number | null): "high" | "medium" | "low" => {
+        if (p === 3) return "high";
+        if (p === 1) return "low";
+        return "medium";
+      };
+
+      const mapped = opportunities.map((opp) => {
+        const meta = (opp.metadata as any) || {};
+        return {
+          ...opp,
+          priority: meta.priorityLabel || intToPriority(opp.priority),
+          neighborhood: meta.neighborhood ?? null,
+          keywordId: meta.relatedKeyword ?? null,
+          trendSource: meta.trendSource || opp.opportunityType || "trend",
+          searchSignal: meta.searchSignal ?? 50,
+          generatedAt: opp.createdAt,
+        };
+      });
+
+      res.json(mapped);
     } catch (error) {
       console.error("Failed to get content opportunities:", error);
       res.status(500).json({ error: "Failed to fetch content opportunities" });
@@ -7355,6 +8663,11 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         console.log(
           `🎯 Generating AI content opportunities for user ${userId}...`
         );
+
+        // Load company profile for business context
+        const profile = await storage.getCompanyProfile(userId);
+        const businessType = (profile as any)?.businessType || "general";
+        const city = (profile as any)?.city || "your area";
 
         // 1. Load user's market data (top neighborhoods)
         const marketData = await storage.getMarketData(userId);
@@ -7377,48 +8690,28 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         }));
 
         // 3. Build AI prompt for generating opportunities
-        const prompt = `You are a real estate content strategist. Based on the following market data and SEO keywords, generate 5 high-value content opportunities for a real estate agent.
+        const neighborhoodSection = topNeighborhoods.length > 0
+          ? `Local Market Data:\n${topNeighborhoods.map((n) => `- ${n.name}: $${n.avgPrice?.toLocaleString()} avg price, ${n.trend} trend, ${n.inventory} inventory`).join("\n")}`
+          : `Location: ${city}`;
 
-Market Data (Hot Neighborhoods):
-${topNeighborhoods
-  .map(
-    (n) =>
-      `- ${n.name}: $${n.avgPrice?.toLocaleString()} avg price, ${
-        n.trend
-      } trend, ${n.inventory} inventory`
-  )
-  .join("\n")}
+        const keywordSection = topKeywords.length > 0
+          ? `Top SEO Keywords:\n${topKeywords.map((k) => `- "${k.keyword}" (volume: ${k.volume}, difficulty: ${k.difficulty})`).join("\n")}`
+          : "";
 
-Top SEO Keywords:
-${topKeywords
-  .map(
-    (k) => `- "${k.keyword}" (volume: ${k.volume}, difficulty: ${k.difficulty})`
-  )
-  .join("\n")}
+        const prompt = `You are a content strategist for a ${businessType} business. Based on the following data, generate 5 high-value content opportunities.
 
-Generate exactly 5 content opportunities as a JSON object with an "opportunities" array. Each opportunity must include:
-- title: Catchy title for the content piece (e.g., "Aksarben Market Update", "First-Time Buyer Guide")
-- description: Brief reason why this content is valuable (e.g., "High search volume", "Trending topic", "Seasonal interest")
-- priority: "high", "medium", or "low"
-- neighborhood: neighborhood name if applicable, or null
-- relatedKeyword: the keyword this relates to, or null
-- trendSource: "market" (based on neighborhood data), "keyword" (based on SEO keywords), or "trend" (general real estate trend)
-- searchSignal: integer score 0-100 indicating search demand/relevance
+${neighborhoodSection}
 
-Focus on:
-1. High-search-volume topics related to the provided keywords
-2. Neighborhood-specific market updates for hot areas
-3. Seasonal/trending real estate topics
-4. First-time buyer guides and educational content
-5. Local market analysis and comparisons
+${keywordSection}
 
-Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
+Generate exactly 5 content opportunities. Return ONLY a valid JSON object with NO markdown, NO code blocks, just raw JSON in this exact format:
+{"opportunities": [{"title": "string", "description": "string", "priority": "high|medium|low", "neighborhood": "string or null", "relatedKeyword": "string or null", "trendSource": "market|keyword|trend", "searchSignal": 0-100}, ...]}`;
 
-        // Use Unified AI Service (GitHub Copilot with OpenAI fallback)
+        // Use Unified AI Service
         const { unifiedAI } = await import("./services/unified-ai");
         const aiResponse = await unifiedAI.generate(prompt, {
           systemPrompt:
-            "You are a real estate content strategist who generates data-driven content opportunities in JSON format.",
+            "You are a content strategist. Always respond with raw valid JSON only. No markdown, no code blocks, no explanation.",
           temperature: 0.7,
           maxTokens: 1500,
           jsonMode: true,
@@ -7426,33 +8719,40 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
         console.log(`✅ AI Response from: ${aiResponse.provider}`);
 
-        // Parse AI response
+        // Parse AI response - strip markdown code blocks if present
         let generatedOpportunities;
         try {
-          const result = JSON.parse(aiResponse.content);
-          // The response_format forces JSON object, so we expect {opportunities: [...]}
+          let responseText = aiResponse.content.trim();
+          if (responseText.startsWith('```json')) {
+            responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?$/g, '').trim();
+          } else if (responseText.startsWith('```')) {
+            responseText = responseText.replace(/```\n?/g, '').trim();
+          }
+          const result = JSON.parse(responseText);
           generatedOpportunities = result.opportunities || result || [];
           if (!Array.isArray(generatedOpportunities)) {
-            // If it's a single object, wrap in array
             generatedOpportunities = [generatedOpportunities];
           }
         } catch (parseError) {
-          console.error("Failed to parse AI response:", parseError);
-          console.error("Raw response:", aiResponse.content);
-          throw new Error("Failed to parse AI-generated opportunities");
+          console.warn("⚠️ Failed to parse AI response, using fallback opportunities:", parseError);
+          // Fallback opportunities instead of throwing
+          generatedOpportunities = [
+            { title: "Local Market Update", description: "Share current market statistics and trends", priority: "high", neighborhood: topNeighborhoods[0]?.name || null, relatedKeyword: null, trendSource: "market", searchSignal: 80 },
+            { title: "Content Tips for Your Audience", description: "Educational content for your target customers", priority: "high", neighborhood: null, relatedKeyword: topKeywords[0]?.keyword || null, trendSource: "keyword", searchSignal: 70 },
+            { title: "Neighborhood Spotlight", description: "Feature a trending local area", priority: "medium", neighborhood: topNeighborhoods[1]?.name || null, relatedKeyword: null, trendSource: "market", searchSignal: 65 },
+            { title: "Seasonal Trends Guide", description: "What customers should know this season", priority: "medium", neighborhood: null, relatedKeyword: null, trendSource: "trend", searchSignal: 60 },
+            { title: "FAQ: Common Questions Answered", description: "Address the most common customer questions", priority: "low", neighborhood: null, relatedKeyword: topKeywords[1]?.keyword || null, trendSource: "keyword", searchSignal: 55 },
+          ];
         }
 
         // Map priority strings to integers
         const priorityToInt = (priority: string): number => {
-          const priorityMap: Record<string, number> = {
-            high: 3,
-            medium: 2,
-            low: 1,
-          };
-          return priorityMap[priority?.toLowerCase()] || 2; // Default to medium (2)
+          const priorityMap: Record<string, number> = { high: 3, medium: 2, low: 1 };
+          return priorityMap[priority?.toLowerCase()] || 2;
         };
 
         // Validate and prepare for database
+        // Only use columns that exist in the DB schema; extras go into metadata
         const opportunitiesToInsert = generatedOpportunities
           .slice(0, 5)
           .map((opp: any) => ({
@@ -7461,11 +8761,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             title: opp.title || "Untitled Opportunity",
             description: opp.description || "AI-generated content opportunity",
             priority: priorityToInt(opp.priority || "medium"),
-            neighborhood: opp.neighborhood || null,
-            keywordId: opp.relatedKeyword || null,
-            searchSignal: Math.min(100, Math.max(0, opp.searchSignal || 50)),
             metadata: {
-              relatedKeyword: opp.relatedKeyword,
+              neighborhood: opp.neighborhood || null,
+              relatedKeyword: opp.relatedKeyword || null,
+              trendSource: opp.trendSource || "trend",
+              searchSignal: Math.min(100, Math.max(0, opp.searchSignal || 50)),
+              priorityLabel: (opp.priority || "medium").toLowerCase(),
               generatedBy: aiResponse.provider,
               model: aiResponse.model,
               marketContext: topNeighborhoods.length > 0,
@@ -7508,6 +8809,14 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       );
       const marketIntelligenceService = new MarketIntelligenceService();
 
+      // Fetch company profile for location context
+      const profile = await storage.getCompanyProfile(userId);
+      const location = {
+        city: (profile as any)?.city || undefined,
+        state: (profile as any)?.state || undefined,
+        zipCode: (profile as any)?.zipCode || undefined,
+      };
+
       // Fetch live market data for this user
       let marketData;
       try {
@@ -7521,7 +8830,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           const { AIMarketDataGenerator } = await import(
             "./services/ai-market-generator"
           );
-          const generator = new AIMarketDataGenerator(userId);
+          const generator = new AIMarketDataGenerator(userId, location);
 
           let generatedData;
           try {
@@ -7552,7 +8861,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
       // Generate AI-powered market intelligence
       const intelligence = await marketIntelligenceService.generateIntelligence(
-        marketData
+        marketData,
+        location
       );
 
       res.json(intelligence);
@@ -7583,8 +8893,19 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     try {
       const userId = String(req.user.id);
       const status = req.query.status as string;
+      const requestedBusinessType = typeof req.query.businessType === "string" && req.query.businessType
+        ? req.query.businessType
+        : null;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const activeBusinessType = requestedBusinessType || (companyProfile as any)?.businessType || "real_estate";
       const posts = await storage.getScheduledPosts(userId, status);
-      res.json(posts);
+      const filteredPosts = posts.filter((post: any) => {
+        const postBusinessType = typeof post.metadata?.businessType === "string"
+          ? post.metadata.businessType
+          : "real_estate";
+        return postBusinessType === activeBusinessType;
+      });
+      res.json(filteredPosts);
     } catch (error) {
       console.error("Get scheduled posts error:", error);
       res.status(500).json({ error: "Failed to fetch scheduled posts" });
@@ -7594,11 +8915,17 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.post("/api/scheduled-posts", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user.id);
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = req.body?.metadata?.businessType || req.body?.businessType || (companyProfile as any)?.businessType || "real_estate";
 
       // Validate the request body
       const postData = insertScheduledPostSchema.parse({
         userId,
         ...req.body,
+        metadata: {
+          ...(req.body?.metadata || {}),
+          businessType,
+        },
       });
 
       const createdPost = await storage.createScheduledPost(postData);
@@ -7666,7 +8993,13 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
       // Save generated posts to storage
       const createdPosts = [];
       for (const post of generatedPlan.posts) {
-        const created = await storage.createScheduledPost(post);
+        const created = await storage.createScheduledPost({
+          ...post,
+          metadata: {
+            ...((post as any).metadata || {}),
+            businessType,
+          },
+        });
         createdPosts.push(created);
       }
 
@@ -7806,6 +9139,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
               recurring,
               originalContent: content,
               generatedAt: new Date().toISOString(),
+              businessType: (companyProfile as any)?.businessType || "real_estate",
             },
           };
 
@@ -8189,7 +9523,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             originalContent: aiContent.content,
             neighborhood,
             seoScore: aiContent.seoScore || 80,
-            metadata: { generated: true, focus: postType, aiGenerated: true },
+            metadata: { generated: true, focus: postType, aiGenerated: true, businessType: (companyProfile as any)?.businessType || "real_estate" },
           });
 
           generatedPosts.push(scheduledPost);
@@ -8216,7 +9550,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             seoScore: 85,
             originalContent: fallbackContent,
             neighborhood,
-            metadata: { generated: true, focus: postType, fallback: true },
+            metadata: { generated: true, focus: postType, fallback: true, businessType: (companyProfile as any)?.businessType || "real_estate" },
           });
 
           generatedPosts.push(scheduledPost);
@@ -8367,44 +9701,37 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         blueprintDescription?: string,
       ) => {
         if (scheduleDate < todayStart) return;
-        const keywords = categoryKeywordsMap[category] || ["marketing", "local business"];
         let content = "";
         let hashtags: string[] = [];
         let seoScore = 80;
         let isAiGenerated = true;
 
+        const businessLabel = businessType.replace(/_/g, ' ');
+        const topicLabel = blueprintDescription
+          ? blueprintDescription
+          : category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
         try {
           if (postCounter > 0) await delay(500);
-          const businessLabel = businessType.replace(/_/g, ' ');
-          const contextKeywords = businessType === 'real_estate'
-            ? [...keywords, `${neighborhood} real estate`, "homes"]
-            : [...keywords, `${neighborhood} ${businessLabel}`, businessLabel];
 
-          const seoAeoPrompt = blueprintDescription
-            ? `Content direction: ${blueprintDescription}. Write with SEO/AEO optimization: start with a question hook, front-load keywords, include a clear CTA, and use snippet-friendly format.`
-            : undefined;
-
-          const topicLabel = category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-
-          const aiContent = await openaiService.generateContent({
-            type: "social",
-            topic: topicLabel,
+          const aiResult = await openaiService.generateSocialMediaPost(
+            topicLabel,
+            platform,
             neighborhood,
-            keywords: contextKeywords,
-            userId,
-            companyProfile: {
-              ...(agentName ? { agentName } : {}),
-              businessType,
-            },
-            ...(seoAeoPrompt ? { aiPrompt: seoAeoPrompt } : {}),
-          });
-          content = aiContent.content;
-          hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
-          seoScore = aiContent.seoScore || 80;
+            { ...(agentName ? { agentName } : {}), businessType } as any,
+            businessType,
+          );
+          content = (aiResult.content || "").trim();
+          hashtags = aiResult.hashtags || [];
+          seoScore = 80;
         } catch (aiError) {
           console.error(`Failed to generate AI content for post ${postCounter + 1}:`, aiError);
           isAiGenerated = false;
-          const businessLabel = businessType.replace(/_/g, ' ');
+        }
+
+        // Final safety: if AI returned nothing, use hardcoded fallback templates
+        if (!content) {
+          isAiGenerated = false;
           const genericFallback = `Discover what makes ${neighborhood} special! Contact ${agentName || "us"} for ${businessLabel} insights.`;
 
           const realEstateFallbackTemplates: Record<string, string> = {
@@ -8450,7 +9777,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           originalContent: content,
           neighborhood,
           seoScore,
-          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated, blueprintDriven: isTwoWeekMode },
+          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated, blueprintDriven: isTwoWeekMode, businessType },
         });
         generatedPosts.push(scheduledPost);
         postCounter++;
@@ -10268,7 +11595,12 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.get("/api/events/sources", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const sources = await storage.getEventSources(userId);
+      const requestedBusinessType = typeof req.query.businessType === 'string' && req.query.businessType
+        ? req.query.businessType
+        : undefined;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
+      const sources = await storage.getEventSources(userId, businessType);
       res.json({ sources });
     } catch (error) {
       console.error("Failed to list event sources:", error);
@@ -10280,7 +11612,9 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.post("/api/events/sources", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const { name, type, config } = req.body;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const { name, type, config, businessType: requestedBusinessType } = req.body;
+      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
 
       if (!name || !type) {
         return res.status(400).json({ error: "Name and type are required" });
@@ -10293,6 +11627,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
       const source = await storage.createEventSource({
         userId,
+        businessType,
         name,
         type,
         config: config || {},
@@ -10376,9 +11711,11 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.post("/api/events/sync-all", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = req.body?.businessType || (companyProfile as any)?.businessType || 'real_estate';
       
       const { eventIngestionService } = await import('./services/event-ingestion');
-      const result = await eventIngestionService.syncAllSources(userId);
+      const result = await eventIngestionService.syncAllSources(userId, businessType);
       
       res.json({ 
         success: true,
@@ -10409,6 +11746,8 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.post("/api/events/setup-omaha-sources", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = req.body?.businessType || (companyProfile as any)?.businessType || 'real_estate';
       const { eventIngestionService } = await import('./services/event-ingestion');
       
       const templates = eventIngestionService.getPopularOmahaCalendars();
@@ -10416,7 +11755,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
         t.name.includes('Real Estate') || t.name.includes('Realtors') || t.name.includes('OABR')
       );
       
-      const existingSources = await storage.getEventSources(userId);
+      const existingSources = await storage.getEventSources(userId, businessType);
       const addedSources: any[] = [];
       
       for (const template of realEstateTemplates) {
@@ -10434,6 +11773,7 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
           
           const source = await storage.createEventSource({
             userId,
+            businessType,
             name: template.name,
             type: template.type,
             config,
@@ -10465,26 +11805,25 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
   app.post("/api/events/generate-weekly-plan", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const { weekStart, platforms } = req.body;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const { weekStart, platforms, businessType: requestedBusinessType } = req.body;
+      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
       
       const startDate = weekStart ? new Date(weekStart) : new Date();
       const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       
-      const events = await storage.getEvents(userId, { startDate, endDate });
+      const events = await storage.getEvents(userId, { startDate, endDate, businessType });
       
       if (events.length === 0) {
         return res.json({ suggestions: [], message: "No events found for this week" });
       }
       
-      const { UnifiedAIService } = await import('./services/unified-ai');
-      const aiService = new UnifiedAIService();
+      const { unifiedAI: aiService } = await import('./services/unified-ai');
       const targetPlatforms = platforms || ['facebook', 'instagram', 'linkedin', 'x'];
       
-      const allSuggestions: any[] = [];
-      
-      for (const event of events.slice(0, 10)) {
-        for (const platform of targetPlatforms) {
-          try {
+      const weeklyResults = await Promise.allSettled(
+        events.slice(0, 10).flatMap(event =>
+          targetPlatforms.map(async (platform) => {
             const prompt = `Create a ${platform} post for a real estate agent promoting this local event:
 
 Event: ${event.title}
@@ -10496,27 +11835,32 @@ Create an engaging post that connects the event to real estate/community value.
 Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] }`;
 
             const result = await aiService.generate(prompt, { jsonMode: true });
-            let parsed: any = {};
-            try { parsed = JSON.parse(result.content); } catch { parsed = { content: result.content, hashtags: [] }; }
+            const parsed = parseAIJson(result.content) || { content: result.content, hashtags: [] };
 
             const suggestedTime = new Date(event.startTime.getTime() - 24 * 60 * 60 * 1000);
-            
             const suggestion = await storage.createEventPostSuggestion({
               userId,
               eventId: event.id,
               platform,
-              content: parsed.content || result.content,
+              content: stripMarkdown(parsed.content || result.content),
               hashtags: parsed.hashtags || [],
               suggestedPostTime: suggestedTime,
               status: 'suggested',
               aiMetadata: { model: result.model },
             });
-            
-            allSuggestions.push({ ...suggestion, eventTitle: event.title, eventDate: event.startTime });
-          } catch (e) { console.error(`Failed to generate for ${platform}:`, e); }
-        }
-      }
-      
+            return { ...suggestion, eventTitle: event.title, eventDate: event.startTime };
+          })
+        )
+      );
+
+      weeklyResults
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .forEach(r => console.error('Weekly plan generation error:', r.reason));
+
+      const allSuggestions = weeklyResults
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .map(r => r.value);
+
       res.json({ suggestions: allSuggestions, eventsProcessed: Math.min(events.length, 10) });
     } catch (error) {
       console.error("Failed to generate weekly plan:", error);
@@ -10528,13 +11872,15 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
   app.get("/api/events", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const { startDate, endDate, sourceId, category } = req.query;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const { startDate, endDate, sourceId, category, businessType: requestedBusinessType } = req.query;
 
       const options: any = {};
       if (startDate) options.startDate = new Date(startDate as string);
       if (endDate) options.endDate = new Date(endDate as string);
       if (sourceId) options.sourceId = sourceId;
       if (category) options.category = category;
+      options.businessType = (requestedBusinessType as string) || (companyProfile as any)?.businessType || 'real_estate';
 
       const events = await storage.getEvents(userId, options);
       res.json({ events });
@@ -10566,7 +11912,9 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
   app.post("/api/events", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const { title, description, startTime, endTime, location, category } = req.body;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const { title, description, startTime, endTime, location, category, businessType: requestedBusinessType } = req.body;
+      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
 
       if (!title || !startTime) {
         return res.status(400).json({ error: "Title and start time are required" });
@@ -10580,6 +11928,7 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
         endTime: endTime ? new Date(endTime) : undefined,
         location,
         category,
+        businessType,
       });
 
       res.json({ event });
@@ -10628,6 +11977,28 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
   });
 
   // Generate AI post suggestions for an event
+  // Strip markdown formatting that AI adds but looks bad in social posts
+  const stripMarkdown = (text: string): string =>
+    text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/_(.+?)_/g, '$1');
+
+  // Robustly parse JSON that may be wrapped in markdown code fences
+  const parseAIJson = (raw: string): any => {
+    const s = raw.trim();
+    // Try direct parse first
+    try { return JSON.parse(s); } catch {}
+    // Strip markdown code fence: ```json ... ``` or ``` ... ```
+    const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenceMatch) {
+      try { return JSON.parse(fenceMatch[1].trim()); } catch {}
+    }
+    // Try extracting first {...} block
+    const objMatch = s.match(/\{[\s\S]*\}/);
+    if (objMatch) {
+      try { return JSON.parse(objMatch[0]); } catch {}
+    }
+    return null;
+  };
+
   app.post("/api/events/:id/generate-posts", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
@@ -10640,13 +12011,15 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
       }
 
       const targetPlatforms = platforms || ['facebook', 'instagram', 'linkedin', 'x'];
-      const suggestions: any[] = [];
 
-      const { UnifiedAIService } = await import('./services/unified-ai');
-      const aiService = new UnifiedAIService();
+      const { unifiedAI: aiService } = await import('./services/unified-ai');
 
-      for (const platform of targetPlatforms) {
-        try {
+      const eventStart = new Date(event.startTime);
+      const suggestedTime = new Date(eventStart.getTime() - 24 * 60 * 60 * 1000);
+
+      // Run all platform generations in parallel for speed
+      const results = await Promise.allSettled(
+        targetPlatforms.map(async (platform) => {
           const prompt = `Create a ${platform} post promoting this local event:
 
 Event: ${event.title}
@@ -10665,33 +12038,28 @@ Create an engaging post that:
 Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"] }`;
 
           const result = await aiService.generate(prompt, { jsonMode: true });
-          let parsed: any = {};
-          
-          try {
-            parsed = JSON.parse(result.content);
-          } catch {
-            parsed = { content: result.content, hashtags: [] };
-          }
+          const parsed = parseAIJson(result.content) || { content: result.content, hashtags: [] };
 
-          const eventStart = new Date(event.startTime);
-          const suggestedTime = new Date(eventStart.getTime() - 24 * 60 * 60 * 1000);
-
-          const suggestion = await storage.createEventPostSuggestion({
+          return storage.createEventPostSuggestion({
             userId,
             eventId: id,
             platform,
-            content: parsed.content || result.content,
+            content: stripMarkdown(parsed.content || result.content),
             hashtags: parsed.hashtags || [],
             suggestedPostTime: suggestedTime,
             status: 'suggested',
             aiMetadata: { model: result.model, provider: result.provider },
           });
+        })
+      );
 
-          suggestions.push(suggestion);
-        } catch (platformError: any) {
-          console.error(`Failed to generate post for ${platform}:`, platformError);
-        }
-      }
+      const suggestions = results
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .map(r => r.value);
+
+      results
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .forEach((r, i) => console.error(`Failed to generate post for ${targetPlatforms[i]}:`, r.reason));
 
       res.json({ suggestions });
     } catch (error) {
@@ -10733,6 +12101,10 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(404).json({ error: "Suggestion not found" });
       }
 
+      const event = suggestion.eventId ? await storage.getEventById(suggestion.eventId) : null;
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = (companyProfile as any)?.businessType || "real_estate";
+
       const scheduledPost = await storage.createScheduledPost({
         userId,
         platform: suggestion.platform,
@@ -10741,9 +12113,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         scheduledFor: scheduledFor ? new Date(scheduledFor) : suggestion.suggestedPostTime || new Date(),
         status: 'pending',
         isAiGenerated: true,
+        postType: 'event_post',
         metadata: { 
           eventId: suggestion.eventId,
           suggestionId: suggestion.id,
+          eventTitle: event?.title || null,
+          eventDate: event?.startTime || null,
+          businessType,
         },
       });
 

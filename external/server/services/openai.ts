@@ -393,8 +393,8 @@ export class OpenAIService {
       const result = extractJSON(response.text || "{}", {});
       return {
         title: result.title || "Untitled Content",
-        content: result.content || "",
-        keywords: result.keywords || [],
+        content: result.content || result.text || result.body || result.post || result.caption || result.message || "",
+        keywords: result.keywords || result.hashtags || [],
         metaDescription: result.metaDescription,
         seoScore: result.seoScore || 0,
         wordCount: result.wordCount || 0,

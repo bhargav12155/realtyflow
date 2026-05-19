@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useBusinessType } from "@/lib/businessContext";
 import { 
   Brain, 
   Search, 
@@ -23,7 +24,9 @@ import {
   Award,
   Target,
   Lightbulb,
-  Loader2
+  Loader2,
+  Copy,
+  ClipboardCheck
 } from "lucide-react";
 
 interface AIOptimizationScore {
@@ -149,9 +152,13 @@ export function AISearchOptimizer() {
   const [selectedNeighborhood, setSelectedNeighborhood] = useState("");
   const [optimizationGoal, setOptimizationGoal] = useState("");
   const [customQuestion, setCustomQuestion] = useState("");
+  const [generatedResult, setGeneratedResult] = useState<{ title: string; content: string; targetQueries: string[] } | null>(null);
+  const [copied, setCopied] = useState(false);
   
   const { toast} = useToast();
   const queryClient = useQueryClient();
+  // Use context hook — always in sync with sidebar business type switcher
+  const { businessType } = useBusinessType();
 
   // Fetch company profile for dynamic content
   const { data: companyProfile } = useQuery<{
@@ -161,9 +168,15 @@ export function AISearchOptimizer() {
     address?: string;
     neighborhoods?: string[];
     website?: string;
+    businessType?: string;
   }>({
     queryKey: ["/api/company/profile"],
   });
+
+  // Reset optimization goal when industry changes
+  useEffect(() => {
+    setOptimizationGoal("");
+  }, [businessType]);
 
   // Get agent name and brokerage with smart defaults
   const agentName = companyProfile?.agentName || "[Your Name]";
@@ -194,14 +207,19 @@ export function AISearchOptimizer() {
   };
 
   const generateAIOptimizedContent = useMutation({
-    mutationFn: async (data: { neighborhood: string; goal: string; question?: string }) => {
+    mutationFn: async (data: { neighborhood: string; goal: string; question?: string; businessType: string }) => {
       const response = await apiRequest("POST", "/api/content/ai-optimized", data);
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      setGeneratedResult({
+        title: data?.title || "",
+        content: data?.content || "",
+        targetQueries: data?.targetQueries || [],
+      });
       toast({
         title: "AI-Optimized Content Created!",
-        description: "Your content has been optimized for AI search engines",
+        description: "Scroll down to see and copy your content",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/content"] });
     },
@@ -227,7 +245,8 @@ export function AISearchOptimizer() {
     generateAIOptimizedContent.mutate({
       neighborhood: selectedNeighborhood,
       goal: optimizationGoal,
-      question: customQuestion || undefined
+      question: customQuestion || undefined,
+      businessType,
     });
   };
 
@@ -237,16 +256,120 @@ export function AISearchOptimizer() {
     "Elkhorn", "Downtown Omaha"
   ];
 
-  const optimizationGoals = [
-    "Best neighborhoods for families",
-    "Luxury homes and properties", 
-    "First-time homebuyer advice",
-    "Investment property opportunities",
-    "Moving to Omaha guide",
-    "Market trends and analysis",
-    "School district information",
-    "Local amenities and lifestyle"
-  ];
+  const optimizationGoalsByIndustry: Record<string, string[]> = {
+    real_estate: [
+      "Best neighborhoods for families",
+      "Luxury homes and properties",
+      "First-time homebuyer advice",
+      "Investment property opportunities",
+      "Moving to Omaha guide",
+      "Market trends and analysis",
+      "School district information",
+      "Local amenities and lifestyle",
+    ],
+    restaurant: [
+      "Best restaurants near me",
+      "Family-friendly dining options",
+      "Date night restaurant recommendations",
+      "Local food delivery and takeout",
+      "Weekend brunch spots",
+      "Special occasion dining",
+      "Vegan and dietary-friendly menus",
+      "Happy hour and drinks deals",
+    ],
+    retail: [
+      "Best local shops and boutiques",
+      "Deals and discounts near me",
+      "Gift ideas and shopping guides",
+      "Sustainable and local products",
+      "Online ordering and pickup",
+      "Loyalty programs and rewards",
+      "Seasonal sales and promotions",
+      "New arrivals and trending items",
+    ],
+    healthcare: [
+      "Top-rated doctors near me",
+      "Urgent care and walk-in clinics",
+      "Specialist referrals and consultations",
+      "Affordable healthcare options",
+      "Telehealth and virtual visits",
+      "Preventive care and wellness tips",
+      "Mental health and counseling",
+      "Insurance accepted providers",
+    ],
+    fitness: [
+      "Best gyms and fitness centers",
+      "Personal training and coaching",
+      "Group fitness classes near me",
+      "Weight loss programs",
+      "Sports and recreational activities",
+      "Yoga and mindfulness studios",
+      "Nutrition and diet guidance",
+      "Home workout alternatives",
+    ],
+    salon: [
+      "Best hair salons near me",
+      "Affordable beauty services",
+      "Bridal and special occasion styling",
+      "Men's grooming and barbershops",
+      "Nail care and spa services",
+      "Hair color and treatments",
+      "Walk-in vs appointment availability",
+      "Beauty product recommendations",
+    ],
+    legal: [
+      "Top-rated lawyers near me",
+      "Affordable legal consultations",
+      "Family law and divorce attorneys",
+      "Personal injury case help",
+      "Business and contract law",
+      "Immigration legal services",
+      "Criminal defense attorneys",
+      "Estate planning and wills",
+    ],
+    education: [
+      "Best tutoring services near me",
+      "After-school programs for kids",
+      "Test prep and college readiness",
+      "Online learning options",
+      "Special needs educational support",
+      "Language learning programs",
+      "STEM and coding classes",
+      "Adult education and upskilling",
+    ],
+    home_services: [
+      "Best home repair services near me",
+      "Emergency HVAC and plumbing help",
+      "Affordable home maintenance tips",
+      "Seasonal home preparation guide",
+      "Finding reliable contractors",
+      "Home improvement project ideas",
+      "Same-day service availability",
+      "Licensed and insured professionals",
+    ],
+    professional_services: [
+      "Best local accountants and CPAs",
+      "Business consulting services near me",
+      "Marketing agency recommendations",
+      "Legal services and attorneys",
+      "Tax planning and strategy",
+      "HR and payroll solutions",
+      "IT support and managed services",
+      "Business growth coaching",
+    ],
+    general: [
+      "Best local services near me",
+      "Customer reviews and ratings",
+      "Affordable options in my area",
+      "Hours and availability",
+      "Special offers and promotions",
+      "How to contact and book",
+      "Service area coverage",
+      "What makes us different",
+    ],
+  };
+
+  const optimizationGoals = optimizationGoalsByIndustry[businessType] || optimizationGoalsByIndustry.general;
 
   return (
     <Card>
@@ -432,7 +555,16 @@ export function AISearchOptimizer() {
                   id="custom-question"
                   value={customQuestion}
                   onChange={(e) => setCustomQuestion(e.target.value)}
-                  placeholder="e.g., What's the best family neighborhood in Omaha?"
+                  placeholder={({
+                    real_estate: "e.g., What's the best family neighborhood in Omaha?",
+                    restaurant: "e.g., What's the best family-friendly restaurant in Downtown Omaha?",
+                    retail: "e.g., Where can I find unique local boutiques near me?",
+                    healthcare: "e.g., Where can I find an affordable doctor near me?",
+                    fitness: "e.g., What's the best gym for beginners in my area?",
+                    salon: "e.g., Where can I get a great haircut in Downtown Omaha?",
+                    legal: "e.g., Who is the best personal injury lawyer near me?",
+                    education: "e.g., Where can I find after-school tutoring in Omaha?",
+                  } as Record<string, string>)[businessType] || "e.g., What's the best local service near me?"}
                   data-testid="input-custom-question"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
@@ -466,12 +598,81 @@ export function AISearchOptimizer() {
                   AI Search Optimization Preview
                 </h3>
                 <div className="text-sm space-y-2">
-                  <p><strong>Entity Focus:</strong> {agentName} + {selectedNeighborhood || "Omaha"} + Real Estate</p>
-                  <p><strong>Question Format:</strong> Direct answers to "{customQuestion || optimizationGoal}"</p>
-                  <p><strong>Local Authority:</strong> Specific neighborhood insights and market data</p>
+                  <p><strong>Entity Focus:</strong> {agentName} + {selectedNeighborhood || "your area"} + {businessType.replace(/_/g, " ")}</p>
+                  <p><strong>Question Format:</strong> Direct answers to "{customQuestion || optimizationGoal || "your selected goal"}"</p>
+                  <p><strong>Industry Context:</strong> {businessType.replace(/_/g, " ")} — no cross-industry content</p>
                   <p><strong>Conversational Tone:</strong> Natural language that matches how people ask AI</p>
                 </div>
               </div>
+
+              {/* Generated Content Output */}
+              {generatedResult && (
+                <div className="border rounded-lg p-4 bg-green-50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-green-800 flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" />
+                      Generated AI-Optimized Content
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedResult.content);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      {copied ? <><ClipboardCheck className="h-3 w-3 mr-1" /> Copied!</> : <><Copy className="h-3 w-3 mr-1" /> Copy</>}
+                    </Button>
+                  </div>
+
+                  {generatedResult.title && (
+                    <div>
+                      <p className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Title</p>
+                      <p className="text-sm font-semibold">{generatedResult.title}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Content</p>
+                    <div className="text-sm leading-relaxed bg-white border rounded p-3 space-y-2">
+                      {generatedResult.content.split("\n").map((line, i) => {
+                        if (!line.trim()) return <div key={i} className="h-2" />;
+                        // H1
+                        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold mt-2">{line.slice(2)}</h1>;
+                        // H2
+                        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-semibold mt-2">{line.slice(3)}</h2>;
+                        // H3
+                        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-semibold mt-1">{line.slice(4)}</h3>;
+                        // Horizontal rule
+                        if (line.trim() === "---") return <hr key={i} className="my-2 border-gray-200" />;
+                        // Bullet / dash list item — render with inline bold
+                        const renderInline = (text: string) => {
+                          const parts = text.split(/\*\*(.*?)\*\*/g);
+                          return parts.map((part, j) => j % 2 === 1 ? <strong key={j}>{part}</strong> : part);
+                        };
+                        if (line.startsWith("- ")) return <li key={i} className="ml-4 list-disc">{renderInline(line.slice(2))}</li>;
+                        // Italic-wrapped line (*text*)
+                        if (/^\*[^*].*[^*]\*$/.test(line.trim())) return <p key={i} className="text-xs text-gray-500 italic">{line.trim().slice(1, -1)}</p>;
+                        // Normal paragraph with inline bold
+                        return <p key={i}>{renderInline(line)}</p>;
+                      })}
+                    </div>
+                  </div>
+
+                  {generatedResult.targetQueries?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Target Search Queries</p>
+                      <div className="flex flex-wrap gap-2">
+                        {generatedResult.targetQueries.map((q, i) => (
+                          <span key={i} className="text-xs bg-green-100 text-green-800 rounded-full px-2 py-1">{q}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </TabsContent>
           

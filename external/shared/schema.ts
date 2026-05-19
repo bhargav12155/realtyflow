@@ -1268,6 +1268,7 @@ export const eventSources = pgTable("event_sources", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
+  businessType: text("business_type").notNull().default("real_estate"),
   name: text("name").notNull(),
   type: text("type").notNull(), // 'google_calendar_public', 'google_calendar_private', 'ical', 'aggregator'
   config: jsonb("config").$type<{
@@ -1295,6 +1296,7 @@ export const events = pgTable("events", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
+  businessType: text("business_type").notNull().default("real_estate"),
   sourceId: varchar("source_id").notNull(), // References eventSources.id
   externalId: text("external_id").notNull(), // ID from the external source (for dedup)
   title: text("title").notNull(),

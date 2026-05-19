@@ -348,7 +348,7 @@ export interface IStorage {
   updateMobileUploadSession(sessionId: string, uploadedUrl: string): Promise<void>;
 
   // Event Sources (Calendar and Event Feed Sources)
-  getEventSources(userId: string): Promise<EventSource[]>;
+  getEventSources(userId: string, businessType?: string): Promise<EventSource[]>;
   getEventSourceById(id: string): Promise<EventSource | undefined>;
   createEventSource(source: InsertEventSource): Promise<EventSource>;
   updateEventSource(id: string, updates: Partial<EventSource>): Promise<EventSource | undefined>;
@@ -360,6 +360,7 @@ export interface IStorage {
     endDate?: Date; 
     sourceId?: string;
     category?: string;
+    businessType?: string;
   }): Promise<Event[]>;
   getEventById(id: string): Promise<Event | undefined>;
   getEventByExternalId(userId: string, sourceId: string, externalId: string): Promise<Event | undefined>;
@@ -2349,11 +2350,16 @@ export class MemStorage implements IStorage {
   }
 
   // Event Sources implementation
-  async getEventSources(userId: string): Promise<EventSource[]> {
+  async getEventSources(userId: string, businessType?: string): Promise<EventSource[]> {
+    const conditions = [eq(eventSourcesTable.userId, userId)];
+    if (businessType) {
+      conditions.push(eq(eventSourcesTable.businessType, businessType));
+    }
+
     return db
       .select()
       .from(eventSourcesTable)
-      .where(eq(eventSourcesTable.userId, userId))
+      .where(and(...conditions))
       .orderBy(desc(eventSourcesTable.createdAt));
   }
 
@@ -2395,15 +2401,14 @@ export class MemStorage implements IStorage {
     endDate?: Date; 
     sourceId?: string;
     category?: string;
+    businessType?: string;
   }): Promise<Event[]> {
     const { gte, lte } = await import("drizzle-orm");
-    
-    let query = db
-      .select()
-      .from(eventsTable)
-      .where(eq(eventsTable.userId, userId));
 
     const conditions: any[] = [eq(eventsTable.userId, userId)];
+    if (options?.businessType) {
+      conditions.push(eq(eventsTable.businessType, options.businessType));
+    }
     
     if (options?.startDate) {
       conditions.push(gte(eventsTable.startTime, options.startDate));

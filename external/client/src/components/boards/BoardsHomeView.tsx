@@ -11,7 +11,6 @@ import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { useRenameBoardMutation } from "@/hooks/use-rename-board";
 import { useDeleteBoardMutation } from "@/hooks/use-delete-board";
 import { useLeaveBoardMutation } from "@/hooks/use-leave-board";
-import heygenLogo from "@assets/image_1776641804301.png";
 
 type Tab = "all" | "shared" | "mine";
 
@@ -273,11 +272,9 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
               title="Open Photo Avatars (HeyGen)"
             >
               <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
-                <img
-                  src={heygenLogo}
-                  alt="Open Photo Avatars (HeyGen)"
-                  className="w-7 h-7 object-contain"
-                />
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-900 text-[10px] font-semibold tracking-[0.18em] text-white dark:bg-neutral-100 dark:text-neutral-900">
+                  HG
+                </span>
               </span>
               <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
                 Photo Avatars

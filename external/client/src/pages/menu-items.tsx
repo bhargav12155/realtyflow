@@ -131,6 +131,10 @@ function MenuItemForm({
                 ? "e.g., Classic White T-Shirt"
                 : businessType === "real_estate"
                 ? "e.g., 4BR Colonial in Elkhorn"
+                : businessType === "professional_services"
+                ? "e.g., Tax Filing Consultation"
+                : businessType === "general"
+                ? "e.g., Business Consulting Package"
                 : "e.g., Drain Cleaning Service"
             }
             required
@@ -150,6 +154,10 @@ function MenuItemForm({
                 ? "e.g., Single Family, Condo, Land"
                 : businessType === "retail"
                 ? "e.g., Tops, Bottoms, Accessories"
+                : businessType === "professional_services"
+                ? "e.g., Legal, Accounting, Marketing"
+                : businessType === "general"
+                ? "e.g., Consulting, Marketing, Logistics"
                 : "e.g., Plumbing, HVAC"
             }
           />
@@ -181,6 +189,10 @@ function MenuItemForm({
               ? "Fresh mozzarella, tomato sauce, basil leaves..."
               : businessType === "real_estate"
               ? "e.g., Stunning walkout ranch with open floor plan, 3-car garage, and modern finishes..."
+              : businessType === "professional_services"
+              ? "Describe the professional service offered..."
+              : businessType === "general"
+              ? "Describe the business service, solution, or offering..."
               : "Describe this item..."
           }
           rows={3}
@@ -298,7 +310,7 @@ function MenuItemForm({
           data-testid="input-tags"
           value={form.tags}
           onChange={(e) => setForm({ ...form, tags: e.target.value })}
-          placeholder={isRestaurant ? "bestseller, house-special, new..." : "popular, featured, new..."}
+          placeholder={isRestaurant ? "bestseller, house-special, new..." : businessType === "professional_services" ? "consulting, expert, business-support..." : businessType === "general" ? "professional, reliable, business-support..." : "popular, featured, new..."}
         />
       </div>
 
@@ -310,7 +322,7 @@ function MenuItemForm({
           value={form.notes}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
           rows={2}
-          placeholder="Notes for your team only..."
+          placeholder={businessType === "general" ? "Internal pricing notes, client details, or team instructions..." : "Notes for your team only..."}
         />
       </div>
 

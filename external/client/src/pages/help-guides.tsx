@@ -206,6 +206,7 @@ export default function HelpGuidesPage() {
   const [tocOpen, setTocOpen] = useState(true);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   const { data: guideData, isLoading } = useQuery<GuideContent>({
     queryKey: ["/api/whatsapp/guide/content"],
@@ -217,8 +218,10 @@ export default function HelpGuidesPage() {
   }, [guideData?.markdown]);
 
   useEffect(() => {
+    const mainEl = mainRef.current;
+    if (!mainEl) return;
     const handleScroll = () => {
-      setShowBackToTop(window.scrollY > 400);
+      setShowBackToTop(mainEl.scrollTop > 400);
       const headings = document.querySelectorAll("h1[id], h2[id], h3[id]");
       let current = "";
       headings.forEach((heading) => {
@@ -227,14 +230,14 @@ export default function HelpGuidesPage() {
       });
       if (current) setActiveSection(current);
     };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    mainEl.addEventListener("scroll", handleScroll);
+    return () => mainEl.removeEventListener("scroll", handleScroll);
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background">
       {isAuthenticated && <Sidebar activeView="help" />}
-      <main className="flex-1 overflow-auto">
+      <main ref={mainRef} className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 py-6 md:px-8">
           {!isAuthenticated && (
             <div className="flex items-center justify-between mb-4 pb-4 border-b">
@@ -391,7 +394,7 @@ export default function HelpGuidesPage() {
 
         {showBackToTop && (
           <button
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
             className="fixed bottom-6 right-6 z-50 p-3 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 transition-colors"
             data-testid="btn-back-to-top"
           >

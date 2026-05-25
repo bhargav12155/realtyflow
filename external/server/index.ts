@@ -45,6 +45,10 @@ app.use(
       "https://mandy.bjorkhomes.com",
       "https://www.imakepage.com",
       "https://imakepage.com",
+      "https://joinkeep.ai",
+      "https://www.joinkeep.ai",
+      "https://imakeblogs.ai",
+      "https://www.imakeblogs.ai",
       // Add other NebraskaHomeHub domains as needed
     ],
     credentials: true,

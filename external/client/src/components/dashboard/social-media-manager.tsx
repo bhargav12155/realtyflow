@@ -1226,8 +1226,18 @@ export function SocialMediaManager() {
 
       if (!response.ok) {
         popup.close();
-        const error = friendlyError({ status: response.status });
-        throw new Error(error.description);
+        let errorMessage: string;
+        try {
+          const errorData = await response.json();
+          if (errorData.error?.includes("not configured") || errorData.message?.includes("not configured")) {
+            errorMessage = `${platform.charAt(0).toUpperCase() + platform.slice(1)} integration isn't set up yet. Please contact support to enable it.`;
+          } else {
+            errorMessage = errorData.message || friendlyError({ status: response.status }).description;
+          }
+        } catch {
+          errorMessage = friendlyError({ status: response.status }).description;
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -1256,7 +1266,13 @@ export function SocialMediaManager() {
         }
         // Handle errors
         else if (event.data.error) {
-          const errorMsg = messages.oauth.error(platform, event.data.error);
+          const errorCodeMap: Record<string, string> = {
+            missing_credentials: `${platform.charAt(0).toUpperCase() + platform.slice(1)} integration isn't set up yet. Please contact support to enable it.`,
+            token_exchange_failed: "Couldn't exchange your access token. Check that your app credentials are correct and try again.",
+            oauth_error: "Something went wrong during authentication. Please try again or contact support.",
+          };
+          const description = errorCodeMap[event.data.error] ?? "Please try again. Make sure you're logged in and grant all required permissions.";
+          const errorMsg = messages.oauth.error(platform, description);
           toast({
             title: errorMsg.title,
             description: errorMsg.description,

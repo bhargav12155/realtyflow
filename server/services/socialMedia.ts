@@ -509,7 +509,7 @@ export class SocialMediaService {
         }
         if (errorData?.error?.message?.includes("Unsupported request")) {
           throw new Error(
-            "Instagram Content Publishing API not available. Please ensure: 1) Your Instagram account is a Business or Creator account, 2) Your Meta app has 'instagram_business_content_publish' approved through App Review, 3) The app is in Live mode.",
+            "Instagram posting blocked: Your Meta app is in Development mode. Fix: Go to developers.facebook.com → Your App → App Roles → Roles → Add your Instagram account as a Tester. The account must accept the emailed invite. For production, complete App Review to approve 'instagram_business_content_publish' and switch the app to Live mode.",
           );
         }
         if (errorData?.error?.code === 100) {

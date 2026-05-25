@@ -4472,7 +4472,8 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       }
 
       const userId = user.id; // This is the actual UUID
-      const baseUrl = process.env.BASE_URL || `https://${req.get("host")}`;
+      const _linkedinHost = req.get("host") || "";
+      const baseUrl = process.env.BASE_URL || `${_linkedinHost.includes("localhost") || _linkedinHost.includes("127.0.0.1") ? "http" : "https"}://${_linkedinHost}`;
       const clientId = process.env.LINKEDIN_CLIENT_ID;
       const redirectUri = `${baseUrl}/api/social/callback/linkedin`;
 
@@ -4581,11 +4582,12 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
       // Read credentials from Replit Secrets (environment variables)
       // Use request host for production deployments
+      const _oauthHost = req.get("host") || "";
       const baseUrl =
         process.env.BASE_URL ||
         (process.env.REPLIT_DEV_DOMAIN
           ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-          : `https://${req.get("host")}`);
+          : `${_oauthHost.includes("localhost") || _oauthHost.includes("127.0.0.1") ? "http" : "https"}://${_oauthHost}`);
 
       // Create state parameter with userId for OAuth callback
       const state = Buffer.from(JSON.stringify({ userId, platform })).toString(
@@ -4785,14 +4787,12 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
 
       // Use production URL for Replit deployments
       // Use request host for production deployments
+      const _callbackHost = req.get("host") || "";
       const baseUrl =
         process.env.BASE_URL ||
         (process.env.REPLIT_DEV_DOMAIN
           ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-          : `https://${req.get("host")}`);
-
-      if (error) {
-        return res.redirect(`${baseUrl}/?oauth_error=${error}`);
+          : `${_callbackHost.includes("localhost") || _callbackHost.includes("127.0.0.1") ? "http" : "https"}://${_callbackHost}`);
       }
 
       if (!code) {

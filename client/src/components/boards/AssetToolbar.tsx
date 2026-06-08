@@ -19,7 +19,10 @@ export function AssetToolbar({
   onClearRejection,
   onReuseInChat,
 }: AssetToolbarProps) {
-  const downloadHref = asset.assetUrl || asset.thumbnailUrl || "";
+  const rawUrl = asset.assetUrl || asset.thumbnailUrl || "";
+  const downloadHref = rawUrl.startsWith("/tmp/")
+    ? (asset.thumbnailUrl || rawUrl)
+    : rawUrl;
   const canDownload = !!downloadHref && asset.status === "ready";
   const isRejected = asset.status === "rejected";
 

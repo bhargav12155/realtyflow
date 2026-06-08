@@ -45,6 +45,43 @@ interface UseWebSocketOptions {
   showToast?: boolean;
 }
 
+const SILENT_TOAST_TYPES = new Set<WebSocketMessage["type"]>([
+  "notification",
+  "board_presence",
+  "board_typing",
+  "board_cursor",
+  "board_asset_dragging",
+  "board_asset_updated",
+  "photo_avatar_status_update",
+]);
+
+function summarizeStatusToast(message: WebSocketMessage): { title: string; description: string } | null {
+  const data = (message.data ?? {}) as {
+    scope?: string;
+    status?: string;
+    kind?: string;
+    rejectionReason?: string | null;
+    message?: string;
+  };
+  const isAssetStatus = message.type === "board_asset_status" || data.scope === "board_asset";
+  if (!isAssetStatus) return null;
+  if (typeof data.message === "string" && data.message.trim().length > 0) {
+    return { title: "Board update", description: data.message.trim() };
+  }
+  if (data.status === "failed" || (data.rejectionReason && data.rejectionReason.trim().length > 0)) {
+    return {
+      title: "Generation failed",
+      description: data.rejectionReason?.trim() || "An asset failed to generate.",
+    };
+  }
+  if (data.status === "ready" || data.status === "completed") {
+    const kind = data.kind ? `${data.kind} ` : "";
+    return { title: "Asset ready", description: `Your ${kind}asset is ready.` };
+  }
+  // Hide noisy in-progress statuses like queued/generating.
+  return null;
+}
+
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const { userId, onMessage, autoConnect = false, showToast = true } = options;
 
@@ -100,15 +137,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           }
 
           // Show toast notifications for important events
-          if (
-            showToast &&
-            message.type !== "notification" &&
-            message.type !== "board_presence" &&
-            message.type !== "board_typing"
-          ) {
+          if (showToast && !SILENT_TOAST_TYPES.has(message.type)) {
+            const summary = summarizeStatusToast(message);
+            if (summary === null && (message.type === "status_update" || message.type === "board_asset_status")) {
+              return;
+            }
             toast({
-              title: formatMessageType(message.type),
-              description: message.data.message || JSON.stringify(message.data),
+              title: summary?.title || formatMessageType(message.type),
+              description:
+                summary?.description ||
+                (typeof message.data?.message === "string" && message.data.message.trim().length > 0
+                  ? message.data.message
+                  : "New update received."),
               duration: 4000,
             });
           }

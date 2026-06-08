@@ -194,6 +194,7 @@ const chatBodySchema = z.object({
   mode: z.enum(["brainstorm", "create"]),
   referencedAssetIds: z.array(z.string()).optional(),
   provider: z.enum(PROVIDERS).optional(),
+  generationMode: z.enum(["text-to-video", "image-to-video", "video-to-video"]).optional(),
   forceModel: z.string().optional(),
   variations: z.number().int().min(1).max(4).optional(),
   seedanceOptions: seedanceOptionsSchema.optional(),
@@ -303,11 +304,9 @@ export function inferGenMode(refKinds: string[], message: string): GenMode {
 export function pickDefaultProvider(genMode: GenMode, message: string): Provider {
   const lower = message.toLowerCase();
   if (genMode === "video-to-video") {
-    // Runway is the only provider with a working v2v integration today; Luma v2v is
-    // not yet wired (see preflight rule). Default to Runway and only honour an
-    // explicit Luma mention so the request is rejected with a clear, actionable error.
-    if (lower.includes("luma")) return "luma";
-    return "runway";
+    // v2v is currently blocked at preflight in this build. Keep provider
+    // selection deterministic for payload/telemetry consistency.
+    return "luma";
   }
   if (genMode === "image-to-video") {
     if (lower.includes("kling")) return "kling";
@@ -373,9 +372,7 @@ export async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx
       const model = ctx.forceModel || "gen4_aleph";
       let taskId: string;
       if (genMode === "video-to-video") {
-        if (!firstVideo) throw new Error("Runway video-to-video requires a referenced video asset");
-        const t = await runwayService.createVideoToVideoTask(firstVideo, ctx.prompt, { referenceImageUrl: firstImage });
-        taskId = t.taskId;
+        throw new Error("Runway video-to-video is disabled in this build");
       } else if (genMode === "image-to-video") {
         if (!firstImage) throw new Error("Runway image-to-video requires a referenced image asset");
         const t = await runwayService.createImageToVideoTask(firstImage, ctx.prompt, { model: ctx.forceModel || "gen4_turbo" });
@@ -638,6 +635,55 @@ async function pollUntilDone(
   return { error: "Generation timed out after 5 minutes" };
 }
 
+function normalizeBoardVideoUrls(args: {
+  boardId: string;
+  assetId: string;
+  videoUrl: string;
+}): { assetUrl: string; thumbnailUrl: string } {
+  const { boardId, assetId, videoUrl } = args;
+  // VEO can return local temp paths (e.g. /tmp/veo-output/*.mp4). Browsers
+  // cannot play server-local paths directly, so normalize to an authenticated
+  // board-scoped streaming endpoint.
+  if (!videoUrl.startsWith("/tmp/")) {
+    return { assetUrl: videoUrl, thumbnailUrl: videoUrl };
+  }
+  const served = `/api/boards/${boardId}/assets/${assetId}/video`;
+  console.info(
+    "[boards-chat] normalized local video URL",
+    JSON.stringify({ from: videoUrl, to: served }),
+  );
+  // Keep the original local path in assetUrl so the stream endpoint can read
+  // the actual file. Use the served URL for thumbnail/playback in the client.
+  return { assetUrl: videoUrl, thumbnailUrl: served };
+}
+
+async function ensureQuickTimeCompatibleVideoPath(videoPath: string): Promise<string> {
+  if (!videoPath.startsWith("/tmp/")) return videoPath;
+  try {
+    const { access } = await import("fs/promises");
+    await access(videoPath);
+    const { exec } = await import("child_process");
+    const { promisify } = await import("util");
+    const execAsync = promisify(exec);
+    const outPath = `/tmp/board-video-h264-${randomUUID().slice(0, 8)}.mp4`;
+    await execAsync(
+      `ffmpeg -y -i "${videoPath}" -vf "format=yuv420p" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outPath}"`,
+      { timeout: 180000 },
+    );
+    console.info(
+      "[boards-chat] transcoded local video for compatibility",
+      JSON.stringify({ from: videoPath, to: outPath }),
+    );
+    return outPath;
+  } catch (err) {
+    console.warn(
+      "[boards-chat] ensureQuickTimeCompatibleVideoPath failed, using original:",
+      err instanceof Error ? err.message : err,
+    );
+    return videoPath;
+  }
+}
+
 async function runBatchInBackground(args: {
   storage: IStorage;
   boardId: string;
@@ -693,10 +739,16 @@ async function runBatchInBackground(args: {
           if (failed) pushAssetStatus(recipients, boardId, failed);
           return;
         }
+        const compatiblePath = await ensureQuickTimeCompatibleVideoPath(result.videoUrl);
+        const playableVideo = normalizeBoardVideoUrls({
+          boardId,
+          assetId: row.id,
+          videoUrl: compatiblePath,
+        });
         const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           status: "ready",
-          assetUrl: result.videoUrl,
-          thumbnailUrl: result.videoUrl,
+          assetUrl: playableVideo.assetUrl,
+          thumbnailUrl: playableVideo.thumbnailUrl,
           durationSeconds: result.durationSeconds ?? null,
         });
         if (ready) pushAssetStatus(recipients, boardId, ready);
@@ -716,6 +768,25 @@ async function runBatchInBackground(args: {
     await runAutoEvalAndApply({ storage, boardId, userId, batchId, prompt, autoEvalFn: autoEval });
   } catch (err) {
     console.error("[boards-chat] auto-eval pass failed:", err instanceof Error ? err.message : err);
+  }
+
+  // Single-asset batches skip auto-eval (it needs >= 2 candidates), so the
+  // lone generated image/video would never reach the gallery via the winner
+  // path. Save it directly here so single generations (e.g. one image-to-video
+  // render) still land in the Media Library and complete the flow.
+  if (rows.length === 1) {
+    try {
+      const all = await storage.getBoardAssetsForUser(boardId, userId);
+      const sole = all.find((a) => a.id === rows[0].id);
+      if (sole && sole.status === "ready") {
+        await saveBoardAssetToGallery({ storage, userId, asset: sole });
+      }
+    } catch (err) {
+      console.error(
+        "[boards-chat] single-asset gallery save failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 
@@ -795,7 +866,13 @@ async function runAutoEvalAndApply(args: {
         prevStatus: winner.status,
       }),
     });
-    if (updated) pushAssetStatus(recipients, boardId, updated, { autoEval: true });
+    if (updated) {
+      pushAssetStatus(recipients, boardId, updated, { autoEval: true });
+      // Auto-selected winners flow into the app gallery too, so a freshly
+      // generated image/video lands in the Media Library without an extra
+      // manual pick. Best-effort + idempotent (see saveBoardAssetToGallery).
+      await saveBoardAssetToGallery({ storage, userId, asset: updated });
+    }
   }
   await Promise.all(
     evalResult.rejected.map(async (r) => {
@@ -840,6 +917,64 @@ async function runAutoEvalAndApply(args: {
     modelUsed: evalResult.modelUsed,
     rejected: evalResult.rejected,
   };
+}
+
+/**
+ * Persist a chosen board asset (image/video winner) into the unified media
+ * library so it shows up in the app-wide gallery (`GET /api/media`, surfaced
+ * by the dashboard Media Library / Quick Posts). Best-effort: never throws —
+ * a gallery hiccup must not fail the winner-selection request. Idempotent:
+ * skips if this exact board asset was already saved (tracked via
+ * `metadata.boardAssetId`).
+ */
+async function saveBoardAssetToGallery(args: {
+  storage: IStorage;
+  userId: string;
+  asset: BoardAsset;
+}): Promise<void> {
+  const { storage, userId, asset } = args;
+  // Only media-bearing winners belong in the gallery — sticky notes, text
+  // labels, frames and still-generating tiles have no shareable URL.
+  if (!asset.assetUrl) return;
+  if (asset.kind !== "image" && asset.kind !== "video") return;
+  const isVideo = asset.kind === "video";
+  try {
+    const existing = await storage.getMediaAssets(userId);
+    const already = existing.some(
+      (m) =>
+        (m.metadata as { boardAssetId?: string } | null)?.boardAssetId ===
+        asset.id,
+    );
+    if (already) return;
+    await storage.createMediaAsset({
+      userId,
+      type: isVideo ? "video" : "photo",
+      source: "library",
+      url: asset.assetUrl,
+      thumbnailUrl: asset.thumbnailUrl ?? asset.assetUrl,
+      title: asset.batchLabel || (isVideo ? "Board video" : "Board image"),
+      description: null,
+      avatarId: null,
+      mimeType: isVideo ? "video/mp4" : "image/jpeg",
+      fileSize: null,
+      // Board width/height are canvas tile dimensions, not the media's pixel
+      // resolution, so we leave these null rather than store misleading sizes.
+      width: null,
+      height: null,
+      durationSeconds:
+        isVideo && typeof asset.durationSeconds === "number"
+          ? Math.round(asset.durationSeconds)
+          : null,
+      metadata: {
+        boardAssetId: asset.id,
+        boardId: asset.boardId,
+        batchId: asset.batchId,
+        provider: asset.provider,
+      },
+    });
+  } catch (err) {
+    console.error("[boards-chat] saveBoardAssetToGallery failed:", err);
+  }
 }
 
 async function applyManualWinnerOverride(args: {
@@ -1234,6 +1369,70 @@ export function registerBoardsChatRoutes(
     });
   });
 
+  // Stream board-generated local videos via an authenticated endpoint.
+  // This makes /tmp provider outputs browser-playable while keeping access
+  // scoped to users who can access the board.
+  app.get(
+    "/api/boards/:id/assets/:assetId/video",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = String(req.user!.id);
+        const boardId = req.params.id;
+        const assetId = req.params.assetId;
+        const board = await storage.getAccessibleBoardForUser(boardId, userId);
+        if (!board) return res.status(404).json({ error: "Board not found" });
+        const asset = await storage.getBoardAssetByIdForUser(boardId, assetId, userId);
+        if (!asset || asset.kind !== "video") {
+          return res.status(404).json({ error: "Video asset not found" });
+        }
+        const localPath = asset.assetUrl ?? "";
+        if (!localPath.startsWith("/tmp/")) {
+          // Already a public/remote URL: redirect so the same endpoint remains
+          // usable even after upstream storage behavior changes.
+          return res.redirect(localPath);
+        }
+
+        const fs = await import("fs");
+        if (!fs.existsSync(localPath)) {
+          return res.status(404).json({ error: "Video file not found" });
+        }
+        const stat = fs.statSync(localPath);
+        const fileSize = stat.size;
+        const range = req.headers.range;
+
+        if (range) {
+          const parts = range.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          const chunkSize = end - start + 1;
+          const stream = fs.createReadStream(localPath, { start, end });
+          res.writeHead(206, {
+            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+            "Accept-Ranges": "bytes",
+            "Content-Length": chunkSize,
+            "Content-Type": "video/mp4",
+            "Cache-Control": "private, max-age=3600",
+          });
+          stream.pipe(res);
+          return;
+        }
+
+        res.writeHead(200, {
+          "Content-Length": fileSize,
+          "Content-Type": "video/mp4",
+          "Accept-Ranges": "bytes",
+          "Cache-Control": "private, max-age=3600",
+        });
+        fs.createReadStream(localPath).pipe(res);
+      } catch (error: unknown) {
+        console.error("[boards-chat] video stream error:", error);
+        const message = error instanceof Error ? error.message : "Failed to stream video";
+        res.status(500).json({ error: message });
+      }
+    },
+  );
+
   // ---- Persisted board chat history ----
   // GET returns the full conversation in chronological order. Gated on
   // accessible-board (owner OR shared collaborator) to match GET /api/boards/:id
@@ -1447,30 +1646,23 @@ export function registerBoardsChatRoutes(
       }
       const refKinds = refAssets.map((a) => a.kind);
       const inferredGenMode = inferGenMode(refKinds, body.message);
+      const selectedGenMode = body.generationMode;
       const provider: Provider = body.provider || pickDefaultProvider(inferredGenMode, body.message);
       const isImage = isImageProvider(provider);
       // Image providers don't have a meaningful generation mode; force a label-only value.
-      const genMode: GenMode = isImage ? "text-to-video" : inferredGenMode;
+      // For video providers, prefer the explicit UI selection when provided;
+      // fallback to reference/message inference for backwards compatibility.
+      const genMode: GenMode = isImage
+        ? "text-to-video"
+        : (selectedGenMode as GenMode | undefined) ?? inferredGenMode;
 
-      // Hard rule: v2v only on luma or runway. The Luma integration cannot yet consume
-      // a referenced video as input, so we additionally block Luma at the preflight to
-      // avoid kicking off a batch that would all asynchronously fail. Runway is the
-      // working v2v default until Luma v2v is wired.
+      // Hard rule: v2v is disabled in this build across providers.
       if (!isImage && genMode === "video-to-video") {
-        if (provider !== "luma" && provider !== "runway") {
-          return res.status(400).json({
-            error: "Video-to-video is only supported on Luma or Runway. Please pick one of those providers.",
-            code: "v2v_provider_unsupported",
-            allowedProviders: ["luma", "runway"],
-          });
-        }
-        if (provider === "luma") {
-          return res.status(400).json({
-            error: "Luma video-to-video is not yet wired into this build. Please retry with provider=runway.",
-            code: "v2v_luma_unavailable",
-            suggestedProvider: "runway",
-          });
-        }
+        return res.status(400).json({
+          error: "Video-to-video is currently disabled in this build. Please use Text-to-Video or Image-to-Video.",
+          code: "v2v_disabled",
+          allowedModes: ["text-to-video", "image-to-video"],
+        });
       }
 
       const variations = body.variations ?? (isImage ? 2 : 3);
@@ -1620,6 +1812,16 @@ export function registerBoardsChatRoutes(
         });
         if (!result.applied) {
           return res.status(400).json({ error: result.reason || "Override failed" });
+        }
+        // Save the chosen winner to the unified media library so it appears
+        // in the app-wide gallery (dashboard Media Library). Best-effort and
+        // non-blocking — never fail winner selection on a gallery hiccup.
+        if (result.winner) {
+          await saveBoardAssetToGallery({
+            storage,
+            userId,
+            asset: result.winner,
+          });
         }
         return res.json({
           success: true,

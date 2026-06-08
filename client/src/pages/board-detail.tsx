@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, LogOut, MessageSquare, Settings as SettingsIcon
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { GroupAssetToolbar } from "@/components/boards/GroupAssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
@@ -910,17 +911,6 @@ export default function BoardDetailPage() {
       const res = await doFetch(buildBody(), controller.signal);
       const data = await res.json();
 
-      // Auto-recover from Luma v2v unavailable: switch to Runway and retry.
-      if (!res.ok && data?.code === "v2v_luma_unavailable") {
-        setProvider("runway");
-        const retryRes = await doFetch(buildBody("runway"));
-        if (!retryRes.ok) {
-          const errData = await retryRes.json().catch(() => ({}));
-          throw new Error(errData?.error ?? `${retryRes.status}: request failed`);
-        }
-        return retryRes.json();
-      }
-
       if (!res.ok) {
         throw new Error(data?.error ?? `${res.status}: ${res.statusText}`);
       }
@@ -980,9 +970,8 @@ export default function BoardDetailPage() {
       let errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
       try {
         const parsed = JSON.parse(errText);
-        if (parsed?.code === "v2v_luma_unavailable") {
-          errText = "Video-to-video isn't supported on Luma yet. Switching to Runway — please try again.";
-          setProvider("runway");
+        if (parsed?.code === "v2v_disabled") {
+          errText = "Video-to-video is disabled in this build. Use Text-to-Video or Image-to-Video.";
         } else if (parsed?.error) {
           errText = parsed.error;
         }
@@ -1709,12 +1698,27 @@ export default function BoardDetailPage() {
       const sourceLabel = seedParams.intent
         ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
         : `template "${seedParams.template ?? "discover"}"`;
+      // The Video intent is a guided, image-first flow: generate image
+      // options, pick one, then animate it with Luma/VEO. Spell the steps out
+      // so the user doesn't expect a one-click text-to-video result.
+      const seedContent =
+        seedParams.intent === "video"
+          ? [
+              "Here's how the video flow works:",
+              "1) I'll generate a few image options from your prompt.",
+              "2) Click the image you like best on the board to select it.",
+              "3) Pick Luma or Google VEO in the Build bar.",
+              "4) Send again to animate that image into a video.",
+              "",
+              `Press send to generate the image options: "${seedParams.seed}"`,
+            ].join("\n")
+          : `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`;
       setMessages((m) => [
         ...m,
         {
           id: `seed-${boardId}`,
           role: "assistant",
-          content: `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`,
+          content: seedContent,
         },
       ]);
     }
@@ -1846,7 +1850,14 @@ export default function BoardDetailPage() {
               <Moon className="w-4 h-4 text-neutral-600" />
             )}
           </button>
-          <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-settings">
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            title="Board settings"
+            aria-label="Board settings"
+            className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
+            data-testid="button-settings"
+          >
             <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
           {board.isOwner !== false ? (
@@ -2085,6 +2096,7 @@ export default function BoardDetailPage() {
             onTypingChange={board.isShared ? handleChatTypingChange : undefined}
             width={chatPanelWidth}
             onWidthChange={handleChatPanelWidthChange}
+            onCollapse={() => setChatOpen(false)}
           />
           </>
         )}

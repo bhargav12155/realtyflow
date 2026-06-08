@@ -214,7 +214,10 @@ describe("BoardsHomeView create-from-prompt", () => {
       const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
       const body = postCalls[0][2] as Record<string, unknown>;
       expect(body.seedMode).toBe("build");
-      expect(body.seedProvider).toBe("veo");
+      // Video is an image-first guided flow: it seeds an image provider so the
+      // first generation produces image options (not a direct text-to-video).
+      expect(body.seedProvider).toBe("gemini-image");
+      expect(body.seedGenerationMode).toBeUndefined();
     });
 
     await waitFor(() => {
@@ -511,7 +514,7 @@ describe("BoardsHomeView create-from-prompt", () => {
       const body = postCalls[0][2] as Record<string, unknown>;
       expect(body.seedIntent).toBe("video");
       expect(body.seedPrompt).toBe("a sunset over the ocean");
-      expect(body.seedProvider).toBe("veo");
+      expect(body.seedProvider).toBe("gemini-image");
     });
   });
 });

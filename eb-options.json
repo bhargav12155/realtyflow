@@ -1,0 +1,272 @@
+[
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "NODE_ENV",
+    "Value": "production"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "PORT",
+    "Value": "8080"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "SESSION_SECRET",
+    "Value": "ew92Od96kNgZYOJXxVenez4GxxelF/0lI93SPSYdcGtE75ncpo2lSwCOGhohkRLPO726908G64+MTqZlqV9NDg=="
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "JWT_SECRET",
+    "Value": "ew92Od96kNgZYOJXxVenez4GxxelF/0lI93SPSYdcGtE75ncpo2lSwCOGhohkRLPO726908G64+MTqZlqV9NDg=="
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "PARAGON_API_TOKEN",
+    "Value": "429b18690390adfa776f0b727dfc78cc"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "PARAGON_APP_ID",
+    "Value": "8fbF4ONttMVXbsp2WKCK"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "DEFAULT_OBJECT_STORAGE_BUCKET_ID",
+    "Value": "replit-objstore-5d77da9b-cacc-4177-89c8-e05f8048a84b"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "PUBLIC_OBJECT_SEARCH_PATHS",
+    "Value": "/replit-objstore-5d77da9b-cacc-4177-89c8-e05f8048a84b/public"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "PRIVATE_OBJECT_DIR",
+    "Value": "/replit-objstore-5d77da9b-cacc-4177-89c8-e05f8048a84b/.private"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "GITHUB_PERSONAL_ACCESS_TOKEN",
+    "Value": "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"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "GIT_URL",
+    "Value": "https://bhargav12155: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@github.com/bhargav12155/realtyflow.git"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TWITTER_CONSUMER_KEY",
+    "Value": "pzZ5sAFKOJC0vQKOC1i0SUxn3"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TWITTER_CONSUMER_SECRET",
+    "Value": "EnDvl681eTd9A1gWeQ0L9EtrSPD2JvGcYfjDE89pkiz62JbrCv"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "YOUTUBE_CLIENT_ID",
+    "Value": "647103536424-5dc9vkodrj78ksm1qtt7ldcrk0i1aqtk.apps.googleusercontent.com"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "YOUTUBE_CLIENT_SECRET",
+    "Value": "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"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "YOUTUBE_ACCESS_TOKEN",
+    "Value": "ya29.a0AQQ_BDR4dlK8RpGDdZ1ca1EwfYewfiX5VRnH7n55jHo1J8plXII-qiph0Mkv1kZFJb1gzb4GmqYsOnjnqAKnMTliAZEMW2QRmKGbE9ne7HLlW_8NVtu-Kvjy345au-u4PCyN1xBgDwbenj_iSkGDUIzEerr7c-eIUKazRH3CKFnXUYc68ZymaUcAJetL_U7ST8bVE7SmaCgYKAakSARUSFQHGX2MiNvfN9fUS6fs-5TnCcveECw0207"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "FACEBOOK_APP_ID",
+    "Value": "774122798836725"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "LINKEDIN_CLIENT_ID",
+    "Value": "8649s5o8n0b219"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "LINKEDIN_CLIENT_SECRET",
+    "Value": "WPL_AP1.fNsX53p2ji02OPDs.ScyUOw=="
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "LINKEDIN_ACCESS_TOKEN",
+    "Value": "AQXUfKOW5LCE7Co6h0MeYC-lA7wlB6fVcnpyr32yviCzIDj-AwGWKLU2VDExzA7GKSwS2Mlry7DZO06uWX5pPgIckx_4HKwtsZe"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TIKTOK_ACCESS_TOKEN",
+    "Value": "your_tiktok_access_token_here"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "AWS_REGION",
+    "Value": "us-east-2"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "S3_BUCKET_NAME",
+    "Value": "home-template-images"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "AWS_ACCESS_KEY_ID",
+    "Value": "REDACTED_AWS_ACCESS_KEY_ID"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "AWS_SECRET_ACCESS_KEY",
+    "Value": "REDACTED_AWS_SECRET_ACCESS_KEY"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "PREFERRED_AI_PROVIDER",
+    "Value": "github-copilot"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "BASE_URL",
+    "Value": "https://imakeblogs.com"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "GITHUB_TOKEN",
+    "Value": "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"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "HEYGEN_API_KEY",
+    "Value": "sk_V2_hgu_kk35yjQg8as_smspcHMCB3dnwDbe03FhWC8EeltjIdSR"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "FACEBOOK_USER_TOKEN",
+    "Value": "EAALAD4Jv6ZCUBQOakaim8mZBYjG7wzzkUNsybZCMTIztLHZApJc2keDBbxAZCCnGnz4s8CDzgV3FizQatpmTV2KBGiBdENiAgjDwdw0mqEGCBVWRZBZCGo87ozrvKBnVzvsIZAICMWZCvf27FtajIa9ZCOLHNOAAhZCJ7qN4ZAEYvNvR9MNvsjMAbesuBGmRIxphxYsCclDBNDIRSzv7r8xdvkPUpXVYgmoFTCaTeL8ObU1QXZBFz9MzhdUhyP3FHMYFK9M2cWgRDnlqmW2ySWm7atQZDZD"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TIKTOK_CLIENT_SECRET",
+    "Value": "aw0g83ggdx6t3tel"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TIKTOK_CLIENT_KEY",
+    "Value": "aw0g83ggdx6t3tel"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "NEON_DATABASE_URL",
+    "Value": "postgresql://neondb_owner:npg_0W7soCuXhdVc@ep-noisy-firefly-admtf1vn.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "GHL_API_TOKEN",
+    "Value": "pit-986a4115-9650-4623-ac79-66a1ea9caacf"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "GHL_LOCATION_ID",
+    "Value": "kfhuzdMcmABuckxcO7tD"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "GEMINI_API_KEY",
+    "Value": "AIzaSyDFmESbGtDm92hQp0ilwzivFvisl2HJuLM"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "WHATSAPP_PHONE_NUMBER_ID",
+    "Value": "1009337698927791"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "SJINN_API_KEY",
+    "Value": "4e91fd18-08a0-4a4c-8994-797c784d205a"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "WHATSAPP_ACCESS_TOKEN",
+    "Value": "EAALAD4Jv6ZCUBQ1DSFURc3iccSlWYHJYdbW8lYMcDhIHd7heRtrSHHabIhi43ZCiGUpmHDl7eTzrFnVuMlsC1ZCovpGK31MePJ82p3X11oNG85iWlUMH8hdnHqbbdHuawOuPBPDztmbb9toPflk7eJeZBabowa4sZBEetGy8XLZB2D9AGxHQgm5T4DIJ1XuD0fYAZDZD"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TWITTER_CLIENT_ID",
+    "Value": "V1lNWkRYb0pCc0M4SVREQ1QwbTQ6MTpjaQ"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TWITTER_CLIENT_SECRET",
+    "Value": "TLv0QlQ7t41osPQcF-2Qn92wkefNALbUZV6bV1UeecPOndbJy1"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TWITTER_ACCESS_TOKEN",
+    "Value": "2023965780485042176-ancqlxz9ZdIYVwDCimw4gtjgnzJ69p"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "TWITTER_ACCESS_TOKEN_SECRET",
+    "Value": "8JXOzXMYjI3JAkZ6md74HF2fHmLXVYZeX0mEcExu6yyTb"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "SORA2_API_KEY",
+    "Value": "f235e73984f9ec32e448a93946fed95d"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "RUNWAY_API_KEY",
+    "Value": "key_75cf1d2467aef178047e929e75ae18b95ac844206838a6f8b8d1910a255df220b7816682e7ed6426480df90edbd8d32858067de3d24804ba92cdc10cc4e53ffd"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "LUMA_API_KEY",
+    "Value": "luma-093bb500-cda5-49d3-bc28-97635e2497e7-e8a77a9a-54e0-4c31-97c1-1e6d36ff9c31"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "ATLAS_API_KEY",
+    "Value": "apikey-c9530b6fffd54fea8228946e160f1bed"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "EB_SSL_DOMAIN",
+    "Value": "imakeblogs.com"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:application:environment",
+    "OptionName": "EB_SSL_EMAIL",
+    "Value": "bhargav12155@gmail.com"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:environment",
+    "OptionName": "EnvironmentType",
+    "Value": "SingleInstance"
+  },
+  {
+    "Namespace": "aws:autoscaling:launchconfiguration",
+    "OptionName": "InstanceType",
+    "Value": "t3.micro"
+  },
+  {
+    "Namespace": "aws:autoscaling:launchconfiguration",
+    "OptionName": "IamInstanceProfile",
+    "Value": "aws-elasticbeanstalk-ec2-role"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:environment",
+    "OptionName": "ServiceRole",
+    "Value": "aws-elasticbeanstalk-service-role"
+  },
+  {
+    "Namespace": "aws:elasticbeanstalk:healthreporting:system",
+    "OptionName": "SystemType",
+    "Value": "basic"
+  }
+]

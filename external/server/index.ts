@@ -47,6 +47,8 @@ app.use(
       "https://imakepage.com",
       "https://joinkeep.ai",
       "https://www.joinkeep.ai",
+      "https://imakeblogs.com",
+      "https://www.imakeblogs.com",
       "https://imakeblogs.ai",
       "https://www.imakeblogs.ai",
       // Add other NebraskaHomeHub domains as needed

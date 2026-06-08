@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, Film, Loader2 as Spinner, LogOut, MessageSquare
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { GroupAssetToolbar } from "@/components/boards/GroupAssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
@@ -60,6 +61,59 @@ interface BoardResponse {
   chatHistoryCap?: number;
   batches: CanvasBatch[];
   assets: Array<CanvasBatch["assets"][number]>;
+}
+
+type CompileCandidate = {
+  id: string;
+  title: string;
+  isWinner: boolean;
+  thumbnailUrl: string | null;
+  assetUrl: string | null;
+};
+
+function CompilePreview({
+  thumbnailUrl,
+  assetUrl,
+  title,
+}: {
+  thumbnailUrl: string | null;
+  assetUrl: string | null;
+  title: string;
+}) {
+  const [mode, setMode] = useState<"image" | "video" | "fallback">(
+    thumbnailUrl ? "image" : assetUrl ? "video" : "fallback",
+  );
+
+  useEffect(() => {
+    setMode(thumbnailUrl ? "image" : assetUrl ? "video" : "fallback");
+  }, [thumbnailUrl, assetUrl]);
+
+  if (mode === "image" && thumbnailUrl) {
+    return (
+      <img
+        src={thumbnailUrl}
+        alt={title}
+        className="w-full h-full object-cover"
+        loading="lazy"
+        onError={() => setMode(assetUrl ? "video" : "fallback")}
+      />
+    );
+  }
+
+  if (mode === "video" && assetUrl) {
+    return (
+      <video
+        src={assetUrl}
+        className="w-full h-full object-cover bg-neutral-100 dark:bg-neutral-800"
+        muted
+        playsInline
+        preload="metadata"
+        onError={() => setMode("fallback")}
+      />
+    );
+  }
+
+  return <Film className="w-4 h-4 text-neutral-400" />;
 }
 
 export default function BoardDetailPage() {
@@ -939,7 +993,21 @@ export default function BoardDetailPage() {
         chatAbortedPendingIdRef.current = null;
         return;
       }
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      let errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed?.code === "v2v_disabled") {
+          errText = "Video-to-video is disabled in this build. Use Text-to-Video or Image-to-Video.";
+        } else if (parsed?.code === "veo_image_to_video_only") {
+          errText = "Google VEO works only in Image-to-Video mode. Switch to Image-to-Video and retry.";
+        } else if (parsed?.code === "veo_image_required") {
+          errText = "Select an image on the board first, then run Google VEO Image-to-Video.";
+        } else if (parsed?.error) {
+          errText = parsed.error;
+        }
+      } catch {
+        // non-JSON error; keep original text
+      }
       setMessages((m) =>
         m.map((msg) =>
           msg.id === pendingId ? { ...msg, content: `Error: ${errText}`, pending: false } : msg,
@@ -1197,11 +1265,103 @@ export default function BoardDetailPage() {
   }, [titleDraft, boardQuery.data?.title, renameBoard, boardId]);
 
   const [isCompiling, setIsCompiling] = useState(false);
-  const compileBoard = async () => {
+  const [compileModalOpen, setCompileModalOpen] = useState(false);
+  const [compileSelection, setCompileSelection] = useState<string[]>([]);
+
+  const readyCompileVideos = useMemo<CompileCandidate[]>(() => {
+    const isWinner = (asset: BoardResponse["assets"][number]) => {
+      const hist = Array.isArray(asset.evalHistory) ? asset.evalHistory : [];
+      if (hist.length === 0) return false;
+      return hist[hist.length - 1]?.outcome === "winner";
+    };
+
+    return (boardQuery.data?.assets ?? [])
+      .filter((a) => a.kind === "video" && a.status === "ready" && !!(a.assetUrl || a.thumbnailUrl))
+      .sort((a, b) => {
+        const wa = isWinner(a) ? 0 : 1;
+        const wb = isWinner(b) ? 0 : 1;
+        if (wa !== wb) return wa - wb;
+        if (a.positionY !== b.positionY) return a.positionY - b.positionY;
+        return a.positionX - b.positionX;
+      })
+      .map((a, i) => ({
+        id: a.id,
+        title: a.modelLabel || a.batchLabel || `video-${i + 1}`,
+        isWinner: isWinner(a),
+        thumbnailUrl: a.thumbnailUrl ?? null,
+        assetUrl: a.assetUrl ?? null,
+      }));
+  }, [boardQuery.data?.assets]);
+
+  const compileOrderByAssetId = useMemo(() => {
+    const map = new Map<string, number>();
+    const orderedIds =
+      compileSelection.length > 0
+        ? compileSelection
+        : readyCompileVideos.map((video) => video.id);
+    orderedIds.forEach((id, idx) => {
+      map.set(id, idx + 1);
+    });
+    return map;
+  }, [compileSelection, readyCompileVideos]);
+
+  const openCompileModal = () => {
+    if (isCompiling) return;
+    if (readyCompileVideos.length === 0) {
+      toast({
+        title: "Compile failed",
+        description: "No ready video assets on this board to compile.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setCompileSelection(readyCompileVideos.map((video) => video.id));
+    setCompileModalOpen(true);
+  };
+
+  const toggleCompileSelection = (assetId: string) => {
+    setCompileSelection((prev) => {
+      if (prev.includes(assetId)) {
+        return prev.filter((id) => id !== assetId);
+      }
+      return [...prev, assetId];
+    });
+  };
+
+  const moveCompileSelection = (assetId: string, delta: -1 | 1) => {
+    setCompileSelection((prev) => {
+      const idx = prev.indexOf(assetId);
+      if (idx < 0) return prev;
+      const nextIdx = idx + delta;
+      if (nextIdx < 0 || nextIdx >= prev.length) return prev;
+      const next = [...prev];
+      [next[idx], next[nextIdx]] = [next[nextIdx], next[idx]];
+      return next;
+    });
+  };
+
+  const compileBoard = async (orderedAssetIds?: string[]) => {
     if (!boardId || isCompiling) return;
+    if (readyCompileVideos.length === 0) {
+      toast({
+        title: "Compile failed",
+        description: "No ready video assets on this board to compile.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsCompiling(true);
+    toast({ title: "Compiling…", description: "Preparing your combined video." });
     try {
-      const res = await fetch(`/api/boards/${boardId}/compile`, { method: "POST", credentials: "include" });
+      const headers: HeadersInit = orderedAssetIds?.length
+        ? { "Content-Type": "application/json", ...getAuthHeaders() }
+        : { ...getAuthHeaders() };
+      const res = await fetch(`/api/boards/${boardId}/compile`, {
+        method: "POST",
+        headers,
+        body: orderedAssetIds?.length ? JSON.stringify({ orderedAssetIds }) : undefined,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         toast({ title: "Compile failed", description: body.error ?? `Server error ${res.status}`, variant: "destructive" });
@@ -1211,13 +1371,17 @@ export default function BoardDetailPage() {
       const cd = res.headers.get("Content-Disposition") ?? "";
       const match = cd.match(/filename="?([^"]+)"?/);
       const filename = match?.[1] ?? "compiled.mp4";
+      const compiledClips = Number.parseInt(res.headers.get("X-Compiled-Clips") ?? "", 10);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast({ title: "Compiled!", description: "Your video is downloading." });
+      const compiledDescription = Number.isFinite(compiledClips)
+        ? `Compiled ${compiledClips} clip${compiledClips === 1 ? "" : "s"}. Downloading now.`
+        : "Your video is downloading.";
+      toast({ title: "Compiled!", description: compiledDescription });
     } catch (e) {
       toast({ title: "Compile failed", description: String(e), variant: "destructive" });
     } finally {
@@ -1712,12 +1876,27 @@ export default function BoardDetailPage() {
       const sourceLabel = seedParams.intent
         ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
         : `template "${seedParams.template ?? "discover"}"`;
+      // The Video intent is a guided, image-first flow: generate image
+      // options, pick one, then animate it with Luma/VEO. Spell the steps out
+      // so the user doesn't expect a one-click text-to-video result.
+      const seedContent =
+        seedParams.intent === "video"
+          ? [
+              "Here's how the video flow works:",
+              "1) I'll generate a few image options from your prompt.",
+              "2) Click the image you like best on the board to select it.",
+              "3) Pick Luma or Google VEO in the Build bar.",
+              "4) Send again to animate that image into a video.",
+              "",
+              `Press send to generate the image options: "${seedParams.seed}"`,
+            ].join("\n")
+          : `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`;
       setMessages((m) => [
         ...m,
         {
           id: `seed-${boardId}`,
           role: "assistant",
-          content: `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`,
+          content: seedContent,
         },
       ]);
     }
@@ -1849,18 +2028,25 @@ export default function BoardDetailPage() {
               <Moon className="w-4 h-4 text-neutral-600" />
             )}
           </button>
-          <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-settings">
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            title="Board settings"
+            aria-label="Board settings"
+            className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
+            data-testid="button-settings"
+          >
             <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
           {board.isOwner !== false ? (
             <>
               <button
                 type="button"
-                onClick={compileBoard}
+                onClick={openCompileModal}
                 disabled={isCompiling}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-indigo-300 text-indigo-700 hover:bg-indigo-50 text-[12px] font-medium disabled:opacity-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
                 data-testid="button-compile-board"
-                title="Compile all video clips into one downloadable MP4"
+                title="Compile selected board videos into one downloadable MP4"
               >
                 {isCompiling ? <Spinner className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
                 <span>{isCompiling ? "Compiling…" : "Compile Video"}</span>
@@ -1955,6 +2141,7 @@ export default function BoardDetailPage() {
             onUpdateAssetContent={(assetId, content) =>
               updateAssetContent.mutate({ assetId, content })
             }
+            compileOrderByAssetId={compileOrderByAssetId}
           />
           {selectedAssetIds.length === 1 && selectedAsset && (
             <AssetToolbar
@@ -2056,12 +2243,103 @@ export default function BoardDetailPage() {
             typingUserNames={board.isShared ? typingNames : []}
             onTypingChange={board.isShared ? handleChatTypingChange : undefined}
             onAttachFiles={handleChatAttachFiles}
+            onCollapse={() => setChatOpen(false)}
           />
         )}
       </div>
       <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
       <DrawingModal open={drawOpen} onCancel={() => setDrawOpen(false)} onSave={handleSaveDrawing} />
       <RecordModal open={recordOpen} onCancel={() => setRecordOpen(false)} onSave={handleSaveRecording} />
+      <AlertDialog open={compileModalOpen} onOpenChange={setCompileModalOpen}>
+        <AlertDialogContent data-testid="dialog-compile-order" className="max-w-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Select compile order</AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose which videos to include and set their order. These numbers also appear on video tiles on the board.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="max-h-[360px] overflow-y-auto space-y-2">
+            {readyCompileVideos.map((video) => {
+              const selectedIdx = compileSelection.indexOf(video.id);
+              const selected = selectedIdx >= 0;
+              return (
+                <div
+                  key={video.id}
+                  className={`rounded-lg border px-3 py-2 ${selected ? "border-indigo-400 bg-indigo-50/70 dark:border-indigo-600 dark:bg-indigo-900/20" : "border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"}`}
+                  data-testid={`compile-video-row-${video.id}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-6 h-6 rounded-full text-[11px] font-semibold flex items-center justify-center shrink-0 ${selected ? "bg-indigo-600 text-white" : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"}`}>
+                      {selected ? selectedIdx + 1 : "-"}
+                    </div>
+                    <div className="w-16 h-10 rounded-md overflow-hidden bg-neutral-100 dark:bg-neutral-800 shrink-0 flex items-center justify-center">
+                      <CompilePreview
+                        thumbnailUrl={video.thumbnailUrl}
+                        assetUrl={video.assetUrl}
+                        title={video.title}
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-medium text-neutral-900 dark:text-neutral-100 truncate">
+                        {video.title}
+                        {video.isWinner ? " (winner)" : ""}
+                      </div>
+                      <div className="text-[10px] text-neutral-500 dark:text-neutral-400">{video.id}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className={`px-2 py-1 rounded text-[11px] font-medium ${selected ? "bg-neutral-200 text-neutral-800 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-600" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}
+                      onClick={() => toggleCompileSelection(video.id)}
+                    >
+                      {selected ? "Remove" : "Add"}
+                    </button>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded text-[11px] border border-neutral-300 text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      onClick={() => moveCompileSelection(video.id, -1)}
+                      disabled={!selected || selectedIdx === 0}
+                    >
+                      Up
+                    </button>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded text-[11px] border border-neutral-300 text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      onClick={() => moveCompileSelection(video.id, 1)}
+                      disabled={!selected || selectedIdx === compileSelection.length - 1}
+                    >
+                      Down
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <AlertDialogFooter className="w-full items-center justify-between gap-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-100 text-[12px] font-medium dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              onClick={() => setCompileSelection(readyCompileVideos.map((video) => video.id))}
+            >
+              Reset to all
+            </button>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <AlertDialogCancel className="mt-0" data-testid="button-cancel-compile-order">Cancel</AlertDialogCancel>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-md border border-indigo-600 bg-indigo-600 text-black shadow-sm hover:bg-indigo-700 hover:border-indigo-700 text-[12px] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={compileSelection.length === 0 || isCompiling}
+                data-testid="button-confirm-compile-order"
+                onClick={() => {
+                  setCompileModalOpen(false);
+                  void compileBoard(compileSelection);
+                }}
+              >
+                {isCompiling ? "Compiling…" : `Compile ${compileSelection.length} video${compileSelection.length === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={leaveConfirmOpen} onOpenChange={setLeaveConfirmOpen}>
         <AlertDialogContent data-testid="dialog-leave-board">
           <AlertDialogHeader>

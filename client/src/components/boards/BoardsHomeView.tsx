@@ -28,7 +28,7 @@ interface QuickAction {
   // the board chat schema today (see server/routes/boards-chat.ts PROVIDERS).
   // Image intent leaves these unset so the board chat falls back to its default
   // valid provider — wiring `openai-image` here would 400 on first send.
-  provider?: "veo";
+  provider?: "veo" | "gemini-image";
   generationMode?: "text-to-video" | "image-to-video" | "video-to-video";
   // Whether the new board should land in "plan" (conversational) or "build"
   // (generation) mode. Plan mode hides the platform picker so the user has a
@@ -62,9 +62,12 @@ const QUICK_ACTIONS: QuickAction[] = [
     id: "video",
     label: "Video",
     icon: Video,
-    starterPrompt: "Create a short video of ",
-    provider: "veo",
-    generationMode: "text-to-video",
+    // Video is a guided, image-first flow: we first generate image options,
+    // then the user selects one and animates it into a video with Luma/VEO.
+    // So the Video intent seeds an IMAGE generation (gemini-image) — not a
+    // direct text-to-video call, which previously jumped straight to VEO.
+    starterPrompt: "Generate 3 image options for a video scene of ",
+    provider: "gemini-image",
     seedMode: "build",
   },
 ];

@@ -19,7 +19,13 @@ export function AssetToolbar({
   onClearRejection,
   onReuseInChat,
 }: AssetToolbarProps) {
-  const downloadHref = asset.assetUrl || asset.thumbnailUrl || "";
+  // Prefer the served endpoint URL over raw local paths. For VEO and other
+  // local-file providers, assetUrl is a /tmp/... path browsers can't open;
+  // thumbnailUrl is always the authenticated board streaming endpoint.
+  const rawUrl = asset.assetUrl || asset.thumbnailUrl || "";
+  const downloadHref = rawUrl.startsWith("/tmp/")
+    ? (asset.thumbnailUrl || rawUrl)
+    : rawUrl;
   const canDownload = !!downloadHref && asset.status === "ready";
   const isRejected = asset.status === "rejected";
 

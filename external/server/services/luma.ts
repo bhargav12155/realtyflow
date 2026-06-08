@@ -1,8 +1,28 @@
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { S3UploadService } from "./s3Upload";
 
 const LUMA_API_BASE = "https://api.lumalabs.ai/dream-machine/v1";
-const ATLAS_API_BASE = "https://api.atlascloud.ai/api/v1";
+const LUMA_CREDITS_URL = "https://lumalabs.ai/api/keys";
+
+function normalizeLumaErrorMessage(status: number, text: string): string {
+  const lower = text.toLowerCase();
+  const looksLikeCreditsOrQuota =
+    status === 402 ||
+    status === 429 ||
+    lower.includes("quota") ||
+    lower.includes("credit") ||
+    lower.includes("insufficient") ||
+    lower.includes("payment") ||
+    lower.includes("billing") ||
+    lower.includes("resource_exhausted");
+
+  if (looksLikeCreditsOrQuota) {
+    return `Luma credits/quota exhausted. Please add more credits in your Luma account: ${LUMA_CREDITS_URL}`;
+  }
+
+  return `Luma API error ${status}: ${text}`;
+}
 
 function isPrivateOrReservedIp(ip: string): boolean {
   const family = isIP(ip);
@@ -161,13 +181,9 @@ function hasDirectKey(): boolean {
   return Boolean(process.env.LUMA_API_KEY);
 }
 
-function hasAtlasKey(): boolean {
-  return Boolean(process.env.ATLAS_API_KEY);
-}
-
 function noTransportError(): Error {
   return new Error(
-    "No Luma transport configured. Set LUMA_API_KEY for direct access or ATLAS_API_KEY for the Atlas Cloud fallback."
+    "No Luma transport configured. Set LUMA_API_KEY for direct access."
   );
 }
 
@@ -179,66 +195,42 @@ function directAuthHeaders(): Record<string, string> {
   };
 }
 
-function atlasAuthHeaders(): Record<string, string> {
-  return {
-    Authorization: `Bearer ${process.env.ATLAS_API_KEY}`,
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
+function isDataUri(url: string): boolean {
+  return /^data:/i.test(url);
 }
 
-function atlasModelFor(model: LumaModel): string {
-  // Atlas Cloud's Luma Ray model identifiers.
-  return model === "ray-flash-2" ? "luma-ray-flash-2" : "luma-ray-2";
+function decodeDataUri(dataUri: string): { buffer: Buffer; contentType: string } {
+  const match = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/i.exec(dataUri);
+  if (!match) {
+    throw new Error("Invalid data URI for keyframe image");
+  }
+  const contentType = match[1] || "image/jpeg";
+  const isBase64 = !!match[2];
+  const data = match[3] || "";
+  const buffer = isBase64
+    ? Buffer.from(data, "base64")
+    : Buffer.from(decodeURIComponent(data), "utf8");
+  return { buffer, contentType };
 }
 
-// In-memory hint so getTaskStatus knows which transport produced a given
-// task ID. This is a best-effort cache; on cache miss we fall back to
-// trying the direct transport first and then Atlas on failure.
-const atlasTaskIds = new Set<string>();
+const s3 = new S3UploadService();
 
-function rememberAtlasTask(taskId: string) {
-  atlasTaskIds.add(taskId);
-  if (atlasTaskIds.size > 5000) {
-    const first = atlasTaskIds.values().next().value;
-    if (first) atlasTaskIds.delete(first);
+// Luma image-to-video needs a publicly reachable frame URL. The board sends
+// the selected frame as a base64 data: URI, which Luma can't fetch. Decode it
+// and host it on S3, returning the public URL. Already-hosted http(s) URLs are
+// passed straight through for Luma to fetch.
+async function hostKeyframeImage(imageUrl: string): Promise<string> {
+  if (!isDataUri(imageUrl)) {
+    return imageUrl;
   }
-}
-
-interface AtlasUploadResponse {
-  url?: string;
-  data?: { url?: string };
-}
-
-async function uploadImageToAtlas(imageUrl: string): Promise<string> {
-  await assertSafeFetchUrl(imageUrl);
-  const imgRes = await fetch(imageUrl);
-  if (!imgRes.ok) {
-    throw new Error(`Failed to fetch source image for Atlas upload: ${imgRes.status}`);
-  }
-  const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-  const buf = Buffer.from(await imgRes.arrayBuffer());
-
-  const form = new FormData();
-  const blob = new Blob([buf], { type: contentType });
-  const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
-  form.append("file", blob, `source.${ext}`);
-
-  const res = await fetch(`${ATLAS_API_BASE}/model/uploadMedia`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.ATLAS_API_KEY}` },
-    body: form,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Atlas uploadMedia error ${res.status}: ${text}`);
-  }
-  const data = (await res.json().catch(() => ({}))) as AtlasUploadResponse;
-  const url = data.url || data.data?.url;
-  if (!url) {
-    throw new Error("Atlas uploadMedia did not return a URL");
-  }
-  return url;
+  const { buffer, contentType } = decodeDataUri(imageUrl);
+  const ext = contentType.includes("png")
+    ? "png"
+    : contentType.includes("webp")
+    ? "webp"
+    : "jpg";
+  const key = `luma-keyframes/${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+  return s3.uploadBuffer(buffer, key, contentType);
 }
 
 interface CreateVideoOptions {
@@ -257,36 +249,6 @@ interface DirectStatusResponse {
   state?: string;
   assets?: { video?: string };
   failure_reason?: string;
-}
-
-interface AtlasGenerateResponse {
-  id?: string;
-  data?: { id?: string };
-}
-
-interface AtlasOutputObject {
-  url?: string;
-  video_url?: string;
-  video?: string;
-}
-
-interface AtlasPredictionInner {
-  status?: string;
-  outputs?: unknown;
-  output?: unknown;
-  result?: unknown;
-  error?: string | { message?: string };
-  message?: string;
-}
-
-interface AtlasPredictionResponse {
-  status?: string;
-  outputs?: unknown;
-  output?: unknown;
-  result?: unknown;
-  error?: string | { message?: string };
-  message?: string;
-  data?: AtlasPredictionInner;
 }
 
 async function createVideoTaskDirect(
@@ -314,7 +276,7 @@ async function createVideoTaskDirect(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Luma API error ${response.status}: ${text}`);
+    throw new Error(normalizeLumaErrorMessage(response.status, text));
   }
 
   const data = (await response.json()) as DirectGenerateResponse;
@@ -326,74 +288,28 @@ async function createVideoTaskDirect(
   return { taskId: data.id };
 }
 
-async function createVideoTaskAtlas(
-  prompt: string,
-  options: CreateVideoOptions
-): Promise<LumaTaskResult> {
-  const model: LumaModel = options.model || "ray-2";
-  const body: Record<string, unknown> = {
-    model: atlasModelFor(model),
-    prompt,
-  };
-  if (options.aspectRatio) body.aspect_ratio = options.aspectRatio;
-  if (options.duration) body.duration = options.duration;
-  if (options.loop !== undefined) body.loop = options.loop;
-
-  if (options.keyframeImageUrl) {
-    // Per Atlas docs, image-to-video requires an Atlas-hosted URL via uploadMedia.
-    body.image_url = await uploadImageToAtlas(options.keyframeImageUrl);
-  }
-
-  const response = await fetch(`${ATLAS_API_BASE}/model/generateVideo`, {
-    method: "POST",
-    headers: atlasAuthHeaders(),
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Luma (via Atlas) API error ${response.status}: ${text}`);
-  }
-
-  const data = (await response.json()) as AtlasGenerateResponse;
-  console.log("[Luma/Atlas] generate response:", JSON.stringify(data));
-
-  const taskId = data.data?.id || data.id;
-  if (!taskId) {
-    throw new Error("Atlas Cloud did not return a prediction ID");
-  }
-  rememberAtlasTask(taskId);
-  return { taskId };
-}
-
 export async function createVideoTask(
   prompt: string,
   options: CreateVideoOptions = {}
 ): Promise<LumaTaskResult> {
   const model = options.model || "ray-2";
 
-  // Prefer direct Luma when its key is set; on any failure (e.g. invalid
-  // key, transient outage), fall back to Atlas Cloud if available.
-  if (hasDirectKey()) {
-    try {
-      console.log(
-        `🎬 [Luma] Creating video task via direct: prompt="${prompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
-      );
-      return await createVideoTaskDirect(prompt, options);
-    } catch (err) {
-      if (!hasAtlasKey()) throw err;
-      console.warn(
-        `⚠️ [Luma] Direct transport failed (${(err as Error).message}); falling back to atlas`
-      );
-    }
+  if (!hasDirectKey()) throw noTransportError();
+
+  // Image-to-video needs a publicly reachable frame URL. The board sends the
+  // selected image as a base64 data: URI, which Luma can't fetch — host it on
+  // S3 first and pass that URL to Luma. Hosted http(s) URLs pass through.
+  if (options.keyframeImageUrl) {
+    options = {
+      ...options,
+      keyframeImageUrl: await hostKeyframeImage(options.keyframeImageUrl),
+    };
   }
 
-  if (!hasAtlasKey()) throw noTransportError();
-
   console.log(
-    `🎬 [Luma] Creating video task via atlas: prompt="${prompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
+    `🎬 [Luma] Creating video task: prompt="${prompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
   );
-  return createVideoTaskAtlas(prompt, options);
+  return createVideoTaskDirect(prompt, options);
 }
 
 async function getTaskStatusDirect(taskId: string): Promise<LumaStatusResult> {
@@ -404,7 +320,7 @@ async function getTaskStatusDirect(taskId: string): Promise<LumaStatusResult> {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Luma status error ${response.status}: ${text}`);
+    throw new Error(normalizeLumaErrorMessage(response.status, text));
   }
 
   const data = (await response.json()) as DirectStatusResponse;
@@ -425,98 +341,9 @@ async function getTaskStatusDirect(taskId: string): Promise<LumaStatusResult> {
   return { status: "pending" };
 }
 
-function extractAtlasVideoUrl(output: unknown): string | undefined {
-  if (!output) return undefined;
-  if (typeof output === "string") return output;
-  if (Array.isArray(output)) {
-    const first = output[0];
-    if (typeof first === "string") return first;
-    if (first && typeof first === "object") {
-      const o = first as AtlasOutputObject;
-      return o.url || o.video_url || o.video || undefined;
-    }
-    return undefined;
-  }
-  if (typeof output === "object") {
-    const o = output as AtlasOutputObject;
-    return o.url || o.video_url || o.video || undefined;
-  }
-  return undefined;
-}
-
-async function getTaskStatusAtlas(taskId: string): Promise<LumaStatusResult> {
-  const response = await fetch(
-    `${ATLAS_API_BASE}/model/prediction/${encodeURIComponent(taskId)}`,
-    {
-      method: "GET",
-      headers: atlasAuthHeaders(),
-    }
-  );
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Luma (via Atlas) status error ${response.status}: ${text}`);
-  }
-
-  const raw = (await response.json()) as AtlasPredictionResponse;
-  const inner: AtlasPredictionInner = raw.data ?? raw;
-  const state = String(inner.status || "").toLowerCase();
-
-  if (state === "completed" || state === "succeeded" || state === "success") {
-    const videoUrl =
-      extractAtlasVideoUrl(inner.outputs) ||
-      extractAtlasVideoUrl(inner.output) ||
-      extractAtlasVideoUrl(inner.result);
-    if (videoUrl) return { status: "completed", videoUrl };
-    return {
-      status: "failed",
-      error: "Video generation completed but no video URL was returned.",
-    };
-  }
-  if (state === "failed" || state === "error" || state === "cancelled" || state === "canceled") {
-    const errMsg =
-      (typeof inner.error === "string" && inner.error) ||
-      (typeof inner.error === "object" && inner.error?.message) ||
-      inner.message ||
-      "Video generation failed";
-    return { status: "failed", error: errMsg };
-  }
-  if (
-    state === "running" ||
-    state === "processing" ||
-    state === "in_progress" ||
-    state === "started"
-  ) {
-    return { status: "processing" };
-  }
-  return { status: "pending" };
-}
-
 export async function getTaskStatus(taskId: string): Promise<LumaStatusResult> {
-  // If we know this task was created via Atlas, route to Atlas directly.
-  if (atlasTaskIds.has(taskId)) {
-    return getTaskStatusAtlas(taskId);
-  }
-
-  // Otherwise prefer direct Luma when available; on failure fall back to
-  // Atlas. This handles both unknown task origin (e.g. after a process
-  // restart) and invalid direct keys.
-  if (hasDirectKey()) {
-    try {
-      return await getTaskStatusDirect(taskId);
-    } catch (err) {
-      if (!hasAtlasKey()) throw err;
-      console.warn(
-        `⚠️ [Luma] Direct status failed (${(err as Error).message}); falling back to atlas`
-      );
-      const result = await getTaskStatusAtlas(taskId);
-      rememberAtlasTask(taskId);
-      return result;
-    }
-  }
-
-  if (!hasAtlasKey()) throw noTransportError();
-  return getTaskStatusAtlas(taskId);
+  if (!hasDirectKey()) throw noTransportError();
+  return getTaskStatusDirect(taskId);
 }
 
 export const lumaService = {

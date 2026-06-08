@@ -114,6 +114,8 @@ interface ChatPanelProps {
   width?: number;
   /** Called when the user drags the resize handle to a new width. */
   onWidthChange?: (w: number) => void;
+  /** Collapse/hide the chat panel from the board layout. */
+  onCollapse?: () => void;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
@@ -178,6 +180,7 @@ export function ChatPanel({
   onTypingChange,
   width = 360,
   onWidthChange,
+  onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -412,7 +415,14 @@ export function ChatPanel({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <button className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400" data-testid="button-collapse-chat">
+          <button
+            type="button"
+            onClick={() => onCollapse?.()}
+            className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400"
+            data-testid="button-collapse-chat"
+            aria-label="Collapse chat"
+            title="Collapse chat"
+          >
             <Minus className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -748,6 +758,7 @@ export function ChatPanel({
                       onSelectProvider={onProviderChange}
                       selectedMode={generationMode}
                       onSelectMode={onGenerationModeChange}
+                      onCommittedSelection={() => setPickerOpen(false)}
                       seedanceOptions={seedanceOptions}
                       onSeedanceOptionsChange={onSeedanceOptionsChange}
                     />

@@ -177,6 +177,10 @@ const updateAssetSchema = z.object({
   content: z.string().max(DRAWING_MAX_CONTENT_BYTES).nullable().optional(),
 });
 
+const compileBoardSchema = z.object({
+  orderedAssetIds: z.array(z.string().min(1)).max(200).optional(),
+});
+
 // =====================================================
 // Board chat — v2v validation gate
 // =====================================================
@@ -1003,12 +1007,18 @@ export function registerBoardsRoutes(
       // Gather all ready video assets
       const allAssets = await storage.getBoardAssetsForUser(req.params.id, userId);
       const videoAssets = allAssets.filter(
-        (a) => a.kind === "video" && a.status === "ready" && !!a.assetUrl,
+        (a) => a.kind === "video" && a.status === "ready" && !!(a.assetUrl || a.thumbnailUrl),
       );
 
       if (videoAssets.length === 0) {
         return res.status(400).json({ error: "No ready video assets on this board to compile." });
       }
+
+      const parsedCompileRequest = compileBoardSchema.safeParse(req.body ?? {});
+      if (!parsedCompileRequest.success) {
+        return res.status(400).json({ error: "Invalid compile request payload." });
+      }
+      const requestedOrder = parsedCompileRequest.data.orderedAssetIds ?? [];
 
       // Sort: winners first, then by canvas position (top-to-bottom, left-to-right)
       const isWinner = (a: (typeof videoAssets)[number]) => {
@@ -1024,6 +1034,23 @@ export function registerBoardsRoutes(
         return a.positionX - b.positionX;
       });
 
+      if (requestedOrder.length > 0) {
+        const byId = new Map(videoAssets.map((a) => [a.id, a] as const));
+        const seen = new Set<string>();
+        const customSorted: typeof videoAssets = [];
+        for (const id of requestedOrder) {
+          if (seen.has(id)) continue;
+          const asset = byId.get(id);
+          if (!asset) continue;
+          customSorted.push(asset);
+          seen.add(id);
+        }
+        if (customSorted.length > 0) {
+          const remaining = videoAssets.filter((a) => !seen.has(a.id));
+          videoAssets.splice(0, videoAssets.length, ...customSorted, ...remaining);
+        }
+      }
+
       console.log(
         `[boards/compile] board=${req.params.id} videos=${videoAssets.length} (winners=${videoAssets.filter(isWinner).length})`,
       );
@@ -1034,12 +1061,26 @@ export function registerBoardsRoutes(
       try {
         // Download each clip
         for (let i = 0; i < videoAssets.length; i++) {
-          const url = videoAssets[i].assetUrl!;
+          const url = videoAssets[i].assetUrl || videoAssets[i].thumbnailUrl;
+          if (!url) {
+            throw new Error(`Clip ${i} is missing both assetUrl and thumbnailUrl.`);
+          }
           const dest = path.join(tempDir, `clip-${i}.mp4`);
-          const resp = await fetch(url);
-          if (!resp.ok) throw new Error(`Failed to fetch clip ${i}: ${resp.status}`);
-          const buf = Buffer.from(await resp.arrayBuffer());
-          await fsModule.writeFile(dest, buf);
+          if (url.startsWith("/tmp/")) {
+            const srcStat = await fsModule.stat(url);
+            if (!srcStat.isFile()) {
+              throw new Error(`Clip ${i} is not a file: ${url}`);
+            }
+            await fsModule.copyFile(url, dest);
+          } else {
+            const absoluteUrl = /^https?:\/\//i.test(url)
+              ? url
+              : `${getAppBaseUrl(req.get("host"))}${url.startsWith("/") ? url : `/${url}`}`;
+            const resp = await fetch(absoluteUrl);
+            if (!resp.ok) throw new Error(`Failed to fetch clip ${i}: ${resp.status}`);
+            const buf = Buffer.from(await resp.arrayBuffer());
+            await fsModule.writeFile(dest, buf);
+          }
           downloadedFiles.push(dest);
         }
 
@@ -1078,6 +1119,7 @@ export function registerBoardsRoutes(
         const filename = `${safeTitle}-compiled-${Date.now()}.mp4`;
 
         res.setHeader("Content-Type", "video/mp4");
+        res.setHeader("X-Compiled-Clips", String(normalizedFiles.length));
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
         res.setHeader("Content-Length", outBuf.length);
         res.send(outBuf);

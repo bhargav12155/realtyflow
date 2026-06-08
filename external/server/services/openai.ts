@@ -61,6 +61,29 @@ function extractJSON(raw: string, fallback: any = {}): any {
   }
 }
 
+function pickInlineImagePart(response: any): any | null {
+  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
+  for (const candidate of candidates) {
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    const imgPart = parts.find((p: any) => p?.inlineData?.data);
+    if (imgPart) return imgPart;
+  }
+  return null;
+}
+
+function geminiNoImageDiagnostics(response: any): string {
+  const promptFeedback = response?.promptFeedback ? JSON.stringify(response.promptFeedback) : "none";
+  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
+  const candidateReasons = candidates
+    .map((c: any, idx: number) => {
+      const finish = c?.finishReason ?? "unknown";
+      const safety = c?.safetyRatings ? JSON.stringify(c.safetyRatings) : "none";
+      return `c${idx}: finish=${finish} safety=${safety}`;
+    })
+    .join(" | ");
+  return `promptFeedback=${promptFeedback}; ${candidateReasons || "no-candidates"}`;
+}
+
 // Gemini-compatible client that mimics the OpenAI client interface.
 // Used by makeRequest() so existing callbacks work unchanged.
 function createGeminiCompatibleClient() {
@@ -119,12 +142,12 @@ function createGeminiCompatibleClient() {
             contents: [{ role: "user", parts: [{ text: params.prompt }] }],
             config: { responseModalities: ["TEXT", "IMAGE"] },
           });
-          const parts = response.candidates?.[0]?.content?.parts || [];
-          const imgPart = parts.find((p: any) => p.inlineData);
+          const imgPart = pickInlineImagePart(response);
           if (imgPart?.inlineData?.data) {
             const mime = imgPart.inlineData.mimeType || "image/png";
             return { data: [{ url: `data:${mime};base64,${imgPart.inlineData.data}` }] };
           }
+          console.warn("⚠️ [Gemini] No image part found in candidates:", geminiNoImageDiagnostics(response));
           return { data: [{ url: null }] };
         } catch (err: any) {
           console.error("⚠️ [Gemini] Image generation error:", err?.message);
@@ -626,11 +649,10 @@ RULES:
         config: { responseModalities: ["TEXT", "IMAGE"] },
       });
 
-      const parts = response.candidates?.[0]?.content?.parts || [];
-      const imgPart = parts.find((p: any) => p.inlineData);
+      const imgPart = pickInlineImagePart(response);
 
       if (!imgPart?.inlineData?.data) {
-        console.warn("⚠️ [ImageGen] No image returned from Gemini image generation");
+        console.warn("⚠️ [ImageGen] No image returned from Gemini image generation:", geminiNoImageDiagnostics(response));
         return null;
       }
 
@@ -691,10 +713,9 @@ RULES:
         config: { responseModalities: ["TEXT", "IMAGE"] },
       });
 
-      const outParts = response.candidates?.[0]?.content?.parts || [];
-      const imgPart = outParts.find((p: any) => p.inlineData);
+      const imgPart = pickInlineImagePart(response);
       if (!imgPart?.inlineData?.data) {
-        console.warn("⚠️ [ImageEdit] No image returned from Gemini image edit");
+        console.warn("⚠️ [ImageEdit] No image returned from Gemini image edit:", geminiNoImageDiagnostics(response));
         return null;
       }
 

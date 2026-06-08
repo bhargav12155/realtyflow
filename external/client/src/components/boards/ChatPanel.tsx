@@ -112,11 +112,18 @@ interface ChatPanelProps {
   onTypingChange?: (isTyping: boolean) => void;
   /** Called when the user picks or drops files from their device to attach as references. */
   onAttachFiles?: (files: File[]) => void;
+  /** Collapse/hide the chat panel from the board layout. */
+  onCollapse?: () => void;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
 export const CHAT_HISTORY_CAP_MAX = 2000;
 export const CHAT_HISTORY_CAP_DEFAULT = 200;
+
+const I2V_PROVIDER_CHOICES: Array<{ id: ProviderId; label: string }> = [
+  { id: "luma", label: "Luma" },
+  { id: "veo", label: "Google VEO" },
+];
 
 /**
  * Pull a concrete suggested prompt out of an assistant message so the UI can
@@ -175,6 +182,7 @@ export function ChatPanel({
   typingUserNames,
   onTypingChange,
   onAttachFiles,
+  onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -208,6 +216,8 @@ export function ChatPanel({
   };
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
   const isPlan = mode === "brainstorm";
+  const isBuild = mode === "create";
+  const showI2VProviderToggle = isBuild;
   const selectedThinkModel =
     THINK_MODELS.find((m) => m.id === chatModel) ?? THINK_MODELS[0];
   const thinkingLabel = isPlan
@@ -440,7 +450,14 @@ export function ChatPanel({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <button className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400" data-testid="button-collapse-chat">
+          <button
+            type="button"
+            onClick={() => onCollapse?.()}
+            className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400"
+            data-testid="button-collapse-chat"
+            aria-label="Collapse chat"
+            title="Collapse chat"
+          >
             <Minus className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -789,6 +806,45 @@ export function ChatPanel({
                     />
                   </PopoverContent>
                 </Popover>
+              )}
+              {showI2VProviderToggle && (
+                <div className="flex items-center gap-1" data-testid="group-i2v-provider-toggle">
+                  {I2V_PROVIDER_CHOICES.map((choice) => {
+                    const active = generationMode === "image-to-video" && provider === choice.id;
+                    const isVeoDisabled =
+                      choice.id === "veo" && !hasReferencedImage;
+                    return (
+                      <button
+                        key={choice.id}
+                        type="button"
+                        disabled={isVeoDisabled}
+                        onClick={() => {
+                          onGenerationModeChange("image-to-video");
+                          onProviderChange(choice.id);
+                        }}
+                        className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                          active
+                            ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200"
+                            : "border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                        } ${isVeoDisabled ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""}`}
+                        title={
+                          isVeoDisabled
+                            ? "Select an image on the board to enable Google VEO"
+                            : `Use ${choice.label} for image-to-video`
+                        }
+                        data-testid={`button-i2v-provider-${choice.id}`}
+                        aria-pressed={active}
+                      >
+                        {choice.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {showI2VProviderToggle && !hasReferencedImage && (
+                <span className="text-[10px] text-neutral-400 italic" data-testid="text-i2v-select-image-hint">
+                  Select an image on the board to enable Google VEO.
+                </span>
               )}
             </div>
             <div className="flex items-center gap-2">

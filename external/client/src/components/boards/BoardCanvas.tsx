@@ -51,8 +51,8 @@ const RESIZABLE_KINDS = new Set([
 const RESIZE_DEFAULTS: Record<string, { width: number; height: number }> = {
   drawing: { width: 360, height: 240 },
   audio: { width: 320, height: 90 },
-  image: { width: 150, height: 110 },
-  video: { width: 150, height: 110 },
+  image: { width: 256, height: 256 },
+  video: { width: 256, height: 256 },
   sticky: { width: 150, height: 110 },
   text: { width: 150, height: 110 },
   frame: { width: 150, height: 110 },
@@ -77,6 +77,7 @@ export type ReEvalModel = "openai" | "gemini";
 
 interface BoardCanvasProps {
   batches: CanvasBatch[];
+  compileOrderByAssetId?: Map<string, number>;
   selectedAssetIds: Set<string>;
   onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
   /** Replace the selection with the given ids (used by marquee drag). */
@@ -153,6 +154,7 @@ const TILE_DRAG_CLICK_SUPPRESS_MS = 250;
 
 export function BoardCanvas({
   batches,
+  compileOrderByAssetId,
   selectedAssetIds,
   onSelectAsset,
   onSelectMany,
@@ -485,6 +487,7 @@ export function BoardCanvas({
             <BatchGroup
               key={b.batchId}
               batch={b}
+              compileOrderByAssetId={compileOrderByAssetId}
               assetsById={assetsById}
               selectedAssetIds={selectedAssetIds}
               onSelectAsset={onSelectAsset}
@@ -585,6 +588,7 @@ export function RemoteCursorLayer({
 
 function BatchGroup({
   batch,
+  compileOrderByAssetId,
   assetsById,
   selectedAssetIds,
   onSelectAsset,
@@ -603,6 +607,7 @@ function BatchGroup({
   remoteDrags,
 }: {
   batch: CanvasBatch;
+  compileOrderByAssetId?: Map<string, number>;
   assetsById: Map<string, CanvasAsset>;
   selectedAssetIds: Set<string>;
   onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
@@ -742,6 +747,7 @@ function BatchGroup({
                 }
                 asset={a}
                 sourceAsset={source}
+                compileOrder={compileOrderByAssetId?.get(a.id)}
                 selected={selectedAssetIds.has(a.id)}
                 isWinner={a.id === winnerId}
                 onSelect={(opts) => onSelectAsset(a.id, opts)}
@@ -853,6 +859,7 @@ function ReEvalPopover({
 function AssetTile({
   asset,
   sourceAsset,
+  compileOrder,
   selected,
   isWinner,
   onSelect,
@@ -873,6 +880,7 @@ function AssetTile({
 }: {
   asset: CanvasAsset;
   sourceAsset?: CanvasAsset | null;
+  compileOrder?: number;
   selected: boolean;
   isWinner: boolean;
   onSelect: (opts?: SelectAssetOptions) => void;
@@ -923,6 +931,9 @@ function AssetTile({
   const canEdit = isEditableKind && !!onUpdateContent;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(asset.content ?? "");
+  const [videoLoadFailed, setVideoLoadFailed] = useState(false);
+  const compileOrderForVideo = asset.kind === "video" && typeof compileOrder === "number" ? compileOrder : null;
+  const historyButtonTop = compileOrderForVideo != null ? "top-7" : "top-1.5";
   const editRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
   // When the canonical content changes from outside (e.g. WS push from
   // another collaborator), keep our draft in sync as long as we're not
@@ -936,6 +947,11 @@ function AssetTile({
       editRef.current.select();
     }
   }, [editing]);
+  useEffect(() => {
+    if (asset.kind === "video") {
+      setVideoLoadFailed(false);
+    }
+  }, [asset.kind, src, asset.status]);
   const startEdit = () => {
     if (!canEdit) return;
     setDraft(asset.content ?? "");
@@ -956,13 +972,29 @@ function AssetTile({
 
   const isResizable = RESIZABLE_KINDS.has(asset.kind) && !!onResize;
   const fallbackSize = RESIZE_DEFAULTS[asset.kind] ?? { width: 150, height: 110 };
+  // Legacy image/video tiles were persisted at the old 150x110 default. Bump
+  // any tile at/below that legacy size up to the current default so existing
+  // boards match new generations — but never shrink tiles the user has
+  // manually enlarged beyond the legacy threshold.
+  const isMediaTile = asset.kind === "image" || asset.kind === "video";
+  const normalizeMedia = (
+    stored: number | null | undefined,
+    legacy: number,
+    next: number,
+  ): number | null => {
+    if (!isMediaTile) return typeof stored === "number" && stored > 0 ? stored : null;
+    if (typeof stored !== "number" || stored <= 0) return next;
+    return stored <= legacy ? next : stored;
+  };
+  const normalizedWidth = normalizeMedia(asset.width, 160, fallbackSize.width);
+  const normalizedHeight = normalizeMedia(asset.height, 120, fallbackSize.height);
   const storedWidth =
-    typeof asset.width === "number" && asset.width > 0
-      ? asset.width
+    typeof normalizedWidth === "number" && normalizedWidth > 0
+      ? normalizedWidth
       : fallbackSize.width;
   const storedHeight =
-    typeof asset.height === "number" && asset.height > 0
-      ? asset.height
+    typeof normalizedHeight === "number" && normalizedHeight > 0
+      ? normalizedHeight
       : fallbackSize.height;
   const [size, setSize] = useState<{ width: number; height: number }>({
     width: storedWidth,
@@ -1272,15 +1304,29 @@ function AssetTile({
           </div>
         ) : src ? (
           asset.kind === "video" ? (
-            <video
-              src={src}
-              className="w-full h-full object-cover"
-              autoPlay
-              muted
-              loop
-              playsInline
-              onError={(e) => { (e.target as HTMLVideoElement).style.display = "none"; }}
-            />
+            videoLoadFailed ? (
+              <div
+                className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-900/60 text-center px-2"
+                data-testid={`video-error-${asset.id}`}
+              >
+                <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300">
+                  Video preview unavailable
+                </div>
+                <div className="text-[9px] text-neutral-500 dark:text-neutral-400">
+                  The file was generated but could not be played in this browser view.
+                </div>
+              </div>
+            ) : (
+              <video
+                src={src}
+                className="w-full h-full object-cover"
+                autoPlay
+                muted
+                loop
+                playsInline
+                onError={() => setVideoLoadFailed(true)}
+              />
+            )
           ) : (
             <img src={src} alt="" className="w-full h-full object-cover" />
           )
@@ -1315,6 +1361,15 @@ function AssetTile({
             <span className="font-medium">{Math.round(asset.durationSeconds)}s</span>
           </div>
         )}
+        {compileOrderForVideo != null && (
+          <div
+            className="absolute top-1.5 left-1.5 min-w-[18px] h-4 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-semibold flex items-center justify-center"
+            data-testid={`badge-compile-order-${asset.id}`}
+            title={`Compile order ${compileOrderForVideo}`}
+          >
+            {compileOrderForVideo}
+          </div>
+        )}
         {isWinner && (
           <div
             className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-amber-400 border border-white shadow flex items-center justify-center"
@@ -1333,7 +1388,7 @@ function AssetTile({
       {history.length > 0 && (
         <button
           type="button"
-          className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-20"
+          className={`absolute ${historyButtonTop} left-1.5 w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-20`}
           title={`${history.length} eval ${history.length === 1 ? "entry" : "entries"}`}
           aria-label="Show eval history"
           data-testid={`button-history-${asset.id}`}

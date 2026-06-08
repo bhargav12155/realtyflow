@@ -40,7 +40,10 @@ export function GroupAssetToolbar({
   const downloadable = assets.filter(
     (a) => !!(a.assetUrl || a.thumbnailUrl) && a.status === "ready",
   );
-  const urls = downloadable.map((a) => (a.assetUrl || a.thumbnailUrl) as string);
+  const urls = downloadable.map((a) => {
+    const raw = a.assetUrl || a.thumbnailUrl || "";
+    return raw.startsWith("/tmp/") ? (a.thumbnailUrl || raw) : raw;
+  });
   const canCopy = urls.length > 0;
   const canDownload = downloadable.length > 0;
 

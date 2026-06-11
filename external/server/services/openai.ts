@@ -86,8 +86,8 @@ function geminiNoImageDiagnostics(response: any): string {
 
 // Gemini-compatible client that mimics the OpenAI client interface.
 // Used by makeRequest() so existing callbacks work unchanged.
-function createGeminiCompatibleClient() {
-  const genAI = getGeminiClient();
+function createGeminiCompatibleClient(apiKey?: string) {
+  const genAI = apiKey ? new GoogleGenAI({ apiKey }) : getGeminiClient();
 
   return {
     chat: {
@@ -178,20 +178,26 @@ class MultiOpenAIService {
   }
 
   private loadAPIKeys() {
-    const geminiKey = process.env.GEMINI_API_KEY || "";
-    if (geminiKey && geminiKey.length > 10) {
-      this.apiKeys = [
-        {
-          key: geminiKey,
-          name: "Primary Key (paid)",
-          isAvailable: true,
-          requestCount: 0,
-          priority: 100,
-          capabilities: ["content", "vision", "code", "analysis", "advanced"],
-          costTier: "paid",
-        },
-      ];
-    }
+    const keyEnvVars = [
+      { env: "GEMINI_API_KEY", name: "Primary Key (paid)" },
+      { env: "GEMINI_API_KEY_2", name: "Backup Key" },
+    ];
+
+    this.apiKeys = keyEnvVars
+      .filter(({ env }) => {
+        const val = process.env[env] || "";
+        return val.length > 10;
+      })
+      .map(({ env, name }, index) => ({
+        key: process.env[env] as string,
+        name,
+        isAvailable: true,
+        requestCount: 0,
+        priority: 100 - index * 10,
+        capabilities: ["content", "vision", "code", "analysis", "advanced"],
+        costTier: "paid" as const,
+      }));
+
     console.log(
       `🔑 Loaded ${this.apiKeys.length} OpenAI API keys:`,
       this.apiKeys.map((k) => k.name)
@@ -260,21 +266,28 @@ class MultiOpenAIService {
     requestFn: (client: any) => Promise<any>
   ): Promise<any> {
     this.checkKeyAvailability();
-    const key = this.getBestKeyForTask(taskType);
-    if (!key) {
+    const availableKeys = this.apiKeys.filter((k) => k.isAvailable).sort((a, b) => b.priority - a.priority);
+    if (availableKeys.length === 0) {
       throw new Error("No available API keys for this task");
     }
 
-    const client = createGeminiCompatibleClient();
-    try {
-      const result = await requestFn(client);
-      key.requestCount++;
-      return result;
-    } catch (error: any) {
-      console.error(`❌ Gemini request failed:`, error.message);
-      this.markKeyUnavailable(key.name, "api_error");
-      throw error;
+    let lastError: any;
+    for (const key of availableKeys) {
+      const client = createGeminiCompatibleClient(key.key);
+      try {
+        const result = await requestFn(client);
+        key.requestCount++;
+        return result;
+      } catch (error: any) {
+        lastError = error;
+        const status = error?.status || error?.response?.status || 0;
+        const isRateLimit = status === 429 || error?.message?.includes("429") || error?.message?.includes("RESOURCE_EXHAUSTED") || error?.message?.includes("quota");
+        const errorType = isRateLimit ? "rate_limit" : "api_error";
+        console.error(`❌ Gemini request failed (key: ${key.name}, type: ${errorType}):`, error.message);
+        this.markKeyUnavailable(key.name, errorType);
+      }
     }
+    throw lastError;
   }
 }
 
@@ -414,9 +427,13 @@ export class OpenAIService {
       });
 
       const result = extractJSON(response.text || "{}", {});
+      const generatedContent = (result.content || result.text || result.body || result.post || result.caption || result.message || "").trim();
+      if (!generatedContent) {
+        throw new Error("AI returned empty content field");
+      }
       return {
         title: result.title || "Untitled Content",
-        content: result.content || result.text || result.body || result.post || result.caption || result.message || "",
+        content: generatedContent,
         keywords: result.keywords || result.hashtags || [],
         metaDescription: result.metaDescription,
         seoScore: result.seoScore || 0,
@@ -452,8 +469,12 @@ export class OpenAIService {
       - Focus on providing valuable information to potential buyers/sellers`;
     } else if (request.type === "social") {
       prompt += `
-      - Create engaging social media content (150-300 characters)
-      - Include relevant hashtags
+      - Write a complete, engaging social media post of 150-300 characters
+      - The "content" field in your JSON response MUST contain the full post text — never leave it empty or null
+      - Include 2-3 relevant hashtags at the end of the post
+      - Use an emoji to open the post for visual appeal
+      - Include a clear call-to-action (e.g., "DM us!", "Call today!", "Link in bio")
+      - Focus on the specific topic and neighborhood provided — make it feel personal and local
       - Focus on engagement and lead generation`;
     } else if (request.type === "property_feature") {
       if (request.propertyData) {
@@ -536,10 +557,15 @@ export class OpenAIService {
         },
       });
 
-      return extractJSON(response.text || "{}", { content: `${topic} — follow us for more updates! ${fallbackHashtags.map(t => "#" + t).join(" ")}`, hashtags: fallbackHashtags });
+      const parsed = extractJSON(response.text || "{}", {});
+      const postContent = (parsed.content || parsed.text || parsed.post || parsed.caption || "").trim();
+      if (!postContent) {
+        return { content: `${topic} — Stay tuned for expert insights! ${fallbackHashtags.map(t => "#" + t).join(" ")}`, hashtags: fallbackHashtags };
+      }
+      return { ...parsed, content: postContent };
     } catch (error) {
       console.error("Gemini social media post error:", error);
-      return { content: `${topic}`, hashtags: [] };
+      return { content: `${topic} — Stay tuned for expert insights! ${fallbackHashtags.map(t => "#" + t).join(" ")}`, hashtags: fallbackHashtags };
     }
   }
 

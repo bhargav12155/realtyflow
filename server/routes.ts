@@ -4583,11 +4583,16 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
       // Read credentials from Replit Secrets (environment variables)
       // Use request host for production deployments
       const _oauthHost = req.get("host") || "";
-      const baseUrl =
+      const _isLocalHost = _oauthHost.includes("localhost") || _oauthHost.includes("127.0.0.1");
+      let baseUrl =
         process.env.BASE_URL ||
         (process.env.REPLIT_DEV_DOMAIN
           ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-          : `${_oauthHost.includes("localhost") || _oauthHost.includes("127.0.0.1") ? "http" : "https"}://${_oauthHost}`);
+          : `${_isLocalHost ? "http" : "https"}://${_oauthHost}`);
+      // Force HTTPS for non-localhost domains (Facebook rejects http:// redirect URIs)
+      if (baseUrl.startsWith("http://") && !_isLocalHost) {
+        baseUrl = baseUrl.replace("http://", "https://");
+      }
 
       // Create state parameter with userId for OAuth callback
       const state = Buffer.from(JSON.stringify({ userId, platform })).toString(
@@ -9762,6 +9767,122 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
     }
   });
 
+  // Fix blank/empty scheduled posts using instant fallback templates (no AI calls)
+  app.post("/api/scheduled-posts/fix-blank", requireAuth, async (req: any, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user?.id) return res.status(401).json({ error: "User not authenticated" });
+      const userId = String(user.id);
+
+      const allPosts = await storage.getScheduledPosts(userId);
+      const blankPosts = allPosts.filter(p => !p.content || !p.content.trim());
+
+      if (blankPosts.length === 0) {
+        return res.json({ fixed: 0, message: "No blank posts found" });
+      }
+
+      const companyProfile = await storage.getCompanyProfile(userId);
+      const businessType = (companyProfile as any)?.businessType || "real_estate";
+      const agentName = (companyProfile as any)?.agentName || (companyProfile as any)?.contactName || "";
+      const businessName = (companyProfile as any)?.businessName || (companyProfile as any)?.brokerageName || "";
+      const city = (companyProfile as any)?.city || "your area";
+
+      const getTemplate = (category: string, neighborhood: string, platform: string): string => {
+        const loc = neighborhood || city;
+        const byline = agentName ? `— ${agentName}${businessName ? ` | ${businessName}` : ""}` : (businessName ? `— ${businessName}` : "");
+        const cta = agentName ? `Contact ${agentName} today!` : "Contact us today!";
+        const bType = businessType.replace(/_/g, " ");
+
+        if (businessType !== "real_estate") {
+          const restaurantTemplates: Record<string, string> = {
+            menu_highlight: `🍽️ Have you tried our latest menu creation? Made with the freshest local ingredients and bursting with flavor. Come in and taste the difference ${byline}. #MenuHighlight #FoodLovers #EatLocal`,
+            daily_special: `⭐ TODAY'S SPECIAL is here and it won't last long! Fresh, delicious, and made with love. Come in early to grab yours ${byline}. #DailySpecial #FoodOfTheDay #Foodie`,
+            behind_the_scenes: `👨‍🍳 Every great dish starts behind the scenes — our team is up before sunrise preparing the freshest ingredients just for you. Thank you for your support ${byline}! #BehindTheScenes #FreshFood #OurTeam`,
+            customer_spotlight: `⭐ Nothing makes us happier than seeing our guests smile! Thank you to all our loyal customers — you're the reason we do what we do ${byline}. #CustomerLove #Grateful #Community`,
+            weekend_promo: `🎉 Weekend vibes are calling! Join us for great food, great company, and an unforgettable experience. Special weekend deals available — see you there ${byline}! #WeekendSpecial #FoodAndFun #DineOut`,
+            new_item: `🆕 Something NEW just hit our menu and we think you're going to love it! Stop by and be among the first to try it ${byline}. #NewMenuItem #MustTry #Foodie`,
+            event_promotion: `📅 We've got something special coming up! Mark your calendar and join us for a great time ${byline}. #SpecialEvent #CommunityLove #DineWithUs`,
+          };
+          return restaurantTemplates[category] || restaurantTemplates.menu_highlight
+            .replace("our latest menu creation", category.replace(/_/g, " "))
+            || `✨ Great things happening at ${businessName || "our place"}! Check out our ${category.replace(/_/g, " ")} — ${cta} #${bType.replace(/\s/g, "")} #Local`;
+        }
+
+        const reTemplates: Record<string, string[]> = {
+          market_update: [
+            `📊 ${loc} Real Estate Market Update: Inventory is shifting and prices are moving. Whether you're buying or selling, now is the time to make your move. ${cta} ${byline} #RealEstate #MarketUpdate #${loc.replace(/\s/g, "")}`,
+            `🏡 What's happening in the ${loc} real estate market? Demand remains strong and smart buyers are acting fast. Let's talk strategy ${byline}. ${cta} #MarketTrends #HomeBuying`,
+          ],
+          buyer_tips: [
+            `🏡 Buyer Tip: The #1 thing to do before house hunting? Get pre-approved! It shows sellers you're serious and helps you move fast in a competitive market ${byline}. ${cta} #HomeBuying #BuyerTips #FirstTimeHomebuyer`,
+            `💡 Thinking of buying in ${loc}? Here are 3 things every smart buyer does: 1️⃣ Get pre-approved 2️⃣ Know your must-haves 3️⃣ Work with a local expert. That's where we come in ${byline}! #BuyerTips`,
+          ],
+          seller_tips: [
+            `💡 Seller Tip: Homes that are staged sell faster AND for more money. A little decluttering, fresh paint, and curb appeal can add thousands to your sale price ${byline}. ${cta} #SellerTips #HomeStaging #ListingTips`,
+            `🏠 Ready to list your ${loc} home? Price it right from the start — overpriced homes sit and eventually sell for less. We'll help you nail the perfect price ${byline}. #SellerStrategy #RealEstate`,
+          ],
+          neighborhood_spotlight: [
+            `✨ Spotlight on ${loc}! Top-rated schools, tree-lined streets, walkable dining, and a community that truly feels like home. Want to see what's available here? ${byline} ${cta} #NeighborhoodSpotlight #${loc.replace(/\s/g, "")} #RealEstate`,
+            `📍 Why do people love living in ${loc}? Great parks, amazing local restaurants, excellent schools, and a tight-knit community. Let me show you around ${byline}! #LocalLove #${loc.replace(/\s/g, "")}`,
+          ],
+          home_improvement: [
+            `🔨 Top 3 home upgrades with the best ROI: 1️⃣ Kitchen refresh 2️⃣ Bathroom update 3️⃣ Landscaping curb appeal. Small investments that make a BIG difference at sale time ${byline}. #HomeImprovement #DIY #HomeValue`,
+            `🏡 Want to boost your home's value before listing? Start with the front door — fresh paint and new hardware can add serious curb appeal for under $200 ${byline}! #CurbAppeal #HomeImprovement`,
+          ],
+          investment_tips: [
+            `📈 Real estate in ${loc} continues to be one of the strongest investment opportunities available. Rental income + appreciation = long-term wealth. Let's talk numbers ${byline}. ${cta} #RealEstateInvesting #PassiveIncome`,
+            `💰 Did you know that real estate has historically outperformed stocks over 20-year periods? ${loc} is a smart place to build your portfolio ${byline}. ${cta} #InvestmentProperty #WealthBuilding`,
+          ],
+          community_events: [
+            `🎉 Love where you live! ${loc} has so much going on — farmers markets, community festivals, local sports, and more. This is what makes a house a HOME ${byline}. #CommunityLove #${loc.replace(/\s/g, "")} #LocalEvents`,
+            `📅 Great things are happening in ${loc} this season! Stay connected with your neighbors and community ${byline}. What's your favorite local event? Drop it in the comments! #LocalCommunity`,
+          ],
+          success_stories: [
+            `🎊 Another family found their dream home in ${loc}! Watching clients get the keys to their forever home never gets old. Ready to write YOUR story? ${byline} ${cta} #JustClosed #HappyClients #DreamHome`,
+            `✅ SOLD! Another successful closing in ${loc}. Our clients got above asking price with multiple offers in under a week. Want results like this? ${byline} ${cta} #JustSold #SuccessStory`,
+          ],
+          open_houses: [
+            `🏠 Open House This Weekend in ${loc}! Gorgeous finishes, functional layout, and a neighborhood you'll fall in love with. Come see it in person ${byline}. ${cta} #OpenHouse #HomeTour #${loc.replace(/\s/g, "")}`,
+            `📣 You're invited! Join us for an Open House in ${loc} — beautiful home, great location, and it's priced to move. Don't miss out ${byline}! #OpenHouse #HomesForSale`,
+          ],
+          just_listed: [
+            `🆕 Just Listed in ${loc}! This stunning property just hit the market and it won't last long. DM me for a private showing before it's gone ${byline}. ${cta} #JustListed #NewListing #${loc.replace(/\s/g, "")}RealEstate`,
+            `🏡 NEW LISTING ALERT in ${loc}! Beautiful home, incredible neighborhood, priced right. Serious buyers, reach out NOW ${byline}. ${cta} #JustListed #HomesForSale`,
+          ],
+        };
+
+        const options = reTemplates[category] || [
+          `🏡 Looking to buy or sell in ${loc}? The market is active and opportunities are available right now ${byline}. ${cta} #RealEstate #${loc.replace(/\s/g, "")}`,
+        ];
+        // Pick variation based on post id to get variety across posts
+        return options[0];
+      };
+
+      // Update all blank posts in parallel using templates (instant, no AI calls)
+      const updates = blankPosts.map(post => {
+        const category = post.postType || "market_update";
+        const neighborhood = post.neighborhood || city;
+        const content = getTemplate(category, neighborhood, post.platform);
+        return storage.updateScheduledPost(post.id, {
+          content,
+          isAiGenerated: false,
+          originalContent: content,
+        } as any).catch(err => {
+          console.error(`Failed to update post ${post.id}:`, err);
+          return null;
+        });
+      });
+
+      const results = await Promise.all(updates);
+      const fixed = results.filter(r => r !== null).length;
+
+      res.json({ fixed, total: blankPosts.length });
+    } catch (error) {
+      console.error("Fix blank posts error:", error);
+      res.status(500).json({ error: "Failed to fix blank posts" });
+    }
+  });
+
   app.post("/api/scheduled-posts/generate-monthly", requireAuth, async (req: any, res) => {
     try {
       const user = (req as any).user;
@@ -9925,7 +10046,10 @@ Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
             },
             ...(seoAeoPrompt ? { aiPrompt: seoAeoPrompt } : {}),
           });
-          content = aiContent.content;
+          content = (aiContent.content || "").trim();
+          if (!content) {
+            throw new Error(`AI returned empty content for category "${category}" on platform "${platform}"`);
+          }
           hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
           seoScore = aiContent.seoScore || 80;
         } catch (aiError) {

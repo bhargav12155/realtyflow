@@ -222,6 +222,14 @@ export function friendlyError(error: any): { title: string; description: string 
     return getHttpErrorMessage(status, error.message);
   }
 
+  // Use specific error message if available (e.g. thrown from OAuth flow)
+  if (error?.message) {
+    return {
+      title: "Something went wrong",
+      description: error.message,
+    };
+  }
+
   // Default friendly error
   return {
     title: "Something went wrong",

@@ -5,9 +5,10 @@ server/public
 vite.config.ts.*
 *.tar.gz
 
-# Sensitive / credentials
+# Sensitive / credentials – never commit real secrets
 .env
 .env.*
+eb-options.json
 
 # Replit runtime folders
 .local/
@@ -31,4 +32,4 @@ github/
 generated-icon.png
 screenshot.png
 social_final.png
-social_disconnected.png
+social_disconnected.pngrealtyflow-v*.zip

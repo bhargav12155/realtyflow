@@ -38,6 +38,7 @@ export interface Platform {
   name: string;
   tagline: string;
   v2v: boolean;
+  supportedModes?: readonly GenerationMode[];
   kind?: "image" | "video" | "avatar";
   badge?: string;
   accent: string;
@@ -46,11 +47,19 @@ export interface Platform {
 }
 
 export const PLATFORMS: Platform[] = [
-  { id: "luma", name: "Luma Ray 2", tagline: "Best motion + camera control", v2v: true, accent: "from-violet-500 to-fuchsia-500", monogram: "L" },
-  { id: "runway", name: "Runway Gen-4", tagline: "Cinematic v2v transforms", v2v: true, accent: "from-emerald-500 to-teal-500", monogram: "R" },
+  { id: "luma", name: "Luma Ray 2", tagline: "Best motion + camera control", v2v: false, accent: "from-violet-500 to-fuchsia-500", monogram: "L" },
+  { id: "runway", name: "Runway Gen-4", tagline: "Cinematic text + image animation", v2v: false, accent: "from-emerald-500 to-teal-500", monogram: "R" },
   { id: "sora2", name: "Sora 2", tagline: "Coherent long shots", v2v: false, badge: "OpenAI", accent: "from-neutral-700 to-neutral-900", brandIcon: SiOpenai },
   { id: "seedance", name: "Seedance", tagline: "ByteDance fast t2v + i2v", v2v: false, accent: "from-rose-500 to-orange-500", monogram: "S" },
-  { id: "veo", name: "Google VEO", tagline: "Photoreal 1080p clips", v2v: false, accent: "from-blue-500 to-sky-500", brandIcon: SiGoogle },
+  {
+    id: "veo",
+    name: "Google VEO",
+    tagline: "Photoreal 1080p clips",
+    v2v: false,
+    supportedModes: ["image-to-video"],
+    accent: "from-blue-500 to-sky-500",
+    brandIcon: SiGoogle,
+  },
   { id: "kling", name: "Kling AI", tagline: "Strong character consistency", v2v: false, accent: "from-amber-500 to-yellow-500", monogram: "K" },
   // Gemini image is listed first so it's the default image provider users
   // see in the picker. The OpenAI image path requires a valid OPENAI_API_KEY
@@ -99,8 +108,15 @@ interface PlatformPickerProps {
   onSelectProvider: (id: ProviderId) => void;
   selectedMode: GenerationMode;
   onSelectMode: (mode: GenerationMode) => void;
+  onCommittedSelection?: () => void;
   seedanceOptions?: SeedanceOptions;
   onSeedanceOptionsChange?: (opts: SeedanceOptions) => void;
+}
+
+function defaultSupportedModes(platform: Platform): readonly GenerationMode[] {
+  return platform.v2v
+    ? ["text-to-video", "image-to-video", "video-to-video"]
+    : ["text-to-video", "image-to-video"];
 }
 
 export function PlatformPicker({
@@ -108,19 +124,21 @@ export function PlatformPicker({
   onSelectProvider,
   selectedMode,
   onSelectMode,
+  onCommittedSelection,
   seedanceOptions,
   onSeedanceOptionsChange,
 }: PlatformPickerProps) {
   const sel = PLATFORMS.find((p) => p.id === selectedProvider) ?? PLATFORMS[0];
+  const supportedModes = sel.supportedModes ?? defaultSupportedModes(sel);
 
-  // Auto-correct mode if v2v becomes invalid for the selected provider.
+  // Auto-correct mode if the currently selected mode is invalid for provider.
   // Run as a side effect (not during render) so we never trigger a parent
   // setState while React is still rendering this component.
   useEffect(() => {
-    if (selectedMode === "video-to-video" && !sel.v2v) {
-      onSelectMode("text-to-video");
+    if (!supportedModes.includes(selectedMode)) {
+      onSelectMode(supportedModes[0]);
     }
-  }, [selectedMode, sel.v2v, onSelectMode]);
+  }, [selectedMode, supportedModes, onSelectMode]);
 
   return (
     <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-4 space-y-4" data-testid="picker-platform">
@@ -132,7 +150,10 @@ export function PlatformPicker({
             return (
               <button
                 key={p.id}
-                onClick={() => onSelectProvider(p.id)}
+                onClick={() => {
+                  onSelectProvider(p.id);
+                  onCommittedSelection?.();
+                }}
                 className={`relative text-left rounded-xl border p-3 bg-white dark:bg-neutral-900 transition-all ${
                   selected
                     ? "border-neutral-900 dark:border-neutral-100 shadow-md ring-1 ring-neutral-900 dark:ring-neutral-100"
@@ -171,7 +192,28 @@ export function PlatformPicker({
         {sel.kind === "image" ? (
           <ImageModeHint />
         ) : (
-          <ModeTabs supportV2V={sel.v2v} selected={selectedMode} onSelect={onSelectMode} />
+          <ModeTabs
+            supportedModes={supportedModes}
+            selected={selectedMode}
+            onSelect={onSelectMode}
+            onCommittedSelection={onCommittedSelection}
+          />
+        )}
+        {sel.id === "veo" && (
+          <div
+            className="mt-2 text-[10px] text-neutral-500 dark:text-neutral-400 italic"
+            data-testid="text-veo-image-first-hint"
+          >
+            VEO needs an image reference in this build. Suggested flow: generate 2-3 images first, select one, then run Image → Video.
+          </div>
+        )}
+        {sel.id === "luma" && (
+          <div
+            className="mt-2 text-[10px] text-neutral-500 dark:text-neutral-400 italic"
+            data-testid="text-luma-activation-hint"
+          >
+            Luma is active for Text → Video and Image → Video in this build.
+          </div>
         )}
       </div>
 
@@ -280,20 +322,25 @@ function ImageModeHint() {
 }
 
 function ModeTabs({
-  supportV2V,
+  supportedModes,
   selected,
   onSelect,
+  onCommittedSelection,
 }: {
-  supportV2V: boolean;
+  supportedModes: readonly GenerationMode[];
   selected: GenerationMode;
   onSelect: (m: GenerationMode) => void;
+  onCommittedSelection?: () => void;
 }) {
   const Tab = ({ icon: Icon, label, mode, hidden }: { icon: LucideIcon; label: string; mode: GenerationMode; hidden?: boolean }) => {
     if (hidden) return null;
     const active = selected === mode;
     return (
       <button
-        onClick={() => onSelect(mode)}
+        onClick={() => {
+          onSelect(mode);
+          onCommittedSelection?.();
+        }}
         className={`flex items-center gap-1.5 px-3 py-2 rounded-md border text-[12px] ${
           active
             ? "border-neutral-900 dark:border-neutral-100 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900"
@@ -308,10 +355,25 @@ function ModeTabs({
   };
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Tab icon={Sparkles} label="Text → Video" mode="text-to-video" />
-      <Tab icon={ImageIcon} label="Image → Video" mode="image-to-video" />
-      <Tab icon={Film} label="Video → Video" mode="video-to-video" hidden={!supportV2V} />
-      {!supportV2V && (
+      <Tab
+        icon={Sparkles}
+        label="Text → Video"
+        mode="text-to-video"
+        hidden={!supportedModes.includes("text-to-video")}
+      />
+      <Tab
+        icon={ImageIcon}
+        label="Image → Video"
+        mode="image-to-video"
+        hidden={!supportedModes.includes("image-to-video")}
+      />
+      <Tab
+        icon={Film}
+        label="Video → Video"
+        mode="video-to-video"
+        hidden={!supportedModes.includes("video-to-video")}
+      />
+      {!supportedModes.includes("video-to-video") && (
         <span className="text-[10px] text-neutral-400 italic ml-1" data-testid="text-v2v-unavailable">
           v2v unavailable on this provider
         </span>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useBusinessType } from "@/lib/businessContext";
 import { 
   Brain, 
   Search, 
@@ -152,6 +153,8 @@ export function AISearchOptimizer() {
   
   const { toast} = useToast();
   const queryClient = useQueryClient();
+  // Use context hook — always in sync with sidebar business type switcher
+  const { businessType } = useBusinessType();
 
   // Fetch company profile for dynamic content
   const { data: companyProfile } = useQuery<{
@@ -161,6 +164,7 @@ export function AISearchOptimizer() {
     address?: string;
     neighborhoods?: string[];
     website?: string;
+    businessType?: string;
   }>({
     queryKey: ["/api/company/profile"],
   });
@@ -193,8 +197,108 @@ export function AISearchOptimizer() {
     }
   };
 
+  // Reset goal when business type changes so stale goals don't cross industries
+  useEffect(() => {
+    setOptimizationGoal("");
+  }, [businessType]);
+
+  const optimizationGoalsByIndustry: Record<string, string[]> = {
+    real_estate: [
+      "Best neighborhoods for families",
+      "Luxury homes and properties",
+      "First-time homebuyer advice",
+      "Investment property opportunities",
+      "Moving to Omaha guide",
+      "Market trends and analysis",
+      "School district information",
+      "Local amenities and lifestyle",
+    ],
+    restaurant: [
+      "Best restaurants near me",
+      "Family-friendly dining options",
+      "Date night restaurant recommendations",
+      "Local food delivery and takeout",
+      "Weekend brunch spots",
+      "Special occasion dining",
+      "Vegan and dietary-friendly menus",
+      "Happy hour and drinks deals",
+    ],
+    retail: [
+      "Best local shops and boutiques",
+      "Deals and discounts near me",
+      "Gift ideas and shopping guides",
+      "Sustainable and local products",
+      "Online ordering and pickup",
+      "Loyalty programs and rewards",
+      "Seasonal sales and promotions",
+      "New arrivals and trending items",
+    ],
+    healthcare: [
+      "Top-rated doctors near me",
+      "Urgent care and walk-in clinics",
+      "Specialist referrals and consultations",
+      "Affordable healthcare options",
+      "Telehealth and virtual visits",
+      "Preventive care and wellness tips",
+      "Mental health and counseling",
+      "Insurance accepted providers",
+    ],
+    fitness: [
+      "Best gyms and fitness centers",
+      "Personal training and coaching",
+      "Group fitness classes near me",
+      "Weight loss programs",
+      "Sports and recreational activities",
+      "Yoga and mindfulness studios",
+      "Nutrition and diet guidance",
+      "Home workout alternatives",
+    ],
+    salon: [
+      "Best hair salons near me",
+      "Affordable beauty services",
+      "Bridal and special occasion styling",
+      "Men's grooming and barbershops",
+      "Nail care and spa services",
+      "Hair color and treatments",
+      "Walk-in vs appointment availability",
+      "Beauty product recommendations",
+    ],
+    home_services: [
+      "Best home repair services near me",
+      "Emergency HVAC and plumbing help",
+      "Affordable home maintenance tips",
+      "Seasonal home preparation guide",
+      "Finding reliable contractors",
+      "Home improvement project ideas",
+      "Same-day service availability",
+      "Licensed and insured professionals",
+    ],
+    professional_services: [
+      "Best local accountants and CPAs",
+      "Business consulting services near me",
+      "Marketing agency recommendations",
+      "Legal services and attorneys",
+      "Tax planning and strategy",
+      "HR and payroll solutions",
+      "IT support and managed services",
+      "Business growth coaching",
+    ],
+    general: [
+      "Best local services near me",
+      "Customer reviews and ratings",
+      "Affordable options in my area",
+      "Hours and availability",
+      "Special offers and promotions",
+      "How to contact and book",
+      "Service area coverage",
+      "What makes us different",
+    ],
+  };
+
+  const optimizationGoals = optimizationGoalsByIndustry[businessType] || optimizationGoalsByIndustry.general;
+
   const generateAIOptimizedContent = useMutation({
-    mutationFn: async (data: { neighborhood: string; goal: string; question?: string }) => {
+    mutationFn: async (data: { neighborhood: string; goal: string; question?: string; businessType: string }) => {
       const response = await apiRequest("POST", "/api/content/ai-optimized", data);
       return response.json();
     },
@@ -227,7 +331,8 @@ export function AISearchOptimizer() {
     generateAIOptimizedContent.mutate({
       neighborhood: selectedNeighborhood,
       goal: optimizationGoal,
-      question: customQuestion || undefined
+      question: customQuestion || undefined,
+      businessType,
     });
   };
 
@@ -235,17 +340,6 @@ export function AISearchOptimizer() {
     "Dundee", "Aksarben Village", "Blackstone District", "Benson", 
     "Midtown Crossing", "West Omaha", "Millard", "Papillion", 
     "Elkhorn", "Downtown Omaha"
-  ];
-
-  const optimizationGoals = [
-    "Best neighborhoods for families",
-    "Luxury homes and properties", 
-    "First-time homebuyer advice",
-    "Investment property opportunities",
-    "Moving to Omaha guide",
-    "Market trends and analysis",
-    "School district information",
-    "Local amenities and lifestyle"
   ];
 
   return (
@@ -466,9 +560,9 @@ export function AISearchOptimizer() {
                   AI Search Optimization Preview
                 </h3>
                 <div className="text-sm space-y-2">
-                  <p><strong>Entity Focus:</strong> {agentName} + {selectedNeighborhood || "Omaha"} + Real Estate</p>
-                  <p><strong>Question Format:</strong> Direct answers to "{customQuestion || optimizationGoal}"</p>
-                  <p><strong>Local Authority:</strong> Specific neighborhood insights and market data</p>
+                  <p><strong>Entity Focus:</strong> {agentName} + {selectedNeighborhood || "your area"} + {businessType.replace(/_/g, " ")}</p>
+                  <p><strong>Question Format:</strong> Direct answers to "{customQuestion || optimizationGoal || "your selected goal"}"</p>
+                  <p><strong>Industry Context:</strong> {businessType.replace(/_/g, " ")} — no cross-industry content</p>
                   <p><strong>Conversational Tone:</strong> Natural language that matches how people ask AI</p>
                 </div>
               </div>

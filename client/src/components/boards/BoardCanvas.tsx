@@ -49,8 +49,8 @@ const RESIZABLE_KINDS = new Set([
 const RESIZE_DEFAULTS: Record<string, { width: number; height: number }> = {
   drawing: { width: 360, height: 240 },
   audio: { width: 320, height: 90 },
-  image: { width: 150, height: 110 },
-  video: { width: 150, height: 110 },
+  image: { width: 256, height: 256 },
+  video: { width: 256, height: 256 },
   sticky: { width: 150, height: 110 },
   text: { width: 150, height: 110 },
   frame: { width: 150, height: 110 },
@@ -923,13 +923,29 @@ function AssetTile({
 
   const isResizable = RESIZABLE_KINDS.has(asset.kind) && !!onResize;
   const fallbackSize = RESIZE_DEFAULTS[asset.kind] ?? { width: 150, height: 110 };
+  // Legacy image/video tiles were persisted at the old 150x110 default. Bump
+  // any tile at/below that legacy size up to the current default so existing
+  // boards match new generations — but never shrink tiles the user has
+  // manually enlarged beyond the legacy threshold.
+  const isMediaTile = asset.kind === "image" || asset.kind === "video";
+  const normalizeMedia = (
+    stored: number | null | undefined,
+    legacy: number,
+    next: number,
+  ): number | null => {
+    if (!isMediaTile) return typeof stored === "number" && stored > 0 ? stored : null;
+    if (typeof stored !== "number" || stored <= 0) return next;
+    return stored <= legacy ? next : stored;
+  };
+  const normalizedWidth = normalizeMedia(asset.width, 160, fallbackSize.width);
+  const normalizedHeight = normalizeMedia(asset.height, 120, fallbackSize.height);
   const storedWidth =
-    typeof asset.width === "number" && asset.width > 0
-      ? asset.width
+    typeof normalizedWidth === "number" && normalizedWidth > 0
+      ? normalizedWidth
       : fallbackSize.width;
   const storedHeight =
-    typeof asset.height === "number" && asset.height > 0
-      ? asset.height
+    typeof normalizedHeight === "number" && normalizedHeight > 0
+      ? normalizedHeight
       : fallbackSize.height;
   const [size, setSize] = useState<{ width: number; height: number }>({
     width: storedWidth,

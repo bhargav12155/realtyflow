@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, LogOut, MessageSquare, Settings as SettingsIcon
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { GroupAssetToolbar } from "@/components/boards/GroupAssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
@@ -112,6 +113,17 @@ export default function BoardDetailPage() {
   const [chatModelManuallyPicked, setChatModelManuallyPicked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
+  // Confirmation gate before firing a generation: holds the prompt text until
+  // the user either confirms ("generate now") or cancels ("make more changes").
+  const [pendingGenText, setPendingGenText] = useState<string | null>(null);
+  // Resizable chat panel width (px), persisted in localStorage per-browser.
+  const [chatPanelWidth, setChatPanelWidth] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem("chatPanelWidth") ?? "360", 10) || 360; } catch { return 360; }
+  });
+  const handleChatPanelWidthChange = (w: number) => {
+    setChatPanelWidth(w);
+    try { localStorage.setItem("chatPanelWidth", String(w)); } catch { /* ignore */ }
+  };
   // Hydrate the chat panel from the server exactly once per board so the
   // user's prior conversation is restored on reload/navigation. We never
   // re-overwrite local state after the first hydration — the chat handler
@@ -873,21 +885,36 @@ export default function BoardDetailPage() {
     mutationFn: async (text: string) => {
       const controller = new AbortController();
       chatAbortRef.current = controller;
-      const res = await apiRequest(
-        "POST",
-        `/api/boards/${boardId}/chat`,
-        {
-          message: text,
-          mode,
-          provider,
-          generationMode,
-          referencedAssetIds,
-          ...(provider === "seedance" ? { seedanceOptions } : {}),
-          ...(mode === "brainstorm" ? { chatModel } : {}),
-        },
-        { signal: controller.signal },
-      );
-      return res.json();
+
+      const buildBody = (overrideProvider?: string) => ({
+        message: text,
+        mode,
+        provider: overrideProvider ?? provider,
+        generationMode,
+        referencedAssetIds,
+        ...(provider === "seedance" && !overrideProvider ? { seedanceOptions } : {}),
+        ...(mode === "brainstorm" ? { chatModel } : {}),
+      });
+
+      // Use raw fetch so we can inspect the error body before throwing,
+      // which lets us auto-recover from known codes (e.g. v2v_luma_unavailable).
+      const { getAuthHeaders } = await import("@/lib/authToken");
+      const doFetch = (body: object, signal?: AbortSignal) =>
+        fetch(`/api/boards/${boardId}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+          credentials: "include",
+          body: JSON.stringify(body),
+          signal,
+        });
+
+      const res = await doFetch(buildBody(), controller.signal);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.error ?? `${res.status}: ${res.statusText}`);
+      }
+      return data;
     },
     onMutate: (text) => {
       const userMsg: ChatMessage = {
@@ -939,7 +966,18 @@ export default function BoardDetailPage() {
         chatAbortedPendingIdRef.current = null;
         return;
       }
-      const errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      // Try to parse a structured server error for a friendlier message.
+      let errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      try {
+        const parsed = JSON.parse(errText);
+        if (parsed?.code === "v2v_disabled") {
+          errText = "Video-to-video is disabled in this build. Use Text-to-Video or Image-to-Video.";
+        } else if (parsed?.error) {
+          errText = parsed.error;
+        }
+      } catch {
+        // not JSON, use as-is
+      }
       setMessages((m) =>
         m.map((msg) =>
           msg.id === pendingId ? { ...msg, content: `Error: ${errText}`, pending: false } : msg,
@@ -1660,12 +1698,27 @@ export default function BoardDetailPage() {
       const sourceLabel = seedParams.intent
         ? `intent "${intentLabels[seedParams.intent] ?? seedParams.intent}"`
         : `template "${seedParams.template ?? "discover"}"`;
+      // The Video intent is a guided, image-first flow: generate image
+      // options, pick one, then animate it with Luma/VEO. Spell the steps out
+      // so the user doesn't expect a one-click text-to-video result.
+      const seedContent =
+        seedParams.intent === "video"
+          ? [
+              "Here's how the video flow works:",
+              "1) I'll generate a few image options from your prompt.",
+              "2) Click the image you like best on the board to select it.",
+              "3) Pick Luma or Google VEO in the Build bar.",
+              "4) Send again to animate that image into a video.",
+              "",
+              `Press send to generate the image options: "${seedParams.seed}"`,
+            ].join("\n")
+          : `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`;
       setMessages((m) => [
         ...m,
         {
           id: `seed-${boardId}`,
           role: "assistant",
-          content: `Seeded from ${sourceLabel}. Press send to start: "${seedParams.seed}"`,
+          content: seedContent,
         },
       ]);
     }
@@ -1797,7 +1850,14 @@ export default function BoardDetailPage() {
               <Moon className="w-4 h-4 text-neutral-600" />
             )}
           </button>
-          <button className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-settings">
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            title="Board settings"
+            aria-label="Board settings"
+            className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
+            data-testid="button-settings"
+          >
             <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
           </button>
           {board.isOwner !== false ? (
@@ -1851,7 +1911,7 @@ export default function BoardDetailPage() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         <div className="relative flex-1 flex">
           <BoardCanvas
             batches={board.batches}
@@ -1950,7 +2010,43 @@ export default function BoardDetailPage() {
             onCancelUpload={handleCancelUpload}
           />
         </div>
+        {/* Generation confirmation overlay — shown over the whole board+chat area */}
+        {pendingGenText !== null && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-2xl border border-neutral-200 dark:border-neutral-700 p-6 w-80 flex flex-col items-center gap-4">
+              <div className="w-10 h-10 rounded-full border-4 border-neutral-200 border-t-neutral-700 dark:border-neutral-700 dark:border-t-neutral-200 animate-spin" />
+              <div className="text-center">
+                <p className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">Ready to generate?</p>
+                <p className="text-[12px] text-neutral-500 dark:text-neutral-400 mt-1">Want to make more changes before starting?</p>
+              </div>
+              <div className="flex gap-2 w-full">
+                <button
+                  type="button"
+                  className="flex-1 px-3 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-[12px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                  onClick={() => {
+                    setPendingGenText(null);
+                    setMode("brainstorm");
+                  }}
+                >
+                  Yes, make changes
+                </button>
+                <button
+                  type="button"
+                  className="flex-1 px-3 py-2 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-[12px] font-medium hover:bg-neutral-700 dark:hover:bg-neutral-300 transition-colors"
+                  onClick={() => {
+                    const text = pendingGenText;
+                    setPendingGenText(null);
+                    sendChat.mutate(text);
+                  }}
+                >
+                  Generate now
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {chatOpen && (
+          <>
           <ChatPanel
             boardTitle={board.title}
             messages={messages}
@@ -1973,6 +2069,12 @@ export default function BoardDetailPage() {
                 sendSelfAvatarCta(text);
                 return;
               }
+              // In create mode, show a confirmation step before firing the
+              // generation API so the user can make last-minute changes.
+              if (mode === "create") {
+                setPendingGenText(text);
+                return;
+              }
               sendChat.mutate(text);
             }}
             isSending={sendChat.isPending}
@@ -1992,7 +2094,11 @@ export default function BoardDetailPage() {
             isSavingChatHistoryCap={updateChatHistoryCap.isPending}
             typingUserNames={board.isShared ? typingNames : []}
             onTypingChange={board.isShared ? handleChatTypingChange : undefined}
+            width={chatPanelWidth}
+            onWidthChange={handleChatPanelWidthChange}
+            onCollapse={() => setChatOpen(false)}
           />
+          </>
         )}
       </div>
       <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />

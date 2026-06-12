@@ -110,6 +110,12 @@ interface ChatPanelProps {
    *  a typing beacon over the websocket. The panel debounces internally —
    *  callers should still throttle if they relay every event verbatim. */
   onTypingChange?: (isTyping: boolean) => void;
+  /** Controlled width of the panel in pixels. Defaults to 360. */
+  width?: number;
+  /** Called when the user drags the resize handle to a new width. */
+  onWidthChange?: (w: number) => void;
+  /** Collapse/hide the chat panel from the board layout. */
+  onCollapse?: () => void;
 }
 
 export const CHAT_HISTORY_CAP_MIN = 10;
@@ -172,6 +178,9 @@ export function ChatPanel({
   isSavingChatHistoryCap,
   typingUserNames,
   onTypingChange,
+  width = 360,
+  onWidthChange,
+  onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -292,8 +301,34 @@ export function ChatPanel({
     }, 0);
   };
 
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    const onMove = (ev: MouseEvent) => {
+      const delta = startX - ev.clientX;
+      const next = Math.min(700, Math.max(280, startW + delta));
+      onWidthChange?.(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   return (
-    <aside className="w-[360px] flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800">
+    <aside
+      style={{ width }}
+      className="flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800 relative"
+    >
+      {/* Drag-to-resize handle on the left edge */}
+      <div
+        onMouseDown={handleResizeMouseDown}
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-neutral-300 dark:hover:bg-neutral-600 z-10 transition-colors"
+        title="Drag to resize"
+      />
       <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
         <div className="flex items-center gap-1 font-medium text-[13px] text-neutral-900 truncate dark:text-neutral-100">
           <span className="truncate" data-testid="text-chat-board-title">{boardTitle}</span>
@@ -380,7 +415,14 @@ export function ChatPanel({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
-          <button className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400" data-testid="button-collapse-chat">
+          <button
+            type="button"
+            onClick={() => onCollapse?.()}
+            className="w-6 h-6 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-500 dark:hover:bg-neutral-800 dark:text-neutral-400"
+            data-testid="button-collapse-chat"
+            aria-label="Collapse chat"
+            title="Collapse chat"
+          >
             <Minus className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -716,6 +758,7 @@ export function ChatPanel({
                       onSelectProvider={onProviderChange}
                       selectedMode={generationMode}
                       onSelectMode={onGenerationModeChange}
+                      onCommittedSelection={() => setPickerOpen(false)}
                       seedanceOptions={seedanceOptions}
                       onSeedanceOptionsChange={onSeedanceOptionsChange}
                     />

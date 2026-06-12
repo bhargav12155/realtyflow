@@ -163,22 +163,24 @@ const navigationItems = [
   //   isPageLink: true,
   // },
   { icon: BarChart3, label: "Analytics", href: "/dashboard#analytics", key: "analytics", isPageLink: true },
-  {
-    icon: AlertTriangle,
-    label: "HeyGen Shape Drift",
-    href: "/dashboard#heygen-incidents",
-    key: "heygen-incidents",
-    isPageLink: true,
-    adminOnly: true,
-  },
-  {
-    icon: AlertTriangle,
-    label: "Infrastructure Alerts",
-    href: "/admin/alerts",
-    key: "admin-alerts",
-    isPageLink: true,
-    adminOnly: true,
-  },
+  // HIDDEN: HeyGen Shape Drift — re-enable when ready
+  // {
+  //   icon: AlertTriangle,
+  //   label: "HeyGen Shape Drift",
+  //   href: "/dashboard#heygen-incidents",
+  //   key: "heygen-incidents",
+  //   isPageLink: true,
+  //   adminOnly: true,
+  // },
+  // HIDDEN: Infrastructure Alerts — re-enable when ready
+  // {
+  //   icon: AlertTriangle,
+  //   label: "Infrastructure Alerts",
+  //   href: "/admin/alerts",
+  //   key: "admin-alerts",
+  //   isPageLink: true,
+  //   adminOnly: true,
+  // },
   // HIDDEN: Advanced Advertising — not yet functional, re-enable when ready
   // {
   //   icon: Target,
@@ -187,14 +189,15 @@ const navigationItems = [
   //   key: "advertising",
   //   isPageLink: true,
   // },
-  {
-    icon: Shield,
-    label: "Admin",
-    href: "/admin/settings",
-    key: "admin-settings",
-    isPageLink: true,
-    adminOnly: true,
-  },
+  // HIDDEN: Admin — re-enable when ready
+  // {
+  //   icon: Shield,
+  //   label: "Admin",
+  //   href: "/admin/settings",
+  //   key: "admin-settings",
+  //   isPageLink: true,
+  //   adminOnly: true,
+  // },
   {
     icon: BookOpen,
     label: "Help & Guides",

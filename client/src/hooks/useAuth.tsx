@@ -15,6 +15,7 @@ import {
   AuthResponse,
 } from "@/types/auth";
 import { setAuthToken, clearAuthToken, getAuthHeaders, getAuthToken } from "@/lib/authToken";
+import { queryClient } from "@/lib/queryClient";
 
 interface AuthContextType extends AuthState {
   login: (credentials: LoginCredentials) => Promise<AuthResponse>;
@@ -121,6 +122,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           if (data.token) {
             setAuthToken(data.token);
           }
+          queryClient.invalidateQueries({ queryKey: ["/api/user/is-admin"] });
           setAuthState({
             user: data.user,
             isAuthenticated: true,
@@ -165,6 +167,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           if (result.token) {
             setAuthToken(result.token);
           }
+          queryClient.invalidateQueries({ queryKey: ["/api/user/is-admin"] });
           setAuthState({
             user: result.user,
             isAuthenticated: true,
@@ -209,6 +212,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           if (result.token) {
             setAuthToken(result.token);
           }
+          queryClient.invalidateQueries({ queryKey: ["/api/user/is-admin"] });
           setAuthState({
             user: result.user,
             isAuthenticated: true,
@@ -259,6 +263,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
           if (result.token) {
             setAuthToken(result.token);
           }
+          queryClient.invalidateQueries({ queryKey: ["/api/user/is-admin"] });
           setAuthState({
             user: result.user,
             isAuthenticated: true,
@@ -294,6 +299,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       console.error("Logout request failed:", error);
     } finally {
       clearAuthToken();
+      queryClient.invalidateQueries({ queryKey: ["/api/user/is-admin"] });
       // Always clear local auth state
       setAuthState({
         user: null,

@@ -429,6 +429,24 @@ export default function UnifiedCalendarPage() {
     },
   });
 
+  const fixBlankPostsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/scheduled-posts/fix-blank");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/scheduled-posts"] });
+      toast({
+        title: data.fixed > 0 ? `Fixed ${data.fixed} Blank Post${data.fixed !== 1 ? "s" : ""}!` : "No Blank Posts Found",
+        description: data.fixed > 0
+          ? `${data.fixed} of ${data.total} blank posts have been filled with AI-generated content.`
+          : "All your posts already have content.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Fix Failed", description: error.message, variant: "destructive" });
+    },
+  });
 
   const generatePostsMutation = useMutation({
     mutationFn: async (eventId: string) => {
@@ -1196,7 +1214,7 @@ export default function UnifiedCalendarPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Monthly Calendar</CardTitle>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
                   <Select value={viewFilter} onValueChange={(v: "all" | "events" | "posts") => setViewFilter(v)}>
                     <SelectTrigger className="w-32" data-testid="select-view-filter">
                       <Filter className="w-4 h-4 mr-2" />
@@ -1233,6 +1251,21 @@ export default function UnifiedCalendarPage() {
                     <Sparkles className="w-4 h-4 mr-2" />
                     Auto-Fill Month
                   </Button>
+                  {apiScheduledPosts.filter(p => !p.content || !(p.content as string).trim()).length > 0 && (
+                    <Button
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+                      onClick={() => fixBlankPostsMutation.mutate()}
+                      disabled={fixBlankPostsMutation.isPending}
+                      data-testid="btn-fix-blank-posts"
+                    >
+                      {fixBlankPostsMutation.isPending ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Fixing...</>
+                      ) : (
+                        <><Wand2 className="w-4 h-4 mr-2" />Fix Blank Posts ({apiScheduledPosts.filter(p => !p.content || !(p.content as string).trim()).length})</>
+                      )}
+                    </Button>
+                  )}
                   {apiScheduledPosts.filter(p => p.status === "pending").length > 0 && (
                     <Button 
                       variant="outline"

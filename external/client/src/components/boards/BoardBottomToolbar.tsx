@@ -388,12 +388,17 @@ function ToolButton({
       disabled={disabled}
       aria-disabled={disabled}
       aria-pressed={active}
-      title={label}
       aria-label={label}
       data-testid={testId}
       className={`group relative w-7 h-7 rounded-full flex items-center justify-center ${baseColors}`}
     >
       <Icon className={`w-4 h-4 ${iconClassName ?? ""}`} />
+      <span
+        className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-neutral-900 text-white text-[11px] px-2 py-1 shadow opacity-0 group-hover:opacity-100 transition-opacity z-30 dark:bg-neutral-100 dark:text-neutral-900"
+        data-testid={`tooltip-${testId}`}
+      >
+        {label}
+      </span>
     </button>
   );
 }

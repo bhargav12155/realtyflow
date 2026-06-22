@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2 } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
@@ -642,6 +642,52 @@ function BatchGroup({
   const canReEval = batch.assets.some(
     (a) => !!a.assetUrl && (a.status === "ready" || a.status === "rejected"),
   );
+  // Any tile still queued/generating lights up the whole batch box with an
+  // animated glow border so the creation moment reads as "alive".
+  const batchGenerating = batch.assets.some(
+    (a) => a.status === "queued" || a.status === "generating",
+  );
+
+  // Tiles move via CSS `transform`, which doesn't grow their flex container,
+  // so dragged tiles visually hang outside the batch box. After each layout we
+  // measure the tiles' real (post-transform) extent and grow the box to cover
+  // them, keeping the whole batch visually grouped no matter where tiles land.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<HTMLDivElement>(null);
+  // Serialize the inputs that affect tile geometry so the effect re-runs when
+  // any tile moves, resizes, or is added/removed.
+  const tileGeometryKey = batch.assets
+    .map((a) => `${a.id}:${a.positionX ?? 0}:${a.positionY ?? 0}:${a.width ?? 0}:${a.height ?? 0}`)
+    .join("|");
+  // While a tile in this batch is being dragged its stored position hasn't
+  // committed yet, so fold the live drag delta into the key to re-measure on
+  // every move and grow the box in real time.
+  const draggingHere = batch.assets.some((a) => activeTileDrag?.ids.has(a.id));
+  const liveDragKey = draggingHere
+    ? `${activeTileDrag!.delta.x}:${activeTileDrag!.delta.y}`
+    : "";
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const flow = flowRef.current;
+    if (!box || !flow) return;
+    const boxRect = box.getBoundingClientRect();
+    // Account for the box's own padding (p-2.5 = 10px) so tiles never touch the
+    // border. Read it live in case the class ever changes.
+    const pad = parseFloat(getComputedStyle(box).paddingRight) || 10;
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const child of Array.from(flow.children)) {
+      const r = (child as HTMLElement).getBoundingClientRect();
+      maxRight = Math.max(maxRight, r.right - boxRect.left);
+      maxBottom = Math.max(maxBottom, r.bottom - boxRect.top);
+    }
+    // Grow-only via min-*: this adds empty space to cover translated tiles
+    // without shifting the tiles themselves, so the measurement stays stable
+    // (no resize feedback loop). Tiles in their default flow are unaffected.
+    box.style.minWidth = maxRight > 0 ? `${Math.ceil(maxRight + pad)}px` : "";
+    box.style.minHeight = maxBottom > 0 ? `${Math.ceil(maxBottom + pad)}px` : "";
+  }, [tileGeometryKey, liveDragKey]);
+
   return (
     <div className="mb-5" data-testid={`batch-${batch.batchId}`}>
       <div className="flex items-center justify-between mb-1.5 ml-1">
@@ -705,8 +751,13 @@ function BatchGroup({
           </div>
         )}
       </div>
-      <div className="bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800">
-        <div className="flex flex-wrap gap-2">
+      <div
+        ref={boxRef}
+        className={`bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800 ${
+          batchGenerating ? "batch-generating-glow" : ""
+        }`}
+      >
+        <div ref={flowRef} className="flex flex-wrap gap-2">
           {batch.assets.map((a) => {
             const source = a.sourceAssetId ? assetsById.get(a.sourceAssetId) ?? null : null;
             const isDragging = activeTileDrag?.ids.has(a.id) ?? false;
@@ -1331,7 +1382,14 @@ function AssetTile({
             <img src={src} alt="" className="w-full h-full object-cover" />
           )
         ) : generating ? (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-900/60">
+          <div className="relative w-full h-full flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-900/60">
+            {/* Decorative twinkling sparkles — an "AI is conjuring this" cue. */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+              <Sparkles className="gen-sparkle w-3 h-3" style={{ top: "16%", left: "15%", animationDelay: "0s" }} />
+              <Sparkles className="gen-sparkle w-2.5 h-2.5" style={{ top: "28%", right: "17%", animationDelay: "0.45s" }} />
+              <Sparkles className="gen-sparkle w-2 h-2" style={{ bottom: "26%", left: "24%", animationDelay: "0.9s" }} />
+              <Sparkles className="gen-sparkle w-3 h-3" style={{ bottom: "18%", right: "20%", animationDelay: "1.3s" }} />
+            </div>
             <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
             <div className="text-center px-1">
               <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300">

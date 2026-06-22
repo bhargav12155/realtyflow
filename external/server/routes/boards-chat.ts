@@ -1724,8 +1724,13 @@ export function registerBoardsChatRoutes(
           provider,
           status: "generating",
           modelLabel: body.forceModel ?? null,
-          positionX: 40 + i * (tileWidth + 20),
-          positionY: 40,
+          // Leave the position at the origin so the client lays tiles out in
+          // its flex-wrap row. positionX/Y is an *additive* transform offset on
+          // top of that flow layout, so any non-zero default here stacks the
+          // tiles on top of each other. Offsets are only meant to be set once a
+          // user deliberately drags a tile.
+          positionX: 0,
+          positionY: 0,
           width: tileWidth,
           height: tileHeight,
           assetUrl: null,

@@ -201,6 +201,69 @@ export function ChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
+
+  // Resizable panel width. The panel lives on the right edge of the board, so
+  // dragging the left handle leftward widens it. Width is clamped and persisted
+  // to localStorage so it survives reloads and board switches.
+  const CHAT_WIDTH_MIN = 300;
+  const CHAT_WIDTH_MAX = 720;
+  const CHAT_WIDTH_DEFAULT = 360;
+  const CHAT_WIDTH_KEY = "boards.chatPanelWidth";
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return CHAT_WIDTH_DEFAULT;
+    const saved = Number(window.localStorage.getItem(CHAT_WIDTH_KEY));
+    if (!Number.isFinite(saved) || saved <= 0) return CHAT_WIDTH_DEFAULT;
+    return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, saved));
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
+
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeStartRef.current = { x: e.clientX, width: panelWidth };
+      setIsResizing(true);
+    },
+    [panelWidth],
+  );
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (e: PointerEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      // Dragging left (clientX decreasing) should grow the panel.
+      const next = start.width + (start.x - e.clientX);
+      setPanelWidth(
+        Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, next)),
+      );
+    };
+    const onUp = () => setIsResizing(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    // Prevent text selection / iframe pointer-steal while dragging.
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [isResizing]);
+
+  // Persist the chosen width once the user finishes dragging.
+  useEffect(() => {
+    if (isResizing || typeof window === "undefined") return;
+    window.localStorage.setItem(CHAT_WIDTH_KEY, String(panelWidth));
+  }, [isResizing, panelWidth]);
+
+  // Double-clicking the handle snaps back to the default width.
+  const handleResizeReset = useCallback(() => {
+    setPanelWidth(CHAT_WIDTH_DEFAULT);
+  }, []);
   // Cap the composer at roughly 7 lines before it starts scrolling internally.
   const CHAT_INPUT_MAX_HEIGHT = 160;
   // Recalculate the textarea height on every value change so it grows with
@@ -343,12 +406,31 @@ export function ChatPanel({
 
   return (
     <aside
-      className="w-[360px] flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800 relative"
+      className="flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800 relative"
+      style={{ width: panelWidth }}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {/* Drag handle: sits on the panel's left edge. Drag to resize, double-click to reset. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat panel"
+        onPointerDown={handleResizeStart}
+        onDoubleClick={handleResizeReset}
+        className="absolute left-0 top-0 bottom-0 -translate-x-1/2 w-2 z-50 cursor-col-resize group"
+        data-testid="chat-resize-handle"
+      >
+        <div
+          className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
+            isResizing
+              ? "bg-violet-500"
+              : "bg-transparent group-hover:bg-violet-400/60"
+          }`}
+        />
+      </div>
       {isDragging && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-violet-50/90 dark:bg-violet-950/80 border-2 border-dashed border-violet-400 rounded-none pointer-events-none">
           <Paperclip className="w-8 h-8 text-violet-500 mb-2" />
@@ -710,10 +792,10 @@ export function ChatPanel({
               data-testid="input-chat"
             />
           </div>
-          <div className="flex items-center justify-between px-3 py-2 gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center justify-between px-3 py-2 gap-x-2 gap-y-2 flex-wrap">
+            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
               <div
-                className="inline-flex items-center rounded-full bg-neutral-100 p-0.5 dark:bg-neutral-700"
+                className="inline-flex items-center rounded-full bg-neutral-100 p-0.5 dark:bg-neutral-700 flex-shrink-0"
                 data-testid="group-mode-toggle"
               >
                 <button
@@ -747,12 +829,12 @@ export function ChatPanel({
                 <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
                   <PopoverTrigger asChild>
                     <button
-                      className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      className="flex items-center gap-1 min-w-0 max-w-[140px] text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
                       data-testid="button-open-think-model-picker"
                     >
-                      <Sparkles className="w-3 h-3 text-violet-500" />
-                      <span data-testid="text-think-model-name">{selectedThinkModel.name}</span>
-                      <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+                      <Sparkles className="w-3 h-3 shrink-0 text-violet-500" />
+                      <span className="truncate" data-testid="text-think-model-name">{selectedThinkModel.name}</span>
+                      <ChevronDown className="w-3 h-3 shrink-0 text-neutral-400 dark:text-neutral-500" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-[180px] p-1">
@@ -787,12 +869,12 @@ export function ChatPanel({
                 <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                   <PopoverTrigger asChild>
                     <button
-                      className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      className="flex items-center gap-1 min-w-0 max-w-[140px] text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
                       data-testid="button-open-platform-picker"
                     >
-                      <Sparkles className="w-3 h-3 text-violet-500" />
-                      <span>{sel.name}</span>
-                      <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+                      <Sparkles className="w-3 h-3 shrink-0 text-violet-500" />
+                      <span className="truncate">{sel.name}</span>
+                      <ChevronDown className="w-3 h-3 shrink-0 text-neutral-400 dark:text-neutral-500" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-[420px] p-0">
@@ -808,7 +890,7 @@ export function ChatPanel({
                 </Popover>
               )}
               {showI2VProviderToggle && (
-                <div className="flex items-center gap-1" data-testid="group-i2v-provider-toggle">
+                <div className="flex items-center gap-1 flex-wrap" data-testid="group-i2v-provider-toggle">
                   {I2V_PROVIDER_CHOICES.map((choice) => {
                     const active = generationMode === "image-to-video" && provider === choice.id;
                     const isVeoDisabled =
@@ -847,7 +929,7 @@ export function ChatPanel({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}

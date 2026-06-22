@@ -613,3 +613,88 @@
     border-radius: var(--radius);
   }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Generation graphics — an animated glow border around a batch that's still
+ * generating, plus twinkling sparkles over each in-flight tile. Used by the
+ * board canvas (BatchGroup box + the per-tile "generating" state).
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/* Custom property so the conic-gradient border can rotate smoothly. Browsers
+ * without @property support simply render a static (non-rotating) gradient. */
+@property --batch-glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes batchGlowSpin {
+  to {
+    --batch-glow-angle: 360deg;
+  }
+}
+
+@keyframes batchGlowBreathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.batch-generating-glow {
+  position: relative;
+}
+
+/* Rotating gradient ring, masked down to just the border. */
+.batch-generating-glow::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--batch-glow-angle),
+    rgba(139, 92, 246, 0) 0deg,
+    rgba(139, 92, 246, 0.9) 70deg,
+    rgba(99, 102, 241, 0.9) 150deg,
+    rgba(139, 92, 246, 0) 230deg,
+    rgba(139, 92, 246, 0) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: batchGlowSpin 2.6s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Soft outer halo that breathes in/out. */
+.batch-generating-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 22px 3px rgba(139, 92, 246, 0.32);
+  animation: batchGlowBreathe 2.4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes genSparkleTwinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  45% { opacity: 1; transform: scale(1) rotate(12deg); }
+  70% { opacity: 0.85; transform: scale(0.92) rotate(-6deg); }
+}
+
+.gen-sparkle {
+  position: absolute;
+  color: #c4b5fd;
+  filter: drop-shadow(0 0 4px rgba(196, 181, 253, 0.85));
+  animation: genSparkleTwinkle 1.9s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Respect users who prefer reduced motion — keep the cues, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .batch-generating-glow::before { animation: none; }
+  .batch-generating-glow::after { animation: none; opacity: 0.7; }
+  .gen-sparkle { animation: none; opacity: 0.7; }
+}

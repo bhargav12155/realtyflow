@@ -1,0 +1,1 @@
+- [Boards provider availability](boards-provider-availability.md) — picker hides providers via /api/boards/providers/availability, but it's UI-only; dispatch + suggestions use a separate health system (drift risk).

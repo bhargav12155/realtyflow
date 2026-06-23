@@ -113,6 +113,17 @@ export default function BoardDetailPage() {
   const [chatModelManuallyPicked, setChatModelManuallyPicked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pendingInput, setPendingInput] = useState<string | null>(null);
+  // Resizable chat panel width (px), persisted in localStorage per-browser.
+  const clampChatPanelWidth = (w: number) =>
+    Number.isFinite(w) ? Math.min(700, Math.max(280, w)) : 360;
+  const [chatPanelWidth, setChatPanelWidth] = useState<number>(() => {
+    try { return clampChatPanelWidth(parseInt(localStorage.getItem("chatPanelWidth") ?? "360", 10)); } catch { return 360; }
+  });
+  const handleChatPanelWidthChange = (w: number) => {
+    const next = clampChatPanelWidth(w);
+    setChatPanelWidth(next);
+    try { localStorage.setItem("chatPanelWidth", String(next)); } catch { /* ignore */ }
+  };
   // Tracks suggestions currently being dispatched (one-click "Generate")
   // so the card can disable both buttons + show a "Starting…" label.
   // Cleared once the first WS asset event arrives or the dispatch fails.
@@ -2168,6 +2179,8 @@ export default function BoardDetailPage() {
           <ChatPanel
             boardTitle={board.title}
             messages={messages}
+            width={chatPanelWidth}
+            onWidthChange={handleChatPanelWidthChange}
             mode={mode}
             onModeChange={setMode}
             provider={provider}

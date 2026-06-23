@@ -1785,8 +1785,15 @@ export function registerBoardsChatRoutes(
     const availability: Record<string, boolean> = {
       luma: has("LUMA_API_KEY"),
       runway: has("RUNWAY_API_KEY"),
-      sora2: has("SORA2_API_KEY"),
-      seedance: has("SEEDANCE_API_KEY"),
+      // Sora 2 has a key but its third-party reseller (sora2api.ai) is dead —
+      // the domain no longer resolves, so every generation fails. Hidden until
+      // a working upstream is restored.
+      sora2: false,
+      // Seedance has a key but it is rejected by BytePlus ("API key format is
+      // incorrect", HTTP 401) — i.e. the configured key is invalid. Hidden so
+      // the picker doesn't offer a tile that always fails. Restore to
+      // has("SEEDANCE_API_KEY") once a valid key is configured.
+      seedance: false,
       veo: has("GEMINI_API_KEY"),
       kling: has("KLING_ACCESS_KEY") && has("KLING_SECRET_KEY"),
       "gemini-image": has("GEMINI_API_KEY"),

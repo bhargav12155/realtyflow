@@ -15,6 +15,7 @@ import type {
 import { autoEvaluateBatch, type AutoEvalModelHint, type AutoEvalResult } from "../services/boardAutoEval";
 import { openaiService } from "../services/openai";
 import { persistImageBufferPublic } from "../objectStorage";
+import { unifiedUploadService } from "../services/unifiedUpload";
 import { realtimeService } from "../websocket";
 
 // NOTE: Generation services and chat services are imported lazily (see
@@ -983,9 +984,10 @@ async function runOneAssetInBackground(args: {
   seedanceOptions?: DispatchContext["seedanceOptions"];
   dispatch: DispatchOne;
   dispatchImageFn: DispatchImage;
+  persistVideoFn: (videoUrl: string, filename: string, folder: string) => Promise<string | null>;
   recipients: string[];
 }): Promise<void> {
-  const { storage, boardId, userId, row, prompt, provider, genMode, refAssets, forceModel, seedanceOptions, dispatch, dispatchImageFn, recipients } = args;
+  const { storage, boardId, userId, row, prompt, provider, genMode, refAssets, forceModel, seedanceOptions, dispatch, dispatchImageFn, persistVideoFn, recipients } = args;
   try {
     if (isImageProvider(provider)) {
       const imageResult = await dispatchImageFn(provider, { prompt, refAssets, forceModel });
@@ -1014,10 +1016,37 @@ async function runOneAssetInBackground(args: {
       if (failed) pushAssetStatus(recipients, boardId, failed);
       return;
     }
+    let finalVideoUrl = result.videoUrl;
+    try {
+      const ext = (() => {
+        const m = result.videoUrl.match(/\.(mp4|webm|mov|m4v)(?:[?#]|$)/i);
+        return m ? m[1].toLowerCase() : "mp4";
+      })();
+      const filename = `board-${boardId}-${row.id}-${Date.now()}.${ext}`;
+      const persisted = await persistVideoFn(
+        result.videoUrl,
+        filename,
+        "boards/videos",
+      );
+      if (persisted) {
+        const backend = persisted.startsWith("/public-objects/") ? "object-storage" : "s3";
+        console.log(`✅ Video persisted (${backend}): ${persisted}`);
+        finalVideoUrl = persisted;
+      } else {
+        console.warn(
+          `[boards-chat] Video persistence returned null for asset ${row.id}; falling back to provider URL ${result.videoUrl}`,
+        );
+      }
+    } catch (persistErr) {
+      const msg = persistErr instanceof Error ? persistErr.message : String(persistErr);
+      console.warn(
+        `[boards-chat] Video persistence threw for asset ${row.id}: ${msg}; falling back to provider URL`,
+      );
+    }
     const ready = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
       status: "ready",
-      assetUrl: result.videoUrl,
-      thumbnailUrl: result.videoUrl,
+      assetUrl: finalVideoUrl,
+      thumbnailUrl: null,
       durationSeconds: result.durationSeconds ?? null,
       rejectionReason: null,
     });
@@ -1057,6 +1086,7 @@ async function runBatchInBackground(args: {
   seedanceOptions?: DispatchContext["seedanceOptions"];
   dispatch: DispatchOne;
   dispatchImageFn: DispatchImage;
+  persistVideoFn: (videoUrl: string, filename: string, folder: string) => Promise<string | null>;
   autoEval: (input: { prompt: string; assets: BoardAsset[] }) => Promise<AutoEvalResult>;
   /**
    * Pre-resolved fan-out targets (owner + every share recipient + the
@@ -1067,7 +1097,7 @@ async function runBatchInBackground(args: {
    */
   recipients: string[];
 }) {
-  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
+  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, persistVideoFn, autoEval, recipients } = args;
 
   await Promise.all(
     rows.map((row) =>
@@ -1084,6 +1114,7 @@ async function runBatchInBackground(args: {
         seedanceOptions,
         dispatch,
         dispatchImageFn,
+        persistVideoFn,
         recipients,
       }),
     ),
@@ -1663,6 +1694,13 @@ export interface BoardsChatDeps {
    * can await batch completion (the route otherwise fires-and-forgets).
    */
   onBatchScheduled?: (p: Promise<void>) => void;
+  /**
+   * Test/extension hook: overrides how a completed video URL is re-hosted to
+   * our durable storage. Defaults to `unifiedUploadService.persistVideoFromUrl`,
+   * which attempts S3 and falls back to Replit Object Storage. Returning null
+   * causes the original provider URL to be used as-is.
+   */
+  persistVideoFn?: (videoUrl: string, filename: string, folder: string) => Promise<string | null>;
 }
 
 export function registerBoardsChatRoutes(
@@ -1691,6 +1729,10 @@ export function registerBoardsChatRoutes(
     openaiBrainstorm: deps.chatProviders?.openaiBrainstorm ?? tryOpenAIBrainstorm,
   };
   const dispatch = deps.dispatchOne ?? dispatchOne;
+  const persistVideoFn =
+    deps.persistVideoFn ??
+    ((videoUrl, filename, folder) =>
+      unifiedUploadService.persistVideoFromUrl(videoUrl, filename, folder));
   const imageDispatchDeps: ImageDispatchDeps = {
     openaiClientFactory: deps.openaiClientFactory,
     geminiImageService: deps.geminiImageService,
@@ -2066,6 +2108,7 @@ export function registerBoardsChatRoutes(
         seedanceOptions: body.seedanceOptions,
         dispatch,
         dispatchImageFn,
+        persistVideoFn,
         autoEval,
         recipients,
       }).catch((err) => console.error("[boards-chat] background batch error:", err));
@@ -2255,6 +2298,7 @@ export function registerBoardsChatRoutes(
           seedanceOptions: ctx.seedanceOptions,
           dispatch,
           dispatchImageFn,
+          persistVideoFn,
           recipients,
         }).catch((err) => console.error("[boards-chat] retry background error:", err));
         deps.onBatchScheduled?.(bgPromise);

@@ -1260,6 +1260,15 @@ function AssetTile({
           >
             <audio src={asset.assetUrl} controls className="w-full" />
           </div>
+        ) : asset.kind === "video" && asset.assetUrl ? (
+          <video
+            src={asset.assetUrl}
+            preload="metadata"
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+            data-testid={`video-preview-${asset.id}`}
+          />
         ) : src ? (
           <img src={src} alt="" className="w-full h-full object-cover" />
         ) : (

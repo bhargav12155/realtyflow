@@ -257,6 +257,7 @@ interface BuildOpts {
   openaiClientFactory?: () => OpenAI;
   geminiImageService?: GeminiImageService;
   lumaAgentsService?: any;
+  persistVideoFn?: (videoUrl: string, filename: string, folder: string) => Promise<string | null>;
 }
 
 interface BuildResult {
@@ -307,6 +308,11 @@ function buildApp(opts: BuildOpts & { userId?: string; userEmail?: string } = {}
     openaiClientFactory: opts.openaiClientFactory,
     geminiImageService: opts.geminiImageService,
     lumaAgentsService: opts.lumaAgentsService,
+    // Default to a no-op persistence stub so tests don't make real network
+    // calls trying to fetch fake provider URLs like https://example.com/v.mp4.
+    // Returning null causes the route to fall back to the original provider
+    // URL — which keeps existing assertions about assetUrl values valid.
+    persistVideoFn: opts.persistVideoFn ?? (async () => null),
     onBatchScheduled: (p) => bgPromises.push(p),
   });
 

@@ -1777,6 +1777,30 @@ export function registerBoardsChatRoutes(
     });
   });
 
+  // Reports which Boards providers have their required API key(s) configured.
+  // The picker uses this to hide providers that would otherwise silently fall
+  // back (e.g. to Gemini) or fail. Returns a flat { providerId: boolean } map.
+  app.get("/api/boards/providers/availability", requireAuth, (_req: Request, res: Response) => {
+    const has = (k: string) => Boolean(process.env[k] && process.env[k]!.trim());
+    const availability: Record<string, boolean> = {
+      luma: has("LUMA_API_KEY"),
+      runway: has("RUNWAY_API_KEY"),
+      sora2: has("SORA2_API_KEY"),
+      seedance: has("SEEDANCE_API_KEY"),
+      veo: has("GEMINI_API_KEY"),
+      kling: has("KLING_ACCESS_KEY") && has("KLING_SECRET_KEY"),
+      "gemini-image": has("GEMINI_API_KEY"),
+      "openai-image": has("OPENAI_API_KEY"),
+      "uni-1-image": has("LUMA_AGENTS_API_KEY"),
+      "uni-1-max-image": has("LUMA_AGENTS_API_KEY"),
+      // HeyGen has a key but is NOT wired into the Boards create-mode dispatcher
+      // (no branch in dispatchOne / VIDEO_PROVIDERS) — it lives in Video Studio.
+      // Reported false so the picker doesn't offer a dead tile here.
+      heygen: false,
+    };
+    res.json({ availability });
+  });
+
   // ---- Persisted board chat history ----
   // GET returns the full conversation in chronological order. Gated on
   // accessible-board (owner OR shared collaborator) to match GET /api/boards/:id

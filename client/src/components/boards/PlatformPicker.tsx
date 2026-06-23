@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Image as ImageIcon, Film, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SiOpenai, SiGoogle } from "react-icons/si";
@@ -117,7 +118,27 @@ export function PlatformPicker({
   seedanceOptions,
   onSeedanceOptionsChange,
 }: PlatformPickerProps) {
-  const sel = PLATFORMS.find((p) => p.id === selectedProvider) ?? PLATFORMS[0];
+  // Which providers actually have their API key(s) configured. Providers
+  // without keys are hidden so users aren't offered options that would
+  // silently fall back or fail. Until this loads we show every provider.
+  const { data: availabilityData, isLoading: availabilityLoading } = useQuery<{ availability: Record<string, boolean> }>({
+    queryKey: ["/api/boards/providers/availability"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const availability = availabilityData?.availability;
+  const visiblePlatforms = availability
+    ? PLATFORMS.filter((p) => availability[p.id] !== false)
+    : PLATFORMS;
+
+  const sel = visiblePlatforms.find((p) => p.id === selectedProvider) ?? visiblePlatforms[0] ?? PLATFORMS[0];
+
+  // If the currently-selected provider got hidden (no key), move selection
+  // to the first available one so the picker never points at a dead tile.
+  useEffect(() => {
+    if (availability && sel.id !== selectedProvider) {
+      onSelectProvider(sel.id);
+    }
+  }, [availability, sel.id, selectedProvider, onSelectProvider]);
 
   // Auto-correct mode if v2v becomes invalid for the selected provider.
   // Run as a side effect (not during render) so we never trigger a parent
@@ -133,7 +154,15 @@ export function PlatformPicker({
       <div>
         <div className="text-[11px] font-semibold tracking-wider text-neutral-500 dark:text-neutral-400 uppercase mb-2">Provider</div>
         <div className="grid grid-cols-2 gap-2">
-          {PLATFORMS.map((p) => {
+          {availabilityLoading && !availability
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={`skeleton-${i}`}
+                  className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3 h-[68px] animate-pulse bg-neutral-50 dark:bg-neutral-900"
+                  data-testid={`platform-skeleton-${i}`}
+                />
+              ))
+            : visiblePlatforms.map((p) => {
             const selected = p.id === selectedProvider;
             return (
               <button

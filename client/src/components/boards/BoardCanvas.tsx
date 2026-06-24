@@ -66,6 +66,7 @@ const RESIZE_MIN_BY_KIND: Record<string, { width: number; height: number }> = {
   frame: { width: 80, height: 60 },
 };
 const RESIZE_MAX = { width: 800, height: 600 };
+const COMPACT_NO_PREVIEW_SIZE = { width: 180, height: 126 };
 
 export interface CanvasBatch {
   batchId: string;
@@ -1066,8 +1067,20 @@ function AssetTile({
     setSize({ width: storedWidth, height: storedHeight });
   }, [isResizable, storedWidth, storedHeight]);
 
-  const tileWidth = isResizable ? size.width : 150;
-  const tileHeight = isResizable ? size.height : 110;
+  const compactNoPreview =
+    isMediaTile &&
+    !generating &&
+    ((!src && asset.status !== "ready") || (asset.kind === "video" && videoLoadFailed));
+  const tileWidth = isResizable
+    ? compactNoPreview
+      ? Math.min(size.width, COMPACT_NO_PREVIEW_SIZE.width)
+      : size.width
+    : 150;
+  const tileHeight = isResizable
+    ? compactNoPreview
+      ? Math.min(size.height, COMPACT_NO_PREVIEW_SIZE.height)
+      : size.height
+    : 110;
 
   const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();

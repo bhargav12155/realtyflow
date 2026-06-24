@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video, CalendarDays, Share2 } from "lucide-react";
@@ -81,12 +81,24 @@ export interface BoardsHomeViewProps {
 }
 
 export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: BoardsHomeViewProps = {}) {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { toast } = useToast();
   const { theme } = useBoardsTheme();
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [prompt, setPrompt] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get("tab");
+    if (tabParam === "shared" || tabParam === "mine" || tabParam === "all") {
+      setTab(tabParam);
+      // Clean the URL so copy/paste of the page stays canonical after initial load.
+      const cleaned = location.split("?")[0] || "/boards";
+      if (cleaned !== location) setLocation(cleaned);
+    }
+  }, [location, setLocation]);
 
   const boardsQuery = useQuery<BoardSummary[]>({
     queryKey: ["/api/boards"],
@@ -210,58 +222,34 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
             })}
           </div>
           <div
-            className="group relative w-[560px] max-w-full rounded-[20px] border border-white/12 bg-neutral-900/90 px-4 pt-4 pb-3 backdrop-blur-md shadow-[0_8px_40px_-8px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.06)] focus-within:border-white/22 transition-colors"
+            className="w-[560px] max-w-full bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-neutral-200/80 px-5 py-4 dark:bg-neutral-900 dark:border-neutral-800"
             data-overlay-keep
           >
-              <div className="rounded-xl border border-black/60 bg-black/40 px-3 py-2.5 shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),inset_0_1px_2px_rgba(0,0,0,0.7)]">
-                <textarea
-                  rows={3}
-                  className="w-full resize-none text-[15px] leading-6 text-neutral-100 placeholder:text-neutral-500"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    outline: "none",
-                    boxShadow: "none",
-                    caretColor: "#e5e5e5",
-                    textShadow: "0 1px 3px rgba(0,0,0,0.95), 0 -1px 0 rgba(255,255,255,0.10)",
-                  }}
-                  placeholder="Describe what you want to create…"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handlePromptSubmit();
-                    }
-                  }}
-                  data-testid="input-prompt"
-                />
-              </div>
-              <div className="mt-2 flex items-center justify-end gap-2">
-                <button
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-neutral-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_10px_18px_-14px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:text-neutral-100 hover:bg-white/[0.06]"
-                  data-testid="button-attach"
-                  title="Attach a file"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
-                <button
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-neutral-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_10px_18px_-14px_rgba(0,0,0,0.75)] transition-all hover:-translate-y-0.5 hover:text-neutral-100 hover:bg-white/[0.06]"
-                  data-testid="button-mic"
-                  title="Voice input"
-                >
-                  <Mic className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handlePromptSubmit}
-                  disabled={createBoardMutation.isPending}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-fuchsia-500 to-rose-500 text-white shadow-[0_16px_28px_-16px_rgba(168,85,247,0.75)] transition-all hover:-translate-y-0.5 hover:shadow-[0_20px_34px_-16px_rgba(168,85,247,0.85)] hover:brightness-110 active:translate-y-0 active:brightness-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                  data-testid="button-prompt-send"
-                  title="Create"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-              </div>
+            <input
+              className="w-full bg-transparent outline-none text-[14px] placeholder:text-neutral-400 dark:placeholder:text-neutral-500 dark:text-neutral-100"
+              placeholder="Describe what you want to create..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handlePromptSubmit();
+                }
+              }}
+              data-testid="input-prompt"
+            />
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-attach"><Paperclip className="w-4 h-4" /></button>
+              <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-mic"><Mic className="w-4 h-4" /></button>
+              <button
+                onClick={handlePromptSubmit}
+                disabled={createBoardMutation.isPending}
+                className="w-7 h-7 rounded-full bg-neutral-300 hover:bg-neutral-400 disabled:opacity-50 flex items-center justify-center dark:bg-neutral-700 dark:hover:bg-neutral-600"
+                data-testid="button-prompt-send"
+              >
+                <ArrowUp className="w-3.5 h-3.5 text-neutral-700 dark:text-neutral-200" />
+              </button>
+            </div>
           </div>
           <div className="mt-4 flex items-start justify-center gap-6" data-overlay-keep>
             <button
@@ -274,10 +262,8 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
               className="flex flex-col items-center gap-1 group focus:outline-none"
               title="Open Photo Avatars (HeyGen)"
             >
-              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-neutral-900 text-[10px] font-semibold tracking-[0.18em] text-white dark:bg-neutral-100 dark:text-neutral-900">
-                  HG
-                </span>
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-sky-400 to-cyan-500 text-white text-[11px] font-semibold border border-sky-300/60 shadow-sm group-hover:shadow transition dark:border-cyan-700/70">
+                HG
               </span>
               <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
                 Photo Avatars

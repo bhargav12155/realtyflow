@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, Film, Loader2 as Spinner, LogOut, MessageSquare, Settings as SettingsIcon, Share2, Moon, Sun, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Film, Loader2 as Spinner, LogOut, MessageSquare, Share2, Moon, Sun, Trash2 } from "lucide-react";
 import { AssetToolbar } from "@/components/boards/AssetToolbar";
 import { GroupAssetToolbar } from "@/components/boards/GroupAssetToolbar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -922,6 +922,9 @@ export default function BoardDetailPage() {
   // user-initiated abort (we already cleared the bubble in handleStopChat).
   const chatAbortRef = useRef<AbortController | null>(null);
   const chatAbortedPendingIdRef = useRef<string | null>(null);
+  const trackedCreateBatchesRef = useRef(
+    new Map<string, { total: number; provider: string; isImageEdit: boolean }>(),
+  );
 
   const sendChat = useMutation({
     mutationFn: async (text: string) => {
@@ -975,6 +978,16 @@ export default function BoardDetailPage() {
       setMessages((m) =>
         m.map((msg) => (msg.id === ctx?.pendingId ? { ...msg, content: reply, pending: false } : msg)),
       );
+      if (data?.mode === "create" && typeof data?.batchId === "string") {
+        const total = Array.isArray(data?.assets) ? data.assets.length : 0;
+        if (total > 0) {
+          trackedCreateBatchesRef.current.set(data.batchId, {
+            total,
+            provider: typeof data?.provider === "string" ? data.provider : "provider",
+            isImageEdit: Boolean(data?.isImageEdit),
+          });
+        }
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
       // The server persisted both the user turn and the assistant reply, so
       // refresh the cached history. This keeps a second tab (or any other
@@ -1019,6 +1032,54 @@ export default function BoardDetailPage() {
       chatAbortRef.current = null;
     },
   });
+
+  useEffect(() => {
+    const assets = boardQuery.data?.assets ?? [];
+    const tracked = trackedCreateBatchesRef.current;
+    if (tracked.size === 0 || assets.length === 0) return;
+
+    for (const [batchId, meta] of Array.from(tracked.entries())) {
+      const batchAssets = assets.filter((a) => a.batchId === batchId);
+      if (batchAssets.length === 0) continue;
+
+      const stillRunning = batchAssets.some(
+        (a) => a.status === "queued" || a.status === "generating",
+      );
+      if (stillRunning) continue;
+
+      const ready = batchAssets.filter((a) => a.status === "ready");
+      const failed = batchAssets.filter((a) => a.status === "failed" || a.status === "rejected");
+      const sampleReason = failed.find((a) => (a.rejectionReason ?? "").trim())?.rejectionReason?.trim();
+
+      if (ready.length === 0) {
+        const contextLabel = meta.isImageEdit ? "image edit" : "generation";
+        const reasonSuffix = sampleReason ? ` ${sampleReason}` : " Please try a different prompt or provider.";
+        const message = `Couldn't complete ${contextLabel} with ${meta.provider}. All ${meta.total} variation${meta.total === 1 ? "" : "s"} failed.${reasonSuffix}`;
+        toast({
+          title: "Generation failed",
+          description: message,
+          variant: "destructive",
+        });
+        setMessages((m) => [
+          ...m,
+          {
+            id: `a-failed-${Date.now()}-${batchId}`,
+            role: "assistant",
+            content: message,
+          },
+        ]);
+      } else if (failed.length > 0) {
+        const message = `${failed.length} of ${meta.total} variation${meta.total === 1 ? "" : "s"} failed. ${ready.length} completed.`;
+        toast({
+          title: "Some variations failed",
+          description: sampleReason ? `${message} ${sampleReason}` : message,
+          variant: "destructive",
+        });
+      }
+
+      tracked.delete(batchId);
+    }
+  }, [boardQuery.data?.assets, toast]);
 
   // Cancel the in-flight chat request and clear the optimistic pending bubble
   // so the conversation doesn't show an orphan "…" message. Used by both the
@@ -2028,16 +2089,6 @@ export default function BoardDetailPage() {
               <Moon className="w-4 h-4 text-neutral-600" />
             )}
           </button>
-          <button
-            type="button"
-            onClick={() => setShareOpen(true)}
-            title="Board settings"
-            aria-label="Board settings"
-            className="w-8 h-8 rounded hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60"
-            data-testid="button-settings"
-          >
-            <SettingsIcon className="w-4 h-4 text-neutral-600 dark:text-neutral-300" />
-          </button>
           {board.isOwner !== false ? (
             <>
               <button
@@ -2049,7 +2100,7 @@ export default function BoardDetailPage() {
                 title="Compile selected board videos into one downloadable MP4"
               >
                 {isCompiling ? <Spinner className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
-                <span>{isCompiling ? "Compiling…" : "Compile Video"}</span>
+                <span>{isCompiling ? "Compiling…" : "Combine Video"}</span>
               </button>
               <button
                 type="button"

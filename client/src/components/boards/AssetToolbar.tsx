@@ -34,10 +34,40 @@ export function AssetToolbar({
   const showCompare =
     !!sourceAsset && asset.kind === "image" && !!beforeSrc && !!afterSrc;
 
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const updateAnchor = () => {
+      const el = document.querySelector<HTMLElement>(`[data-asset-id="${asset.id}"]`);
+      if (!el) return;
+
+      const rect = el.getBoundingClientRect();
+      const left = Math.max(24, Math.min(window.innerWidth - 24, rect.left + rect.width / 2));
+      const top = rect.top >= 64 ? rect.top - 44 : rect.bottom + 8;
+
+      setAnchor({ left, top });
+    };
+
+    const onLayoutChange = () => {
+      requestAnimationFrame(updateAnchor);
+    };
+
+    onLayoutChange();
+    window.addEventListener("resize", onLayoutChange);
+    document.addEventListener("scroll", onLayoutChange, true);
+    return () => {
+      window.removeEventListener("resize", onLayoutChange);
+      document.removeEventListener("scroll", onLayoutChange, true);
+    };
+  }, [asset.id]);
+
   return (
     <>
       <div
-        className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
+        className="fixed -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
+        style={{ left: anchor?.left ?? "50%", top: anchor?.top ?? 16 }}
         data-testid="toolbar-asset"
         role="toolbar"
         aria-label="Selected asset actions"
@@ -77,7 +107,13 @@ export function AssetToolbar({
         <ToolbarButton icon={X} label="Close" onClick={onClose} testId="toolbar-close" />
       </div>
       {showCompare && (
-        <BeforeAfterPanel assetId={asset.id} beforeSrc={beforeSrc!} afterSrc={afterSrc!} />
+        <BeforeAfterPanel
+          assetId={asset.id}
+          beforeSrc={beforeSrc!}
+          afterSrc={afterSrc!}
+          anchorLeft={anchor?.left}
+          anchorTop={anchor?.top}
+        />
       )}
     </>
   );
@@ -87,15 +123,20 @@ function BeforeAfterPanel({
   assetId,
   beforeSrc,
   afterSrc,
+  anchorLeft,
+  anchorTop,
 }: {
   assetId: string;
   beforeSrc: string;
   afterSrc: string;
+  anchorLeft?: number;
+  anchorTop?: number;
 }) {
   const [view, setView] = useState<"slider" | "before" | "after">("slider");
   return (
     <div
-      className="absolute top-16 left-1/2 -translate-x-1/2 z-20 w-[min(680px,calc(100%-32px))] bg-white rounded-lg shadow-lg border border-neutral-200 p-3 dark:bg-neutral-900 dark:border-neutral-700"
+      className="fixed -translate-x-1/2 z-20 w-[min(680px,calc(100%-32px))] bg-white rounded-lg shadow-lg border border-neutral-200 p-3 dark:bg-neutral-900 dark:border-neutral-700"
+      style={{ left: anchorLeft ?? "50%", top: (anchorTop ?? 16) + 52 }}
       data-testid={`compare-panel-${assetId}`}
       onClick={(e) => e.stopPropagation()}
     >

@@ -12,7 +12,7 @@ const boardRef: { current: { id: string; notifyOnCollaboratorChange?: boolean } 
   current: { id: "board-1", notifyOnCollaboratorChange: true },
 };
 const queryClientRef: { current: QueryClient | null } = { current: null };
-const apiRequestMock = vi.fn(async () => ({ json: async () => ({}) }));
+const apiRequestMock = vi.fn(async (..._args: unknown[]) => ({ json: async () => ({}) }));
 
 vi.mock("@/lib/queryClient", () => {
   const proxy = new Proxy(

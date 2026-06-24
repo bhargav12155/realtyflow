@@ -781,7 +781,7 @@ describe("Board chat — v2v-only-for-Luma/Runway validation", () => {
     assert.deepEqual(new Set(V2V_PROVIDERS), new Set(["luma", "runway"]));
   });
 
-  it("POST /api/boards/:id/chat blocks v2v on non-luma/runway providers", async () => {
+  it("POST /api/boards/:id/chat blocks v2v on every provider (disabled in this build)", async () => {
     const { app, storage } = buildApp();
     const created = await callJson(app, "POST", "/api/boards", { title: "B" });
     const boardId = created.body.id;
@@ -803,11 +803,10 @@ describe("Board chat — v2v-only-for-Luma/Runway validation", () => {
       referencedAssetIds: [videoAsset!.id],
     });
     assert.equal(bad.status, 400);
-    assert.match(String(bad.body.error), /Luma or Runway/);
+    assert.equal(bad.body.code, "v2v_disabled");
+    assert.match(String(bad.body.error), /disabled/i);
 
-    // Luma+v2v is additionally blocked at the chat-handler preflight (the
-    // generic helper allows it, but the live Luma integration cannot
-    // consume a referenced video as input yet — see Task #58).
+    // v2v is disabled across every provider in this build, including Luma.
     const lumaV2v = await callJson(app, "POST", `/api/boards/${boardId}/chat`, {
       message: "restyle this video",
       mode: "create",
@@ -815,7 +814,8 @@ describe("Board chat — v2v-only-for-Luma/Runway validation", () => {
       referencedAssetIds: [videoAsset!.id],
     });
     assert.equal(lumaV2v.status, 400);
-    assert.match(String(lumaV2v.body.error), /Runway/i);
+    assert.equal(lumaV2v.body.code, "v2v_disabled");
+    assert.match(String(lumaV2v.body.error), /disabled/i);
   });
 
   it("POST /api/boards/:id/chat returns 404 for unknown board", async () => {
@@ -2417,23 +2417,25 @@ describe("Board chat helpers — inferGenMode / pickDefaultProvider", () => {
     assert.equal(inferGenMode(["video"], "ignore this video, t2v please"), "text-to-video");
   });
 
-  it("picks Runway as the default v2v provider, Luma when explicitly mentioned", () => {
-    assert.equal(pickDefaultProvider("video-to-video", "restyle this"), "runway");
+  it("picks Luma as the default v2v provider", () => {
+    assert.equal(pickDefaultProvider("video-to-video", "restyle this"), "luma");
     assert.equal(pickDefaultProvider("video-to-video", "use luma to restyle"), "luma");
   });
 
-  it("picks Luma as the default i2v provider; respects keyword overrides", () => {
+  it("picks Luma as the default i2v provider; honours the VEO keyword override", () => {
     assert.equal(pickDefaultProvider("image-to-video", "animate this"), "luma");
-    assert.equal(pickDefaultProvider("image-to-video", "use kling please"), "kling");
     assert.equal(pickDefaultProvider("image-to-video", "use veo please"), "veo");
-    assert.equal(pickDefaultProvider("image-to-video", "use runway please"), "runway");
+    // Other provider keywords no longer override; everything else routes to Luma.
+    assert.equal(pickDefaultProvider("image-to-video", "use kling please"), "luma");
+    assert.equal(pickDefaultProvider("image-to-video", "use runway please"), "luma");
   });
 
-  it("picks Luma as the default t2v, with keyword overrides", () => {
+  it("picks Luma as the default t2v; honours the VEO keyword override", () => {
     assert.equal(pickDefaultProvider("text-to-video", "a cat"), "luma");
-    assert.equal(pickDefaultProvider("text-to-video", "try sora"), "sora2");
-    assert.equal(pickDefaultProvider("text-to-video", "use seedance"), "seedance");
-    assert.equal(pickDefaultProvider("text-to-video", "use runway"), "runway");
+    assert.equal(pickDefaultProvider("text-to-video", "use veo please"), "veo");
+    // Other provider keywords no longer override; everything else routes to Luma.
+    assert.equal(pickDefaultProvider("text-to-video", "try sora"), "luma");
+    assert.equal(pickDefaultProvider("text-to-video", "use seedance"), "luma");
   });
 });
 
@@ -2515,7 +2517,7 @@ describe("dispatchOne — provider routing matrix", () => {
     } finally { restoreAll(patches); }
   });
 
-  it("routes Runway t2v / i2v / v2v to the right service methods", async () => {
+  it("routes Runway t2v / i2v to the right service methods; v2v is disabled", async () => {
     const seen: { method?: string; args?: unknown[] } = {};
     function makeStub(method: string) {
       return async (...args: unknown[]) => {
@@ -2541,13 +2543,10 @@ describe("dispatchOne — provider routing matrix", () => {
       assert.equal(i.taskId, "runway-i2v");
 
       const vid = makeAsset({ kind: "video", assetUrl: "https://vid/a.mp4" });
-      const v = await dispatchOne("runway", "video-to-video", { prompt: "p", refAssets: [vid] });
-      assert.equal(seen.method, "v2v");
-      assert.equal(v.taskId, "runway-v2v");
-
-      const poll = await v.poll();
-      assert.equal(poll.status, "completed");
-      assert.equal(poll.videoUrl, "https://r/x.mp4");
+      await assert.rejects(
+        () => dispatchOne("runway", "video-to-video", { prompt: "p", refAssets: [vid] }),
+        /video-to-video is disabled/,
+      );
     } finally { restoreAll(patches); }
   });
 
@@ -2564,7 +2563,7 @@ describe("dispatchOne — provider routing matrix", () => {
     } finally { restoreAll(patches); }
   });
 
-  it("Runway v2v throws without a referenced video", async () => {
+  it("Runway v2v is disabled in this build", async () => {
     const patches = [
       patch(runwayService as unknown as Record<string, unknown>, "createVideoToVideoTask",
         async () => ({ taskId: "should-not-be-called" })),
@@ -2572,7 +2571,7 @@ describe("dispatchOne — provider routing matrix", () => {
     try {
       await assert.rejects(
         () => dispatchOne("runway", "video-to-video", { prompt: "p", refAssets: [] }),
-        /requires a referenced video/,
+        /video-to-video is disabled/,
       );
     } finally { restoreAll(patches); }
   });

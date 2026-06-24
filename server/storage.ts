@@ -122,6 +122,7 @@ import {
   type BoardShare,
   type Notification,
   type InsertNotification,
+  publicUsers as publicUsersTable,
   users as usersTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
@@ -615,6 +616,22 @@ export function clampBoardMessagesCap(value: number | null | undefined): number 
   if (rounded < BOARD_MESSAGES_CAP_MIN) return BOARD_MESSAGES_CAP_MIN;
   if (rounded > BOARD_MESSAGES_CAP_MAX) return BOARD_MESSAGES_CAP_MAX;
   return rounded;
+}
+
+const EMAIL_SHARE_PREFIX = "email:";
+
+function normalizeShareEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function emailShareIdFromEmail(email: string): string {
+  return `${EMAIL_SHARE_PREFIX}${normalizeShareEmail(email)}`;
+}
+
+function parseEmailFromShareRecipientId(recipientId: string): string | null {
+  if (!recipientId.startsWith(EMAIL_SHARE_PREFIX)) return null;
+  const email = normalizeShareEmail(recipientId.slice(EMAIL_SHARE_PREFIX.length));
+  return email.length > 0 ? email : null;
 }
 
 // Typed mutation DTOs (kept narrow on purpose: only mutable fields)
@@ -3103,18 +3120,49 @@ export class MemStorage implements IStorage {
       .orderBy(desc(boardsTable.updatedAt));
   }
 
+  private async resolveShareRecipientIdsForUser(userId: string): Promise<string[]> {
+    const ids = new Set<string>([userId]);
+
+    let email: string | undefined;
+    const [agent] = await db
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+
+    if (agent?.email) {
+      email = agent.email;
+    } else {
+      const numericId = Number(userId);
+      if (Number.isInteger(numericId) && numericId > 0) {
+        const [publicUser] = await db
+          .select({ email: publicUsersTable.email })
+          .from(publicUsersTable)
+          .where(eq(publicUsersTable.id, numericId))
+          .limit(1);
+        if (publicUser?.email) email = publicUser.email;
+      }
+    }
+
+    if (email) ids.add(emailShareIdFromEmail(email));
+    return Array.from(ids);
+  }
+
   async getAccessibleBoardsForUser(userId: string): Promise<AccessibleBoard[]> {
+    const recipientIds = await this.resolveShareRecipientIdsForUser(userId);
     const owned = await db
       .select()
       .from(boardsTable)
       .where(eq(boardsTable.userId, userId))
       .orderBy(desc(boardsTable.updatedAt));
-    const sharedRows = await db
-      .select({ board: boardsTable })
-      .from(boardSharesTable)
-      .innerJoin(boardsTable, eq(boardsTable.id, boardSharesTable.boardId))
-      .where(eq(boardSharesTable.sharedWithUserId, userId))
-      .orderBy(desc(boardsTable.updatedAt));
+    const sharedRows = recipientIds.length > 0
+      ? await db
+          .select({ board: boardsTable })
+          .from(boardSharesTable)
+          .innerJoin(boardsTable, eq(boardsTable.id, boardSharesTable.boardId))
+          .where(inArray(boardSharesTable.sharedWithUserId, recipientIds))
+          .orderBy(desc(boardsTable.updatedAt))
+      : [];
     const seen = new Set(owned.map((b) => b.id));
     const merged: AccessibleBoard[] = owned.map((b) => ({ ...b, isOwner: true }));
     for (const r of sharedRows) {
@@ -3141,13 +3189,15 @@ export class MemStorage implements IStorage {
   async getAccessibleBoardForUser(id: string, userId: string): Promise<AccessibleBoard | undefined> {
     const owned = await this.getBoardByIdForUser(id, userId);
     if (owned) return { ...owned, isOwner: true };
+    const recipientIds = await this.resolveShareRecipientIdsForUser(userId);
+    if (recipientIds.length === 0) return undefined;
     const [row] = await db
       .select({ board: boardsTable })
       .from(boardSharesTable)
       .innerJoin(boardsTable, eq(boardsTable.id, boardSharesTable.boardId))
       .where(and(
         eq(boardSharesTable.boardId, id),
-        eq(boardSharesTable.sharedWithUserId, userId),
+        inArray(boardSharesTable.sharedWithUserId, recipientIds),
       ));
     return row ? { ...row.board, isOwner: false } : undefined;
   }
@@ -3169,7 +3219,7 @@ export class MemStorage implements IStorage {
     return rows.map((r) => ({
       userId: r.userId,
       name: r.userName ?? null,
-      email: r.userEmail ?? null,
+      email: r.userEmail ?? parseEmailFromShareRecipientId(r.userId),
       sharedAt: r.sharedAt ?? null,
     }));
   }
@@ -3196,7 +3246,7 @@ export class MemStorage implements IStorage {
       list.push({
         userId: r.userId,
         name: r.userName ?? null,
-        email: r.userEmail ?? null,
+        email: r.userEmail ?? parseEmailFromShareRecipientId(r.userId),
         sharedAt: r.sharedAt ?? null,
       });
       result.set(r.boardId, list);
@@ -3205,7 +3255,9 @@ export class MemStorage implements IStorage {
   }
 
   async shareBoard(boardId: string, ownerUserId: string, sharedWithUserId: string): Promise<BoardShare | undefined> {
-    if (sharedWithUserId === ownerUserId) return undefined;
+    const inviteEmail = parseEmailFromShareRecipientId(sharedWithUserId);
+    const recipientId = inviteEmail ? emailShareIdFromEmail(inviteEmail) : sharedWithUserId;
+    if (recipientId === ownerUserId) return undefined;
     const owner = await this.getBoardByIdForUser(boardId, ownerUserId);
     if (!owner) return undefined;
     // Idempotent: if a share already exists, return it.
@@ -3214,12 +3266,12 @@ export class MemStorage implements IStorage {
       .from(boardSharesTable)
       .where(and(
         eq(boardSharesTable.boardId, boardId),
-        eq(boardSharesTable.sharedWithUserId, sharedWithUserId),
+        eq(boardSharesTable.sharedWithUserId, recipientId),
       ));
     if (existing) return existing;
     const [created] = await db
       .insert(boardSharesTable)
-      .values({ boardId, sharedWithUserId, sharedByUserId: ownerUserId })
+      .values({ boardId, sharedWithUserId: recipientId, sharedByUserId: ownerUserId })
       .returning();
     return created;
   }
@@ -3238,14 +3290,15 @@ export class MemStorage implements IStorage {
   }
 
   async leaveSharedBoard(boardId: string, userId: string): Promise<boolean> {
-    const [deleted] = await db
+    const recipientIds = await this.resolveShareRecipientIdsForUser(userId);
+    const deleted = await db
       .delete(boardSharesTable)
       .where(and(
         eq(boardSharesTable.boardId, boardId),
-        eq(boardSharesTable.sharedWithUserId, userId),
+        inArray(boardSharesTable.sharedWithUserId, recipientIds),
       ))
       .returning();
-    return !!deleted;
+    return deleted.length > 0;
   }
 
   async createBoard(board: InsertBoard): Promise<Board> {

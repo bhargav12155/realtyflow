@@ -181,6 +181,32 @@ const compileBoardSchema = z.object({
   orderedAssetIds: z.array(z.string().min(1)).max(200).optional(),
 });
 
+const EMAIL_SHARE_PREFIX = "email:";
+
+function normalizeShareEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function emailShareIdFromEmail(email: string): string {
+  return `${EMAIL_SHARE_PREFIX}${normalizeShareEmail(email)}`;
+}
+
+function parseEmailFromShareRecipientId(recipientId: string): string | null {
+  if (!recipientId.startsWith(EMAIL_SHARE_PREFIX)) return null;
+  const email = normalizeShareEmail(recipientId.slice(EMAIL_SHARE_PREFIX.length));
+  return email.length > 0 ? email : null;
+}
+
+const shareBoardRequestSchema = z
+  .object({
+    userId: z.string().min(1).optional(),
+    email: z.string().email().optional(),
+  })
+  .refine((data) => !!data.userId || !!data.email, {
+    message: "Either userId or email is required",
+    path: ["userId"],
+  });
+
 // =====================================================
 // Board chat — v2v validation gate
 // =====================================================
@@ -430,69 +456,89 @@ export function registerBoardsRoutes(
   app.post("/api/boards/:id/shares", auth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
-      const parsed = z.object({ userId: z.string().min(1) }).parse(req.body ?? {});
-      if (parsed.userId === userId) {
+      const parsed = shareBoardRequestSchema.parse(req.body ?? {});
+      const requestedEmail = parsed.email ? normalizeShareEmail(parsed.email) : null;
+      const ownerEmail = req.user?.email ? normalizeShareEmail(req.user.email) : null;
+
+      let recipientId = parsed.userId?.trim() ?? "";
+      let recipient = undefined as Awaited<ReturnType<IStorage["getUser"]>>;
+
+      if (requestedEmail) {
+        recipient = await storage.getUserByEmail(requestedEmail).catch(() => undefined);
+        recipientId = recipient?.id ?? emailShareIdFromEmail(requestedEmail);
+      }
+
+      if (!recipientId) {
+        return res.status(400).json({ error: "Missing share recipient" });
+      }
+
+      if (recipientId === userId || (requestedEmail && ownerEmail && requestedEmail === ownerEmail)) {
         return res.status(400).json({ error: "Cannot share a board with yourself" });
       }
       const board = await storage.getBoardByIdForUser(req.params.id, userId);
       if (!board) return res.status(404).json({ error: "Board not found" });
-      const share = await storage.shareBoard(req.params.id, userId, parsed.userId);
+      const share = await storage.shareBoard(req.params.id, userId, recipientId);
       if (!share) return res.status(404).json({ error: "Board not found" });
       // Notify the recipient (best-effort — never block the share itself).
       // We resolve the sharer + recipient once and then fan out to the
       // in-app notification and the transactional email in parallel; either
       // failure is swallowed so the share itself always succeeds.
       const sharer = await storage.getUser(userId).catch(() => undefined);
-      const recipient = await storage.getUser(parsed.userId).catch(() => undefined);
+      const recipientUserId = parseEmailFromShareRecipientId(recipientId) ? null : recipientId;
+      if (!recipient) {
+        recipient = recipientUserId ? await storage.getUser(recipientUserId).catch(() => undefined) : undefined;
+      }
       const sharerDisplayName = sharer?.name ?? sharer?.email ?? "A teammate";
 
-      try {
-        const notification = await storage.createNotification({
-          userId: parsed.userId,
-          type: "board_shared",
-          data: {
-            boardId: board.id,
-            boardTitle: board.title,
-            sharedByUserId: userId,
-            sharedByName: sharer?.name ?? sharer?.email ?? null,
-          },
-        });
-        // Push a real-time event so the recipient's bell badge updates
-        // instantly. Wrapped in its own try/catch so a socket failure can't
-        // mask the successful share+notification.
+      if (recipientUserId) {
         try {
-          realtimeService.notifyNotificationCreated(parsed.userId, {
-            notificationId: notification.id,
-            type: notification.type,
-            data: notification.data,
+          const notification = await storage.createNotification({
+            userId: recipientUserId,
+            type: "board_shared",
+            data: {
+              boardId: board.id,
+              boardTitle: board.title,
+              sharedByUserId: userId,
+              sharedByName: sharer?.name ?? sharer?.email ?? null,
+            },
           });
-        } catch (wsError) {
+          // Push a real-time event so the recipient's bell badge updates
+          // instantly. Wrapped in its own try/catch so a socket failure can't
+          // mask the successful share+notification.
+          try {
+            realtimeService.notifyNotificationCreated(recipientUserId, {
+              notificationId: notification.id,
+              type: notification.type,
+              data: notification.data,
+            });
+          } catch (wsError) {
+            console.error(
+              "[boards] notify share recipient via websocket failed",
+              JSON.stringify({
+                event: "notification.ws.failed",
+                type: "board_shared",
+                boardId: board.id,
+                recipientUserId,
+                error: (wsError as Error)?.message ?? String(wsError),
+              }),
+            );
+          }
+        } catch (notifyError) {
+          // Best-effort: never let a notification failure roll back a successful
+          // share. Log loudly with structured context so prod outages (e.g.
+          // missing notifications table) are visible in monitoring.
           console.error(
-            "[boards] notify share recipient via websocket failed",
+            "[boards] notify share recipient failed",
             JSON.stringify({
-              event: "notification.ws.failed",
+              event: "notification.create.failed",
               type: "board_shared",
               boardId: board.id,
-              recipientUserId: parsed.userId,
-              error: (wsError as Error)?.message ?? String(wsError),
+              recipientUserId,
+              sharedByUserId: userId,
+              error: (notifyError as Error)?.message ?? String(notifyError),
             }),
           );
         }
-      } catch (notifyError) {
-        // Best-effort: never let a notification failure roll back a successful
-        // share. Log loudly with structured context so prod outages (e.g.
-        // missing notifications table) are visible in monitoring.
-        console.error(
-          "[boards] notify share recipient failed",
-          JSON.stringify({
-            event: "notification.create.failed",
-            type: "board_shared",
-            boardId: board.id,
-            recipientUserId: parsed.userId,
-            sharedByUserId: userId,
-            error: (notifyError as Error)?.message ?? String(notifyError),
-          }),
-        );
       }
 
       // Fan out the email after the in-app notification. We honor the
@@ -500,23 +546,23 @@ export function registerBoardsRoutes(
       // entirely if we don't have a destination address. Wrapped in
       // try/catch to keep the same best-effort guarantee as above.
       try {
-        const recipientEmail = recipient?.email?.trim();
+        const recipientEmail = normalizeShareEmail(requestedEmail ?? recipient?.email?.trim() ?? "");
         const optedOut = recipient && recipient.emailNotifications === false;
         const boardMuted = board.notifyOnCollaboratorChange === false;
         if (!recipientEmail) {
           console.warn(
             "[boards] skipping share email — recipient has no email",
-            JSON.stringify({ event: "share.email.skipped.no_address", boardId: board.id, recipientUserId: parsed.userId }),
+            JSON.stringify({ event: "share.email.skipped.no_address", boardId: board.id, recipient: recipientUserId ?? recipientId }),
           );
         } else if (boardMuted) {
           console.log(
             "[boards] skipping share email — board muted by owner",
-            JSON.stringify({ event: "share.email.skipped.board_muted", boardId: board.id, recipientUserId: parsed.userId }),
+            JSON.stringify({ event: "share.email.skipped.board_muted", boardId: board.id, recipient: recipientUserId ?? recipientId }),
           );
         } else if (optedOut) {
           console.log(
             "[boards] skipping share email — recipient opted out",
-            JSON.stringify({ event: "share.email.skipped.opt_out", boardId: board.id, recipientUserId: parsed.userId }),
+            JSON.stringify({ event: "share.email.skipped.opt_out", boardId: board.id, recipient: recipientUserId ?? recipientId }),
           );
         } else {
           const baseUrl = getAppBaseUrl(req.get("host"));
@@ -535,7 +581,7 @@ export function registerBoardsRoutes(
           JSON.stringify({
             event: "share.email.failed",
             boardId: board.id,
-            recipientUserId: parsed.userId,
+            recipient: recipientUserId ?? recipientId,
             sharedByUserId: userId,
             error: (emailError as Error)?.message ?? String(emailError),
           }),
@@ -677,23 +723,27 @@ export function registerBoardsRoutes(
       if (!board) return res.status(404).json({ error: "Board not found" });
       const ok = await storage.unshareBoard(req.params.id, userId, req.params.userId);
       if (!ok) return res.status(404).json({ error: "Share not found" });
+      const removedInviteEmail = parseEmailFromShareRecipientId(req.params.userId);
+      const removedUserId = removedInviteEmail ? null : req.params.userId;
       // Best-effort: push a real-time event to the removed user so any open
       // board page (chat panel + canvas) reacts immediately instead of
       // continuing to show stale data until the next refetch. The REST
       // endpoints already gate access via `getAccessibleBoardForUser`, so
       // this WS push is purely a UX accelerator — never block the unshare on
       // a socket failure.
-      try {
-        realtimeService.sendToUser(req.params.userId, {
-          type: "board_access_revoked",
-          data: { boardId: req.params.id },
-          timestamp: new Date().toISOString(),
-        });
-      } catch (wsErr) {
-        console.warn(
-          "[boards] notify removed collaborator failed",
-          wsErr instanceof Error ? wsErr.message : wsErr,
-        );
+      if (removedUserId) {
+        try {
+          realtimeService.sendToUser(removedUserId, {
+            type: "board_access_revoked",
+            data: { boardId: req.params.id },
+            timestamp: new Date().toISOString(),
+          });
+        } catch (wsErr) {
+          console.warn(
+            "[boards] notify removed collaborator failed",
+            wsErr instanceof Error ? wsErr.message : wsErr,
+          );
+        }
       }
 
       // Persist a notification so the removed user finds out the next time
@@ -701,70 +751,72 @@ export function registerBoardsRoutes(
       // access was revoked. Mirrors the share-with-you path: bell entry +
       // opt-out-respecting transactional email, both best-effort.
       const remover = await storage.getUser(userId).catch(() => undefined);
-      const removed = await storage.getUser(req.params.userId).catch(() => undefined);
+      const removed = removedUserId ? await storage.getUser(removedUserId).catch(() => undefined) : undefined;
       const removerDisplayName = remover?.name ?? remover?.email ?? "A teammate";
 
-      try {
-        const notification = await storage.createNotification({
-          userId: req.params.userId,
-          type: "board_unshared",
-          data: {
-            boardId: board.id,
-            boardTitle: board.title,
-            removedByUserId: userId,
-            removedByName: remover?.name ?? remover?.email ?? null,
-          },
-        });
+      if (removedUserId) {
         try {
-          realtimeService.notifyNotificationCreated(req.params.userId, {
-            notificationId: notification.id,
-            type: notification.type,
-            data: notification.data,
+          const notification = await storage.createNotification({
+            userId: removedUserId,
+            type: "board_unshared",
+            data: {
+              boardId: board.id,
+              boardTitle: board.title,
+              removedByUserId: userId,
+              removedByName: remover?.name ?? remover?.email ?? null,
+            },
           });
-        } catch (wsError) {
+          try {
+            realtimeService.notifyNotificationCreated(removedUserId, {
+              notificationId: notification.id,
+              type: notification.type,
+              data: notification.data,
+            });
+          } catch (wsError) {
+            console.error(
+              "[boards] notify unshare recipient via websocket failed",
+              JSON.stringify({
+                event: "notification.ws.failed",
+                type: "board_unshared",
+                boardId: board.id,
+                recipientUserId: removedUserId,
+                error: (wsError as Error)?.message ?? String(wsError),
+              }),
+            );
+          }
+        } catch (notifyError) {
           console.error(
-            "[boards] notify unshare recipient via websocket failed",
+            "[boards] notify unshare recipient failed",
             JSON.stringify({
-              event: "notification.ws.failed",
+              event: "notification.create.failed",
               type: "board_unshared",
               boardId: board.id,
-              recipientUserId: req.params.userId,
-              error: (wsError as Error)?.message ?? String(wsError),
+              recipientUserId: removedUserId,
+              removedByUserId: userId,
+              error: (notifyError as Error)?.message ?? String(notifyError),
             }),
           );
         }
-      } catch (notifyError) {
-        console.error(
-          "[boards] notify unshare recipient failed",
-          JSON.stringify({
-            event: "notification.create.failed",
-            type: "board_unshared",
-            boardId: board.id,
-            recipientUserId: req.params.userId,
-            removedByUserId: userId,
-            error: (notifyError as Error)?.message ?? String(notifyError),
-          }),
-        );
       }
 
       try {
-        const recipientEmail = removed?.email?.trim();
+        const recipientEmail = normalizeShareEmail(removed?.email?.trim() ?? removedInviteEmail ?? "");
         const optedOut = removed && removed.emailNotifications === false;
         const boardMuted = board.notifyOnCollaboratorChange === false;
         if (!recipientEmail) {
           console.warn(
             "[boards] skipping unshare email — recipient has no email",
-            JSON.stringify({ event: "unshare.email.skipped.no_address", boardId: board.id, recipientUserId: req.params.userId }),
+            JSON.stringify({ event: "unshare.email.skipped.no_address", boardId: board.id, recipient: removedUserId ?? req.params.userId }),
           );
         } else if (boardMuted) {
           console.log(
             "[boards] skipping unshare email — board muted by owner",
-            JSON.stringify({ event: "unshare.email.skipped.board_muted", boardId: board.id, recipientUserId: req.params.userId }),
+            JSON.stringify({ event: "unshare.email.skipped.board_muted", boardId: board.id, recipient: removedUserId ?? req.params.userId }),
           );
         } else if (optedOut) {
           console.log(
             "[boards] skipping unshare email — recipient opted out",
-            JSON.stringify({ event: "unshare.email.skipped.opt_out", boardId: board.id, recipientUserId: req.params.userId }),
+            JSON.stringify({ event: "unshare.email.skipped.opt_out", boardId: board.id, recipient: removedUserId ?? req.params.userId }),
           );
         } else {
           await sendBoardUnsharedEmail({
@@ -780,7 +832,7 @@ export function registerBoardsRoutes(
           JSON.stringify({
             event: "unshare.email.failed",
             boardId: board.id,
-            recipientUserId: req.params.userId,
+            recipient: removedUserId ?? req.params.userId,
             removedByUserId: userId,
             error: (emailError as Error)?.message ?? String(emailError),
           }),
@@ -1045,10 +1097,12 @@ export function registerBoardsRoutes(
           customSorted.push(asset);
           seen.add(id);
         }
-        if (customSorted.length > 0) {
-          const remaining = videoAssets.filter((a) => !seen.has(a.id));
-          videoAssets.splice(0, videoAssets.length, ...customSorted, ...remaining);
+        if (customSorted.length === 0) {
+          return res.status(400).json({ error: "No valid selected videos to compile." });
         }
+        // Respect the modal selection strictly: when orderedAssetIds is
+        // provided, compile only those selected IDs in the exact order.
+        videoAssets.splice(0, videoAssets.length, ...customSorted);
       }
 
       console.log(

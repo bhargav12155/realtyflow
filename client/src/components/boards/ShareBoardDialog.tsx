@@ -31,6 +31,12 @@ interface BoardSummary {
   notifyOnCollaboratorChange?: boolean;
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDialogProps) {
   const { toast } = useToast();
   const confirm = useConfirm();
@@ -74,6 +80,10 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
     () => new Set((sharesQuery.data ?? []).map((s) => s.userId)),
     [sharesQuery.data],
   );
+  const sharedEmails = useMemo(
+    () => new Set((sharesQuery.data ?? []).map((s) => normalizeEmail(s.email ?? "")).filter(Boolean)),
+    [sharesQuery.data],
+  );
 
   const filteredCandidates = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -85,8 +95,8 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
   }, [candidatesQuery.data, search]);
 
   const shareMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      const res = await apiRequest("POST", `/api/boards/${boardId}/shares`, { userId });
+    mutationFn: async (payload: { userId?: string; email?: string }) => {
+      const res = await apiRequest("POST", `/api/boards/${boardId}/shares`, payload);
       return res.json();
     },
     onSuccess: () => {
@@ -97,6 +107,17 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
       toast({ title: "Couldn't share board", description: e?.message ?? String(e), variant: "destructive" });
     },
   });
+
+  const normalizedSearch = normalizeEmail(search);
+  const searchLooksLikeEmail = EMAIL_REGEX.test(normalizedSearch);
+  const isAlreadySharedByEmail = sharedEmails.has(normalizedSearch);
+  const emailExistsInCandidates = (candidatesQuery.data ?? []).some(
+    (c) => normalizeEmail(c.email ?? "") === normalizedSearch,
+  );
+  const canInviteTypedEmail =
+    searchLooksLikeEmail &&
+    !isAlreadySharedByEmail &&
+    !emailExistsInCandidates;
 
   const unshareMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -222,13 +243,31 @@ export function ShareBoardDialog({ boardId, open, onOpenChange }: ShareBoardDial
               {!candidatesQuery.isLoading && filteredCandidates.length === 0 && (
                 <div className="text-[12px] text-neutral-400">No matching users.</div>
               )}
+              {canInviteTypedEmail && (
+                <button
+                  type="button"
+                  onClick={() => shareMutation.mutate({ email: normalizedSearch })}
+                  disabled={shareMutation.isPending}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-md text-left hover:bg-neutral-100 disabled:opacity-60 dark:hover:bg-neutral-800/60"
+                  data-testid="button-share-email"
+                >
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[13px] truncate text-neutral-900 dark:text-neutral-100">
+                      Invite {normalizedSearch}
+                    </span>
+                    <span className="text-[11px] text-neutral-500 truncate dark:text-neutral-400">
+                      They'll get access when they log in with this email.
+                    </span>
+                  </div>
+                </button>
+              )}
               {filteredCandidates.map((c) => {
                 const already = sharedIds.has(c.id);
                 return (
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => !already && shareMutation.mutate(c.id)}
+                    onClick={() => !already && shareMutation.mutate({ userId: c.id })}
                     disabled={already || shareMutation.isPending}
                     className="w-full flex items-center justify-between px-3 py-2 rounded-md text-left hover:bg-neutral-100 disabled:opacity-60 dark:hover:bg-neutral-800/60"
                     data-testid={`button-share-${c.id}`}

@@ -21,7 +21,6 @@ import { cn, getUserDisplayName, getUserInitials } from "@/lib/utils";
 import { useBusinessType, BUSINESS_TYPE_OPTIONS, BusinessType } from "@/lib/businessContext";
 import {
   AlertTriangle,
-  BarChart3,
   BookOpen,
   Bot,
   CalendarClock,
@@ -162,7 +161,6 @@ const navigationItems = [
   //   key: "brand-settings",
   //   isPageLink: true,
   // },
-  { icon: BarChart3, label: "Analytics", href: "/dashboard#analytics", key: "analytics", isPageLink: true },
   // HIDDEN: HeyGen Shape Drift — re-enable when ready
   // {
   //   icon: AlertTriangle,

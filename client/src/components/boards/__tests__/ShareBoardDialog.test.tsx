@@ -216,3 +216,27 @@ describe("ShareBoardDialog notify-on-collaborator-change toggle", () => {
     });
   });
 });
+
+describe("ShareBoardDialog email invite", () => {
+  beforeEach(() => {
+    sharesRef.current = [];
+    candidatesRef.current = [];
+  });
+
+  it("sends POST /api/boards/:id/shares with email when searching a non-member email", async () => {
+    renderDialog();
+
+    const search = await screen.findByTestId("input-share-search");
+    fireEvent.change(search, { target: { value: "invitee@example.com" } });
+
+    fireEvent.click(await screen.findByTestId("button-share-email"));
+
+    await waitFor(() => {
+      expect(apiRequestMock).toHaveBeenCalledWith(
+        "POST",
+        "/api/boards/board-1/shares",
+        { email: "invitee@example.com" },
+      );
+    });
+  });
+});

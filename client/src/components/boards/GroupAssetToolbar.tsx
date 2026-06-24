@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Copy,
   Download,
@@ -46,6 +46,44 @@ export function GroupAssetToolbar({
   });
   const canCopy = urls.length > 0;
   const canDownload = downloadable.length > 0;
+  const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const ids = assets.map((a) => a.id);
+    if (ids.length === 0) return;
+
+    const updateAnchor = () => {
+      const rects = ids
+        .map((id) => document.querySelector<HTMLElement>(`[data-asset-id="${id}"]`))
+        .filter((el): el is HTMLElement => !!el)
+        .map((el) => el.getBoundingClientRect());
+      if (rects.length === 0) return;
+
+      const minLeft = Math.min(...rects.map((r) => r.left));
+      const maxRight = Math.max(...rects.map((r) => r.right));
+      const minTop = Math.min(...rects.map((r) => r.top));
+      const maxBottom = Math.max(...rects.map((r) => r.bottom));
+
+      const left = Math.max(24, Math.min(window.innerWidth - 24, (minLeft + maxRight) / 2));
+      const top = minTop >= 64 ? minTop - 44 : maxBottom + 8;
+
+      setAnchor({ left, top });
+    };
+
+    const onLayoutChange = () => {
+      requestAnimationFrame(updateAnchor);
+    };
+
+    onLayoutChange();
+    window.addEventListener("resize", onLayoutChange);
+    document.addEventListener("scroll", onLayoutChange, true);
+    return () => {
+      window.removeEventListener("resize", onLayoutChange);
+      document.removeEventListener("scroll", onLayoutChange, true);
+    };
+  }, [assets]);
 
   const onCopyAll = () => {
     if (!canCopy || typeof navigator === "undefined") return;
@@ -69,7 +107,8 @@ export function GroupAssetToolbar({
   return (
     <>
       <div
-        className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
+        className="fixed -translate-x-1/2 z-20 bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
+        style={{ left: anchor?.left ?? "50%", top: anchor?.top ?? 16 }}
         data-testid="toolbar-group-asset"
         role="toolbar"
         aria-label="Selected assets actions"

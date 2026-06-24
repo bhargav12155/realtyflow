@@ -150,6 +150,7 @@ export async function resolveBoardRecipients(
   boardId: string,
   actorUserId: string,
 ): Promise<string[]> {
+  const isEmailInviteRecipient = (id: string) => id.startsWith("email:");
   const recipientIds = new Set<string>([actorUserId]);
   try {
     const access = await storage.getAccessibleBoardForUser(boardId, actorUserId);
@@ -157,7 +158,11 @@ export async function resolveBoardRecipients(
       const ownerId = access.userId;
       recipientIds.add(ownerId);
       const shares = await storage.getBoardShares(boardId, ownerId);
-      for (const s of shares) recipientIds.add(s.userId);
+      for (const s of shares) {
+        if (!isEmailInviteRecipient(s.userId)) {
+          recipientIds.add(s.userId);
+        }
+      }
     }
   } catch (err) {
     console.warn(

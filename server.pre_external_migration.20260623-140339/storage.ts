@@ -348,7 +348,7 @@ export interface IStorage {
   updateMobileUploadSession(sessionId: string, uploadedUrl: string): Promise<void>;
 
   // Event Sources (Calendar and Event Feed Sources)
-  getEventSources(userId: string, businessType?: string): Promise<EventSource[]>;
+  getEventSources(userId: string): Promise<EventSource[]>;
   getEventSourceById(id: string): Promise<EventSource | undefined>;
   createEventSource(source: InsertEventSource): Promise<EventSource>;
   updateEventSource(id: string, updates: Partial<EventSource>): Promise<EventSource | undefined>;
@@ -360,7 +360,6 @@ export interface IStorage {
     endDate?: Date; 
     sourceId?: string;
     category?: string;
-    businessType?: string;
   }): Promise<Event[]>;
   getEventById(id: string): Promise<Event | undefined>;
   getEventByExternalId(userId: string, sourceId: string, externalId: string): Promise<Event | undefined>;
@@ -2350,16 +2349,11 @@ export class MemStorage implements IStorage {
   }
 
   // Event Sources implementation
-  async getEventSources(userId: string, businessType?: string): Promise<EventSource[]> {
-    const conditions = [eq(eventSourcesTable.userId, userId)];
-    if (businessType) {
-      conditions.push(eq(eventSourcesTable.businessType, businessType));
-    }
-
+  async getEventSources(userId: string): Promise<EventSource[]> {
     return db
       .select()
       .from(eventSourcesTable)
-      .where(and(...conditions))
+      .where(eq(eventSourcesTable.userId, userId))
       .orderBy(desc(eventSourcesTable.createdAt));
   }
 
@@ -2401,14 +2395,15 @@ export class MemStorage implements IStorage {
     endDate?: Date; 
     sourceId?: string;
     category?: string;
-    businessType?: string;
   }): Promise<Event[]> {
     const { gte, lte } = await import("drizzle-orm");
+    
+    let query = db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.userId, userId));
 
     const conditions: any[] = [eq(eventsTable.userId, userId)];
-    if (options?.businessType) {
-      conditions.push(eq(eventsTable.businessType, options.businessType));
-    }
     
     if (options?.startDate) {
       conditions.push(gte(eventsTable.startTime, options.startDate));
@@ -3594,13 +3589,9 @@ export class MemStorage implements IStorage {
   ): Promise<BoardMessage | undefined> {
     const access = await this.getAccessibleBoardForUser(boardId, userId);
     if (!access) return undefined;
-    // authorUserId references users.id (UUID-keyed agent accounts). Public
-    // users have integer IDs that won't satisfy the FK, so pass null for
-    // non-UUID userIds to avoid a constraint violation.
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
     const [created] = await db
       .insert(boardMessagesTable)
-      .values({ ...message, boardId, authorUserId: isUuid ? userId : null })
+      .values({ ...message, boardId, authorUserId: userId })
       .returning();
     // Auto-trim: once the board's history exceeds the cap, drop the oldest
     // rows so the chat panel stays snappy. Done as a best-effort follow-up

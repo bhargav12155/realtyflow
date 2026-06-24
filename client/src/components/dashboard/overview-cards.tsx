@@ -127,7 +127,7 @@ export function OverviewCards() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6">
         {cards.map((card) => (
           <Card key={card.title} className="animate-pulse">
             <CardContent className="p-6">
@@ -140,7 +140,7 @@ export function OverviewCards() {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6">
       {cards.map((card) => {
         const value = overview?.[card.key] || 0;
         const formattedValue = card.format ? card.format(value) : value.toLocaleString();
@@ -182,19 +182,19 @@ export function OverviewCards() {
         
         return (
           <Card key={card.title} className="min-w-0">
-            <CardContent className="p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-2">
+            <CardContent className="p-3 sm:p-6">
+              <div className="flex items-start justify-between gap-1">
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{card.title}</p>
-                  <p className="text-xl sm:text-2xl font-bold text-foreground truncate" data-testid={`metric-${card.key.replace('_', '-')}`}>
+                  <p className="text-[11px] sm:text-sm font-medium text-muted-foreground truncate">{card.title}</p>
+                  <p className="text-lg sm:text-2xl font-bold text-foreground truncate" data-testid={`metric-${card.key.replace('_', '-')}`}>
                     {(card.isConnected || ((card as any).connectAction === "search_console" && isSearchConsoleConnected)) ? formattedValue : '--'}
                   </p>
                 </div>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-[#304652] bg-[#2d4450] flex-shrink-0">
-                  <card.icon className={`${card.color} h-4 w-4`} />
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[#304652] bg-[#2d4450] flex-shrink-0">
+                  <card.icon className={`${card.color} h-3.5 w-3.5 sm:h-4 sm:w-4`} />
                 </div>
               </div>
-              <div className="mt-3 sm:mt-4 flex items-center text-xs sm:text-sm">
+              <div className="mt-1.5 sm:mt-4 flex items-center text-[10px] sm:text-sm">
                 {showConnectHint ? (
                   (card as any).connectAction === "search_console" ? (
                     isSearchConsoleConnected ? (

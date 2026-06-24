@@ -942,7 +942,34 @@ export function AvatarIVStudio() {
     mutationFn: async (photoId: string) => {
       await apiRequest("DELETE", `/api/avatar-iv/photos/${photoId}`);
     },
-    onSuccess: () => {
+    onSuccess: (_data, photoId) => {
+      const deletedPhoto = photoLibrary.find((photo) => photo.id === photoId);
+      const deletedImageKey = deletedPhoto?.metadata?.imageKey ?? null;
+
+      if (selectedPhotoForStyle?.id === photoId) {
+        setSelectedPhotoForStyle(null);
+        setChangeStyleDialogOpen(false);
+        setChangeStylePrompt("");
+      }
+
+      if (deletedImageKey && imageKey === deletedImageKey) {
+        setImageKey(null);
+        setImagePreview(null);
+        setUploadedImage(null);
+        setCurrentStep(1);
+        setVideoTitle("");
+        setScript("");
+        setAudioBlob(null);
+        setAudioUrl(null);
+        setUploadedAudioUrl(null);
+        if (videoTitleRef.current) {
+          videoTitleRef.current.setValue("");
+        }
+        if (scriptTextareaRef.current) {
+          scriptTextareaRef.current.setValue("");
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/photos"] });
       toast({ title: "Photo deleted", description: "Photo removed from your library." });
     },

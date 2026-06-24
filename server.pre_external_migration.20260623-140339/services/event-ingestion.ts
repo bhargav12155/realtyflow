@@ -76,13 +76,13 @@ export class EventIngestionService {
     }
   }
 
-  async syncAllSources(userId: string, businessType?: string): Promise<{ 
+  async syncAllSources(userId: string): Promise<{ 
     sourcesProcessed: number; 
     totalAdded: number; 
     totalUpdated: number; 
     errors: string[] 
   }> {
-    const sources = await storage.getEventSources(userId, businessType);
+    const sources = await storage.getEventSources(userId);
     const activeSources = sources.filter(s => s.status === 'active');
     
     let totalAdded = 0;
@@ -148,7 +148,6 @@ export class EventIngestionService {
           
           const eventData: InsertEvent = {
             userId: source.userId,
-            businessType: source.businessType,
             sourceId: source.id,
             externalId: gcEvent.id,
             title: gcEvent.summary || 'Untitled Event',
@@ -214,7 +213,6 @@ export class EventIngestionService {
           
           const eventData: InsertEvent = {
             userId: source.userId,
-            businessType: source.businessType,
             sourceId: source.id,
             externalId: icalEvent.uid,
             title: icalEvent.summary || 'Untitled Event',
@@ -381,16 +379,13 @@ export class EventIngestionService {
     endTime?: Date;
     location?: string;
     category?: string;
-    businessType?: string;
   }): Promise<Event> {
-    const businessType = eventData.businessType || 'real_estate';
-    let manualSource = (await storage.getEventSources(userId, businessType))
+    let manualSource = (await storage.getEventSources(userId))
       .find(s => s.type === 'manual');
     
     if (!manualSource) {
       manualSource = await storage.createEventSource({
         userId,
-        businessType,
         name: 'Manual Events',
         type: 'manual',
         status: 'active',
@@ -401,7 +396,6 @@ export class EventIngestionService {
     
     return storage.createEvent({
       userId,
-      businessType,
       sourceId: manualSource.id,
       externalId: `manual-${nanoid()}`,
       title: eventData.title,
@@ -471,7 +465,6 @@ export class EventIngestionService {
           
           const eventData: InsertEvent = {
             userId: source.userId,
-            businessType: source.businessType,
             sourceId: source.id,
             externalId,
             title: scrapedEvent.title,

@@ -23,35 +23,6 @@ const HEYGEN_API_BASE_URL = "https://api.heygen.com";
 let isRunning = false;
 let pollInterval: NodeJS.Timeout | null = null;
 
-function isTransientDbDisconnect(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return (
-    msg.includes("connection terminated unexpectedly") ||
-    msg.includes("server closed the connection unexpectedly") ||
-    msg.includes("connection ended unexpectedly") ||
-    msg.includes("read econnreset") ||
-    msg.includes("connection reset")
-  );
-}
-
-async function getJobsWithRetry(): Promise<[VideoGenerationJob[], VideoGenerationJob[]]> {
-  try {
-    return await Promise.all([
-      storage.getPendingVideoGenerationJobs(),
-      storage.getProcessingVideoGenerationJobs(),
-    ]);
-  } catch (error) {
-    if (!isTransientDbDisconnect(error)) {
-      throw error;
-    }
-    console.warn("⚠️ [VideoJobWorker] Transient DB disconnect while polling jobs, retrying once...");
-    return await Promise.all([
-      storage.getPendingVideoGenerationJobs(),
-      storage.getProcessingVideoGenerationJobs(),
-    ]);
-  }
-}
-
 /**
  * Check video status from HeyGen API
  */
@@ -208,7 +179,10 @@ async function pollJobs(): Promise<void> {
 
   try {
     // Get all pending and processing jobs
-    const [pendingJobs, processingJobs] = await getJobsWithRetry();
+    const [pendingJobs, processingJobs] = await Promise.all([
+      storage.getPendingVideoGenerationJobs(),
+      storage.getProcessingVideoGenerationJobs(),
+    ]);
 
     const allJobs = [...pendingJobs, ...processingJobs];
     

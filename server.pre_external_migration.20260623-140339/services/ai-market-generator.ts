@@ -11,39 +11,32 @@ export interface GeneratedMarketData {
 
 export class AIMarketDataGenerator {
   private userId: string;
-  private location: { city: string; state: string; zipCode?: string };
 
-  constructor(userId: string, location?: { city?: string; state?: string; zipCode?: string }) {
+  constructor(userId: string) {
     this.userId = userId;
-    this.location = {
-      city: location?.city || "Omaha",
-      state: location?.state || "Nebraska",
-      zipCode: location?.zipCode,
-    };
   }
 
   async generateOmahaMarketData(): Promise<GeneratedMarketData> {
-    const city = this.location.city;
-    const state = this.location.state;
-    const zipCode = this.location.zipCode;
-    const locationLabel = zipCode ? `${city}, ${state} (${zipCode})` : `${city}, ${state}`;
 
-    const prompt = `You are a real estate market data analyst for ${locationLabel}. Generate realistic, current market statistics for major neighborhoods or areas in ${city}, ${state}.
+    const prompt = `You are a real estate market data analyst for Omaha, Nebraska. Generate realistic, current market statistics for major Omaha neighborhoods.
 
-Generate data for 10 neighborhoods or well-known areas in ${city}, ${state}. If you don't know specific neighborhoods for this city, use reasonable area names like "Downtown ${city}", "North ${city}", "South ${city}", "East ${city}", "West ${city}", "Midtown", "Suburbs", "Historic District", "New Development", "Waterfront" as appropriate.
+Generate data for these 10 neighborhoods: Aksarben, Dundee, Blackstone, Benson, Midtown, West Omaha, Regency, Old Market, Elkhorn, and Papillion.
 
 For EACH neighborhood, provide:
-1. **avgPrice** (integer): Average home price in dollars. Range $150,000-$1,500,000 depending on neighborhood desirability and local market.
-2. **daysOnMarket** (integer): Average days homes stay on market. Range 10-60 days. Hot neighborhoods = lower numbers.
-3. **inventory** (string): Months of inventory supply. Format as "X.X months". Range 0.5-3.5 months. Lower = hotter market.
-4. **priceGrowth** (string): Year-over-year price growth. Format as "+X.X%" or "-X.X%". Range -3% to +15%. Premium neighborhoods typically higher.
+1. **avgPrice** (integer): Average home price in dollars. Range $250,000-$850,000 depending on neighborhood desirability.
+2. **daysOnMarket** (integer): Average days homes stay on market. Range 15-45 days. Hot neighborhoods = lower numbers.
+3. **inventory** (string): Months of inventory supply. Format as "X.X months". Range 0.6-2.5 months. Lower = hotter market.
+4. **priceGrowth** (string): Year-over-year price growth. Format as "+X.X%" or "-X.X%". Range -2% to +12%. Premium neighborhoods typically higher.
 5. **trend** (string): Market trend. Must be one of: "hot", "rising", "steady", "cooling"
 
 **IMPORTANT CONSTRAINTS:**
-- Use realistic price ranges appropriate for the ${city}, ${state} real estate market
+- Aksarben and Dundee are premium areas: higher prices ($550K-$750K), low inventory (<1.0 months), hot/rising trends
+- Benson and Blackstone are trendy/gentrifying: mid-high prices ($380K-$520K), moderate inventory, rising/hot trends
+- West Omaha and Regency are established: high prices ($480K-$650K), steady trends
+- Old Market is urban lofts: varied prices ($320K-$580K), low inventory
+- Elkhorn and Papillion are suburban: mid prices ($350K-$480K), more inventory
 - Keep data realistic and internally consistent (hot markets = low days on market + low inventory)
-- Vary trends across neighborhoods to reflect a real market distribution
-- Aim for mostly positive growth reflecting current market conditions
+- All neighborhoods should show overall positive growth (Omaha market is strong)
 
 Return ONLY a valid JSON array with this exact structure:
 [
@@ -114,7 +107,7 @@ Return ONLY a valid JSON array with this exact structure:
         };
       });
 
-      console.log(`✅ AI generated market data for ${validatedNeighborhoods.length} neighborhoods in ${this.location.city}, ${this.location.state}`);
+      console.log(`✅ AI generated market data for ${validatedNeighborhoods.length} neighborhoods`);
 
       return {
         neighborhoods: validatedNeighborhoods,

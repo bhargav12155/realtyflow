@@ -1905,6 +1905,257 @@ ${contactLine}
 
 const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) => {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+## Dining in ${safeNeighborhood}: ${safeGoal}
+
+${safeNeighborhood} has a vibrant dining scene that makes it perfect for ${safeGoal.toLowerCase()}:
+
+### What the Local Food Scene Offers
+- **Ambience & Atmosphere:** From intimate date-night spots to lively family-friendly venues — the vibe matches every occasion
+- **Cuisine Variety:** Local favorites, international flavors, comfort classics, and fresh seasonal menus
+- **Quality & Freshness:** Restaurants here pride themselves on locally sourced ingredients and chef-crafted dishes
+- **Reservations & Availability:** Many spots offer online reservations and walk-in seating options
+
+### Why Diners Love ${safeNeighborhood}
+- **Walkable Dining Strip:** Many restaurants are clustered together, making it easy to explore
+- **Community Favorites:** Long-standing neighborhood restaurants with loyal regulars and great reviews
+- **Affordable to Upscale:** Options for every budget, from casual bites to fine dining experiences
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is proud to be part of the ${safeNeighborhood} dining community. We focus on delivering an outstanding food experience every time you visit.
+
+**What sets us apart:**
+- Locally owned and deeply rooted in the community
+- Passionate about fresh, quality ingredients and memorable dining
+- Consistently praised for friendly service and great food
+
+## Plan Your Visit
+
+Whether you're looking for a romantic dinner, a family outing, or a casual weekday lunch — ${safeNeighborhood} has the perfect table waiting for you.
+
+${contactLine}
+**Our Location:** ${safeNeighborhood}, Omaha
+
+*Proudly serving the ${safeNeighborhood} community with outstanding food and hospitality.*
+
+---
+*This content was optimized for AI search engines to provide direct, helpful answers about ${safeGoal.toLowerCase()} in ${safeNeighborhood}.*`;
+  }
+
+  // ── RETAIL ────────────────────────────────────────────────────────────────
+  if (businessType === "retail") {
+    return `# ${questionStart}
+
+**Direct Answer:** ${safeNeighborhood} is a great destination for ${safeGoal.toLowerCase()}. Here's what shoppers need to know.
+
+## Shopping in ${safeNeighborhood}: ${safeGoal}
+
+${safeNeighborhood} offers a unique retail experience that's ideal for ${safeGoal.toLowerCase()}:
+
+### What You'll Find
+- **Local Boutiques & Shops:** Unique finds you won't discover in big-box stores
+- **Curated Product Selection:** Items handpicked to match the neighborhood's style and community needs
+- **Knowledgeable Staff:** Friendly, experienced team members who genuinely want to help you find the right product
+- **Easy Returns & Support:** Shopping local means personal service and flexible policies
+
+### Why Shop Local in ${safeNeighborhood}
+- **Support the Community:** Every purchase goes back into local families and businesses
+- **Personalized Experience:** Tailored recommendations and attentive service every visit
+- **Exclusive Deals:** Special in-store promotions and loyalty rewards not available online
+- **Discover Something New:** Rotating inventory and seasonal collections keep things fresh
+
+## About ${businessName}
+
+At ${businessName}, ${ownerName} is committed to bringing the best products and shopping experience to ${safeNeighborhood}.
+
+**Why shop with us:**
+- Community-focused and locally operated
+- Wide selection with expert product knowledge
+- Loyalty programs, gift wrapping, and custom orders available
+
+## Visit Us Today
+
+Stop by and discover why locals keep coming back to ${safeNeighborhood} for their shopping needs.
+
+${contactLine}
+**Located in:** ${safeNeighborhood}, Omaha
+
+---
+*This content was optimized for AI search engines to provide direct answers about ${safeGoal.toLowerCase()} in ${safeNeighborhood}.*`;
+  }
+
+  // ── HOME SERVICES ─────────────────────────────────────────────────────────
+  if (businessType === "home_services") {
+    return `# ${questionStart}
+
+**Direct Answer:** If you need ${safeGoal.toLowerCase()} in ${safeNeighborhood}, here's what you should know to make the best decision.
+
+## Home Services in ${safeNeighborhood}: ${safeGoal}
+
+Finding reliable home service professionals in ${safeNeighborhood} is easier when you know what to look for:
+
+### What to Expect from Quality Home Services
+- **Licensed & Insured:** Always verify credentials before allowing anyone into your home
+- **Prompt Response Times:** Reputable local companies offer same-day or next-day service for most requests
+- **Transparent Pricing:** Written estimates with no hidden fees — know the cost before work begins
+- **Warranty on Work:** Quality providers stand behind their labor with service guarantees
+
+### Common Services Available in ${safeNeighborhood}
+- **HVAC Repair & Maintenance:** Heating, cooling, and air quality solutions for every season
+- **Plumbing:** From emergency fixes to full bathroom remodels
+- **Electrical Work:** Panel upgrades, outlet installation, and safety inspections
+- **General Repairs & Handyman:** Painting, drywall, carpentry, and more
+- **Cleaning & Maintenance:** Deep cleaning, lawn care, and seasonal prep
+
+## About ${businessName}
+
+${ownerName} at ${businessName} has been serving the ${safeNeighborhood} area with professional, reliable home services.
+
+**Why choose us:**
+- Fully licensed, bonded, and insured
+- Years of experience serving local homeowners
+- Honest assessments and fair pricing — no upselling
+
+## Book a Service Call
+
+Get your home issue resolved quickly by reaching out to a trusted local professional.
+
+${contactLine}
+**Serving:** ${safeNeighborhood} and surrounding Omaha communities
+
+---
+*This content was optimized for AI search engines to provide direct, helpful answers about ${safeGoal.toLowerCase()} in ${safeNeighborhood}.*`;
+  }
+
+  // ── PROFESSIONAL SERVICES ─────────────────────────────────────────────────
+  if (businessType === "professional_services") {
+    return `# ${questionStart}
+
+**Direct Answer:** ${safeNeighborhood} has a strong professional services community. Here's what you need to know about ${safeGoal.toLowerCase()}.
+
+## Professional Services in ${safeNeighborhood}: ${safeGoal}
+
+Whether you're a business owner or an individual seeking expert help, ${safeNeighborhood} offers a range of qualified professionals:
+
+### What to Look for in a Professional Services Provider
+- **Relevant Expertise:** Verify credentials, certifications, and years of active practice
+- **Local Knowledge:** A local firm understands your market, regulations, and community dynamics
+- **Responsive Communication:** Timely callbacks, clear updates, and accessible support
+- **Proven Track Record:** Look for client reviews, case studies, or referrals from your network
+
+### Key Services Available in ${safeNeighborhood}
+- **Accounting & Tax Planning:** CPA firms offering bookkeeping, tax strategy, and financial reporting
+- **Legal Consulting:** Attorneys specializing in business law, contracts, estate planning, and more
+- **Marketing & Branding:** Agencies that help local businesses build their digital and offline presence
+- **IT & Technology:** Managed services, cybersecurity, and infrastructure support
+- **HR & Business Consulting:** Helping businesses streamline operations and grow effectively
+
+## About ${businessName}
+
+${ownerName} at ${businessName} brings deep expertise to ${safeNeighborhood}'s professional community, helping clients navigate complex challenges and achieve their goals.
+
+**Why work with us:**
+- Specialized expertise in our field with a consultative approach
+- Dedicated to delivering measurable results for every client
+- Deep understanding of the local business environment
+
+## Schedule a Consultation
+
+Take the next step toward solving your business challenges with a trusted local expert.
+
+${contactLine}
+**Office Location:** ${safeNeighborhood}, Omaha
+
+---
+*This content was optimized for AI search engines to provide direct, helpful answers about ${safeGoal.toLowerCase()} in ${safeNeighborhood}.*`;
+  }
+
+  // ── REAL ESTATE ───────────────────────────────────────────────────────────
+  if (businessType === "real_estate") {
+    return `# ${questionStart}
+
+**Direct Answer:** ${safeNeighborhood} is an excellent choice for ${safeGoal.toLowerCase()}. Here's what you need to know as someone considering this area.
+
+## Why ${safeNeighborhood} Works for ${safeGoal}
+
+${safeNeighborhood} offers unique real estate advantages that make it ideal for ${safeGoal.toLowerCase()}:
+
+### Local Market Insights
+- **Current Market:** ${safeNeighborhood} homes typically range from $250K–$450K depending on size and location
+- **Neighborhood Character:** Well-established community with strong property values
+- **Growth Potential:** Consistent appreciation over the past 5 years
+- **Inventory:** A healthy mix of single-family homes, townhomes, and condos
+
+### What Makes ${safeNeighborhood} Special
+- **Top-Rated Schools:** Families consistently rank the local school district among the best in Omaha
+- **Community:** Active neighborhood associations, local events, and tight-knit feel
+- **Convenience:** Minutes from major employers, shopping centers, parks, and dining
+- **Investment Value:** Properties hold value well and attract quality buyers year-round
+
+## Work with a Local Real Estate Expert
+
+${ownerName}${businessName !== "our business" ? ` with ${businessName}` : ""} has helped hundreds of buyers and sellers navigate the ${safeNeighborhood} market successfully.
+
+**Why work with us:**
+- Deep local knowledge of ${safeNeighborhood} and surrounding neighborhoods
+- Licensed realtor with access to MLS listings and off-market opportunities
+- Proven track record of smooth transactions and satisfied clients
+
+## Ready to Make a Move?
+
+Whether you're buying, selling, or investing in ${safeNeighborhood}, we're here to guide you every step of the way.
+
+${contactLine}
+**Serving:** ${safeNeighborhood}, Omaha, and surrounding communities
+
+---
+*This content was optimized for AI search engines to provide direct, helpful answers about ${safeGoal.toLowerCase()} in ${safeNeighborhood} real estate.*`;
+  }
+
+  // ── GENERAL BUSINESS (fallback) ────────────────────────────────────────────
+  return `# ${questionStart}
+
+**Direct Answer:** ${safeNeighborhood} has a lot to offer for ${safeGoal.toLowerCase()}. Here's a helpful local overview.
+
+## ${safeGoal} in ${safeNeighborhood}
+
+${safeNeighborhood} is home to a thriving local business community. Here's what you need to know:
+
+### What the Area Has to Offer
+- **Trusted Local Businesses:** Long-standing businesses with strong community ties and loyal customer bases
+- **Accessible Services:** Easy to reach via major roads, with ample parking and public transit options
+- **Competitive Pricing:** Local businesses often offer better value and more flexibility than large chains
+- **Personalized Service:** Owners and staff who know their customers by name and go the extra mile
+
+### Why Choose Local in ${safeNeighborhood}
+- Supports the local economy and creates jobs in the community
+- Faster response times and more accountability than national chains
+- Unique offerings tailored to the neighborhood's specific needs
+
+## About ${businessName}
+
+${ownerName} at ${businessName} is dedicated to serving the ${safeNeighborhood} community with integrity and expertise.
+
+**What we bring to the table:**
+- Strong community reputation and years of local experience
+- Customer-first approach with flexible service options
+- Commitment to quality and satisfaction on every job
+
+## Get in Touch
+
+Ready to experience what local expertise truly means?
+
+${contactLine}
+**Located in:** ${safeNeighborhood}, Omaha
+
+---
+*This content was optimized for AI search engines to provide direct, helpful answers about ${safeGoal.toLowerCase()} in ${safeNeighborhood}.*`;
+}
+
+
+const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) => {
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!authToken) {
     console.warn('⚠️ TWILIO_AUTH_TOKEN not set - skipping webhook validation');
     return next();
@@ -4547,9 +4798,6 @@ Do NOT nest JSON inside the content field. The content value must be a plain tex
         (process.env.REPLIT_DEV_DOMAIN
           ? `https://${process.env.REPLIT_DEV_DOMAIN}`
           : `${_callbackHost.includes("localhost") || _callbackHost.includes("127.0.0.1") ? "http" : "https"}://${_callbackHost}`);
-
-      if (error) {
-        return res.redirect(`${baseUrl}/?oauth_error=${error}`);
       }
 
       if (!code) {
@@ -8506,13 +8754,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         const { AIMarketDataGenerator } = await import(
           "./services/ai-market-generator"
         );
-        const profile = await storage.getCompanyProfile(userId);
-        const location = {
-          city: (profile as any)?.city || undefined,
-          state: (profile as any)?.state || undefined,
-          zipCode: (profile as any)?.zipCode || undefined,
-        };
-        const generator = new AIMarketDataGenerator(userId, location);
+        const generator = new AIMarketDataGenerator(userId);
 
         let generatedData;
         try {
@@ -8574,13 +8816,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
       const { AIMarketDataGenerator } = await import(
         "./services/ai-market-generator"
       );
-      const profile = await storage.getCompanyProfile(userId);
-      const location = {
-        city: (profile as any)?.city || undefined,
-        state: (profile as any)?.state || undefined,
-        zipCode: (profile as any)?.zipCode || undefined,
-      };
-      const generator = new AIMarketDataGenerator(userId, location);
+      const generator = new AIMarketDataGenerator(userId);
 
       let generatedData;
       try {
@@ -8635,27 +8871,7 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         return res.json([]);
       }
 
-      // Map DB rows to the shape the frontend expects
-      const intToPriority = (p: number | null): "high" | "medium" | "low" => {
-        if (p === 3) return "high";
-        if (p === 1) return "low";
-        return "medium";
-      };
-
-      const mapped = opportunities.map((opp) => {
-        const meta = (opp.metadata as any) || {};
-        return {
-          ...opp,
-          priority: meta.priorityLabel || intToPriority(opp.priority),
-          neighborhood: meta.neighborhood ?? null,
-          keywordId: meta.relatedKeyword ?? null,
-          trendSource: meta.trendSource || opp.opportunityType || "trend",
-          searchSignal: meta.searchSignal ?? 50,
-          generatedAt: opp.createdAt,
-        };
-      });
-
-      res.json(mapped);
+      res.json(opportunities);
     } catch (error) {
       console.error("Failed to get content opportunities:", error);
       res.status(500).json({ error: "Failed to fetch content opportunities" });
@@ -8671,11 +8887,6 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         console.log(
           `🎯 Generating AI content opportunities for user ${userId}...`
         );
-
-        // Load company profile for business context
-        const profile = await storage.getCompanyProfile(userId);
-        const businessType = (profile as any)?.businessType || "general";
-        const city = (profile as any)?.city || "your area";
 
         // 1. Load user's market data (top neighborhoods)
         const marketData = await storage.getMarketData(userId);
@@ -8698,28 +8909,48 @@ Focus on: ${focus} content that drives leads and showcases local market expertis
         }));
 
         // 3. Build AI prompt for generating opportunities
-        const neighborhoodSection = topNeighborhoods.length > 0
-          ? `Local Market Data:\n${topNeighborhoods.map((n) => `- ${n.name}: $${n.avgPrice?.toLocaleString()} avg price, ${n.trend} trend, ${n.inventory} inventory`).join("\n")}`
-          : `Location: ${city}`;
+        const prompt = `You are a real estate content strategist. Based on the following market data and SEO keywords, generate 5 high-value content opportunities for a real estate agent.
 
-        const keywordSection = topKeywords.length > 0
-          ? `Top SEO Keywords:\n${topKeywords.map((k) => `- "${k.keyword}" (volume: ${k.volume}, difficulty: ${k.difficulty})`).join("\n")}`
-          : "";
+Market Data (Hot Neighborhoods):
+${topNeighborhoods
+  .map(
+    (n) =>
+      `- ${n.name}: $${n.avgPrice?.toLocaleString()} avg price, ${
+        n.trend
+      } trend, ${n.inventory} inventory`
+  )
+  .join("\n")}
 
-        const prompt = `You are a content strategist for a ${businessType} business. Based on the following data, generate 5 high-value content opportunities.
+Top SEO Keywords:
+${topKeywords
+  .map(
+    (k) => `- "${k.keyword}" (volume: ${k.volume}, difficulty: ${k.difficulty})`
+  )
+  .join("\n")}
 
-${neighborhoodSection}
+Generate exactly 5 content opportunities as a JSON object with an "opportunities" array. Each opportunity must include:
+- title: Catchy title for the content piece (e.g., "Aksarben Market Update", "First-Time Buyer Guide")
+- description: Brief reason why this content is valuable (e.g., "High search volume", "Trending topic", "Seasonal interest")
+- priority: "high", "medium", or "low"
+- neighborhood: neighborhood name if applicable, or null
+- relatedKeyword: the keyword this relates to, or null
+- trendSource: "market" (based on neighborhood data), "keyword" (based on SEO keywords), or "trend" (general real estate trend)
+- searchSignal: integer score 0-100 indicating search demand/relevance
 
-${keywordSection}
+Focus on:
+1. High-search-volume topics related to the provided keywords
+2. Neighborhood-specific market updates for hot areas
+3. Seasonal/trending real estate topics
+4. First-time buyer guides and educational content
+5. Local market analysis and comparisons
 
-Generate exactly 5 content opportunities. Return ONLY a valid JSON object with NO markdown, NO code blocks, just raw JSON in this exact format:
-{"opportunities": [{"title": "string", "description": "string", "priority": "high|medium|low", "neighborhood": "string or null", "relatedKeyword": "string or null", "trendSource": "market|keyword|trend", "searchSignal": 0-100}, ...]}`;
+Return ONLY valid JSON in this format: {"opportunities": [{...}, {...}, ...]}`;
 
-        // Use Unified AI Service
+        // Use Unified AI Service (GitHub Copilot with OpenAI fallback)
         const { unifiedAI } = await import("./services/unified-ai");
         const aiResponse = await unifiedAI.generate(prompt, {
           systemPrompt:
-            "You are a content strategist. Always respond with raw valid JSON only. No markdown, no code blocks, no explanation.",
+            "You are a real estate content strategist who generates data-driven content opportunities in JSON format.",
           temperature: 0.7,
           maxTokens: 1500,
           jsonMode: true,
@@ -8727,40 +8958,33 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
 
         console.log(`✅ AI Response from: ${aiResponse.provider}`);
 
-        // Parse AI response - strip markdown code blocks if present
+        // Parse AI response
         let generatedOpportunities;
         try {
-          let responseText = aiResponse.content.trim();
-          if (responseText.startsWith('```json')) {
-            responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?$/g, '').trim();
-          } else if (responseText.startsWith('```')) {
-            responseText = responseText.replace(/```\n?/g, '').trim();
-          }
-          const result = JSON.parse(responseText);
+          const result = JSON.parse(aiResponse.content);
+          // The response_format forces JSON object, so we expect {opportunities: [...]}
           generatedOpportunities = result.opportunities || result || [];
           if (!Array.isArray(generatedOpportunities)) {
+            // If it's a single object, wrap in array
             generatedOpportunities = [generatedOpportunities];
           }
         } catch (parseError) {
-          console.warn("⚠️ Failed to parse AI response, using fallback opportunities:", parseError);
-          // Fallback opportunities instead of throwing
-          generatedOpportunities = [
-            { title: "Local Market Update", description: "Share current market statistics and trends", priority: "high", neighborhood: topNeighborhoods[0]?.name || null, relatedKeyword: null, trendSource: "market", searchSignal: 80 },
-            { title: "Content Tips for Your Audience", description: "Educational content for your target customers", priority: "high", neighborhood: null, relatedKeyword: topKeywords[0]?.keyword || null, trendSource: "keyword", searchSignal: 70 },
-            { title: "Neighborhood Spotlight", description: "Feature a trending local area", priority: "medium", neighborhood: topNeighborhoods[1]?.name || null, relatedKeyword: null, trendSource: "market", searchSignal: 65 },
-            { title: "Seasonal Trends Guide", description: "What customers should know this season", priority: "medium", neighborhood: null, relatedKeyword: null, trendSource: "trend", searchSignal: 60 },
-            { title: "FAQ: Common Questions Answered", description: "Address the most common customer questions", priority: "low", neighborhood: null, relatedKeyword: topKeywords[1]?.keyword || null, trendSource: "keyword", searchSignal: 55 },
-          ];
+          console.error("Failed to parse AI response:", parseError);
+          console.error("Raw response:", aiResponse.content);
+          throw new Error("Failed to parse AI-generated opportunities");
         }
 
         // Map priority strings to integers
         const priorityToInt = (priority: string): number => {
-          const priorityMap: Record<string, number> = { high: 3, medium: 2, low: 1 };
-          return priorityMap[priority?.toLowerCase()] || 2;
+          const priorityMap: Record<string, number> = {
+            high: 3,
+            medium: 2,
+            low: 1,
+          };
+          return priorityMap[priority?.toLowerCase()] || 2; // Default to medium (2)
         };
 
         // Validate and prepare for database
-        // Only use columns that exist in the DB schema; extras go into metadata
         const opportunitiesToInsert = generatedOpportunities
           .slice(0, 5)
           .map((opp: any) => ({
@@ -8769,12 +8993,11 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
             title: opp.title || "Untitled Opportunity",
             description: opp.description || "AI-generated content opportunity",
             priority: priorityToInt(opp.priority || "medium"),
+            neighborhood: opp.neighborhood || null,
+            keywordId: opp.relatedKeyword || null,
+            searchSignal: Math.min(100, Math.max(0, opp.searchSignal || 50)),
             metadata: {
-              neighborhood: opp.neighborhood || null,
-              relatedKeyword: opp.relatedKeyword || null,
-              trendSource: opp.trendSource || "trend",
-              searchSignal: Math.min(100, Math.max(0, opp.searchSignal || 50)),
-              priorityLabel: (opp.priority || "medium").toLowerCase(),
+              relatedKeyword: opp.relatedKeyword,
               generatedBy: aiResponse.provider,
               model: aiResponse.model,
               marketContext: topNeighborhoods.length > 0,
@@ -8817,14 +9040,6 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
       );
       const marketIntelligenceService = new MarketIntelligenceService();
 
-      // Fetch company profile for location context
-      const profile = await storage.getCompanyProfile(userId);
-      const location = {
-        city: (profile as any)?.city || undefined,
-        state: (profile as any)?.state || undefined,
-        zipCode: (profile as any)?.zipCode || undefined,
-      };
-
       // Fetch live market data for this user
       let marketData;
       try {
@@ -8838,7 +9053,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
           const { AIMarketDataGenerator } = await import(
             "./services/ai-market-generator"
           );
-          const generator = new AIMarketDataGenerator(userId, location);
+          const generator = new AIMarketDataGenerator(userId);
 
           let generatedData;
           try {
@@ -8869,8 +9084,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
 
       // Generate AI-powered market intelligence
       const intelligence = await marketIntelligenceService.generateIntelligence(
-        marketData,
-        location
+        marketData
       );
 
       res.json(intelligence);
@@ -8901,19 +9115,8 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
     try {
       const userId = String(req.user.id);
       const status = req.query.status as string;
-      const requestedBusinessType = typeof req.query.businessType === "string" && req.query.businessType
-        ? req.query.businessType
-        : null;
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const activeBusinessType = requestedBusinessType || (companyProfile as any)?.businessType || "real_estate";
       const posts = await storage.getScheduledPosts(userId, status);
-      const filteredPosts = posts.filter((post: any) => {
-        const postBusinessType = typeof post.metadata?.businessType === "string"
-          ? post.metadata.businessType
-          : "real_estate";
-        return postBusinessType === activeBusinessType;
-      });
-      res.json(filteredPosts);
+      res.json(posts);
     } catch (error) {
       console.error("Get scheduled posts error:", error);
       res.status(500).json({ error: "Failed to fetch scheduled posts" });
@@ -8923,17 +9126,11 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
   app.post("/api/scheduled-posts", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const businessType = req.body?.metadata?.businessType || req.body?.businessType || (companyProfile as any)?.businessType || "real_estate";
 
       // Validate the request body
       const postData = insertScheduledPostSchema.parse({
         userId,
         ...req.body,
-        metadata: {
-          ...(req.body?.metadata || {}),
-          businessType,
-        },
       });
 
       const createdPost = await storage.createScheduledPost(postData);
@@ -9001,13 +9198,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
       // Save generated posts to storage
       const createdPosts = [];
       for (const post of generatedPlan.posts) {
-        const created = await storage.createScheduledPost({
-          ...post,
-          metadata: {
-            ...((post as any).metadata || {}),
-            businessType,
-          },
-        });
+        const created = await storage.createScheduledPost(post);
         createdPosts.push(created);
       }
 
@@ -9147,7 +9338,6 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
               recurring,
               originalContent: content,
               generatedAt: new Date().toISOString(),
-              businessType: (companyProfile as any)?.businessType || "real_estate",
             },
           };
 
@@ -9531,7 +9721,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
             originalContent: aiContent.content,
             neighborhood,
             seoScore: aiContent.seoScore || 80,
-            metadata: { generated: true, focus: postType, aiGenerated: true, businessType: (companyProfile as any)?.businessType || "real_estate" },
+            metadata: { generated: true, focus: postType, aiGenerated: true },
           });
 
           generatedPosts.push(scheduledPost);
@@ -9558,7 +9748,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
             seoScore: 85,
             originalContent: fallbackContent,
             neighborhood,
-            metadata: { generated: true, focus: postType, fallback: true, businessType: (companyProfile as any)?.businessType || "real_estate" },
+            metadata: { generated: true, focus: postType, fallback: true },
           });
 
           generatedPosts.push(scheduledPost);
@@ -9585,7 +9775,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
       const userId = String(user.id);
 
       const allPosts = await storage.getScheduledPosts(userId);
-      const blankPosts = allPosts.filter((p: any) => !p.content || !p.content.trim());
+      const blankPosts = allPosts.filter(p => !p.content || !p.content.trim());
 
       if (blankPosts.length === 0) {
         return res.json({ fixed: 0, message: "No blank posts found" });
@@ -9613,51 +9803,63 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
             new_item: `🆕 Something NEW just hit our menu and we think you're going to love it! Stop by and be among the first to try it ${byline}. #NewMenuItem #MustTry #Foodie`,
             event_promotion: `📅 We've got something special coming up! Mark your calendar and join us for a great time ${byline}. #SpecialEvent #CommunityLove #DineWithUs`,
           };
-          return restaurantTemplates[category]
+          return restaurantTemplates[category] || restaurantTemplates.menu_highlight
+            .replace("our latest menu creation", category.replace(/_/g, " "))
             || `✨ Great things happening at ${businessName || "our place"}! Check out our ${category.replace(/_/g, " ")} — ${cta} #${bType.replace(/\s/g, "")} #Local`;
         }
 
         const reTemplates: Record<string, string[]> = {
           market_update: [
             `📊 ${loc} Real Estate Market Update: Inventory is shifting and prices are moving. Whether you're buying or selling, now is the time to make your move. ${cta} ${byline} #RealEstate #MarketUpdate #${loc.replace(/\s/g, "")}`,
+            `🏡 What's happening in the ${loc} real estate market? Demand remains strong and smart buyers are acting fast. Let's talk strategy ${byline}. ${cta} #MarketTrends #HomeBuying`,
           ],
           buyer_tips: [
             `🏡 Buyer Tip: The #1 thing to do before house hunting? Get pre-approved! It shows sellers you're serious and helps you move fast in a competitive market ${byline}. ${cta} #HomeBuying #BuyerTips #FirstTimeHomebuyer`,
+            `💡 Thinking of buying in ${loc}? Here are 3 things every smart buyer does: 1️⃣ Get pre-approved 2️⃣ Know your must-haves 3️⃣ Work with a local expert. That's where we come in ${byline}! #BuyerTips`,
           ],
           seller_tips: [
-            `💡 Seller Tip: Homes that are staged sell faster AND for more money. Declutter, fresh paint, and curb appeal can add thousands to your sale price ${byline}. ${cta} #SellerTips #HomeStaging #ListingTips`,
+            `💡 Seller Tip: Homes that are staged sell faster AND for more money. A little decluttering, fresh paint, and curb appeal can add thousands to your sale price ${byline}. ${cta} #SellerTips #HomeStaging #ListingTips`,
+            `🏠 Ready to list your ${loc} home? Price it right from the start — overpriced homes sit and eventually sell for less. We'll help you nail the perfect price ${byline}. #SellerStrategy #RealEstate`,
           ],
           neighborhood_spotlight: [
-            `✨ Spotlight on ${loc}! Top-rated schools, walkable dining, and a community that truly feels like home. Want to see what's available here? ${byline} ${cta} #NeighborhoodSpotlight #${loc.replace(/\s/g, "")} #RealEstate`,
+            `✨ Spotlight on ${loc}! Top-rated schools, tree-lined streets, walkable dining, and a community that truly feels like home. Want to see what's available here? ${byline} ${cta} #NeighborhoodSpotlight #${loc.replace(/\s/g, "")} #RealEstate`,
+            `📍 Why do people love living in ${loc}? Great parks, amazing local restaurants, excellent schools, and a tight-knit community. Let me show you around ${byline}! #LocalLove #${loc.replace(/\s/g, "")}`,
           ],
           home_improvement: [
-            `🔨 Top 3 home upgrades with the best ROI: 1️⃣ Kitchen refresh 2️⃣ Bathroom update 3️⃣ Landscaping. Small investments that make a BIG difference at sale time ${byline}. #HomeImprovement #DIY #HomeValue`,
+            `🔨 Top 3 home upgrades with the best ROI: 1️⃣ Kitchen refresh 2️⃣ Bathroom update 3️⃣ Landscaping curb appeal. Small investments that make a BIG difference at sale time ${byline}. #HomeImprovement #DIY #HomeValue`,
+            `🏡 Want to boost your home's value before listing? Start with the front door — fresh paint and new hardware can add serious curb appeal for under $200 ${byline}! #CurbAppeal #HomeImprovement`,
           ],
           investment_tips: [
-            `📈 Real estate in ${loc} continues to be one of the strongest investment opportunities available. Rental income + appreciation = long-term wealth ${byline}. ${cta} #RealEstateInvesting #PassiveIncome`,
+            `📈 Real estate in ${loc} continues to be one of the strongest investment opportunities available. Rental income + appreciation = long-term wealth. Let's talk numbers ${byline}. ${cta} #RealEstateInvesting #PassiveIncome`,
+            `💰 Did you know that real estate has historically outperformed stocks over 20-year periods? ${loc} is a smart place to build your portfolio ${byline}. ${cta} #InvestmentProperty #WealthBuilding`,
           ],
           community_events: [
-            `🎉 Love where you live! ${loc} has so much going on — farmers markets, community festivals, local sports, and more. This is what makes a house a HOME ${byline}. #CommunityLove #${loc.replace(/\s/g, "")}`,
+            `🎉 Love where you live! ${loc} has so much going on — farmers markets, community festivals, local sports, and more. This is what makes a house a HOME ${byline}. #CommunityLove #${loc.replace(/\s/g, "")} #LocalEvents`,
+            `📅 Great things are happening in ${loc} this season! Stay connected with your neighbors and community ${byline}. What's your favorite local event? Drop it in the comments! #LocalCommunity`,
           ],
           success_stories: [
             `🎊 Another family found their dream home in ${loc}! Watching clients get the keys to their forever home never gets old. Ready to write YOUR story? ${byline} ${cta} #JustClosed #HappyClients #DreamHome`,
+            `✅ SOLD! Another successful closing in ${loc}. Our clients got above asking price with multiple offers in under a week. Want results like this? ${byline} ${cta} #JustSold #SuccessStory`,
           ],
           open_houses: [
-            `🏠 Open House This Weekend in ${loc}! Gorgeous finishes, functional layout, and a neighborhood you'll fall in love with ${byline}. ${cta} #OpenHouse #HomeTour #${loc.replace(/\s/g, "")}`,
+            `🏠 Open House This Weekend in ${loc}! Gorgeous finishes, functional layout, and a neighborhood you'll fall in love with. Come see it in person ${byline}. ${cta} #OpenHouse #HomeTour #${loc.replace(/\s/g, "")}`,
+            `📣 You're invited! Join us for an Open House in ${loc} — beautiful home, great location, and it's priced to move. Don't miss out ${byline}! #OpenHouse #HomesForSale`,
           ],
           just_listed: [
-            `🆕 Just Listed in ${loc}! This stunning property just hit the market and it won't last long. DM me for a private showing ${byline}. ${cta} #JustListed #NewListing #${loc.replace(/\s/g, "")}RealEstate`,
+            `🆕 Just Listed in ${loc}! This stunning property just hit the market and it won't last long. DM me for a private showing before it's gone ${byline}. ${cta} #JustListed #NewListing #${loc.replace(/\s/g, "")}RealEstate`,
+            `🏡 NEW LISTING ALERT in ${loc}! Beautiful home, incredible neighborhood, priced right. Serious buyers, reach out NOW ${byline}. ${cta} #JustListed #HomesForSale`,
           ],
         };
 
         const options = reTemplates[category] || [
           `🏡 Looking to buy or sell in ${loc}? The market is active and opportunities are available right now ${byline}. ${cta} #RealEstate #${loc.replace(/\s/g, "")}`,
         ];
+        // Pick variation based on post id to get variety across posts
         return options[0];
       };
 
       // Update all blank posts in parallel using templates (instant, no AI calls)
-      const updates = blankPosts.map((post: any) => {
+      const updates = blankPosts.map(post => {
         const category = post.postType || "market_update";
         const neighborhood = post.neighborhood || city;
         const content = getTemplate(category, neighborhood, post.platform);
@@ -9665,14 +9867,14 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
           content,
           isAiGenerated: false,
           originalContent: content,
-        } as any).catch((err: any) => {
+        } as any).catch(err => {
           console.error(`Failed to update post ${post.id}:`, err);
           return null;
         });
       });
 
       const results = await Promise.all(updates);
-      const fixed = results.filter((r: any) => r !== null).length;
+      const fixed = results.filter(r => r !== null).length;
 
       res.json({ fixed, total: blankPosts.length });
     } catch (error) {
@@ -9813,37 +10015,47 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
         blueprintDescription?: string,
       ) => {
         if (scheduleDate < todayStart) return;
+        const keywords = categoryKeywordsMap[category] || ["marketing", "local business"];
         let content = "";
         let hashtags: string[] = [];
         let seoScore = 80;
         let isAiGenerated = true;
 
-        const businessLabel = businessType.replace(/_/g, ' ');
-        const topicLabel = blueprintDescription
-          ? blueprintDescription
-          : category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-
         try {
           if (postCounter > 0) await delay(500);
+          const businessLabel = businessType.replace(/_/g, ' ');
+          const contextKeywords = businessType === 'real_estate'
+            ? [...keywords, `${neighborhood} real estate`, "homes"]
+            : [...keywords, `${neighborhood} ${businessLabel}`, businessLabel];
 
-          const aiResult = await openaiService.generateSocialMediaPost(
-            topicLabel,
-            platform,
+          const seoAeoPrompt = blueprintDescription
+            ? `Content direction: ${blueprintDescription}. Write with SEO/AEO optimization: start with a question hook, front-load keywords, include a clear CTA, and use snippet-friendly format.`
+            : undefined;
+
+          const topicLabel = category.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+          const aiContent = await openaiService.generateContent({
+            type: "social",
+            topic: topicLabel,
             neighborhood,
-            { ...(agentName ? { agentName } : {}), businessType } as any,
-            businessType,
-          );
-          content = (aiResult.content || "").trim();
-          hashtags = aiResult.hashtags || [];
-          seoScore = 80;
+            keywords: contextKeywords,
+            userId,
+            companyProfile: {
+              ...(agentName ? { agentName } : {}),
+              businessType,
+            },
+            ...(seoAeoPrompt ? { aiPrompt: seoAeoPrompt } : {}),
+          });
+          content = (aiContent.content || "").trim();
+          if (!content) {
+            throw new Error(`AI returned empty content for category "${category}" on platform "${platform}"`);
+          }
+          hashtags = (aiContent as any).hashtags || aiContent.keywords || [];
+          seoScore = aiContent.seoScore || 80;
         } catch (aiError) {
           console.error(`Failed to generate AI content for post ${postCounter + 1}:`, aiError);
           isAiGenerated = false;
-        }
-
-        // Final safety: if AI returned nothing, use hardcoded fallback templates
-        if (!content) {
-          isAiGenerated = false;
+          const businessLabel = businessType.replace(/_/g, ' ');
           const genericFallback = `Discover what makes ${neighborhood} special! Contact ${agentName || "us"} for ${businessLabel} insights.`;
 
           const realEstateFallbackTemplates: Record<string, string> = {
@@ -9889,7 +10101,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
           originalContent: content,
           neighborhood,
           seoScore,
-          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated, blueprintDriven: isTwoWeekMode, businessType },
+          metadata: { generated: true, monthlyPlan: true, category, aiGenerated: isAiGenerated, blueprintDriven: isTwoWeekMode },
         });
         generatedPosts.push(scheduledPost);
         postCounter++;
@@ -11419,62 +11631,6 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
     }
   });
 
-  // Multi-scene video generation — each element in `scenes[]` becomes one segment
-  // POST /api/studio/generate-multi
-  // Body: { scenes: Array<{ avatarId, avatarType?, script?, voiceId?, voiceMode?, audioUrl?, audioAssetId?, speed?, gestureIntensity?, background? }>, title?, aspectRatio?, caption?, callbackUrl? }
-  app.post("/api/studio/generate-multi", requireAuth, async (req: any, res) => {
-    try {
-      const studio = getVideoStudio();
-      const userId = String(req.user?.id);
-      const { scenes, title, aspectRatio = "16:9", caption = false, callbackUrl } = req.body;
-
-      if (!Array.isArray(scenes) || scenes.length === 0) {
-        return res.status(400).json({ error: "scenes must be a non-empty array" });
-      }
-      if (scenes.length > 50) {
-        return res.status(400).json({ error: "Maximum 50 scenes per video" });
-      }
-
-      // Validate each scene has at minimum an avatarId and either script or audioUrl
-      for (let i = 0; i < scenes.length; i++) {
-        const s = scenes[i];
-        if (!s.avatarId) return res.status(400).json({ error: `scenes[${i}].avatarId is required` });
-        const needsAudio = s.voiceMode && s.voiceMode !== "tts";
-        if (needsAudio && !s.audioUrl && !s.audioAssetId) {
-          return res.status(400).json({ error: `scenes[${i}] needs audioUrl or audioAssetId when voiceMode is not "tts"` });
-        }
-        if (!needsAudio && !s.script) {
-          return res.status(400).json({ error: `scenes[${i}].script is required when voiceMode is "tts"` });
-        }
-      }
-
-      const result = await studio.generateMultiSceneVideo({ scenes, title, aspectRatio, caption, callbackUrl });
-
-      // Persist a DB record for history
-      const videoRecord = await storage.createVideoContent({
-        userId,
-        title: title || `Multi-scene video (${scenes.length} scenes)`,
-        script: scenes.map((s: any, i: number) => `Scene ${i + 1}: ${s.script ?? ""}`).join("\n\n"),
-        avatarId: scenes[0].avatarId,
-        status: "generating",
-        platform: aspectRatio === "9:16" ? "reels" : "youtube",
-        metadata: { heygenVideoId: result.id, multiScene: true, sceneCount: scenes.length },
-      });
-
-      res.json({
-        success: true,
-        videoId: result.id,
-        recordId: videoRecord.id,
-        status: result.status,
-        sceneCount: scenes.length,
-        message: `Multi-scene video generation started (${scenes.length} scenes). Poll /api/studio/status/${result.id} for updates.`,
-      });
-    } catch (error) {
-      console.error("Failed to generate multi-scene video:", error);
-      res.status(500).json({ error: "Failed to generate multi-scene video", details: error instanceof Error ? error.message : "Unknown error" });
-    }
-  });
-
   // ALL-IN-ONE: Quick generate (Upload → Ask → Get It in one call)
   app.post("/api/studio/quick-generate", requireAuth, async (req: any, res) => {
     try {
@@ -11707,12 +11863,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
   app.get("/api/events/sources", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const requestedBusinessType = typeof req.query.businessType === 'string' && req.query.businessType
-        ? req.query.businessType
-        : undefined;
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
-      const sources = await storage.getEventSources(userId, businessType);
+      const sources = await storage.getEventSources(userId);
       res.json({ sources });
     } catch (error) {
       console.error("Failed to list event sources:", error);
@@ -11724,9 +11875,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
   app.post("/api/events/sources", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const { name, type, config, businessType: requestedBusinessType } = req.body;
-      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
+      const { name, type, config } = req.body;
 
       if (!name || !type) {
         return res.status(400).json({ error: "Name and type are required" });
@@ -11739,7 +11888,6 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
 
       const source = await storage.createEventSource({
         userId,
-        businessType,
         name,
         type,
         config: config || {},
@@ -11823,11 +11971,9 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
   app.post("/api/events/sync-all", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const businessType = req.body?.businessType || (companyProfile as any)?.businessType || 'real_estate';
       
       const { eventIngestionService } = await import('./services/event-ingestion');
-      const result = await eventIngestionService.syncAllSources(userId, businessType);
+      const result = await eventIngestionService.syncAllSources(userId);
       
       res.json({ 
         success: true,
@@ -11858,8 +12004,6 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
   app.post("/api/events/setup-omaha-sources", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const businessType = req.body?.businessType || (companyProfile as any)?.businessType || 'real_estate';
       const { eventIngestionService } = await import('./services/event-ingestion');
       
       const templates = eventIngestionService.getPopularOmahaCalendars();
@@ -11867,7 +12011,7 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
         t.name.includes('Real Estate') || t.name.includes('Realtors') || t.name.includes('OABR')
       );
       
-      const existingSources = await storage.getEventSources(userId, businessType);
+      const existingSources = await storage.getEventSources(userId);
       const addedSources: any[] = [];
       
       for (const template of realEstateTemplates) {
@@ -11885,7 +12029,6 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
           
           const source = await storage.createEventSource({
             userId,
-            businessType,
             name: template.name,
             type: template.type,
             config,
@@ -11917,25 +12060,26 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
   app.post("/api/events/generate-weekly-plan", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const { weekStart, platforms, businessType: requestedBusinessType } = req.body;
-      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
+      const { weekStart, platforms } = req.body;
       
       const startDate = weekStart ? new Date(weekStart) : new Date();
       const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       
-      const events = await storage.getEvents(userId, { startDate, endDate, businessType });
+      const events = await storage.getEvents(userId, { startDate, endDate });
       
       if (events.length === 0) {
         return res.json({ suggestions: [], message: "No events found for this week" });
       }
       
-      const { unifiedAI: aiService } = await import('./services/unified-ai');
+      const { UnifiedAIService } = await import('./services/unified-ai');
+      const aiService = new UnifiedAIService();
       const targetPlatforms = platforms || ['facebook', 'instagram', 'linkedin', 'x'];
       
-      const weeklyResults = await Promise.allSettled(
-        events.slice(0, 10).flatMap(event =>
-          targetPlatforms.map(async (platform) => {
+      const allSuggestions: any[] = [];
+      
+      for (const event of events.slice(0, 10)) {
+        for (const platform of targetPlatforms) {
+          try {
             const prompt = `Create a ${platform} post for a real estate agent promoting this local event:
 
 Event: ${event.title}
@@ -11947,32 +12091,27 @@ Create an engaging post that connects the event to real estate/community value.
 Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] }`;
 
             const result = await aiService.generate(prompt, { jsonMode: true });
-            const parsed = parseAIJson(result.content) || { content: result.content, hashtags: [] };
+            let parsed: any = {};
+            try { parsed = JSON.parse(result.content); } catch { parsed = { content: result.content, hashtags: [] }; }
 
             const suggestedTime = new Date(event.startTime.getTime() - 24 * 60 * 60 * 1000);
+            
             const suggestion = await storage.createEventPostSuggestion({
               userId,
               eventId: event.id,
               platform,
-              content: stripMarkdown(parsed.content || result.content),
+              content: parsed.content || result.content,
               hashtags: parsed.hashtags || [],
               suggestedPostTime: suggestedTime,
               status: 'suggested',
               aiMetadata: { model: result.model },
             });
-            return { ...suggestion, eventTitle: event.title, eventDate: event.startTime };
-          })
-        )
-      );
-
-      weeklyResults
-        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-        .forEach(r => console.error('Weekly plan generation error:', r.reason));
-
-      const allSuggestions = weeklyResults
-        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
-        .map(r => r.value);
-
+            
+            allSuggestions.push({ ...suggestion, eventTitle: event.title, eventDate: event.startTime });
+          } catch (e) { console.error(`Failed to generate for ${platform}:`, e); }
+        }
+      }
+      
       res.json({ suggestions: allSuggestions, eventsProcessed: Math.min(events.length, 10) });
     } catch (error) {
       console.error("Failed to generate weekly plan:", error);
@@ -11984,15 +12123,13 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
   app.get("/api/events", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const { startDate, endDate, sourceId, category, businessType: requestedBusinessType } = req.query;
+      const { startDate, endDate, sourceId, category } = req.query;
 
       const options: any = {};
       if (startDate) options.startDate = new Date(startDate as string);
       if (endDate) options.endDate = new Date(endDate as string);
       if (sourceId) options.sourceId = sourceId;
       if (category) options.category = category;
-      options.businessType = (requestedBusinessType as string) || (companyProfile as any)?.businessType || 'real_estate';
 
       const events = await storage.getEvents(userId, options);
       res.json({ events });
@@ -12024,9 +12161,7 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
   app.post("/api/events", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const { title, description, startTime, endTime, location, category, businessType: requestedBusinessType } = req.body;
-      const businessType = requestedBusinessType || (companyProfile as any)?.businessType || 'real_estate';
+      const { title, description, startTime, endTime, location, category } = req.body;
 
       if (!title || !startTime) {
         return res.status(400).json({ error: "Title and start time are required" });
@@ -12040,7 +12175,6 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
         endTime: endTime ? new Date(endTime) : undefined,
         location,
         category,
-        businessType,
       });
 
       res.json({ event });
@@ -12089,28 +12223,6 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
   });
 
   // Generate AI post suggestions for an event
-  // Strip markdown formatting that AI adds but looks bad in social posts
-  const stripMarkdown = (text: string): string =>
-    text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/_(.+?)_/g, '$1');
-
-  // Robustly parse JSON that may be wrapped in markdown code fences
-  const parseAIJson = (raw: string): any => {
-    const s = raw.trim();
-    // Try direct parse first
-    try { return JSON.parse(s); } catch {}
-    // Strip markdown code fence: ```json ... ``` or ``` ... ```
-    const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) {
-      try { return JSON.parse(fenceMatch[1].trim()); } catch {}
-    }
-    // Try extracting first {...} block
-    const objMatch = s.match(/\{[\s\S]*\}/);
-    if (objMatch) {
-      try { return JSON.parse(objMatch[0]); } catch {}
-    }
-    return null;
-  };
-
   app.post("/api/events/:id/generate-posts", requireAuth, async (req: any, res) => {
     try {
       const userId = String(req.user?.id);
@@ -12123,15 +12235,13 @@ Return JSON: { "content": "post text with emojis", "hashtags": ["tag1", "tag2"] 
       }
 
       const targetPlatforms = platforms || ['facebook', 'instagram', 'linkedin', 'x'];
+      const suggestions: any[] = [];
 
-      const { unifiedAI: aiService } = await import('./services/unified-ai');
+      const { UnifiedAIService } = await import('./services/unified-ai');
+      const aiService = new UnifiedAIService();
 
-      const eventStart = new Date(event.startTime);
-      const suggestedTime = new Date(eventStart.getTime() - 24 * 60 * 60 * 1000);
-
-      // Run all platform generations in parallel for speed
-      const results = await Promise.allSettled(
-        targetPlatforms.map(async (platform) => {
+      for (const platform of targetPlatforms) {
+        try {
           const prompt = `Create a ${platform} post promoting this local event:
 
 Event: ${event.title}
@@ -12150,28 +12260,33 @@ Create an engaging post that:
 Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"] }`;
 
           const result = await aiService.generate(prompt, { jsonMode: true });
-          const parsed = parseAIJson(result.content) || { content: result.content, hashtags: [] };
+          let parsed: any = {};
+          
+          try {
+            parsed = JSON.parse(result.content);
+          } catch {
+            parsed = { content: result.content, hashtags: [] };
+          }
 
-          return storage.createEventPostSuggestion({
+          const eventStart = new Date(event.startTime);
+          const suggestedTime = new Date(eventStart.getTime() - 24 * 60 * 60 * 1000);
+
+          const suggestion = await storage.createEventPostSuggestion({
             userId,
             eventId: id,
             platform,
-            content: stripMarkdown(parsed.content || result.content),
+            content: parsed.content || result.content,
             hashtags: parsed.hashtags || [],
             suggestedPostTime: suggestedTime,
             status: 'suggested',
             aiMetadata: { model: result.model, provider: result.provider },
           });
-        })
-      );
 
-      const suggestions = results
-        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
-        .map(r => r.value);
-
-      results
-        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-        .forEach((r, i) => console.error(`Failed to generate post for ${targetPlatforms[i]}:`, r.reason));
+          suggestions.push(suggestion);
+        } catch (platformError: any) {
+          console.error(`Failed to generate post for ${platform}:`, platformError);
+        }
+      }
 
       res.json({ suggestions });
     } catch (error) {
@@ -12213,10 +12328,6 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         return res.status(404).json({ error: "Suggestion not found" });
       }
 
-      const event = suggestion.eventId ? await storage.getEventById(suggestion.eventId) : null;
-      const companyProfile = await storage.getCompanyProfile(userId);
-      const businessType = (companyProfile as any)?.businessType || "real_estate";
-
       const scheduledPost = await storage.createScheduledPost({
         userId,
         platform: suggestion.platform,
@@ -12225,13 +12336,9 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         scheduledFor: scheduledFor ? new Date(scheduledFor) : suggestion.suggestedPostTime || new Date(),
         status: 'pending',
         isAiGenerated: true,
-        postType: 'event_post',
         metadata: { 
           eventId: suggestion.eventId,
           suggestionId: suggestion.id,
-          eventTitle: event?.title || null,
-          eventDate: event?.startTime || null,
-          businessType,
         },
       });
 
@@ -12595,7 +12702,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         realtimeService.notifyPhotoGenerated(
           userId,
           req.body.name || "Avatar",
-          3 // HeyGen generates 3 photos
+          5 // HeyGen generates 5 photos
         );
 
         res.json(result);

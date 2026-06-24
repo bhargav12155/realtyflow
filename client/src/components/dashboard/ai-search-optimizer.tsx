@@ -24,7 +24,9 @@ import {
   Award,
   Target,
   Lightbulb,
-  Loader2
+  Loader2,
+  Copy,
+  ClipboardCheck
 } from "lucide-react";
 
 interface AIOptimizationScore {
@@ -150,6 +152,8 @@ export function AISearchOptimizer() {
   const [selectedNeighborhood, setSelectedNeighborhood] = useState("");
   const [optimizationGoal, setOptimizationGoal] = useState("");
   const [customQuestion, setCustomQuestion] = useState("");
+  const [generatedResult, setGeneratedResult] = useState<{ title: string; content: string; targetQueries: string[] } | null>(null);
+  const [copied, setCopied] = useState(false);
   
   const { toast} = useToast();
   const queryClient = useQueryClient();
@@ -168,6 +172,11 @@ export function AISearchOptimizer() {
   }>({
     queryKey: ["/api/company/profile"],
   });
+
+  // Reset optimization goal when industry changes
+  useEffect(() => {
+    setOptimizationGoal("");
+  }, [businessType]);
 
   // Get agent name and brokerage with smart defaults
   const agentName = companyProfile?.agentName || "[Your Name]";
@@ -197,10 +206,55 @@ export function AISearchOptimizer() {
     }
   };
 
-  // Reset goal when business type changes so stale goals don't cross industries
-  useEffect(() => {
-    setOptimizationGoal("");
-  }, [businessType]);
+  const generateAIOptimizedContent = useMutation({
+    mutationFn: async (data: { neighborhood: string; goal: string; question?: string; businessType: string }) => {
+      const response = await apiRequest("POST", "/api/content/ai-optimized", data);
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      setGeneratedResult({
+        title: data?.title || "",
+        content: data?.content || "",
+        targetQueries: data?.targetQueries || [],
+      });
+      toast({
+        title: "AI-Optimized Content Created!",
+        description: "Scroll down to see and copy your content",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Generation Failed",
+        description: error.message || "Failed to generate AI-optimized content",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleGenerateContent = () => {
+    if (!selectedNeighborhood || !optimizationGoal) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a neighborhood and optimization goal",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    generateAIOptimizedContent.mutate({
+      neighborhood: selectedNeighborhood,
+      goal: optimizationGoal,
+      question: customQuestion || undefined,
+      businessType,
+    });
+  };
+
+  const omahaNeighborhoods = [
+    "Dundee", "Aksarben Village", "Blackstone District", "Benson", 
+    "Midtown Crossing", "West Omaha", "Millard", "Papillion", 
+    "Elkhorn", "Downtown Omaha"
+  ];
 
   const optimizationGoalsByIndustry: Record<string, string[]> = {
     real_estate: [
@@ -263,6 +317,26 @@ export function AISearchOptimizer() {
       "Walk-in vs appointment availability",
       "Beauty product recommendations",
     ],
+    legal: [
+      "Top-rated lawyers near me",
+      "Affordable legal consultations",
+      "Family law and divorce attorneys",
+      "Personal injury case help",
+      "Business and contract law",
+      "Immigration legal services",
+      "Criminal defense attorneys",
+      "Estate planning and wills",
+    ],
+    education: [
+      "Best tutoring services near me",
+      "After-school programs for kids",
+      "Test prep and college readiness",
+      "Online learning options",
+      "Special needs educational support",
+      "Language learning programs",
+      "STEM and coding classes",
+      "Adult education and upskilling",
+    ],
     home_services: [
       "Best home repair services near me",
       "Emergency HVAC and plumbing help",
@@ -296,51 +370,6 @@ export function AISearchOptimizer() {
   };
 
   const optimizationGoals = optimizationGoalsByIndustry[businessType] || optimizationGoalsByIndustry.general;
-
-  const generateAIOptimizedContent = useMutation({
-    mutationFn: async (data: { neighborhood: string; goal: string; question?: string; businessType: string }) => {
-      const response = await apiRequest("POST", "/api/content/ai-optimized", data);
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "AI-Optimized Content Created!",
-        description: "Your content has been optimized for AI search engines",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Generation Failed",
-        description: error.message || "Failed to generate AI-optimized content",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleGenerateContent = () => {
-    if (!selectedNeighborhood || !optimizationGoal) {
-      toast({
-        title: "Missing Information",
-        description: "Please select a neighborhood and optimization goal",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    generateAIOptimizedContent.mutate({
-      neighborhood: selectedNeighborhood,
-      goal: optimizationGoal,
-      question: customQuestion || undefined,
-      businessType,
-    });
-  };
-
-  const omahaNeighborhoods = [
-    "Dundee", "Aksarben Village", "Blackstone District", "Benson", 
-    "Midtown Crossing", "West Omaha", "Millard", "Papillion", 
-    "Elkhorn", "Downtown Omaha"
-  ];
 
   return (
     <Card>
@@ -526,7 +555,16 @@ export function AISearchOptimizer() {
                   id="custom-question"
                   value={customQuestion}
                   onChange={(e) => setCustomQuestion(e.target.value)}
-                  placeholder="e.g., What's the best family neighborhood in Omaha?"
+                  placeholder={({
+                    real_estate: "e.g., What's the best family neighborhood in Omaha?",
+                    restaurant: "e.g., What's the best family-friendly restaurant in Downtown Omaha?",
+                    retail: "e.g., Where can I find unique local boutiques near me?",
+                    healthcare: "e.g., Where can I find an affordable doctor near me?",
+                    fitness: "e.g., What's the best gym for beginners in my area?",
+                    salon: "e.g., Where can I get a great haircut in Downtown Omaha?",
+                    legal: "e.g., Who is the best personal injury lawyer near me?",
+                    education: "e.g., Where can I find after-school tutoring in Omaha?",
+                  } as Record<string, string>)[businessType] || "e.g., What's the best local service near me?"}
                   data-testid="input-custom-question"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
@@ -566,6 +604,75 @@ export function AISearchOptimizer() {
                   <p><strong>Conversational Tone:</strong> Natural language that matches how people ask AI</p>
                 </div>
               </div>
+
+              {/* Generated Content Output */}
+              {generatedResult && (
+                <div className="border rounded-lg p-4 bg-green-50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-green-800 flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" />
+                      Generated AI-Optimized Content
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => {
+                        navigator.clipboard.writeText(generatedResult.content);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      {copied ? <><ClipboardCheck className="h-3 w-3 mr-1" /> Copied!</> : <><Copy className="h-3 w-3 mr-1" /> Copy</>}
+                    </Button>
+                  </div>
+
+                  {generatedResult.title && (
+                    <div>
+                      <p className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Title</p>
+                      <p className="text-sm font-semibold">{generatedResult.title}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Content</p>
+                    <div className="text-sm leading-relaxed bg-white border rounded p-3 space-y-2">
+                      {generatedResult.content.split("\n").map((line, i) => {
+                        if (!line.trim()) return <div key={i} className="h-2" />;
+                        // H1
+                        if (line.startsWith("# ")) return <h1 key={i} className="text-lg font-bold mt-2">{line.slice(2)}</h1>;
+                        // H2
+                        if (line.startsWith("## ")) return <h2 key={i} className="text-base font-semibold mt-2">{line.slice(3)}</h2>;
+                        // H3
+                        if (line.startsWith("### ")) return <h3 key={i} className="text-sm font-semibold mt-1">{line.slice(4)}</h3>;
+                        // Horizontal rule
+                        if (line.trim() === "---") return <hr key={i} className="my-2 border-gray-200" />;
+                        // Bullet / dash list item — render with inline bold
+                        const renderInline = (text: string) => {
+                          const parts = text.split(/\*\*(.*?)\*\*/g);
+                          return parts.map((part, j) => j % 2 === 1 ? <strong key={j}>{part}</strong> : part);
+                        };
+                        if (line.startsWith("- ")) return <li key={i} className="ml-4 list-disc">{renderInline(line.slice(2))}</li>;
+                        // Italic-wrapped line (*text*)
+                        if (/^\*[^*].*[^*]\*$/.test(line.trim())) return <p key={i} className="text-xs text-gray-500 italic">{line.trim().slice(1, -1)}</p>;
+                        // Normal paragraph with inline bold
+                        return <p key={i}>{renderInline(line)}</p>;
+                      })}
+                    </div>
+                  </div>
+
+                  {generatedResult.targetQueries?.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">Target Search Queries</p>
+                      <div className="flex flex-wrap gap-2">
+                        {generatedResult.targetQueries.map((q, i) => (
+                          <span key={i} className="text-xs bg-green-100 text-green-800 rounded-full px-2 py-1">{q}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </TabsContent>
           

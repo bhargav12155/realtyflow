@@ -309,11 +309,14 @@ export function pickDefaultProvider(genMode: GenMode, message: string): Provider
     return "luma";
   }
   if (genMode === "image-to-video") {
+    if (lower.includes("kling")) return "kling";
     if (lower.includes("veo")) return "veo";
+    if (lower.includes("runway")) return "runway";
     return "luma";
   }
-  // text-to-video — VEO only override; everything else goes to Luma.
-  if (lower.includes("veo")) return "veo";
+  if (lower.includes("seedance")) return "seedance";
+  if (lower.includes("sora")) return "sora2";
+  if (lower.includes("runway")) return "runway";
   return "luma";
 }
 
@@ -1159,7 +1162,7 @@ function isProviderDown(id: ChatModelId): boolean {
   return true;
 }
 
-const CHAT_MODEL_ORDER: ChatModelId[] = ["gemini", "claude", "openai"];
+const CHAT_MODEL_ORDER: ChatModelId[] = ["claude", "gemini", "openai"];
 
 export function getChatProviderHealthSnapshot(): {
   healthy: ChatModelId[];
@@ -1208,7 +1211,7 @@ async function brainstormReply(
   message: string,
   providers: Required<BoardsChatProviders>,
   history?: { role: "user" | "assistant"; content: string }[],
-  preferred: ChatModelId = "gemini",
+  preferred: ChatModelId = "claude",
   images?: BrainstormChatImage[],
   systemPrompt: string = BRAINSTORM_SYSTEM_BASE,
 ): Promise<BrainstormReplyResult> {
@@ -1580,7 +1583,7 @@ export function registerBoardsChatRoutes(
             if (url) visionImages.push({ url });
           }
         }
-        const requestedModel = body.chatModel ?? "gemini";
+        const requestedModel = body.chatModel ?? "claude";
         // Build a text-level board context summary so the AI can reason about
         // what's placed on the board and which asset(s) the user has tagged
         // as currently selected — the vision channel only carries pixels.
@@ -1589,22 +1592,10 @@ export function registerBoardsChatRoutes(
           boardAssetsForContext,
           body.referencedAssetIds ?? [],
         );
-        // Load conversation history from the DB so the AI remembers prior
-        // turns even when the client doesn't send conversationHistory.
-        // Cap at the last 20 messages to stay within model context limits.
-        const persistedHistory = body.conversationHistory
-          ?? await storage.getBoardMessagesWithAuthorsForUser(boardId, userId)
-            .then((msgs) =>
-              msgs
-                .filter((m) => m.role === "user" || m.role === "assistant")
-                .slice(-20)
-                .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-            )
-            .catch(() => undefined);
         const result = await brainstormReply(
           body.message,
           chatProviders,
-          persistedHistory,
+          body.conversationHistory,
           requestedModel,
           visionImages.length > 0 ? visionImages : undefined,
           dynamicSystemPrompt,
@@ -1659,7 +1650,8 @@ export function registerBoardsChatRoutes(
       const provider: Provider = body.provider || pickDefaultProvider(inferredGenMode, body.message);
       const isImage = isImageProvider(provider);
       // Image providers don't have a meaningful generation mode; force a label-only value.
-      // For video providers, prefer explicit UI selection when provided; otherwise infer.
+      // For video providers, prefer the explicit UI selection when provided;
+      // fallback to reference/message inference for backwards compatibility.
       const genMode: GenMode = isImage
         ? "text-to-video"
         : (selectedGenMode as GenMode | undefined) ?? inferredGenMode;
@@ -1673,24 +1665,7 @@ export function registerBoardsChatRoutes(
         });
       }
 
-      if (!isImage && provider === "veo") {
-        if (genMode !== "image-to-video") {
-          return res.status(400).json({
-            error: "Google VEO is image-to-video only in this build. Pick Image-to-Video and select an image.",
-            code: "veo_image_to_video_only",
-            allowedModes: ["image-to-video"],
-          });
-        }
-        const hasImageReference = refAssets.some((a) => a.kind === "image");
-        if (!hasImageReference) {
-          return res.status(400).json({
-            error: "Google VEO requires a selected image reference. Select an image on the board and retry.",
-            code: "veo_image_required",
-          });
-        }
-      }
-
-      const variations = body.variations ?? (isImage ? 3 : 1);
+      const variations = body.variations ?? (isImage ? 2 : 3);
       const batchId = randomUUID();
       const kind: "image" | "video" = isImage ? "image" : "video";
       const refImageCount = refAssets.filter((a) => a.kind === "image").length;
@@ -1724,13 +1699,8 @@ export function registerBoardsChatRoutes(
           provider,
           status: "generating",
           modelLabel: body.forceModel ?? null,
-          // Leave the position at the origin so the client lays tiles out in
-          // its flex-wrap row. positionX/Y is an *additive* transform offset on
-          // top of that flow layout, so any non-zero default here stacks the
-          // tiles on top of each other. Offsets are only meant to be set once a
-          // user deliberately drags a tile.
-          positionX: 0,
-          positionY: 0,
+          positionX: 40 + i * (tileWidth + 20),
+          positionY: 40,
           width: tileWidth,
           height: tileHeight,
           assetUrl: null,

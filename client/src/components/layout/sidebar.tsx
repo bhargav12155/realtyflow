@@ -55,6 +55,14 @@ import { useQuery } from "@tanstack/react-query";
 const navigationItems = [
   { icon: Home, label: "Dashboard", href: "/dashboard", key: "dashboard", isPageLink: true },
   {
+    icon: MessageSquare,
+    label: "AI Assistant",
+    href: "/ai-assistant",
+    key: "ai-assistant",
+    isPageLink: true,
+    badge: "NEW",
+  },
+  {
     icon: Bot,
     label: "AI Content Generator",
     href: "/dashboard#ai-content",

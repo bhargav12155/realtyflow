@@ -1,5 +1,5 @@
 {
-  "include": ["external/client/src/**/*", "external/shared/**/*", "external/server/**/*"],
+  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*"],
   "compilerOptions": {
     "incremental": true,
@@ -17,8 +17,8 @@
     "ignoreDeprecations": "6.0",
     "types": ["node", "vite/client"],
     "paths": {
-      "@/*": ["./external/client/src/*"],
-      "@shared/*": ["./external/shared/*"]
+      "@/*": ["./client/src/*"],
+      "@shared/*": ["./shared/*"]
     }
   }
 }

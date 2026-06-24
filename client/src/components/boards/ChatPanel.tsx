@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -110,10 +110,8 @@ interface ChatPanelProps {
    *  a typing beacon over the websocket. The panel debounces internally —
    *  callers should still throttle if they relay every event verbatim. */
   onTypingChange?: (isTyping: boolean) => void;
-  /** Controlled width of the panel in pixels. Defaults to 360. */
-  width?: number;
-  /** Called when the user drags the resize handle to a new width. */
-  onWidthChange?: (w: number) => void;
+  /** Called when the user picks or drops files from their device to attach as references. */
+  onAttachFiles?: (files: File[]) => void;
   /** Collapse/hide the chat panel from the board layout. */
   onCollapse?: () => void;
 }
@@ -121,6 +119,11 @@ interface ChatPanelProps {
 export const CHAT_HISTORY_CAP_MIN = 10;
 export const CHAT_HISTORY_CAP_MAX = 2000;
 export const CHAT_HISTORY_CAP_DEFAULT = 200;
+
+const I2V_PROVIDER_CHOICES: Array<{ id: ProviderId; label: string }> = [
+  { id: "luma", label: "Luma" },
+  { id: "veo", label: "Google VEO" },
+];
 
 /**
  * Pull a concrete suggested prompt out of an assistant message so the UI can
@@ -178,8 +181,7 @@ export function ChatPanel({
   isSavingChatHistoryCap,
   typingUserNames,
   onTypingChange,
-  width = 360,
-  onWidthChange,
+  onAttachFiles,
   onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -196,6 +198,72 @@ export function ChatPanel({
   }, [chatHistoryCap]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
+
+  // Resizable panel width. The panel lives on the right edge of the board, so
+  // dragging the left handle leftward widens it. Width is clamped and persisted
+  // to localStorage so it survives reloads and board switches.
+  const CHAT_WIDTH_MIN = 300;
+  const CHAT_WIDTH_MAX = 720;
+  const CHAT_WIDTH_DEFAULT = 360;
+  const CHAT_WIDTH_KEY = "boards.chatPanelWidth";
+  const [panelWidth, setPanelWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return CHAT_WIDTH_DEFAULT;
+    const saved = Number(window.localStorage.getItem(CHAT_WIDTH_KEY));
+    if (!Number.isFinite(saved) || saved <= 0) return CHAT_WIDTH_DEFAULT;
+    return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, saved));
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef<{ x: number; width: number } | null>(null);
+
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      resizeStartRef.current = { x: e.clientX, width: panelWidth };
+      setIsResizing(true);
+    },
+    [panelWidth],
+  );
+
+  useEffect(() => {
+    if (!isResizing) return;
+    const onMove = (e: PointerEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      // Dragging left (clientX decreasing) should grow the panel.
+      const next = start.width + (start.x - e.clientX);
+      setPanelWidth(
+        Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, next)),
+      );
+    };
+    const onUp = () => setIsResizing(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    // Prevent text selection / iframe pointer-steal while dragging.
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+    };
+  }, [isResizing]);
+
+  // Persist the chosen width once the user finishes dragging.
+  useEffect(() => {
+    if (isResizing || typeof window === "undefined") return;
+    window.localStorage.setItem(CHAT_WIDTH_KEY, String(panelWidth));
+  }, [isResizing, panelWidth]);
+
+  // Double-clicking the handle snaps back to the default width.
+  const handleResizeReset = useCallback(() => {
+    setPanelWidth(CHAT_WIDTH_DEFAULT);
+  }, []);
   // Cap the composer at roughly 7 lines before it starts scrolling internally.
   const CHAT_INPUT_MAX_HEIGHT = 160;
   // Recalculate the textarea height on every value change so it grows with
@@ -211,6 +279,8 @@ export function ChatPanel({
   };
   const sel = PLATFORMS.find((p) => p.id === provider) ?? PLATFORMS[0];
   const isPlan = mode === "brainstorm";
+  const isBuild = mode === "create";
+  const showI2VProviderToggle = isBuild;
   const selectedThinkModel =
     THINK_MODELS.find((m) => m.id === chatModel) ?? THINK_MODELS[0];
   const thinkingLabel = isPlan
@@ -272,6 +342,39 @@ export function ChatPanel({
     else setModelPickerOpen(false);
   }, [isPlan]);
 
+  const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !onAttachFiles) return;
+    onAttachFiles(Array.from(e.target.files));
+    e.target.value = "";
+  }, [onAttachFiles]);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    if (!onAttachFiles) return;
+    const files = Array.from(e.dataTransfer.files).filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+    );
+    if (files.length > 0) onAttachFiles(files);
+  }, [onAttachFiles]);
+
   const submit = () => {
     const text = input.trim();
     if (!text || isSending || isClearingChat) return;
@@ -301,33 +404,47 @@ export function ChatPanel({
     }, 0);
   };
 
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = width;
-    const onMove = (ev: MouseEvent) => {
-      const delta = startX - ev.clientX;
-      const next = Math.min(700, Math.max(280, startW + delta));
-      onWidthChange?.(next);
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  };
-
   return (
     <aside
-      style={{ width }}
       className="flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800 relative"
+      style={{ width: panelWidth }}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
-      {/* Drag-to-resize handle on the left edge */}
+      {/* Drag handle: sits on the panel's left edge. Drag to resize, double-click to reset. */}
       <div
-        onMouseDown={handleResizeMouseDown}
-        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-neutral-300 dark:hover:bg-neutral-600 z-10 transition-colors"
-        title="Drag to resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat panel"
+        onPointerDown={handleResizeStart}
+        onDoubleClick={handleResizeReset}
+        className="absolute left-0 top-0 bottom-0 -translate-x-1/2 w-2 z-50 cursor-col-resize group"
+        data-testid="chat-resize-handle"
+      >
+        <div
+          className={`absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 transition-colors ${
+            isResizing
+              ? "bg-violet-500"
+              : "bg-transparent group-hover:bg-violet-400/60"
+          }`}
+        />
+      </div>
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-violet-50/90 dark:bg-violet-950/80 border-2 border-dashed border-violet-400 rounded-none pointer-events-none">
+          <Paperclip className="w-8 h-8 text-violet-500 mb-2" />
+          <span className="text-sm font-medium text-violet-700 dark:text-violet-300">Drop to attach</span>
+        </div>
+      )}
+      {/* hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={handleFilePick}
       />
       <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
         <div className="flex items-center gap-1 font-medium text-[13px] text-neutral-900 truncate dark:text-neutral-100">
@@ -641,13 +758,21 @@ export function ChatPanel({
       })()}
 
       <div className="px-3 pb-3">
-        <div className="border border-neutral-200 rounded-2xl bg-white shadow-sm dark:border-neutral-700 dark:bg-neutral-800">
+        <div className="border border-neutral-200 rounded-xl bg-white shadow-sm focus-within:border-neutral-400 focus-within:ring-0 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:focus-within:border-neutral-500 transition-colors" style={{ outline: "none" }}>
           <div className="flex items-start gap-2 px-3 pt-3">
             <div className="w-6 h-6 rounded bg-gradient-to-br from-amber-300 via-rose-300 to-violet-400 flex-shrink-0" />
             <textarea
               ref={inputRef}
               rows={1}
-              className="flex-1 bg-transparent outline-none text-[13px] leading-5 text-neutral-800 placeholder:text-neutral-400 py-0.5 resize-none overflow-hidden dark:text-neutral-100 dark:placeholder:text-neutral-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex-1 border-0 bg-transparent p-0 outline-none shadow-none ring-0 focus:border-0 focus:outline-none focus:ring-0 focus:shadow-none text-[13px] leading-5 text-neutral-800 placeholder:text-neutral-400 py-0.5 resize-none overflow-hidden dark:text-neutral-100 dark:placeholder:text-neutral-500 disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{
+                appearance: "none",
+                WebkitAppearance: "none",
+                background: "transparent",
+                border: "none",
+                boxShadow: "none",
+                outline: "none",
+              }}
               placeholder={
                 isClearingChat
                   ? "Clearing chat — undo within 10 seconds…"
@@ -667,10 +792,10 @@ export function ChatPanel({
               data-testid="input-chat"
             />
           </div>
-          <div className="flex items-center justify-between px-3 py-2 gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center justify-between px-3 py-2 gap-x-2 gap-y-2 flex-wrap">
+            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
               <div
-                className="inline-flex items-center rounded-full bg-neutral-100 p-0.5 dark:bg-neutral-700"
+                className="inline-flex items-center rounded-full bg-neutral-100 p-0.5 dark:bg-neutral-700 flex-shrink-0"
                 data-testid="group-mode-toggle"
               >
                 <button
@@ -704,12 +829,12 @@ export function ChatPanel({
                 <Popover open={modelPickerOpen} onOpenChange={setModelPickerOpen}>
                   <PopoverTrigger asChild>
                     <button
-                      className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      className="flex items-center gap-1 min-w-0 max-w-[140px] text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
                       data-testid="button-open-think-model-picker"
                     >
-                      <Sparkles className="w-3 h-3 text-violet-500" />
-                      <span data-testid="text-think-model-name">{selectedThinkModel.name}</span>
-                      <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+                      <Sparkles className="w-3 h-3 shrink-0 text-violet-500" />
+                      <span className="truncate" data-testid="text-think-model-name">{selectedThinkModel.name}</span>
+                      <ChevronDown className="w-3 h-3 shrink-0 text-neutral-400 dark:text-neutral-500" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-[180px] p-1">
@@ -744,12 +869,12 @@ export function ChatPanel({
                 <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                   <PopoverTrigger asChild>
                     <button
-                      className="flex items-center gap-1 text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      className="flex items-center gap-1 min-w-0 max-w-[140px] text-[12px] text-neutral-700 hover:bg-neutral-100 rounded-md px-2 py-1 dark:text-neutral-200 dark:hover:bg-neutral-700"
                       data-testid="button-open-platform-picker"
                     >
-                      <Sparkles className="w-3 h-3 text-violet-500" />
-                      <span>{sel.name}</span>
-                      <ChevronDown className="w-3 h-3 text-neutral-400 dark:text-neutral-500" />
+                      <Sparkles className="w-3 h-3 shrink-0 text-violet-500" />
+                      <span className="truncate">{sel.name}</span>
+                      <ChevronDown className="w-3 h-3 shrink-0 text-neutral-400 dark:text-neutral-500" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-[420px] p-0">
@@ -758,16 +883,62 @@ export function ChatPanel({
                       onSelectProvider={onProviderChange}
                       selectedMode={generationMode}
                       onSelectMode={onGenerationModeChange}
-                      onCommittedSelection={() => setPickerOpen(false)}
                       seedanceOptions={seedanceOptions}
                       onSeedanceOptionsChange={onSeedanceOptionsChange}
                     />
                   </PopoverContent>
                 </Popover>
               )}
+              {showI2VProviderToggle && (
+                <div className="flex items-center gap-1 flex-wrap" data-testid="group-i2v-provider-toggle">
+                  {I2V_PROVIDER_CHOICES.map((choice) => {
+                    const active = generationMode === "image-to-video" && provider === choice.id;
+                    const isVeoDisabled =
+                      choice.id === "veo" && !hasReferencedImage;
+                    return (
+                      <button
+                        key={choice.id}
+                        type="button"
+                        disabled={isVeoDisabled}
+                        onClick={() => {
+                          onGenerationModeChange("image-to-video");
+                          onProviderChange(choice.id);
+                        }}
+                        className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                          active
+                            ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200"
+                            : "border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                        } ${isVeoDisabled ? "opacity-40 cursor-not-allowed hover:bg-transparent" : ""}`}
+                        title={
+                          isVeoDisabled
+                            ? "Select an image on the board to enable Google VEO"
+                            : `Use ${choice.label} for image-to-video`
+                        }
+                        data-testid={`button-i2v-provider-${choice.id}`}
+                        aria-pressed={active}
+                      >
+                        {choice.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {showI2VProviderToggle && !hasReferencedImage && (
+                <span className="text-[10px] text-neutral-400 italic" data-testid="text-i2v-select-image-hint">
+                  Select an image on the board to enable Google VEO.
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-attach"><Paperclip className="w-3.5 h-3.5" /></button>
+            <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200"
+                data-testid="button-attach"
+                title="Attach image or video from device"
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+              </button>
               <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-mic"><Mic className="w-3.5 h-3.5" /></button>
               <button
                 onClick={submit}

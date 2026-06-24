@@ -1665,9 +1665,17 @@ export function registerBoardsChatRoutes(
       const isImage = isImageProvider(provider);
       // Image providers don't have a meaningful generation mode; force a label-only value.
       // For video providers, prefer explicit UI selection when provided; otherwise infer.
+      // Exception: when the UI is still on its default "text-to-video" but the
+      // user actually selected an image (so inference resolves to
+      // image-to-video), honor the selected image and animate it. Saying
+      // "ignore the image"/"text to video" makes inferGenMode return
+      // text-to-video, which keeps the explicit text-to-video path working.
+      const selectedVideoMode = selectedGenMode as GenMode | undefined;
       const genMode: GenMode = isImage
         ? "text-to-video"
-        : (selectedGenMode as GenMode | undefined) ?? inferredGenMode;
+        : selectedVideoMode === "text-to-video" && inferredGenMode === "image-to-video"
+          ? "image-to-video"
+          : selectedVideoMode ?? inferredGenMode;
 
       // Hard rule: v2v is disabled in this build across providers.
       if (!isImage && genMode === "video-to-video") {

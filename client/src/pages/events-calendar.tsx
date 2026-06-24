@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Calendar, Plus, Trash2, RefreshCw, Settings, Sparkles, Clock, MapPin, ExternalLink, Check, X, Loader2, CalendarDays, Link2, Wand2, ListChecks, CheckCircle2 } from "lucide-react";
@@ -19,7 +19,9 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { format } from "date-fns";
 import { AddToCalendar } from "@/components/shared/add-to-calendar";
+import { useBusinessType } from "@/lib/businessContext";
 
 interface EventSource {
   id: string;
@@ -111,6 +113,7 @@ type SourceFormData = z.infer<typeof sourceFormSchema>;
 
 export default function EventsCalendarPage() {
   const { toast } = useToast();
+  const { businessType } = useBusinessType();
   const [activeTab, setActiveTab] = useState("weekly-planner");
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [showAddSourceDialog, setShowAddSourceDialog] = useState(false);
@@ -140,11 +143,21 @@ export default function EventsCalendarPage() {
   });
 
   const { data: sourcesData, isLoading: sourcesLoading } = useQuery<{ sources: EventSource[] }>({
-    queryKey: ["/api/events/sources"],
+    queryKey: ["/api/events/sources", businessType],
+    queryFn: async () => {
+      const response = await fetch(`/api/events/sources?businessType=${encodeURIComponent(businessType)}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch event sources");
+      return await response.json();
+    },
   });
 
   const { data: eventsData, isLoading: eventsLoading } = useQuery<{ events: Event[] }>({
-    queryKey: ["/api/events"],
+    queryKey: ["/api/events", businessType],
+    queryFn: async () => {
+      const response = await fetch(`/api/events?businessType=${encodeURIComponent(businessType)}`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch events");
+      return await response.json();
+    },
   });
 
   const { data: companyProfile } = useQuery<any>({ queryKey: ["/api/company/profile"] });
@@ -178,7 +191,7 @@ export default function EventsCalendarPage() {
 
   const createSourceMutation = useMutation({
     mutationFn: async (data: { name: string; type: string; config: any }) => {
-      const res = await apiRequest("POST", "/api/events/sources", data);
+      const res = await apiRequest("POST", "/api/events/sources", { ...data, businessType });
       return res.json();
     },
     onSuccess: () => {
@@ -206,7 +219,7 @@ export default function EventsCalendarPage() {
 
   const syncSourceMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/events/sources/${id}/sync`);
+      const res = await apiRequest("POST", `/api/events/sources/${id}/sync`, { businessType });
       return res.json();
     },
     onSuccess: (data) => {
@@ -224,7 +237,7 @@ export default function EventsCalendarPage() {
 
   const syncAllMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/events/sync-all");
+      const res = await apiRequest("POST", "/api/events/sync-all", { businessType });
       return res.json();
     },
     onSuccess: (data) => {
@@ -239,7 +252,7 @@ export default function EventsCalendarPage() {
 
   const createEventMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/events", data);
+      const res = await apiRequest("POST", "/api/events", { ...data, businessType });
       return res.json();
     },
     onSuccess: () => {
@@ -272,8 +285,15 @@ export default function EventsCalendarPage() {
       const res = await apiRequest("POST", `/api/events/suggestions/${suggestionId}/accept`);
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Post Scheduled", description: "The post has been added to your schedule." });
+    onSuccess: (data) => {
+      const scheduledFor = data?.scheduledPost?.scheduledFor;
+      const dateLabel = scheduledFor ? format(new Date(scheduledFor), "MMM d") : null;
+      toast({
+        title: "Post Scheduled",
+        description: dateLabel
+          ? `Added to your calendar on ${dateLabel}. Switch to the Calendar tab to see it.`
+          : "The post has been added to your schedule.",
+      });
       refetchSuggestions();
     },
   });
@@ -293,7 +313,7 @@ export default function EventsCalendarPage() {
 
   const setupOmahaSourcesMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/events/setup-omaha-sources");
+      const res = await apiRequest("POST", "/api/events/setup-omaha-sources", { businessType });
       return res.json();
     },
     onSuccess: (data) => {
@@ -314,6 +334,7 @@ export default function EventsCalendarPage() {
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/events/generate-weekly-plan", {
         platforms: ['facebook', 'instagram', 'linkedin', 'x'],
+        businessType,
       });
       return res.json();
     },
@@ -334,11 +355,18 @@ export default function EventsCalendarPage() {
       const res = await apiRequest("POST", `/api/events/suggestions/${suggestionId}/accept`);
       return res.json();
     },
-    onSuccess: (_, suggestionId) => {
+    onSuccess: (data, suggestionId) => {
       setWeeklyPlanSuggestions(prev => 
         prev.map(s => s.id === suggestionId ? { ...s, status: 'accepted' } : s)
       );
-      toast({ title: "Post Scheduled", description: "The post has been added to your schedule." });
+      const scheduledFor = data?.scheduledPost?.scheduledFor;
+      const dateLabel = scheduledFor ? format(new Date(scheduledFor), "MMM d") : null;
+      toast({
+        title: "Post Scheduled",
+        description: dateLabel
+          ? `Added to your calendar on ${dateLabel}. Switch to the Calendar tab to see it.`
+          : "The post has been added to your schedule.",
+      });
     },
   });
 
@@ -418,6 +446,12 @@ export default function EventsCalendarPage() {
   const suggestions = suggestionsData?.suggestions || [];
   const templates = templatesData?.templates || [];
 
+  useEffect(() => {
+    if (selectedEvent && !events.some((event) => event.id === selectedEvent.id)) {
+      setSelectedEvent(null);
+    }
+  }, [events, selectedEvent]);
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("en-US", {
@@ -460,7 +494,7 @@ export default function EventsCalendarPage() {
 
   const upcomingEvents = events
     .filter(e => new Date(e.startTime) > new Date())
-    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
     .slice(0, 10);
 
   return (

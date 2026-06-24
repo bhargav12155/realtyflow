@@ -61,29 +61,6 @@ function extractJSON(raw: string, fallback: any = {}): any {
   }
 }
 
-function pickInlineImagePart(response: any): any | null {
-  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
-  for (const candidate of candidates) {
-    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
-    const imgPart = parts.find((p: any) => p?.inlineData?.data);
-    if (imgPart) return imgPart;
-  }
-  return null;
-}
-
-function geminiNoImageDiagnostics(response: any): string {
-  const promptFeedback = response?.promptFeedback ? JSON.stringify(response.promptFeedback) : "none";
-  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
-  const candidateReasons = candidates
-    .map((c: any, idx: number) => {
-      const finish = c?.finishReason ?? "unknown";
-      const safety = c?.safetyRatings ? JSON.stringify(c.safetyRatings) : "none";
-      return `c${idx}: finish=${finish} safety=${safety}`;
-    })
-    .join(" | ");
-  return `promptFeedback=${promptFeedback}; ${candidateReasons || "no-candidates"}`;
-}
-
 // Gemini-compatible client that mimics the OpenAI client interface.
 // Used by makeRequest() so existing callbacks work unchanged.
 function createGeminiCompatibleClient(apiKey?: string) {
@@ -142,12 +119,12 @@ function createGeminiCompatibleClient(apiKey?: string) {
             contents: [{ role: "user", parts: [{ text: params.prompt }] }],
             config: { responseModalities: ["TEXT", "IMAGE"] },
           });
-          const imgPart = pickInlineImagePart(response);
+          const parts = response.candidates?.[0]?.content?.parts || [];
+          const imgPart = parts.find((p: any) => p.inlineData);
           if (imgPart?.inlineData?.data) {
             const mime = imgPart.inlineData.mimeType || "image/png";
             return { data: [{ url: `data:${mime};base64,${imgPart.inlineData.data}` }] };
           }
-          console.warn("⚠️ [Gemini] No image part found in candidates:", geminiNoImageDiagnostics(response));
           return { data: [{ url: null }] };
         } catch (err: any) {
           console.error("⚠️ [Gemini] Image generation error:", err?.message);
@@ -427,14 +404,14 @@ export class OpenAIService {
       });
 
       const result = extractJSON(response.text || "{}", {});
-      const generatedContent = (result.content || result.text || result.body || result.post || result.caption || result.message || "").trim();
+      const generatedContent = (result.content || "").trim();
       if (!generatedContent) {
         throw new Error("AI returned empty content field");
       }
       return {
         title: result.title || "Untitled Content",
         content: generatedContent,
-        keywords: result.keywords || result.hashtags || [],
+        keywords: result.keywords || [],
         metaDescription: result.metaDescription,
         seoScore: result.seoScore || 0,
         wordCount: result.wordCount || 0,
@@ -675,10 +652,11 @@ RULES:
         config: { responseModalities: ["TEXT", "IMAGE"] },
       });
 
-      const imgPart = pickInlineImagePart(response);
+      const parts = response.candidates?.[0]?.content?.parts || [];
+      const imgPart = parts.find((p: any) => p.inlineData);
 
       if (!imgPart?.inlineData?.data) {
-        console.warn("⚠️ [ImageGen] No image returned from Gemini image generation:", geminiNoImageDiagnostics(response));
+        console.warn("⚠️ [ImageGen] No image returned from Gemini image generation");
         return null;
       }
 
@@ -739,9 +717,10 @@ RULES:
         config: { responseModalities: ["TEXT", "IMAGE"] },
       });
 
-      const imgPart = pickInlineImagePart(response);
+      const outParts = response.candidates?.[0]?.content?.parts || [];
+      const imgPart = outParts.find((p: any) => p.inlineData);
       if (!imgPart?.inlineData?.data) {
-        console.warn("⚠️ [ImageEdit] No image returned from Gemini image edit:", geminiNoImageDiagnostics(response));
+        console.warn("⚠️ [ImageEdit] No image returned from Gemini image edit");
         return null;
       }
 

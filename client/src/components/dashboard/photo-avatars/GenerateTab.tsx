@@ -203,7 +203,7 @@ export function GenerateTab() {
         ) : (
           <>
             <Camera className="w-4 h-4 mr-2" />
-            Generate 5 AI Photos
+            Generate 3 AI Photos
           </>
         )}
       </Button>

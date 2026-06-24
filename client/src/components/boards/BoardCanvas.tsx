@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2 } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
 import {
@@ -29,6 +29,8 @@ export interface CanvasAsset {
   height?: number | null;
   positionX?: number | null;
   positionY?: number | null;
+  provider?: string | null;
+  modelLabel?: string | null;
 }
 
 export interface AssetMove {
@@ -75,6 +77,7 @@ export type ReEvalModel = "openai" | "gemini";
 
 interface BoardCanvasProps {
   batches: CanvasBatch[];
+  compileOrderByAssetId?: Map<string, number>;
   selectedAssetIds: Set<string>;
   onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
   /** Replace the selection with the given ids (used by marquee drag). */
@@ -151,6 +154,7 @@ const TILE_DRAG_CLICK_SUPPRESS_MS = 250;
 
 export function BoardCanvas({
   batches,
+  compileOrderByAssetId,
   selectedAssetIds,
   onSelectAsset,
   onSelectMany,
@@ -483,6 +487,7 @@ export function BoardCanvas({
             <BatchGroup
               key={b.batchId}
               batch={b}
+              compileOrderByAssetId={compileOrderByAssetId}
               assetsById={assetsById}
               selectedAssetIds={selectedAssetIds}
               onSelectAsset={onSelectAsset}
@@ -583,6 +588,7 @@ export function RemoteCursorLayer({
 
 function BatchGroup({
   batch,
+  compileOrderByAssetId,
   assetsById,
   selectedAssetIds,
   onSelectAsset,
@@ -601,6 +607,7 @@ function BatchGroup({
   remoteDrags,
 }: {
   batch: CanvasBatch;
+  compileOrderByAssetId?: Map<string, number>;
   assetsById: Map<string, CanvasAsset>;
   selectedAssetIds: Set<string>;
   onSelectAsset: (id: string | null, opts?: SelectAssetOptions) => void;
@@ -635,10 +642,87 @@ function BatchGroup({
   const canReEval = batch.assets.some(
     (a) => !!a.assetUrl && (a.status === "ready" || a.status === "rejected"),
   );
+  // Any tile still queued/generating lights up the whole batch box with an
+  // animated glow border so the creation moment reads as "alive".
+  const batchGenerating = batch.assets.some(
+    (a) => a.status === "queued" || a.status === "generating",
+  );
+
+  // Tiles move via CSS `transform`, which doesn't grow their flex container,
+  // so dragged tiles visually hang outside the batch box. After each layout we
+  // measure the tiles' real (post-transform) extent and grow the box to cover
+  // them, keeping the whole batch visually grouped no matter where tiles land.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const flowRef = useRef<HTMLDivElement>(null);
+  // Serialize the inputs that affect tile geometry so the effect re-runs when
+  // any tile moves, resizes, or is added/removed.
+  const tileGeometryKey = batch.assets
+    .map((a) => `${a.id}:${a.positionX ?? 0}:${a.positionY ?? 0}:${a.width ?? 0}:${a.height ?? 0}`)
+    .join("|");
+  // While a tile in this batch is being dragged its stored position hasn't
+  // committed yet, so fold the live drag delta into the key to re-measure on
+  // every move and grow the box in real time.
+  const draggingHere = batch.assets.some((a) => activeTileDrag?.ids.has(a.id));
+  const liveDragKey = draggingHere
+    ? `${activeTileDrag!.delta.x}:${activeTileDrag!.delta.y}`
+    : "";
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const flow = flowRef.current;
+    if (!box || !flow) return;
+    const boxRect = box.getBoundingClientRect();
+    // Account for the box's own padding (p-2.5 = 10px) so tiles never touch the
+    // border. Read it live in case the class ever changes.
+    const pad = parseFloat(getComputedStyle(box).paddingRight) || 10;
+    let maxRight = 0;
+    let maxBottom = 0;
+    for (const child of Array.from(flow.children)) {
+      const r = (child as HTMLElement).getBoundingClientRect();
+      maxRight = Math.max(maxRight, r.right - boxRect.left);
+      maxBottom = Math.max(maxBottom, r.bottom - boxRect.top);
+    }
+    // Grow-only via min-*: this adds empty space to cover translated tiles
+    // without shifting the tiles themselves, so the measurement stays stable
+    // (no resize feedback loop). Tiles in their default flow are unaffected.
+    box.style.minWidth = maxRight > 0 ? `${Math.ceil(maxRight + pad)}px` : "";
+    box.style.minHeight = maxBottom > 0 ? `${Math.ceil(maxBottom + pad)}px` : "";
+  }, [tileGeometryKey, liveDragKey]);
+
   return (
     <div className="mb-5" data-testid={`batch-${batch.batchId}`}>
       <div className="flex items-center justify-between mb-1.5 ml-1">
-        <div className="text-[11px] text-neutral-500 dark:text-neutral-400">{batch.batchLabel || "Batch"}</div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300 truncate max-w-[280px]" title={batch.batchLabel ?? undefined}>
+            {batch.batchLabel || "Batch"}
+          </span>
+          {(() => {
+            const generatingCount = batch.assets.filter(a => a.status === "queued" || a.status === "generating").length;
+            const total = batch.assets.length;
+            const provider = batch.assets[0]?.provider;
+            const providerLabel: Record<string, string> = {
+              luma: "Luma", runway: "Runway", veo: "VEO", kling: "Kling",
+              sora2: "Sora 2", seedance: "Seedance", "gemini-image": "Gemini",
+              "openai-image": "DALL·E", heygen: "HeyGen", upload: "Upload",
+            };
+            if (generatingCount > 0) {
+              return (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[10px] font-medium shrink-0">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  {generatingCount === total ? "Generating…" : `${generatingCount}/${total} generating`}
+                  {provider && providerLabel[provider] ? ` · ${providerLabel[provider]}` : ""}
+                </span>
+              );
+            }
+            if (provider && providerLabel[provider]) {
+              return (
+                <span className="px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 text-[10px] shrink-0">
+                  {providerLabel[provider]}
+                </span>
+              );
+            }
+            return null;
+          })()}
+        </div>
         {onReEvaluate && canReEval && (
           <div
             className="relative"
@@ -667,8 +751,13 @@ function BatchGroup({
           </div>
         )}
       </div>
-      <div className="bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800">
-        <div className="flex flex-wrap gap-2">
+      <div
+        ref={boxRef}
+        className={`bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800 ${
+          batchGenerating ? "batch-generating-glow" : ""
+        }`}
+      >
+        <div ref={flowRef} className="flex flex-wrap gap-2">
           {batch.assets.map((a) => {
             const source = a.sourceAssetId ? assetsById.get(a.sourceAssetId) ?? null : null;
             const isDragging = activeTileDrag?.ids.has(a.id) ?? false;
@@ -709,6 +798,7 @@ function BatchGroup({
                 }
                 asset={a}
                 sourceAsset={source}
+                compileOrder={compileOrderByAssetId?.get(a.id)}
                 selected={selectedAssetIds.has(a.id)}
                 isWinner={a.id === winnerId}
                 onSelect={(opts) => onSelectAsset(a.id, opts)}
@@ -820,6 +910,7 @@ function ReEvalPopover({
 function AssetTile({
   asset,
   sourceAsset,
+  compileOrder,
   selected,
   isWinner,
   onSelect,
@@ -840,6 +931,7 @@ function AssetTile({
 }: {
   asset: CanvasAsset;
   sourceAsset?: CanvasAsset | null;
+  compileOrder?: number;
   selected: boolean;
   isWinner: boolean;
   onSelect: (opts?: SelectAssetOptions) => void;
@@ -890,6 +982,9 @@ function AssetTile({
   const canEdit = isEditableKind && !!onUpdateContent;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(asset.content ?? "");
+  const [videoLoadFailed, setVideoLoadFailed] = useState(false);
+  const compileOrderForVideo = asset.kind === "video" && typeof compileOrder === "number" ? compileOrder : null;
+  const historyButtonTop = compileOrderForVideo != null ? "top-7" : "top-1.5";
   const editRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
   // When the canonical content changes from outside (e.g. WS push from
   // another collaborator), keep our draft in sync as long as we're not
@@ -903,6 +998,11 @@ function AssetTile({
       editRef.current.select();
     }
   }, [editing]);
+  useEffect(() => {
+    if (asset.kind === "video") {
+      setVideoLoadFailed(false);
+    }
+  }, [asset.kind, src, asset.status]);
   const startEdit = () => {
     if (!canEdit) return;
     setDraft(asset.content ?? "");
@@ -1254,23 +1354,78 @@ function AssetTile({
             <audio src={asset.assetUrl} controls className="w-full" />
           </div>
         ) : src ? (
-          <img src={src} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-500 dark:text-neutral-400">
-            {generating ? "generating…" : "no preview"}
+          asset.kind === "video" ? (
+            videoLoadFailed ? (
+              <div
+                className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-900/60 text-center px-2"
+                data-testid={`video-error-${asset.id}`}
+              >
+                <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300">
+                  Video preview unavailable
+                </div>
+                <div className="text-[9px] text-neutral-500 dark:text-neutral-400">
+                  The file was generated but could not be played in this browser view.
+                </div>
+              </div>
+            ) : (
+              <video
+                src={src}
+                className="w-full h-full object-cover"
+                autoPlay
+                muted
+                loop
+                playsInline
+                onError={() => setVideoLoadFailed(true)}
+              />
+            )
+          ) : (
+            <img src={src} alt="" className="w-full h-full object-cover" />
+          )
+        ) : generating ? (
+          <div className="relative w-full h-full flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-900/60">
+            {/* Decorative twinkling sparkles — an "AI is conjuring this" cue. */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+              <Sparkles className="gen-sparkle w-3 h-3" style={{ top: "16%", left: "15%", animationDelay: "0s" }} />
+              <Sparkles className="gen-sparkle w-2.5 h-2.5" style={{ top: "28%", right: "17%", animationDelay: "0.45s" }} />
+              <Sparkles className="gen-sparkle w-2 h-2" style={{ bottom: "26%", left: "24%", animationDelay: "0.9s" }} />
+              <Sparkles className="gen-sparkle w-3 h-3" style={{ bottom: "18%", right: "20%", animationDelay: "1.3s" }} />
+            </div>
+            <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+            <div className="text-center px-1">
+              <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300">
+                {asset.status === "queued" ? "Queued" : "Generating"}
+              </div>
+              {asset.provider && (() => {
+                const providerLabel: Record<string, string> = {
+                  luma: "Luma", runway: "Runway", veo: "VEO", kling: "Kling",
+                  sora2: "Sora 2", seedance: "Seedance", "gemini-image": "Gemini",
+                  "openai-image": "DALL·E", heygen: "HeyGen",
+                };
+                const label = providerLabel[asset.provider] ?? asset.provider;
+                return <div className="text-[9px] text-neutral-400 dark:text-neutral-500 mt-0.5">{label}</div>;
+              })()}
+            </div>
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neutral-200/60 dark:bg-neutral-700/60 overflow-hidden" data-testid={`progress-${asset.id}`}>
+              <div className="h-full w-1/3 bg-blue-500 rounded-r-full animate-progress-slide" />
+            </div>
           </div>
-        )}
-        {generating && (
-          <div
-            className="absolute bottom-0 left-0 right-0 h-1 bg-neutral-300/60 dark:bg-neutral-700/60 overflow-hidden"
-            data-testid={`progress-${asset.id}`}
-          >
-            <div className="h-full w-1/3 bg-blue-500 rounded-r-full animate-progress-slide" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-400 dark:text-neutral-500">
+            no preview
           </div>
         )}
         {asset.durationSeconds != null && (
           <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[10px] text-white">
             <span className="font-medium">{Math.round(asset.durationSeconds)}s</span>
+          </div>
+        )}
+        {compileOrderForVideo != null && (
+          <div
+            className="absolute top-1.5 left-1.5 min-w-[18px] h-4 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-semibold flex items-center justify-center"
+            data-testid={`badge-compile-order-${asset.id}`}
+            title={`Compile order ${compileOrderForVideo}`}
+          >
+            {compileOrderForVideo}
           </div>
         )}
         {isWinner && (
@@ -1291,7 +1446,7 @@ function AssetTile({
       {history.length > 0 && (
         <button
           type="button"
-          className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-20"
+          className={`absolute ${historyButtonTop} left-1.5 w-5 h-5 rounded-full bg-black/60 backdrop-blur text-white flex items-center justify-center opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-20`}
           title={`${history.length} eval ${history.length === 1 ? "entry" : "entries"}`}
           aria-label="Show eval history"
           data-testid={`button-history-${asset.id}`}

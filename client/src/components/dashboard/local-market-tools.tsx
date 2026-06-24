@@ -6,6 +6,8 @@ import { RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { useBusinessType } from "@/lib/businessContext";
+import { getIndustryConfig } from "@/lib/industryConfig";
 
 interface MarketData {
   id: string;
@@ -73,6 +75,8 @@ const getTrendIcon = (trend: string) => {
 
 export function LocalMarketTools() {
   const { toast } = useToast();
+  const { businessType } = useBusinessType();
+  const industryConfig = getIndustryConfig(businessType);
   
   const { data: marketData, isLoading } = useQuery<MarketData[]>({
     queryKey: ["/api/market/data"],
@@ -90,7 +94,7 @@ export function LocalMarketTools() {
       queryClient.invalidateQueries({ queryKey: ["/api/market/data"] });
       toast({
         title: "Market Data Refreshed",
-        description: "AI has generated fresh market statistics for Omaha neighborhoods.",
+        description: "AI has generated fresh market statistics for your area.",
       });
     },
     onError: (error: Error) => {
@@ -160,7 +164,7 @@ export function LocalMarketTools() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="space-y-1">
-            <CardTitle className="text-lg font-semibold text-foreground">Local Market Intelligence</CardTitle>
+            <CardTitle className="text-lg font-semibold text-foreground">{industryConfig.marketTitle}</CardTitle>
             {lastUpdated && (
               <p className="text-xs text-muted-foreground">
                 Last updated: {format(lastUpdated, "MMM d, yyyy 'at' h:mm a")}
@@ -190,54 +194,76 @@ export function LocalMarketTools() {
           {/* Market Stats */}
           <div>
             <h3 className="text-sm font-medium text-foreground mb-3">Market Overview</h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Avg. Home Price</span>
-                <span className="text-sm font-medium text-foreground" data-testid="text-avg-price">
-                  ${avgPrice}K
-                </span>
+            {industryConfig.showRealEstateData ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Avg. Home Price</span>
+                  <span className="text-sm font-medium text-foreground" data-testid="text-avg-price">
+                    ${avgPrice}K
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Days on Market</span>
+                  <span className="text-sm font-medium text-foreground" data-testid="text-days-on-market">
+                    {avgDaysOnMarket} days
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Inventory</span>
+                  <span className="text-sm font-medium text-destructive" data-testid="text-inventory">
+                    1.2 months
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Price Growth</span>
+                  <span className="text-sm font-medium text-green-600" data-testid="text-price-growth">
+                    +8.4% YoY
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Days on Market</span>
-                <span className="text-sm font-medium text-foreground" data-testid="text-days-on-market">
-                  {avgDaysOnMarket} days
-                </span>
+            ) : (
+              <div className="space-y-3">
+                {industryConfig.metrics.map((metric) => (
+                  <div key={metric.key} className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">{metric.label}</span>
+                    <span className="text-sm font-medium text-muted-foreground italic">AI-powered</span>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground mt-2 italic">
+                  Generate content opportunities to see {industryConfig.opportunityContext} insights.
+                </p>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Inventory</span>
-                <span className="text-sm font-medium text-destructive" data-testid="text-inventory">
-                  1.2 months
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">Price Growth</span>
-                <span className="text-sm font-medium text-green-600" data-testid="text-price-growth">
-                  +8.4% YoY
-                </span>
-              </div>
-            </div>
+            )}
           </div>
 
-          {/* Hot Neighborhoods */}
+          {/* Hot Neighborhoods / Trending Items */}
           <div>
-            <h3 className="text-sm font-medium text-foreground mb-3">Trending Neighborhoods</h3>
-            <div className="space-y-2">
-              {marketData?.slice(0, 3).map((neighborhood) => (
-                <div key={neighborhood.id} className="p-2 bg-muted rounded-md" data-testid={`neighborhood-${neighborhood.neighborhood.toLowerCase()}`}>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-foreground">{neighborhood.neighborhood}</span>
-                    <span className={`text-xs ${getTrendColor(neighborhood.trend)}`}>
-                      {getTrendIcon(neighborhood.trend)}
-                    </span>
+            <h3 className="text-sm font-medium text-foreground mb-3">{industryConfig.trendingLabel}</h3>
+            {industryConfig.showRealEstateData ? (
+              <div className="space-y-2">
+                {marketData?.slice(0, 3).map((neighborhood) => (
+                  <div key={neighborhood.id} className="p-2 bg-muted rounded-md" data-testid={`neighborhood-${neighborhood.neighborhood.toLowerCase()}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-foreground">{neighborhood.neighborhood}</span>
+                      <span className={`text-xs ${getTrendColor(neighborhood.trend)}`}>
+                        {getTrendIcon(neighborhood.trend)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {neighborhood.trend === "hot" && "15% above avg price"}
+                      {neighborhood.trend === "rising" && "Low inventory"}
+                      {neighborhood.trend === "steady" && "First-time buyers"}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {neighborhood.trend === "hot" && "15% above avg price"}
-                    {neighborhood.trend === "rising" && "Low inventory"}
-                    {neighborhood.trend === "steady" && "First-time buyers"}
-                  </p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-24 border-2 border-dashed rounded-lg bg-muted/30">
+                <p className="text-sm text-muted-foreground text-center px-3">
+                  Generate opportunities to discover trending {industryConfig.trendingItemLabel}s for your business.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Content Opportunities */}

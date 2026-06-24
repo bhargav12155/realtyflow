@@ -112,7 +112,7 @@ export class HeyGenPhotoAvatarService {
       pose: options.pose,
       style: options.style,
       appearance: options.appearance,
-      num_images: 3, // Generate 3 photos
+      num_images: 5, // Generate 5 photos
     };
 
     const response = await this.makeRequest(
@@ -332,9 +332,9 @@ export class HeyGenPhotoAvatarService {
     },
   ];
 
-  // Generate new looks for trained avatar with 3 professional real estate styles
+  // Generate new looks for trained avatar with 4 professional real estate styles
   // Note: This requires the avatar group to be trained first
-  async generateNewLooks(groupId: string, numLooks: number = 3) {
+  async generateNewLooks(groupId: string, numLooks: number = 4) {
     const configs = HeyGenPhotoAvatarService.LOOK_CONFIGS.slice(0, numLooks);
     
     const results: Array<{

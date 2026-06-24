@@ -60,29 +60,6 @@ export interface QuickVideoRequest {
   aspectRatio?: "16:9" | "9:16" | "1:1";
 }
 
-export interface MultiSceneScene {
-  /** HeyGen avatar_id or talking_photo_id */
-  avatarId: string;
-  avatarType?: "avatar" | "talking_photo";
-  /** Script text for TTS (ignored when audioUrl/audioAssetId provided) */
-  script?: string;
-  voiceId?: string;
-  voiceMode?: "tts" | "record" | "upload";
-  audioUrl?: string;
-  audioAssetId?: string;
-  speed?: number;
-  gestureIntensity?: number;
-  background?: { type: "color"; value: string } | { type: "image"; url: string } | { type: "video"; url: string };
-}
-
-export interface MultiSceneVideoRequest {
-  scenes: MultiSceneScene[];
-  title?: string;
-  aspectRatio?: "16:9" | "9:16" | "1:1";
-  caption?: boolean;
-  callbackUrl?: string;
-}
-
 export class VideoStudioService {
   private heygenService: HeyGenService;
   private photoAvatarService: HeyGenPhotoAvatarService;
@@ -576,37 +553,6 @@ Thanks for watching! If you found this helpful, don't forget to like and subscri
         progress: 0,
       };
     }
-  }
-
-  /**
-   * Generate a multi-scene video via HeyGen v2/video/generate.
-   * Each scene is an independent avatar+voice segment; HeyGen stitches them in order.
-   * Max 50 scenes per call. Returns a video_id to poll with getVideoStatus().
-   */
-  async generateMultiSceneVideo(request: MultiSceneVideoRequest): Promise<VideoStatus> {
-    console.log("🎬 Video Studio: Starting multi-scene video generation, scenes:", request.scenes.length);
-    const response = await this.heygenService.generateMultiSceneVideo({
-      scenes: request.scenes.map((s) => ({
-        avatarId: s.avatarId,
-        avatarType: s.avatarType,
-        script: s.script,
-        voiceId: s.voiceId,
-        audioAssetId: s.audioAssetId,
-        audioUrl: s.voiceMode !== "tts" ? s.audioUrl : undefined,
-        speed: s.speed,
-        gestureIntensity: s.gestureIntensity,
-        background: s.background,
-      })),
-      title: request.title,
-      aspectRatio: request.aspectRatio,
-      caption: request.caption,
-      callbackUrl: request.callbackUrl,
-    });
-
-    const videoId = response.data?.video_id;
-    if (!videoId) throw new Error("Multi-scene generation failed — no video_id returned");
-    console.log("✅ Multi-scene video started:", videoId);
-    return { id: videoId, status: "processing", progress: 0 };
   }
 
   /**

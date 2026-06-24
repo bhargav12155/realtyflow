@@ -513,7 +513,7 @@ export function usePhotoAvatarManager() {
 
       toast({
         title: "Photo Generation Started",
-        description: `Generating 5 AI photos for ${avatarName}. This may take a few minutes.`,
+        description: `Generating 3 AI photos for ${avatarName}. This may take a few minutes.`,
       });
 
       const pollInterval = setInterval(async () => {

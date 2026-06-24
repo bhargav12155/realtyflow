@@ -127,9 +127,9 @@ function relativeTime(value: string | Date | null | undefined): string {
 function ThumbCollage({ thumbs }: { thumbs: { id: string; thumbnailUrl: string | null }[] }) {
   const slots = [0, 1, 2, 3].map((i) => thumbs[i]?.thumbnailUrl ?? null);
   return (
-    <div className="grid grid-cols-2 gap-1 w-[148px] h-[148px] flex-shrink-0">
+    <div className="grid grid-cols-2 gap-0.5 sm:gap-1 w-full sm:w-[148px] h-[90px] sm:h-[148px] flex-shrink-0 rounded-lg overflow-hidden">
       {slots.map((src, i) => (
-        <div key={i} className="bg-neutral-300/70 rounded-md overflow-hidden dark:bg-neutral-700/60">
+        <div key={i} className="bg-neutral-200/80 overflow-hidden dark:bg-neutral-700/60">
           {src ? (
             <img src={src} alt="" className="w-full h-full object-cover" />
           ) : (

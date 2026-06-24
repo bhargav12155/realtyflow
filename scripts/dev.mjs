@@ -16,7 +16,7 @@ const env = {
     process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0",
 };
 
-const child = spawn(process.execPath, [tsxCli, "external/server/index.ts"], {
+const child = spawn(process.execPath, [tsxCli, "server/index.ts"], {
   stdio: "inherit",
   env,
 });

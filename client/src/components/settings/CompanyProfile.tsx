@@ -51,6 +51,7 @@ const companyProfileFormSchema = z.object({
   tagline: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
+  zipCode: z.string().optional(),
 });
 
 type CompanyProfileFormData = z.infer<typeof companyProfileFormSchema>;
@@ -96,6 +97,7 @@ export function CompanyProfile() {
       tagline: "",
       city: "",
       state: "",
+      zipCode: "",
     },
   });
 
@@ -118,6 +120,7 @@ export function CompanyProfile() {
         tagline: profile.tagline || "",
         city: (profile as any).city || "",
         state: (profile as any).state || "",
+        zipCode: (profile as any).zipCode || "",
       });
     }
   }, [profile, form]);
@@ -429,6 +432,27 @@ export function CompanyProfile() {
                           placeholder="e.g., NE"
                         />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="zipCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Zip Code</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          data-testid="input-zipCode"
+                          placeholder="e.g., 60601"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Used to generate local market intelligence for your area
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

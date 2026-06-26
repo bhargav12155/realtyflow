@@ -177,7 +177,7 @@
   {
     "Namespace": "aws:elasticbeanstalk:application:environment",
     "OptionName": "GEMINI_API_KEY",
-    "Value": "AIzaSyDFmESbGtDm92hQp0ilwzivFvisl2HJuLM"
+    "Value": "REDACTED_GEMINI_API_KEY"
   },
   {
     "Namespace": "aws:elasticbeanstalk:application:environment",

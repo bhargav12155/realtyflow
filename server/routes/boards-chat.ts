@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import sharp from "sharp";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
 import type { BoardAsset, BoardAssetEvalHistoryEntry, BoardMessageCta } from "@shared/schema";
@@ -15,7 +16,14 @@ import type {
 import { autoEvaluateBatch, type AutoEvalModelHint, type AutoEvalResult } from "../services/boardAutoEval";
 import { openaiService } from "../services/openai";
 import { persistImageBufferPublic } from "../objectStorage";
+import { safePublicFetch } from "../utils/safeFetch";
 import { realtimeService } from "../websocket";
+import {
+  chargeCredits,
+  InsufficientCreditsError,
+  lumaCreditCost,
+  refundCredits,
+} from "../services/usage-metering";
 
 // NOTE: Generation services and chat services are imported lazily (see
 // `dispatchOne`, `dispatchImage`, `registerBoardsChatRoutes`'s defaults).
@@ -322,6 +330,140 @@ export function pickDefaultProvider(genMode: GenMode, message: string): Provider
   return "luma";
 }
 
+function buildShotSpecPrompt(input: {
+  prompt: string;
+  provider: Provider;
+  genMode: GenMode;
+  refAssets: BoardAsset[];
+}): string {
+  const raw = input.prompt.trim();
+  const compact = raw.replace(/\s+/g, " ");
+  const capped = compact.length > 2000 ? `${compact.slice(0, 2000)}…` : compact;
+  const refImageCount = input.refAssets.filter((a) => a.kind === "image").length;
+  const refVideoCount = input.refAssets.filter((a) => a.kind === "video").length;
+  const refImageUrls = input.refAssets
+    .filter((a) => a.kind === "image" && !!a.assetUrl)
+    .map((a) => a.assetUrl)
+    .filter((u): u is string => !!u)
+    .slice(0, 4);
+  const continuityHint =
+    input.genMode === "image-to-video"
+      ? "Preserve the selected image's composition and identity while adding natural motion."
+      : input.genMode === "video-to-video"
+        ? "Preserve core scene continuity and subject identity from the selected source video."
+        : "Establish clear visual continuity for a single, coherent shot.";
+
+  return [
+    "You are generating one production-quality shot.",
+    "Follow this shot spec exactly and prioritize visual clarity over stylistic noise.",
+    "",
+    "SHOT_SPEC",
+    `- User Intent: ${capped}`,
+    "- Subject: Keep one primary subject and avoid introducing unrelated objects.",
+    "- Action: One clear action with readable beginning-to-end motion.",
+    "- Camera: Stable cinematic framing, smooth motion, no random zoom or jitter.",
+    "- Lighting & Style: Natural contrast, clean details, realistic textures, avoid over-saturation.",
+    `- Continuity: ${continuityHint}`,
+    "- Safety/Quality Negatives: No flicker, no warped faces/hands, no duplicated limbs, no text artifacts, no watermark.",
+    "",
+    "CONTEXT",
+    `- Provider: ${input.provider}`,
+    `- Mode: ${input.genMode}`,
+    `- Referenced Images: ${refImageCount}`,
+    `- Referenced Videos: ${refVideoCount}`,
+    ...(refImageUrls.length > 0
+      ? [
+          "- Reference image URLs (visual anchors where supported):",
+          ...refImageUrls.map((url, idx) => `  ${idx + 1}. ${url}`),
+          "- If multiple references are present, preserve shared identity/style traits.",
+        ]
+      : []),
+    "",
+    "Return only the final media output (no explanatory text).",
+  ].join("\n");
+}
+
+function deriveScenePromptsFromScript(rawScript: string): string[] {
+  const text = rawScript.replace(/\r\n/g, "\n").trim();
+  if (!text || text.length < 220) return [];
+
+  const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
+
+  const explicitBlocks = text
+    .split(/\n(?=\s*(?:scene|shot)\s*\d+\s*[:\-])/i)
+    .map(normalize)
+    .filter((s) => s.length > 25);
+  if (explicitBlocks.length >= 2) {
+    return Array.from(new Set(explicitBlocks)).slice(0, 4);
+  }
+
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map(normalize)
+    .filter((s) => s.length > 25);
+  if (paragraphs.length >= 2) {
+    return Array.from(new Set(paragraphs)).slice(0, 4);
+  }
+
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map(normalize)
+    .filter((s) => s.length > 10);
+  if (sentences.length < 4) return [];
+
+  const chunks: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) {
+    const chunk = normalize(sentences.slice(i, i + 2).join(" "));
+    if (chunk.length > 25) chunks.push(chunk);
+    if (chunks.length >= 4) break;
+  }
+  return chunks.length >= 2 ? chunks : [];
+}
+
+const GENERATE_SHORTCUT_RE =
+  /^\s*(?:generate|go\s+for\s+it|go\s+ahead|start|start\s+generating|run\s+it|do\s+it|build\s+it|create\s+it|make\s+it)\s*[.!]*\s*$/i;
+
+function isGenerateShortcutMessage(message: string): boolean {
+  return GENERATE_SHORTCUT_RE.test(message);
+}
+
+async function resolveCreatePromptFromHistory(args: {
+  storage: IStorage;
+  boardId: string;
+  userId: string;
+  typedMessage: string;
+}): Promise<{ prompt: string; reusedFromHistory: boolean }> {
+  const typed = args.typedMessage.trim();
+  if (!isGenerateShortcutMessage(typed)) {
+    return { prompt: args.typedMessage, reusedFromHistory: false };
+  }
+
+  try {
+    const history = await args.storage.getBoardMessagesForUser(args.boardId, args.userId);
+    for (let i = history.length - 1; i >= 0; i--) {
+      const candidate = (history[i]?.content || "").trim();
+      if (!candidate || candidate.toLowerCase() === typed.toLowerCase()) continue;
+      if (deriveScenePromptsFromScript(candidate).length >= 2) {
+        return { prompt: candidate, reusedFromHistory: true };
+      }
+    }
+  } catch (err) {
+    console.warn(
+      "[boards-chat] failed to resolve scene script from history:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  return { prompt: args.typedMessage, reusedFromHistory: false };
+}
+
+function looksLikeImageSceneScript(message: string): boolean {
+  const text = message.toLowerCase();
+  const mentionsImages = /\bimage(s)?\b|\bstill(s)?\b|\bphoto(s)?\b/.test(text);
+  const mentionsScenes = /\bscene\s*\d+\b|\bscene-by-scene\b|\bshots?\b/.test(text);
+  return mentionsImages && mentionsScenes;
+}
+
 export interface DispatchContext {
   prompt: string;
   refAssets: BoardAsset[];
@@ -346,6 +488,90 @@ export interface DispatchResult {
   poll: () => Promise<PollResult>;
 }
 
+function resolvePublicBaseUrl(): string {
+  const fromEnv = (process.env.APP_BASE_URL || process.env.BASE_URL || "").trim();
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  return "http://localhost:5001";
+}
+
+function toAbsoluteImageUrl(rawUrl: string): string {
+  if (/^https?:\/\//i.test(rawUrl) || rawUrl.startsWith("data:")) return rawUrl;
+  if (rawUrl.startsWith("/")) return `${resolvePublicBaseUrl()}${rawUrl}`;
+  return rawUrl;
+}
+
+async function fetchImageBufferForContactSheet(rawUrl: string): Promise<Buffer> {
+  if (rawUrl.startsWith("data:")) {
+    const match = rawUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) throw new Error("Invalid data URL");
+    return Buffer.from(match[2], "base64");
+  }
+  const absolute = toAbsoluteImageUrl(rawUrl);
+  const useSafeFetch = /^https?:\/\//i.test(absolute)
+    && !absolute.includes("localhost")
+    && !absolute.includes("127.0.0.1");
+  const resp = useSafeFetch ? await safePublicFetch(absolute) : await fetch(absolute);
+  if (!resp.ok) throw new Error(`Failed to fetch reference image (${resp.status})`);
+  return Buffer.from(await resp.arrayBuffer());
+}
+
+async function buildLumaContactSheetUrl(refAssets: BoardAsset[]): Promise<string | null> {
+  const refs = refAssets
+    .filter((a) => a.kind === "image" && !!a.assetUrl)
+    .map((a) => a.assetUrl as string)
+    .slice(0, 4);
+
+  if (refs.length < 2) return null;
+
+  try {
+    const tileSize = 768;
+    const cols = refs.length === 2 ? 2 : 2;
+    const rows = refs.length <= 2 ? 1 : 2;
+    const width = cols * tileSize;
+    const height = rows * tileSize;
+
+    const composites: Array<{ input: Buffer; left: number; top: number }> = [];
+    for (let i = 0; i < refs.length; i++) {
+      const source = await fetchImageBufferForContactSheet(refs[i]);
+      const tile = await sharp(source)
+        .rotate()
+        .resize(tileSize, tileSize, { fit: "cover" })
+        .png()
+        .toBuffer();
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      composites.push({
+        input: tile,
+        left: col * tileSize,
+        top: row * tileSize,
+      });
+    }
+
+    const sheet = await sharp({
+      create: {
+        width,
+        height,
+        channels: 3,
+        background: { r: 16, g: 16, b: 16 },
+      },
+    })
+      .composite(composites)
+      .png()
+      .toBuffer();
+
+    const filename = `board-ref-sheet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
+    const stored = await persistImageBufferPublic(sheet, filename, "image/png", "board-reference-sheets");
+    if (!stored) return null;
+    return toAbsoluteImageUrl(stored);
+  } catch (err) {
+    console.warn(
+      "[boards-chat] Failed to build reference contact sheet, falling back to first image:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
 export async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx: DispatchContext): Promise<DispatchResult> {
   const firstImage = ctx.refAssets.find((a) => a.kind === "image")?.assetUrl || undefined;
   const firstVideo = ctx.refAssets.find((a) => a.kind === "video")?.assetUrl || undefined;
@@ -356,9 +582,16 @@ export async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx
       // /generations integration cannot consume a referenced video as input.
       const { lumaService } = await import("../services/luma");
       const model = asLumaModel(ctx.forceModel);
+      let keyframeImageUrl = firstImage;
+      const contactSheetUrl = await buildLumaContactSheetUrl(ctx.refAssets);
+      if (contactSheetUrl) {
+        keyframeImageUrl = contactSheetUrl;
+      } else if (keyframeImageUrl) {
+        keyframeImageUrl = toAbsoluteImageUrl(keyframeImageUrl);
+      }
       const task = await lumaService.createVideoTask(ctx.prompt, {
         model,
-        keyframeImageUrl: firstImage,
+        keyframeImageUrl,
       });
       return {
         taskId: task.taskId,
@@ -587,7 +820,7 @@ async function dispatchImage(
     if (item.b64_json) {
       const buf = Buffer.from(item.b64_json, "base64");
       const filename = `board-image-edit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`;
-      const stored = await persistImageBuffer(buf, filename, "image/png");
+      const stored = await persistImageBufferPublic(buf, filename, "image/png");
       imageUrl = stored ?? `data:image/png;base64,${item.b64_json}`;
     } else if (item.url) {
       imageUrl = item.url;
@@ -692,6 +925,7 @@ async function runBatchInBackground(args: {
   userId: string;
   batchId: string;
   prompt: string;
+  promptByAssetId?: Record<string, string>;
   provider: Provider;
   genMode: GenMode;
   refAssets: BoardAsset[];
@@ -710,13 +944,33 @@ async function runBatchInBackground(args: {
    */
   recipients: string[];
 }) {
-  const { storage, boardId, userId, batchId, prompt, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
+  const { storage, boardId, userId, batchId, prompt, promptByAssetId, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
 
   await Promise.all(
     rows.map(async (row) => {
+      const rowPrompt = promptByAssetId?.[row.id] ?? prompt;
+      let chargedLumaCredits = 0;
+      const rowRequestId = `${batchId}:${row.id}`;
       try {
+        if (provider === "luma") {
+          chargedLumaCredits = lumaCreditCost(genMode);
+          await chargeCredits(storage, {
+            userId,
+            provider: "luma",
+            feature: "board_video_generation",
+            credits: chargedLumaCredits,
+            requestId: rowRequestId,
+            metadata: {
+              boardId,
+              batchId,
+              assetId: row.id,
+              genMode,
+            },
+          });
+        }
+
         if (isImageProvider(provider)) {
-          const imageResult = await dispatchImageFn(provider, { prompt, refAssets, forceModel });
+          const imageResult = await dispatchImageFn(provider, { prompt: rowPrompt, refAssets, forceModel });
           const updated = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "ready",
             modelLabel: imageResult.modelLabel,
@@ -727,13 +981,24 @@ async function runBatchInBackground(args: {
           return;
         }
         const videoProvider = provider as VideoProvider;
-        const dispatched = await dispatch(videoProvider, genMode, { prompt, refAssets, forceModel, seedanceOptions });
+        const dispatched = await dispatch(videoProvider, genMode, { prompt: rowPrompt, refAssets, forceModel, seedanceOptions });
         const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatched.modelLabel,
         });
         if (labelled) pushAssetStatus(recipients, boardId, labelled);
         const result = await pollUntilDone(dispatched.poll);
         if (result.error || !result.videoUrl) {
+          if (chargedLumaCredits > 0) {
+            await refundCredits(storage, {
+              userId,
+              provider: "luma",
+              feature: "board_video_generation",
+              credits: chargedLumaCredits,
+              requestId: rowRequestId,
+              reason: "generation_failed",
+              metadata: { boardId, batchId, assetId: row.id },
+            });
+          }
           const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
             status: "failed",
             rejectionReason: result.error || "No output URL returned",
@@ -757,6 +1022,25 @@ async function runBatchInBackground(args: {
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Generation failed";
         console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
+        if (chargedLumaCredits > 0) {
+          await refundCredits(storage, {
+            userId,
+            provider: "luma",
+            feature: "board_video_generation",
+            credits: chargedLumaCredits,
+            requestId: rowRequestId,
+            reason: "dispatch_or_poll_exception",
+            metadata: { boardId, batchId, assetId: row.id, error: msg },
+          });
+        }
+        if (err instanceof InsufficientCreditsError) {
+          const failedInsufficient = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
+            status: "failed",
+            rejectionReason: "Insufficient credits. Top up to continue generating.",
+          });
+          if (failedInsufficient) pushAssetStatus(recipients, boardId, failedInsufficient);
+          return;
+        }
         const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           status: "failed",
           rejectionReason: msg,
@@ -1371,6 +1655,12 @@ export function registerBoardsChatRoutes(
     });
   });
 
+  app.get("/api/billing/credits", requireAuth, async (req: Request, res: Response) => {
+    const userId = String(req.user!.id);
+    const wallet = await storage.getWalletAccount(userId);
+    return res.json({ balanceCredits: wallet.balanceCredits });
+  });
+
   // Stream board-generated local videos via an authenticated endpoint.
   // This makes /tmp provider outputs browser-playable while keeping access
   // scoped to users who can access the board.
@@ -1606,6 +1896,7 @@ export function registerBoardsChatRoutes(
                 .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
             )
             .catch(() => undefined);
+
         const result = await brainstormReply(
           body.message,
           chatProviders,
@@ -1659,9 +1950,24 @@ export function registerBoardsChatRoutes(
         }
       }
       const refKinds = refAssets.map((a) => a.kind);
-      const inferredGenMode = inferGenMode(refKinds, body.message);
+      const createPrompt = await resolveCreatePromptFromHistory({
+        storage,
+        boardId,
+        userId,
+        typedMessage: body.message,
+      });
+      const effectiveMessage = createPrompt.prompt;
+      const inferredGenMode = inferGenMode(refKinds, effectiveMessage);
       const selectedGenMode = body.generationMode;
-      const provider: Provider = body.provider || pickDefaultProvider(inferredGenMode, body.message);
+      let provider: Provider = body.provider || pickDefaultProvider(inferredGenMode, effectiveMessage);
+      const shouldAutoSwitchToGeminiImage =
+        createPrompt.reusedFromHistory
+        && isGenerateShortcutMessage(body.message)
+        && looksLikeImageSceneScript(effectiveMessage)
+        && !isImageProvider(provider);
+      if (shouldAutoSwitchToGeminiImage) {
+        provider = "gemini-image";
+      }
       const isImage = isImageProvider(provider);
       // Image providers don't have a meaningful generation mode; force a label-only value.
       // For video providers, prefer explicit UI selection when provided; otherwise infer.
@@ -1696,6 +2002,10 @@ export function registerBoardsChatRoutes(
       }
 
       const variations = body.variations ?? (isImage ? 3 : 1);
+      const scenePrompts = deriveScenePromptsFromScript(effectiveMessage);
+      const isSceneSplitBatch = scenePrompts.length >= 2;
+      const effectivePrompts = isSceneSplitBatch ? scenePrompts : [effectiveMessage];
+      const rowCount = isSceneSplitBatch ? effectivePrompts.length : variations;
       const batchId = randomUUID();
       const kind: "image" | "video" = isImage ? "image" : "video";
       const refImageCount = refAssets.filter((a) => a.kind === "image").length;
@@ -1709,9 +2019,13 @@ export function registerBoardsChatRoutes(
         : null;
       const batchLabel = isImage
         ? isImageEdit
-          ? `Edit referenced image${refImageCount === 1 ? "" : "s"} → ${variations} variation${variations === 1 ? "" : "s"} (${provider})`
-          : `Generate ${variations} image${variations === 1 ? "" : "s"} (${provider})`
-        : `Generate ${variations} ${genMode.replace(/-/g, " ")} variation${variations === 1 ? "" : "s"} (${provider})`;
+          ? `Edit referenced image${refImageCount === 1 ? "" : "s"} → ${rowCount} variation${rowCount === 1 ? "" : "s"} (${provider})`
+          : isSceneSplitBatch
+            ? `Generate image scenes (${rowCount} shots, ${provider})`
+            : `Generate ${rowCount} image${rowCount === 1 ? "" : "s"} (${provider})`
+        : isSceneSplitBatch
+          ? `Generate video scenes (${rowCount} shots, ${provider})`
+          : `Generate ${rowCount} ${genMode.replace(/-/g, " ")} variation${rowCount === 1 ? "" : "s"} (${provider})`;
 
       const tileWidth = isImage ? 256 : 320;
       const tileHeight = isImage ? 256 : 180;
@@ -1721,7 +2035,7 @@ export function registerBoardsChatRoutes(
       // tiles flip from "Generating…" → ready/failed without a refresh.
       const recipients = await resolveBoardRecipients(storage, boardId, userId);
       const rows: BoardAsset[] = [];
-      for (let i = 0; i < variations; i++) {
+      for (let i = 0; i < rowCount; i++) {
         const payload: BoardAssetCreate = {
           batchId,
           batchLabel,
@@ -1751,12 +2065,36 @@ export function registerBoardsChatRoutes(
         }
       }
 
+      const structuredPrompt = buildShotSpecPrompt({
+        prompt: effectiveMessage,
+        provider,
+        genMode,
+        refAssets,
+      });
+
+      const structuredPromptByAssetId: Record<string, string> = {};
+      if (isSceneSplitBatch) {
+        for (let i = 0; i < rows.length; i++) {
+          const scenePrompt = effectivePrompts[i] ?? effectiveMessage;
+          structuredPromptByAssetId[rows[i].id] = buildShotSpecPrompt({
+            prompt: scenePrompt,
+            provider,
+            genMode,
+            refAssets,
+          });
+        }
+      }
+
       const bgPromise = runBatchInBackground({
         storage,
         boardId,
         userId,
         batchId,
-        prompt: body.message,
+        prompt: structuredPrompt,
+        promptByAssetId:
+          Object.keys(structuredPromptByAssetId).length > 0
+            ? structuredPromptByAssetId
+            : undefined,
         provider,
         genMode,
         refAssets,
@@ -1772,7 +2110,12 @@ export function registerBoardsChatRoutes(
 
       const createReply = isImageEdit
         ? `Editing your referenced image${refImageCount === 1 ? "" : "s"} with ${provider}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`
+        : isSceneSplitBatch
+          ? `I split your script into ${rows.length} scene prompt${rows.length === 1 ? "" : "s"} and started generating them with ${provider}. I'll auto-evaluate when they're done.`
         : `Started ${batchLabel}. ${rows.length} variation${rows.length === 1 ? "" : "s"} are generating — I'll auto-evaluate when they're done.`;
+      const createReplyWithShortcutNotice = createPrompt.reusedFromHistory
+        ? `${shouldAutoSwitchToGeminiImage ? "Using your latest scene script from chat and auto-switching to Gemini Image for image-scene generation." : "Using your latest scene script from chat."} ${createReply}`
+        : createReply;
       // Persist the chat turn for Build mode too — the conversation that
       // produced a batch is just as important as the batch's assets.
       try {
@@ -1784,7 +2127,7 @@ export function registerBoardsChatRoutes(
         });
         await storage.createBoardMessageForUser(boardId, userId, {
           role: "assistant",
-          content: createReply,
+          content: createReplyWithShortcutNotice,
           notice: null,
           cta: null,
         });
@@ -1802,11 +2145,21 @@ export function registerBoardsChatRoutes(
         batchLabel,
         assets: rows,
         isImageEdit,
-        reply: createReply,
+        isSceneSplitBatch,
+        sceneCount: isSceneSplitBatch ? rows.length : 0,
+        reply: createReplyWithShortcutNotice,
+        reusedSceneScriptFromHistory: createPrompt.reusedFromHistory,
       });
     } catch (error: unknown) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid body", issues: error.issues });
+      }
+      if (error instanceof InsufficientCreditsError) {
+        return res.status(402).json({
+          error: "Insufficient credits. Please top up to continue generating.",
+          requiredCredits: error.required,
+          balanceCredits: error.balance,
+        });
       }
       console.error("[boards-chat] error:", error);
       const message = error instanceof Error ? error.message : "Chat handler failed";

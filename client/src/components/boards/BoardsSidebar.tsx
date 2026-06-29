@@ -408,3 +408,4 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
     </aside>
   );
 }
+

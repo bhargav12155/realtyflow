@@ -1,3 +1,1144 @@
+DASHBOARD PAGE CONSOLIDATED CODE EXPORT
+=======================================
+Generated: 2026-06-29T06:52:00.232Z
+
+HOW TO USE
+----------
+For each section below, copy the content between BEGIN_FILE_CONTENT and END_FILE_CONTENT
+and replace the file at the shown path in your Replit project.
+
+FILES INCLUDED
+--------------
+- client/src/components/boards/BoardsHomeView.tsx
+- client/src/components/boards/BoardCard.tsx
+- client/src/components/boards/BoardCanvas.tsx
+- client/src/components/boards/BoardsSidebar.tsx
+
+FULL CODE
+=========
+
+--- BEGIN_FILE: client/src/components/boards/BoardsHomeView.tsx ---
+BEGIN_FILE_CONTENT
+  import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
+  import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video, CalendarDays, Share2, X, FileAudio, Loader2 } from "lucide-react";
+import { BoardsSidebar } from "@/components/boards/BoardsSidebar";
+import { BoardCard, NewBoardCard, type BoardSummary } from "@/components/boards/BoardCard";
+import { NotificationsBell } from "@/components/boards/NotificationsBell";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useBoardsTheme } from "@/hooks/useBoardsTheme";
+import { useRenameBoardMutation } from "@/hooks/use-rename-board";
+import { useDeleteBoardMutation } from "@/hooks/use-delete-board";
+import { useLeaveBoardMutation } from "@/hooks/use-leave-board";
+  import { uploadFileToBoard } from "@/lib/boardUpload";
+  import { RecordModal } from "@/components/boards/RecordModal";
+
+type Tab = "all" | "shared" | "mine";
+
+type BoardIntent = "social-post" | "blog-article" | "image" | "video";
+
+type SeedMode = "plan" | "build";
+
+interface QuickAction {
+  id: BoardIntent;
+  label: string;
+  icon: typeof MessageSquare;
+  starterPrompt: string;
+  // Only set provider/generationMode for intents whose values are accepted by
+  // the board chat schema today (see server/routes/boards-chat.ts PROVIDERS).
+  // Image intent leaves these unset so the board chat falls back to its default
+  // valid provider — wiring `openai-image` here would 400 on first send.
+  provider?: "veo" | "gemini-image";
+  generationMode?: "text-to-video" | "image-to-video" | "video-to-video";
+  // Whether the new board should land in "plan" (conversational) or "build"
+  // (generation) mode. Plan mode hides the platform picker so the user has a
+  // real planning conversation before any media is generated.
+  seedMode: SeedMode;
+}
+
+const QUICK_ACTIONS: QuickAction[] = [
+  {
+    id: "social-post",
+    label: "Social Post",
+    icon: MessageSquare,
+    starterPrompt: "Help me plan a social media post about ",
+    seedMode: "plan",
+  },
+  {
+    id: "blog-article",
+    label: "Blog Article",
+    icon: FileText,
+    starterPrompt: "Help me plan a blog article about ",
+    seedMode: "plan",
+  },
+  {
+    id: "image",
+    label: "Image",
+    icon: ImageIcon,
+    starterPrompt: "Create an image of ",
+    seedMode: "build",
+  },
+  {
+    id: "video",
+    label: "Video",
+    icon: Video,
+    // Video is a guided, image-first flow: we first generate image options,
+    // then the user selects one and animates it into a video with Luma/VEO.
+    // So the Video intent seeds an IMAGE generation (gemini-image) — not a
+    // direct text-to-video call, which previously jumped straight to VEO.
+    starterPrompt: "Generate 3 image options for a video scene of ",
+    provider: "gemini-image",
+    seedMode: "build",
+  },
+];
+
+export interface BoardsHomeViewProps {
+  /** Called when the view wants to be dismissed (e.g. user clicked a shortcut that navigates away). An overlay host should close itself. */
+  onRequestClose?: () => void;
+  /** Called right before navigation to a newly created board, so an overlay host can close itself. */
+  onBoardCreated?: (board: BoardSummary) => void;
+  /** Hide the sidebar (e.g. when embedded in an overlay where chrome would feel redundant). */
+  hideSidebar?: boolean;
+}
+
+export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: BoardsHomeViewProps = {}) {
+  const [location, setLocation] = useLocation();
+  const { toast } = useToast();
+  const { theme } = useBoardsTheme();
+  const [tab, setTab] = useState<Tab>("all");
+  const [search, setSearch] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get("tab");
+    if (tabParam === "shared" || tabParam === "mine" || tabParam === "all") {
+      setTab(tabParam);
+      // Clean the URL so copy/paste of the page stays canonical after initial load.
+      const cleaned = location.split("?")[0] || "/boards";
+      if (cleaned !== location) setLocation(cleaned);
+    }
+  }, [location, setLocation]);
+
+  const boardsQuery = useQuery<BoardSummary[]>({
+    queryKey: ["/api/boards"],
+  });
+
+  interface CreateBoardArgs {
+    title?: string;
+    seedPrompt?: string;
+    seedIntent?: BoardIntent;
+    seedProvider?: QuickAction["provider"];
+    seedGenerationMode?: QuickAction["generationMode"];
+    seedMode?: SeedMode;
+    files?: File[];
+  }
+
+  const createBoardMutation = useMutation({
+    mutationFn: async (args: CreateBoardArgs = {}) => {
+      const body: Record<string, unknown> = {};
+      if (args.title) body.title = args.title;
+      if (args.seedPrompt) body.seedPrompt = args.seedPrompt;
+      if (args.seedIntent) body.seedIntent = args.seedIntent;
+      if (args.seedProvider) body.seedProvider = args.seedProvider;
+      if (args.seedGenerationMode) body.seedGenerationMode = args.seedGenerationMode;
+      if (args.seedMode) body.seedMode = args.seedMode;
+      const res = await apiRequest("POST", "/api/boards", body);
+      const board = (await res.json()) as BoardSummary;
+      return { board, args };
+    },
+    onMutate: () => {
+      setIsCreatingBoard(true);
+    },
+    onSuccess: async ({ board, args }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+      onBoardCreated?.(board);
+      const params = new URLSearchParams();
+      if (args.seedPrompt) params.set("seed", args.seedPrompt);
+      if (args.seedProvider) params.set("provider", args.seedProvider);
+      if (args.seedGenerationMode) params.set("mode", args.seedGenerationMode);
+      if (args.seedIntent) params.set("intent", args.seedIntent);
+      // Use a distinct query key (chatMode) to avoid colliding with the
+      // existing `mode` param which carries the video generation mode.
+      if (args.seedMode) params.set("chatMode", args.seedMode);
+      const uploadedAssetIds: string[] = [];
+      for (const file of args.files ?? []) {
+        try {
+          const result = await uploadFileToBoard(board.id, file);
+          if (result) uploadedAssetIds.push(result.id);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          toast({ title: `Couldn't attach ${file.name}`, description: message, variant: "destructive" });
+        }
+      }
+      if (uploadedAssetIds.length > 0) {
+        params.set("refs", uploadedAssetIds.join(","));
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", board.id] });
+      }
+      setSelectedFiles([]);
+      const qs = params.toString();
+      setLocation(qs ? `/boards/${board.id}?${qs}` : `/boards/${board.id}`);
+    },
+    onError: (e: Error) => {
+      toast({ title: "Couldn't create board", description: e?.message ?? String(e), variant: "destructive" });
+    },
+    onSettled: () => {
+      setIsCreatingBoard(false);
+    },
+  });
+
+  const deleteBoardMutation = useDeleteBoardMutation();
+
+  const renameBoardMutation = useRenameBoardMutation();
+
+  const leaveBoardMutation = useLeaveBoardMutation();
+
+  const handleQuickAction = (action: QuickAction) => {
+    const seed = (prompt.trim() ? prompt.trim() : action.starterPrompt).trim();
+    createBoardMutation.mutate({
+      title: `${action.label}: ${seed.slice(0, 60)}`,
+      seedPrompt: seed,
+      seedIntent: action.id,
+      seedProvider: action.provider,
+      seedGenerationMode: action.generationMode,
+      seedMode: action.seedMode,
+      files: selectedFiles,
+    });
+  };
+
+  const handlePromptSubmit = () => {
+    const trimmed = prompt.trim();
+    // Free-form prompts (no quick-action picked) land the user in Think
+    // mode on the new board so the assistant opens with a planning question
+    // instead of the "press send to start" build seed.
+    createBoardMutation.mutate(
+      trimmed
+        ? { title: trimmed, seedPrompt: trimmed, seedMode: "plan", files: selectedFiles }
+        : { files: selectedFiles },
+    );
+  };
+
+  const addSelectedFiles = (files: File[]) => {
+    const supported = files.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/"),
+    );
+    if (supported.length !== files.length) {
+      toast({
+        title: "Unsupported file skipped",
+        description: "Use images, videos, or audio files here.",
+      });
+    }
+    if (supported.length === 0) return;
+    setSelectedFiles((prev) => [...prev, ...supported].slice(0, 8));
+  };
+
+  const removeSelectedFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const filtered = useMemo(() => {
+    const list = boardsQuery.data ?? [];
+    return list.filter((b) => {
+      // "Shared" = boards where someone else is the owner (shared with me).
+      // "Mine" = boards I own. If `isOwner` is missing on legacy responses
+      // we default to true so existing data still appears under Mine.
+      const isOwner = b.isOwner ?? true;
+      if (tab === "shared" && isOwner) return false;
+      if (tab === "mine" && !isOwner) return false;
+      if (search.trim() && !b.title.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  }, [boardsQuery.data, tab, search]);
+
+  return (
+    <div
+      className={`${theme === "dark" ? "dark " : ""}min-h-screen bg-neutral-200/40 flex font-sans text-[13px] text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100`}
+      data-testid="boards-home-view"
+    >
+      {!hideSidebar && <BoardsSidebar active="boards" />}
+      <main className="flex-1 flex flex-col">
+        <header className="flex items-center justify-end gap-1 px-6 pt-4">
+          <NotificationsBell />
+          <button className="w-8 h-8 rounded-full hover:bg-neutral-200/60 flex items-center justify-center dark:hover:bg-neutral-800/60" data-testid="button-more" data-overlay-keep>
+            <MoreVertical className="w-4 h-4 text-neutral-600 dark:text-neutral-400" />
+          </button>
+        </header>
+
+        <section className="flex flex-col items-center pt-10 pb-8">
+          <h1 className="text-2xl text-neutral-900 mb-5 tracking-tight dark:text-neutral-100">What do you want to do today?</h1>
+          <div className="flex flex-wrap items-center justify-center gap-2 mb-4 w-[560px] max-w-full" data-overlay-keep>
+            {QUICK_ACTIONS.map((action) => {
+              const Icon = action.icon;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => handleQuickAction(action)}
+                  disabled={isCreatingBoard}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-neutral-200 text-[12px] text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 transition-colors dark:bg-neutral-900 dark:border-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-800/60 dark:hover:border-neutral-700"
+                  data-testid={`chip-intent-${action.id}`}
+                >
+                  <Icon className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+                  {action.label}
+                </button>
+              );
+            })}
+          </div>
+          <div
+            className="w-[640px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[24px] border border-neutral-200/90 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.14)] ring-1 ring-black/[0.02] transition-colors focus-within:border-neutral-300 focus-within:shadow-[0_22px_70px_rgba(15,23,42,0.18)] dark:border-neutral-800 dark:bg-neutral-900 dark:ring-white/[0.04]"
+            data-overlay-keep
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*,audio/*"
+              multiple
+              className="hidden"
+              data-testid="input-prompt-attachments"
+              onChange={(e) => {
+                addSelectedFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
+            />
+            <div className="min-h-[104px] px-5 pt-5">
+              <textarea
+                className="block w-full min-h-[72px] max-h-36 resize-none border-0 bg-transparent p-0 text-[17px] leading-7 text-neutral-900 shadow-none outline-none ring-0 placeholder:text-neutral-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500"
+                placeholder="Describe what you want to create..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handlePromptSubmit();
+                  }
+                }}
+                data-testid="input-prompt"
+              />
+            </div>
+            {selectedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-2 pb-2" data-testid="row-prompt-attachments">
+                {selectedFiles.map((file, index) => {
+                  const isImage = file.type.startsWith("image/");
+                  return (
+                    <div
+                      key={`${file.name}-${index}`}
+                      className="inline-flex max-w-[180px] items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+                      data-testid={`chip-prompt-attachment-${index}`}
+                    >
+                      {isImage ? <ImageIcon className="h-3.5 w-3.5" /> : file.type.startsWith("audio/") ? <FileAudio className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
+                      <span className="truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedFile(index)}
+                        className="rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                        data-testid={`button-remove-prompt-attachment-${index}`}
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50/70 px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950/40">
+              {isCreatingBoard ? (
+                <div className="inline-flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400" data-testid="text-creating-board">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Creating board and uploading attachments...
+                </div>
+              ) : (
+                <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                  Add media or record a note
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isCreatingBoard}
+                className="h-10 w-10 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                data-testid="button-attach"
+                aria-label="Attach images, videos, or audio"
+                title="Attach images, videos, or audio"
+              >
+                <Paperclip className="mx-auto w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecordOpen(true)}
+                disabled={isCreatingBoard}
+                className="h-10 w-10 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                data-testid="button-mic"
+                aria-label="Record voice-over"
+                title="Record voice-over"
+              >
+                <Mic className="mx-auto w-5 h-5" />
+              </button>
+              <button
+                onClick={handlePromptSubmit}
+                disabled={isCreatingBoard}
+                className="w-11 h-11 rounded-full bg-neutral-900 hover:bg-neutral-700 disabled:opacity-50 flex items-center justify-center text-white dark:bg-neutral-100 dark:hover:bg-white dark:text-neutral-900"
+                data-testid="button-prompt-send"
+                aria-label="Create board"
+              >
+                {isCreatingBoard ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
+              </button>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex items-start justify-center gap-6" data-overlay-keep>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestClose?.();
+                setLocation("/dashboard#photo-avatars");
+              }}
+              data-testid="link-heygen-photo-avatars"
+              className="flex flex-col items-center gap-1 group focus:outline-none"
+              title="Open Photo Avatars (HeyGen)"
+            >
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-gradient-to-br from-sky-400 to-cyan-500 text-white text-[11px] font-semibold border border-sky-300/60 shadow-sm group-hover:shadow transition dark:border-cyan-700/70">
+                HG
+              </span>
+              <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+                Photo Avatars
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestClose?.();
+                setLocation("/calendar");
+              }}
+              data-testid="link-content-calendar"
+              className="flex flex-col items-center gap-1 group focus:outline-none"
+              title="Open Content Calendar"
+            >
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
+                <CalendarDays className="w-5 h-5 text-neutral-700 dark:text-neutral-200" />
+              </span>
+              <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+                Content Calendar
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onRequestClose?.();
+                setLocation("/dashboard#social");
+              }}
+              data-testid="link-quick-posts"
+              className="flex flex-col items-center gap-1 group focus:outline-none"
+              title="Open Quick Posts"
+            >
+              <span className="w-10 h-10 rounded-xl flex items-center justify-center bg-white border border-neutral-200 shadow-sm group-hover:shadow group-hover:border-neutral-300 transition dark:bg-neutral-900 dark:border-neutral-700 dark:group-hover:border-neutral-600">
+                <Share2 className="w-5 h-5 text-neutral-700 dark:text-neutral-200" />
+              </span>
+              <span className="text-[11px] text-neutral-500 group-hover:text-neutral-800 dark:text-neutral-400 dark:group-hover:text-neutral-100">
+                Quick Posts
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <div className="flex items-center justify-between px-6 mb-4" data-overlay-keep>
+          <div className="flex items-center gap-5 text-[13px]">
+            {(["all", "shared", "mine"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={
+                  tab === t
+                    ? "font-medium text-neutral-900 dark:text-neutral-100"
+                    : "text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+                }
+                data-testid={`tab-${t}`}
+              >
+                {t === "all" ? "All" : t === "shared" ? "Shared" : "Mine"}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 bg-white rounded-full border border-neutral-200 px-3 py-1.5 w-[260px] dark:bg-neutral-900 dark:border-neutral-800">
+            <Search className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500" />
+            <input
+              className="bg-transparent outline-none flex-1 text-[12px] dark:text-neutral-100 dark:placeholder:text-neutral-500"
+              placeholder="Search boards..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              data-testid="input-search"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 px-6 pb-6 overflow-auto" data-overlay-keep>
+          {boardsQuery.isLoading ? (
+            <div className="grid grid-cols-5 gap-4">
+              {[...Array(10)].map((_, i) => (
+                <div key={i} className="rounded-2xl bg-neutral-100/80 animate-pulse min-h-[220px] dark:bg-neutral-900/60" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-5 gap-4">
+              <NewBoardCard onClick={() => createBoardMutation.mutate({})} />
+              {filtered.map((b) => (
+                <BoardCard
+                  key={b.id}
+                  board={b}
+                  onLeave={(board) => leaveBoardMutation.mutate(board.id)}
+                  isLeaving={leaveBoardMutation.isPending && leaveBoardMutation.variables === b.id}
+                  onDelete={(board) => deleteBoardMutation.mutate(board.id)}
+                  isDeleting={deleteBoardMutation.isPending && deleteBoardMutation.variables === b.id}
+                  onRename={(board, newTitle) => renameBoardMutation.mutate({ boardId: board.id, title: newTitle })}
+                  isRenaming={renameBoardMutation.isPending && renameBoardMutation.variables?.boardId === b.id}
+                />
+              ))}
+              {filtered.length === 0 && (boardsQuery.data?.length ?? 0) > 0 && (
+                <div className="col-span-4 flex items-center text-[12px] text-neutral-400 px-4 dark:text-neutral-500">
+                  No boards match your search.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+      <RecordModal
+        open={recordOpen}
+        onCancel={() => setRecordOpen(false)}
+        onSave={(file) => {
+          addSelectedFiles([file]);
+          setRecordOpen(false);
+        }}
+      />
+    </div>
+  );
+}
+
+END_FILE_CONTENT
+--- END_FILE: client/src/components/boards/BoardsHomeView.tsx ---
+
+--- BEGIN_FILE: client/src/components/boards/BoardCard.tsx ---
+BEGIN_FILE_CONTENT
+import { useEffect, useState } from "react";
+import { Link } from "wouter";
+import { MoreVertical, Plus, LogOut, Trash2, BellOff, Pencil } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+const BOARD_TITLE_MAX = 200;
+
+export interface BoardCollaborator {
+  userId: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface BoardOwner {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
+export interface BoardSummary {
+  id: string;
+  title: string;
+  isShared?: boolean;
+  /** True when the current user is the board's owner; false when only a recipient. */
+  isOwner?: boolean;
+  updatedAt?: string | Date | null;
+  assetCount?: number;
+  thumbnails?: { id: string; thumbnailUrl: string | null; kind: string }[];
+  /** Users this board is shared with (only set on boards the current user owns). */
+  collaborators?: BoardCollaborator[];
+  /** The owner of this board (only set on boards shared with the current user). */
+  owner?: BoardOwner | null;
+  /** When false, the owner has muted collaborator join/leave emails for this board. */
+  notifyOnCollaboratorChange?: boolean;
+}
+
+const TINTS = [
+  "from-emerald-100 to-amber-50",
+  "from-slate-200 to-slate-100",
+  "from-amber-100 to-rose-50",
+  "from-orange-100 to-amber-50",
+  "from-stone-200 to-stone-100",
+  "from-rose-100 to-pink-50",
+  "from-emerald-100 to-teal-50",
+  "from-blue-100 to-sky-50",
+  "from-emerald-200 to-emerald-50",
+];
+
+const AVATAR_TINTS = [
+  "bg-emerald-200 text-emerald-900",
+  "bg-amber-200 text-amber-900",
+  "bg-rose-200 text-rose-900",
+  "bg-sky-200 text-sky-900",
+  "bg-violet-200 text-violet-900",
+  "bg-orange-200 text-orange-900",
+  "bg-teal-200 text-teal-900",
+  "bg-pink-200 text-pink-900",
+];
+
+function pickTint(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return TINTS[hash % TINTS.length];
+}
+
+function pickAvatarTint(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_TINTS[hash % AVATAR_TINTS.length];
+}
+
+function displayName(person: { name: string | null; email: string | null }): string {
+  return (person.name && person.name.trim()) || (person.email && person.email.trim()) || "Unknown";
+}
+
+function initials(label: string): string {
+  const parts = label.trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function relativeTime(value: string | Date | null | undefined): string {
+  if (!value) return "Edited just now";
+  const t = new Date(value).getTime();
+  if (Number.isNaN(t)) return "Edited recently";
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "Edited just now";
+  if (m < 60) return `Edited ${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `Edited ${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `Edited ${d}d ago`;
+}
+
+function ThumbCollage({ thumbs }: { thumbs: { id: string; thumbnailUrl: string | null }[] }) {
+  const slots = [0, 1, 2, 3].map((i) => thumbs[i]?.thumbnailUrl ?? null);
+  return (
+    <div className="grid grid-cols-2 gap-0.5 sm:gap-1 w-full sm:w-[148px] h-[90px] sm:h-[148px] flex-shrink-0 rounded-lg overflow-hidden">
+      {slots.map((src, i) => (
+        <div key={i} className="bg-neutral-200/80 overflow-hidden dark:bg-neutral-700/60">
+          {src ? (
+            <img src={src} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-neutral-200 dark:bg-neutral-800" />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Avatar({
+  seed,
+  label,
+  testId,
+}: {
+  seed: string;
+  label: string;
+  testId?: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-semibold ring-2 ring-white dark:ring-neutral-900 ${pickAvatarTint(seed)}`}
+      data-testid={testId}
+    >
+      {initials(label)}
+    </span>
+  );
+}
+
+function CollaboratorStack({
+  boardId,
+  collaborators,
+}: {
+  boardId: string;
+  collaborators: BoardCollaborator[];
+}) {
+  if (collaborators.length === 0) return null;
+  const visible = collaborators.slice(0, 3);
+  const overflow = collaborators.length - visible.length;
+  const countLabel = `Shared with ${collaborators.length} ${collaborators.length === 1 ? "person" : "people"}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="mt-3 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+          tabIndex={0}
+          data-testid={`collaborators-${boardId}`}
+        >
+          <div className="flex -space-x-1.5">
+            {visible.map((c) => (
+              <Avatar
+                key={c.userId}
+                seed={c.userId}
+                label={displayName(c)}
+                testId={`avatar-collaborator-${boardId}-${c.userId}`}
+              />
+            ))}
+            {overflow > 0 && (
+              <span
+                className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[9px] font-semibold bg-neutral-200 text-neutral-700 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-200 dark:ring-neutral-900"
+                data-testid={`avatar-overflow-${boardId}`}
+              >
+                +{overflow}
+              </span>
+            )}
+          </div>
+          <span
+            className="text-[10px] text-neutral-600 dark:text-neutral-400"
+            data-testid={`text-shared-count-${boardId}`}
+          >
+            {countLabel}
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        className="max-w-xs"
+        data-testid={`tooltip-collaborators-${boardId}`}
+      >
+        <div className="text-xs font-semibold mb-1">{countLabel}</div>
+        <ul className="space-y-0.5">
+          {collaborators.map((c) => (
+            <li
+              key={c.userId}
+              className="flex items-center gap-2 text-xs"
+              data-testid={`tooltip-collaborator-${boardId}-${c.userId}`}
+            >
+              <Avatar seed={c.userId} label={displayName(c)} />
+              <span className="truncate">{displayName(c)}</span>
+            </li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function OwnerBadge({ boardId, owner }: { boardId: string; owner: BoardOwner }) {
+  const label = displayName(owner);
+  const ownerName = (owner.name && owner.name.trim()) || null;
+  const ownerEmail = (owner.email && owner.email.trim()) || null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className="mt-3 flex items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+          tabIndex={0}
+          data-testid={`owner-${boardId}`}
+        >
+          <Avatar seed={owner.id} label={label} testId={`avatar-owner-${boardId}`} />
+          <span
+            className="text-[10px] text-neutral-600 truncate dark:text-neutral-400"
+            data-testid={`text-owner-${boardId}`}
+          >
+            Shared by {label}
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="start"
+        className="max-w-xs"
+        data-testid={`tooltip-owner-${boardId}`}
+      >
+        <div className="flex items-center gap-2">
+          <Avatar seed={owner.id} label={label} />
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold">{ownerName ?? label}</span>
+            {ownerEmail && (
+              <span className="text-xs text-muted-foreground">{ownerEmail}</span>
+            )}
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+export interface BoardCardProps {
+  board: BoardSummary;
+  /** When provided and the current user is not the owner, a kebab menu with a Leave action is rendered. */
+  onLeave?: (board: BoardSummary) => void;
+  isLeaving?: boolean;
+  /** When provided and the current user is the owner, a kebab menu with a Delete action is rendered. */
+  onDelete?: (board: BoardSummary) => void;
+  isDeleting?: boolean;
+  /** When provided and the current user is the owner, a kebab menu with a Rename action is rendered. */
+  onRename?: (board: BoardSummary, newTitle: string) => void;
+  isRenaming?: boolean;
+}
+
+export function BoardCard({
+  board,
+  onLeave,
+  isLeaving,
+  onDelete,
+  isDeleting,
+  onRename,
+  isRenaming,
+}: BoardCardProps) {
+  const tint = pickTint(board.id);
+  const [first, ...rest] = (board.title || "Untitled board").split(" ");
+  const highlight = rest.join(" ");
+  const isOwner = board.isOwner ?? true;
+  const collaborators = board.collaborators ?? [];
+  const showLeave = !!onLeave && isOwner === false;
+  // Destructive action: never fall back to "owner" when the flag is missing.
+  // If the API ever omits `isOwner`, we must not surface a Delete option that
+  // would confuse the user (and hide their Leave option).
+  const showDelete = !!onDelete && board.isOwner === true;
+  // Rename mirrors Delete's owner-only gate — the server enforces the same
+  // authorization on PATCH /api/boards/:id, so we must not surface this for
+  // shared collaborators.
+  const showRename = !!onRename && board.isOwner === true;
+  const showMenu = showLeave || showDelete || showRename;
+  // Owner-only cue so the user can tell at a glance which boards have
+  // collaborator join/leave emails silenced via the share dialog toggle.
+  const showMutedIndicator =
+    board.isOwner === true && board.notifyOnCollaboratorChange === false;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState(board.title || "");
+  // Reset the input whenever the dialog opens so it always reflects the
+  // current title (and clears any stale typing from a previous open).
+  useEffect(() => {
+    if (renameOpen) {
+      setRenameValue(board.title || "");
+    }
+  }, [renameOpen, board.title]);
+  const titleForCopy = board.title || "Untitled board";
+  const trimmedRename = renameValue.trim();
+  const renameInvalid =
+    trimmedRename.length === 0 || trimmedRename.length > BOARD_TITLE_MAX;
+  const renameUnchanged = trimmedRename === (board.title || "").trim();
+  return (
+    <div className="relative">
+      <Link href={`/boards/${board.id}`}>
+        <a
+          className={`group block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
+          data-testid={`card-board-${board.id}`}
+        >
+          <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300 flex items-center gap-1.5">
+            <span>
+              {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
+            </span>
+            {showRename && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Rename board"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRenameOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRenameOpen(true);
+                      }
+                    }}
+                    className="inline-flex items-center justify-center w-4 h-4 rounded text-neutral-500 dark:text-neutral-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600 outline-none transition-opacity hover:text-neutral-800 dark:hover:text-neutral-200"
+                    data-testid={`button-rename-inline-${board.id}`}
+                  >
+                    <Pencil className="w-3 h-3" strokeWidth={2} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  data-testid={`tooltip-rename-inline-${board.id}`}
+                >
+                  <span className="text-xs">Rename board</span>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {showMutedIndicator && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    className="inline-flex items-center justify-center w-4 h-4 rounded-full text-neutral-500 dark:text-neutral-400 outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
+                    aria-label="Collaborator emails muted"
+                    data-testid={`indicator-muted-${board.id}`}
+                  >
+                    <BellOff className="w-3 h-3" strokeWidth={2} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  className="max-w-xs"
+                  data-testid={`tooltip-muted-${board.id}`}
+                >
+                  <span className="text-xs">
+                    Collaborator join/leave emails are muted for this board. Open the share dialog to re-enable them.
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          <div className="text-[10px] text-neutral-500 mb-3 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
+          <ThumbCollage thumbs={board.thumbnails ?? []} />
+          {isOwner ? (
+            <CollaboratorStack boardId={board.id} collaborators={collaborators} />
+          ) : board.owner ? (
+            <OwnerBadge boardId={board.id} owner={board.owner} />
+          ) : null}
+        </a>
+      </Link>
+      {showMenu && (
+        <div className="absolute top-2 right-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                className="w-7 h-7 rounded-full bg-white/80 hover:bg-white text-neutral-700 flex items-center justify-center shadow-sm dark:bg-neutral-800/80 dark:hover:bg-neutral-800 dark:text-neutral-200"
+                aria-label="Board actions"
+                data-testid={`button-board-menu-${board.id}`}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              {showRename && (
+                <DropdownMenuItem
+                  disabled={isRenaming}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setRenameOpen(true);
+                  }}
+                  data-testid={`menu-item-rename-${board.id}`}
+                >
+                  <Pencil className="w-4 h-4 mr-2" />
+                  Rename
+                </DropdownMenuItem>
+              )}
+              {showLeave && (
+                <DropdownMenuItem
+                  disabled={isLeaving}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                  data-testid={`menu-item-leave-${board.id}`}
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Leave board
+                </DropdownMenuItem>
+              )}
+              {showDelete && (
+                <DropdownMenuItem
+                  disabled={isDeleting}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setConfirmOpen(true);
+                  }}
+                  className="text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                  data-testid={`menu-item-delete-${board.id}`}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete board
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {showRename && (
+            <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+              <DialogContent
+                onClick={(e) => e.stopPropagation()}
+                data-testid={`dialog-rename-board-${board.id}`}
+              >
+                <DialogHeader>
+                  <DialogTitle>Rename board</DialogTitle>
+                  <DialogDescription>
+                    Pick a new name for "{titleForCopy}".
+                  </DialogDescription>
+                </DialogHeader>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (renameInvalid || renameUnchanged || isRenaming) return;
+                    onRename?.(board, trimmedRename);
+                    setRenameOpen(false);
+                  }}
+                >
+                  <Input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    maxLength={BOARD_TITLE_MAX}
+                    placeholder="Board name"
+                    aria-label="Board name"
+                    data-testid={`input-rename-board-${board.id}`}
+                  />
+                  {trimmedRename.length === 0 ? (
+                    <p
+                      className="mt-2 text-xs text-red-600 dark:text-red-400"
+                      data-testid={`text-rename-error-${board.id}`}
+                    >
+                      Name can't be empty.
+                    </p>
+                  ) : trimmedRename.length > BOARD_TITLE_MAX ? (
+                    <p
+                      className="mt-2 text-xs text-red-600 dark:text-red-400"
+                      data-testid={`text-rename-error-${board.id}`}
+                    >
+                      Name can't be longer than {BOARD_TITLE_MAX} characters.
+                    </p>
+                  ) : null}
+                  <DialogFooter className="mt-4">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setRenameOpen(false)}
+                      data-testid={`button-cancel-rename-${board.id}`}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={renameInvalid || renameUnchanged || isRenaming}
+                      data-testid={`button-confirm-rename-${board.id}`}
+                    >
+                      Save
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent
+              onClick={(e) => e.stopPropagation()}
+              data-testid={
+                showDelete
+                  ? `dialog-delete-board-${board.id}`
+                  : `dialog-leave-board-${board.id}`
+              }
+            >
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {showDelete ? "Delete this board?" : "Leave this board?"}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {showDelete
+                    ? `Delete "${titleForCopy}"? This permanently removes the board and all its assets. This can't be undone.`
+                    : `You'll lose access to "${titleForCopy}". The owner will need to share it with you again to get back in.`}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  data-testid={
+                    showDelete
+                      ? `button-cancel-delete-${board.id}`
+                      : `button-cancel-leave-${board.id}`
+                  }
+                >
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={showDelete ? isDeleting : isLeaving}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (showDelete) onDelete?.(board);
+                    else onLeave?.(board);
+                    setConfirmOpen(false);
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  data-testid={
+                    showDelete
+                      ? `button-confirm-delete-${board.id}`
+                      : `button-confirm-leave-${board.id}`
+                  }
+                >
+                  {showDelete ? "Delete board" : "Leave board"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NewBoardCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="bg-neutral-100/70 border border-dashed border-neutral-300 rounded-2xl p-4 flex items-center justify-center min-h-[220px] hover:bg-neutral-200/60 transition cursor-pointer dark:bg-neutral-900/40 dark:border-neutral-700 dark:hover:bg-neutral-800/60"
+      data-testid="card-new-board"
+    >
+      <div className="flex flex-col items-center gap-2">
+        <Plus className="w-8 h-8 text-neutral-700 dark:text-neutral-300" strokeWidth={1.5} />
+        <div className="text-[10px] text-neutral-500 dark:text-neutral-400">New board</div>
+      </div>
+    </button>
+  );
+}
+
+END_FILE_CONTENT
+--- END_FILE: client/src/components/boards/BoardCard.tsx ---
+
+--- BEGIN_FILE: client/src/components/boards/BoardCanvas.tsx ---
+BEGIN_FILE_CONTENT
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2, AlertTriangle } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
@@ -1764,3 +2905,421 @@ function ZoomControls() {
   );
 }
 
+END_FILE_CONTENT
+--- END_FILE: client/src/components/boards/BoardCanvas.tsx ---
+
+--- BEGIN_FILE: client/src/components/boards/BoardsSidebar.tsx ---
+BEGIN_FILE_CONTENT
+import { useMemo, useState } from "react";
+import { Link, useLocation } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Share2, Compass, Users, ChevronDown, LayoutGrid, ArrowLeft, Moon, Sun, Plus, X, type LucideIcon } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useBoardsTheme } from "@/hooks/useBoardsTheme";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders } from "@/lib/authToken";
+import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+interface BoardsSidebarProps {
+  active: "boards" | "discover" | "team" | "usage";
+}
+
+interface SidebarBoard {
+  id: string;
+  title: string;
+  isOwner?: boolean;
+}
+
+interface ShareCandidate {
+  id: string;
+  name: string | null;
+  email: string | null;
+  username: string | null;
+}
+
+interface ShareRecipient {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  sharedAt: string | null;
+}
+
+type SharesByBoard = Record<string, ShareRecipient[]>;
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function BoardsSidebar({ active }: BoardsSidebarProps) {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const { theme, toggle } = useBoardsTheme();
+  const { toast } = useToast();
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [teamSearch, setTeamSearch] = useState("");
+
+  const NavLink = ({
+    icon: Icon,
+    label,
+    href,
+    onClick,
+    isActive,
+    testId,
+  }: {
+    icon: LucideIcon;
+    label: string;
+    href?: string;
+    onClick?: () => void;
+    isActive?: boolean;
+    testId: string;
+  }) => {
+    const className = `w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md ${
+      isActive
+        ? "bg-neutral-200/80 text-neutral-900 font-medium dark:bg-neutral-800 dark:text-neutral-100"
+        : "hover:bg-neutral-200/60 text-neutral-700 dark:hover:bg-neutral-800/60 dark:text-neutral-300"
+    }`;
+    if (href) {
+      return (
+        <Link href={href}>
+          <a className={className} data-testid={testId}>
+            <Icon className="w-4 h-4" />
+            <span>{label}</span>
+          </a>
+        </Link>
+      );
+    }
+    return (
+      <button type="button" className={className} data-testid={testId} onClick={onClick}>
+        <Icon className="w-4 h-4" />
+        <span>{label}</span>
+      </button>
+    );
+  };
+
+  const boardsQuery = useQuery<SidebarBoard[]>({
+    queryKey: ["/api/boards"],
+    enabled: teamOpen,
+  });
+
+  const ownedBoards = useMemo(
+    () => (boardsQuery.data ?? []).filter((b) => b.isOwner !== false),
+    [boardsQuery.data],
+  );
+
+  const sharesQuery = useQuery<SharesByBoard>({
+    queryKey: ["/api/boards", "team-shares", ownedBoards.map((b) => b.id).join(",")],
+    enabled: teamOpen && ownedBoards.length > 0,
+    queryFn: async () => {
+      const entries = await Promise.all(
+        ownedBoards.map(async (b) => {
+          const res = await apiRequest("GET", `/api/boards/${b.id}/shares`);
+          const data = (await res.json()) as ShareRecipient[];
+          return [b.id, data] as const;
+        }),
+      );
+      return Object.fromEntries(entries);
+    },
+  });
+
+  const candidatesQuery = useQuery<ShareCandidate[]>({
+    queryKey: ["/api/boards/share-candidates"],
+    enabled: teamOpen,
+  });
+
+  const teamMembers = useMemo(() => {
+    const byId = new Map<
+      string,
+      { userId: string; name: string | null; email: string | null; boardCount: number }
+    >();
+    const sharesByBoard = sharesQuery.data ?? {};
+    for (const recipients of Object.values(sharesByBoard)) {
+      for (const r of recipients) {
+        const prev = byId.get(r.userId);
+        if (prev) {
+          prev.boardCount += 1;
+        } else {
+          byId.set(r.userId, {
+            userId: r.userId,
+            name: r.name,
+            email: r.email,
+            boardCount: 1,
+          });
+        }
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => b.boardCount - a.boardCount);
+  }, [sharesQuery.data]);
+
+  const normalizedSearch = normalizeEmail(teamSearch);
+  const filteredCandidates = useMemo(() => {
+    const q = normalizedSearch;
+    return (candidatesQuery.data ?? []).filter((c) => {
+      if (!q) return true;
+      const hay = `${c.name ?? ""} ${c.email ?? ""} ${c.username ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [candidatesQuery.data, normalizedSearch]);
+
+  const memberIds = useMemo(() => new Set(teamMembers.map((m) => m.userId)), [teamMembers]);
+  const memberEmails = useMemo(
+    () => new Set(teamMembers.map((m) => normalizeEmail(m.email ?? "")).filter(Boolean)),
+    [teamMembers],
+  );
+  const canInviteTypedEmail =
+    EMAIL_REGEX.test(normalizedSearch) &&
+    !memberEmails.has(normalizedSearch) &&
+    !(candidatesQuery.data ?? []).some((c) => normalizeEmail(c.email ?? "") === normalizedSearch);
+
+  const addTeamMember = useMutation({
+    mutationFn: async (payload: { userId?: string; email?: string }) => {
+      if (ownedBoards.length === 0) {
+        throw new Error("You don't have any owned boards to grant access to yet.");
+      }
+      const outcomes = await Promise.allSettled(
+        ownedBoards.map((b) =>
+          apiRequest("POST", `/api/boards/${b.id}/shares`, payload).then((r) => r.json()),
+        ),
+      );
+      const successCount = outcomes.filter((o) => o.status === "fulfilled").length;
+      if (successCount === 0) {
+        const firstError = outcomes.find((o) => o.status === "rejected") as PromiseRejectedResult | undefined;
+        throw new Error(firstError?.reason?.message ?? "Failed to add team member to boards");
+      }
+      return { successCount, total: ownedBoards.length };
+    },
+    onSuccess: ({ successCount, total }) => {
+      toast({
+        title: "Team member added",
+        description: `Granted access on ${successCount}/${total} owned board${total === 1 ? "" : "s"}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", "team-shares"] });
+      setTeamSearch("");
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Couldn't add team member",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeTeamMember = useMutation({
+    mutationFn: async (recipientId: string) => {
+      if (ownedBoards.length === 0) {
+        throw new Error("You don't have any owned boards.");
+      }
+      const outcomes = await Promise.allSettled(
+        ownedBoards.map(async (b) => {
+          const res = await fetch(`/api/boards/${b.id}/shares/${encodeURIComponent(recipientId)}`, {
+            method: "DELETE",
+            headers: { ...getAuthHeaders() },
+          });
+          // 404 means this board didn't have that recipient — treat as neutral.
+          return res.ok || res.status === 404;
+        }),
+      );
+      const successCount = outcomes.filter((o) => o.status === "fulfilled").length;
+      if (successCount === 0) {
+        throw new Error("Failed to remove team member from boards");
+      }
+      return { successCount, total: ownedBoards.length };
+    },
+    onSuccess: ({ successCount, total }) => {
+      toast({
+        title: "Team member removed",
+        description: `Removed access from ${successCount}/${total} owned board${total === 1 ? "" : "s"}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", "team-shares"] });
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Couldn't remove team member",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const initial = (user?.name || user?.email || "U").trim().charAt(0).toUpperCase();
+  const displayName = user?.name || user?.email || "Workspace";
+
+  return (
+    <aside
+      className="w-[220px] flex-shrink-0 bg-white/60 backdrop-blur-sm border-r border-neutral-200/80 flex flex-col dark:bg-neutral-900/60 dark:border-neutral-800"
+      data-overlay-keep
+    >
+      <div className="p-3">
+        <button
+          className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-neutral-200/60 dark:hover:bg-neutral-800/60"
+          data-testid="button-boards-workspace"
+          onClick={() => setLocation("/dashboard")}
+          title="Back to dashboard"
+        >
+          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-violet-400 to-fuchsia-400 flex items-center justify-center text-white text-xs font-semibold">
+            {initial}
+          </div>
+          <span className="font-medium flex-1 text-left truncate text-[13px] dark:text-neutral-100">{displayName}</span>
+          <ChevronDown className="w-3.5 h-3.5 text-neutral-500 dark:text-neutral-400" />
+        </button>
+      </div>
+
+      <div className="px-3 pb-2 space-y-0.5">
+        <button
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-neutral-200/60 text-neutral-700 text-[13px] dark:hover:bg-neutral-800/60 dark:text-neutral-300"
+          data-testid="button-back-to-app"
+          onClick={() => setLocation("/dashboard")}
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to app</span>
+        </button>
+        <button
+          type="button"
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-neutral-200/60 text-neutral-700 text-[13px] dark:hover:bg-neutral-800/60 dark:text-neutral-300"
+          data-testid="button-shared"
+          onClick={() => setLocation("/boards?tab=shared")}
+        >
+          <Share2 className="w-4 h-4" />
+          <span>Shared with you</span>
+        </button>
+      </div>
+
+      <nav className="px-3 mt-1 space-y-0.5 text-[13px]">
+        <NavLink icon={LayoutGrid} label="Boards" href="/boards" isActive={active === "boards"} testId="nav-boards" />
+        <NavLink icon={Compass} label="Discover" href="/boards/discover" isActive={active === "discover"} testId="nav-discover" />
+        <NavLink icon={Users} label="Team" isActive={active === "team"} testId="nav-team" onClick={() => setTeamOpen(true)} />
+      </nav>
+
+      <div className="mt-auto p-3 flex items-center justify-between gap-2">
+        <span className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate">My Golden Brick · Boards</span>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={theme === "dark" ? "Switch Boards to light mode" : "Switch Boards to dark mode"}
+          title={theme === "dark" ? "Light mode" : "Dark mode"}
+          className="w-7 h-7 rounded-full flex items-center justify-center text-neutral-600 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-neutral-800/60"
+          data-overlay-keep
+          data-testid="button-toggle-boards-theme"
+        >
+          {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
+      <Dialog open={teamOpen} onOpenChange={setTeamOpen}>
+        <DialogContent className="sm:max-w-lg" data-testid="dialog-team-access">
+          <DialogHeader>
+            <DialogTitle>Team Access</DialogTitle>
+            <DialogDescription>
+              Add members once, and they get access to all your owned boards ({ownedBoards.length}).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={teamSearch}
+              onChange={(e) => setTeamSearch(e.target.value)}
+              placeholder="Search teammate or enter email..."
+              className="w-full px-3 py-2 text-[13px] rounded-md border border-neutral-200 outline-none focus:border-neutral-400 dark:bg-neutral-900 dark:border-neutral-700 dark:text-neutral-100"
+              data-testid="input-team-search"
+            />
+
+            {canInviteTypedEmail && (
+              <button
+                type="button"
+                onClick={() => addTeamMember.mutate({ email: normalizedSearch })}
+                disabled={addTeamMember.isPending}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-md text-left border border-neutral-200 hover:bg-neutral-100 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-800/60"
+                data-testid="button-team-add-email"
+              >
+                <div className="min-w-0">
+                  <div className="text-[13px] text-neutral-900 dark:text-neutral-100 truncate">Invite {normalizedSearch}</div>
+                  <div className="text-[11px] text-neutral-500 dark:text-neutral-400">Will be granted access to all your boards when they log in with this email.</div>
+                </div>
+                <Plus className="w-4 h-4 text-neutral-500" />
+              </button>
+            )}
+
+            <div className="max-h-40 overflow-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+              {(filteredCandidates.length === 0 && !canInviteTypedEmail) ? (
+                <div className="px-3 py-2 text-[12px] text-neutral-500 dark:text-neutral-400">No matching teammates.</div>
+              ) : (
+                filteredCandidates.map((c) => {
+                  const already = memberIds.has(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => !already && addTeamMember.mutate({ userId: c.id })}
+                      disabled={already || addTeamMember.isPending}
+                      className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-neutral-100 disabled:opacity-60 dark:hover:bg-neutral-800/60"
+                      data-testid={`button-team-add-${c.id}`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[13px] text-neutral-900 dark:text-neutral-100 truncate">
+                          {c.name || c.email || c.username || c.id}
+                        </div>
+                        {c.email && c.name && (
+                          <div className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">{c.email}</div>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                        {already ? "Added" : "Add"}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div>
+              <div className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-2 dark:text-neutral-400">
+                Team Members
+              </div>
+              <div className="max-h-48 overflow-auto rounded-md border border-neutral-200 dark:border-neutral-700">
+                {teamMembers.length === 0 ? (
+                  <div className="px-3 py-2 text-[12px] text-neutral-500 dark:text-neutral-400">No team members yet.</div>
+                ) : (
+                  teamMembers.map((m) => (
+                    <div
+                      key={m.userId}
+                      className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 border-neutral-100 dark:border-neutral-800"
+                      data-testid={`row-team-member-${m.userId}`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[13px] text-neutral-900 dark:text-neutral-100 truncate">
+                          {m.name || m.email || m.userId}
+                        </div>
+                        <div className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">
+                          Access to {m.boardCount} board{m.boardCount === 1 ? "" : "s"}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeTeamMember.mutate(m.userId)}
+                        disabled={removeTeamMember.isPending}
+                        className="ml-2 text-neutral-500 hover:text-red-600 disabled:opacity-50"
+                        aria-label="Remove team member"
+                        data-testid={`button-team-remove-${m.userId}`}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </aside>
+  );
+}
+
+END_FILE_CONTENT
+--- END_FILE: client/src/components/boards/BoardsSidebar.tsx ---

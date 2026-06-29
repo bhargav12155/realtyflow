@@ -605,3 +605,4 @@ export function NewBoardCard({ onClick }: { onClick: () => void }) {
     </button>
   );
 }
+

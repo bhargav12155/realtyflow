@@ -1,0 +1,78 @@
+# Dashboard Code Changes Summary
+
+## What Changed
+
+All dashboard/boards home view code has been consolidated into `DASHBOARD_CODE_EXPORT.txt` for easy copy-paste into Replit.
+
+## Files Included in Export
+
+1. **client/src/components/boards/BoardsHomeView.tsx** - Main dashboard page
+2. **client/src/components/boards/BoardCard.tsx** - Individual board card component
+3. **client/src/components/boards/BoardCanvas.tsx** - Board content area
+4. **client/src/components/boards/BoardsSidebar.tsx** - Sidebar with workspace navigation
+
+## Key Updates in This Export
+
+### BoardsHomeView.tsx
+- Quick action buttons for creating content (Social Post, Blog Article, etc.)
+- Board listing tabs (All, Shared, Mine)
+- Search functionality for boards
+- File upload area
+- Record audio modal
+- Integration with billing/credits (if user has low balance)
+
+### BoardCard.tsx  
+- Individual board display with thumbnail
+- Board metadata (date, description, creator)
+- Quick action menu (rename, delete, share, leave)
+- Board status indicators
+
+### BoardCanvas.tsx
+- Board content rendering area
+- Chat panel integration
+- Asset display
+- Video generation status tracking
+
+### BoardsSidebar.tsx
+- Workspace selection
+- Navigation menu (Dashboard, AI Assistant, Content Calendar, etc.)
+- Team member management
+- Theme toggle
+
+## How to Apply in Replit
+
+1. Open `DASHBOARD_CODE_EXPORT.txt`
+2. For each section marked `--- BEGIN_FILE: [path] ---`:
+   - Copy everything between `BEGIN_FILE_CONTENT` and `END_FILE_CONTENT`
+   - In Replit, create or replace the file at the shown path with that content
+3. Refresh the Replit preview
+
+## Related Dependencies
+
+These components depend on:
+- `/api/boards` endpoints (fetch, create, delete, share)
+- `/api/boards/{id}/messages` (chat)
+- `/api/boards/{id}/assets` (generated content)
+- `/api/billing/credits` (wallet integration)
+- TanStack Query for data fetching
+- Wouter for routing
+- Lucide icons
+
+## If Components Are Not Showing
+
+1. Check browser console for import errors
+2. Verify all component paths exist
+3. Ensure hooks are in place:
+   - `@/hooks/use-rename-board`
+   - `@/hooks/use-delete-board`
+   - `@/hooks/use-leave-board`
+   - `@/hooks/useBoardsTheme`
+4. Verify `@/lib/boardUpload` exists (file upload helper)
+
+## Billing Integration
+
+The dashboard now shows wallet balance and has a "Purchase Credits" button if:
+- User is on a credits-based plan
+- Wallet balance is low (< some threshold for planned operations)
+
+This is tied to the earlier billing/checkout flow changes.

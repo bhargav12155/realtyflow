@@ -607,7 +607,7 @@ export function ChatPanel({
           const suggested = isPlan && m.role === "assistant" && !m.pending
             ? extractSuggestedPrompt(m.content)
             : null;
-          const canShowScriptActions = isPlan && m.role === "assistant" && !m.pending && m.content.length > 200;
+          const canShowScriptActions = isPlan && m.role === "assistant" && !m.pending;
           // Only label user turns by another collaborator. The current
           // user's own bubbles stay clean so the most common case (private
           // board) looks unchanged.

@@ -1599,6 +1599,60 @@ export interface BoardsChatDeps {
   onBatchScheduled?: (p: Promise<void>) => void;
 }
 
+// ── Stripe helpers ────────────────────────────────────────────────────────────
+
+function resolveRequestBaseUrl(req: Request): string {
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? req.protocol ?? "https";
+  const host = (req.headers["x-forwarded-host"] as string | undefined) ?? req.headers.host ?? "localhost:5000";
+  return `${proto}://${host}`;
+}
+
+function getStripeSecretKey(): string {
+  const key = (process.env.STRIPE_SECRET_KEY || "").trim();
+  if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
+  return key;
+}
+
+async function createStripeClient() {
+  const StripeMod = await import("stripe");
+  return new StripeMod.default(getStripeSecretKey());
+}
+
+async function releaseStripeCheckoutCredits(
+  storage: IStorage,
+  session: { id: string; payment_status?: string | null; metadata?: Record<string, string> | null },
+): Promise<{ released: boolean; credits: number; balance?: number }> {
+  if (session.payment_status !== "paid") {
+    return { released: false, credits: 0 };
+  }
+
+  const userId = session.metadata?.userId;
+  const credits = Number.parseInt(session.metadata?.credits ?? "", 10);
+  if (!userId || !Number.isFinite(credits) || credits <= 0) {
+    throw new Error("Stripe checkout session is missing credit metadata");
+  }
+
+  const requestId = `stripe_checkout_${session.id}`;
+  const [existing] = await db
+    .select({ balanceAfter: walletLedgerTable.balanceAfter })
+    .from(walletLedgerTable)
+    .where(eq(walletLedgerTable.requestId, requestId))
+    .limit(1);
+
+  if (existing) {
+    return { released: false, credits, balance: existing.balanceAfter };
+  }
+
+  const result = await storage.creditWalletCredits(userId, credits, "stripe_credit_purchase", {
+    requestId,
+    metadata: { stripeCheckoutSessionId: session.id },
+  });
+
+  return { released: true, credits, balance: result.balance };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 export function registerBoardsChatRoutes(
   app: Express,
   deps: BoardsChatDeps = {},
@@ -1681,6 +1735,115 @@ export function registerBoardsChatRoutes(
       return res.status(500).json({ error: "Failed to load billing history" });
     }
   });
+
+  // ── Stripe checkout routes ────────────────────────────────────────────────
+
+  app.post("/api/billing/checkout", requireAuth, async (req: Request, res: Response) => {
+    const parsed = z.object({
+      credits: z.number().int().min(10).max(100000),
+    }).safeParse(req.body ?? {});
+
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid credit amount" });
+    }
+
+    try {
+      const stripe = await createStripeClient();
+      const user = req.user as { id: string | number; email?: string | null };
+      const userId = String(user.id);
+      const credits = parsed.data.credits;
+      const amountCents = credits * 10;
+      const baseUrl = resolveRequestBaseUrl(req);
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        customer_email: user.email && user.email.includes("@") ? user.email : undefined,
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "usd",
+              unit_amount: amountCents,
+              product_data: {
+                name: `${credits} app credits`,
+                description: "Credits for creating content in this application.",
+              },
+            },
+          },
+        ],
+        success_url: `${baseUrl}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseUrl}/billing?checkout=cancelled`,
+        metadata: {
+          userId,
+          credits: String(credits),
+          kind: "credit_purchase",
+        },
+      });
+
+      return res.json({ checkoutUrl: session.url });
+    } catch (error) {
+      console.error("[billing] stripe checkout failed:", error);
+      const message = error instanceof Error ? error.message : "Failed to start checkout";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/billing/checkout-session/:sessionId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const stripe = await createStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+      const userId = String(req.user!.id);
+
+      if (session.metadata?.userId !== userId) {
+        return res.status(403).json({ error: "Checkout session does not belong to this account" });
+      }
+
+      const release = await releaseStripeCheckoutCredits(storage, session);
+      return res.json({ paid: session.payment_status === "paid", ...release });
+    } catch (error) {
+      console.error("[billing] checkout verification failed:", error);
+      const message = error instanceof Error ? error.message : "Failed to verify checkout";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
+    try {
+      const webhookSecret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+      if (!webhookSecret) {
+        return res.status(500).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
+      }
+      const signature = req.headers["stripe-signature"];
+      if (typeof signature !== "string") {
+        return res.status(400).json({ error: "Missing Stripe signature" });
+      }
+      const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+      if (!rawBody) {
+        return res.status(400).json({ error: "Missing raw webhook body" });
+      }
+      const stripe = await createStripeClient();
+      const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+      if (
+        event.type === "checkout.session.completed" ||
+        event.type === "checkout.session.async_payment_succeeded"
+      ) {
+        const session = event.data.object as {
+          id: string;
+          payment_status?: string | null;
+          metadata?: Record<string, string> | null;
+        };
+        await releaseStripeCheckoutCredits(storage, session);
+      }
+      return res.json({ received: true });
+    } catch (error) {
+      console.error("[billing] stripe webhook failed:", error);
+      const message = error instanceof Error ? error.message : "Stripe webhook failed";
+      return res.status(400).json({ error: message });
+    }
+  });
+
+  // ── End Stripe checkout routes ────────────────────────────────────────────
 
   // Stream board-generated local videos via an authenticated endpoint.
   // This makes /tmp provider outputs browser-playable while keeping access

@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { BillingOverview } from "@/components/billing/BillingOverview";
 import { BillingHistory } from "@/components/billing/BillingHistory";
+import { PaymentMethods } from "@/components/billing/PaymentMethods";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState } from "react";
 
@@ -23,9 +24,7 @@ export default function BillingPage() {
             <TabsList className="grid w-full max-w-md grid-cols-3 mb-8">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
-              <TabsTrigger value="payments" disabled>
-                Payments
-              </TabsTrigger>
+              <TabsTrigger value="payments">Payment Methods</TabsTrigger>
             </TabsList>
 
             {/* Overview Tab */}
@@ -38,11 +37,9 @@ export default function BillingPage() {
               <BillingHistory />
             </TabsContent>
 
-            {/* Payments Tab (Phase 2) */}
+            {/* Payment Methods Tab */}
             <TabsContent value="payments" className="space-y-6">
-              <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-                <p className="text-gray-600">Payment methods coming in Phase 2</p>
-              </div>
+              <PaymentMethods />
             </TabsContent>
           </Tabs>
         </div>

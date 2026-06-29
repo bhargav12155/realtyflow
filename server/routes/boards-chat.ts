@@ -5,6 +5,9 @@ import sharp from "sharp";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
 import type { BoardAsset, BoardAssetEvalHistoryEntry, BoardMessageCta } from "@shared/schema";
+import { walletLedger as walletLedgerTable } from "@shared/schema";
+import { db } from "../db";
+import { eq, desc } from "drizzle-orm";
 import type { BoardAssetCreate, BoardMessageCreate } from "../storage";
 import OpenAI, { type Uploadable } from "openai";
 import type { LumaModel } from "../services/luma";
@@ -1659,6 +1662,24 @@ export function registerBoardsChatRoutes(
     const userId = String(req.user!.id);
     const wallet = await storage.getWalletAccount(userId);
     return res.json({ balanceCredits: wallet.balanceCredits });
+  });
+
+  app.get("/api/billing/history", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      const wallet = await storage.getWalletAccount(userId);
+      const recentLedger = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.userId, userId))
+        .orderBy(desc(walletLedgerTable.createdAt))
+        .limit(limit);
+      return res.json({ wallet, recentLedger });
+    } catch (err) {
+      console.error("[billing] GET history failed:", err);
+      return res.status(500).json({ error: "Failed to load billing history" });
+    }
   });
 
   // Stream board-generated local videos via an authenticated endpoint.

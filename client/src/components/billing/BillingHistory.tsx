@@ -23,10 +23,7 @@ export function BillingHistory() {
     recentLedger: WalletLedgerEntry[];
   }>({
     queryKey: ["/api/billing/history", limit],
-    queryFn: async () => {
-      // Use admin endpoint for full ledger
-      return apiRequest("GET", `/api/admin/billing/wallet/self?limit=${limit}`);
-    },
+    queryFn: () => apiRequest("GET", `/api/billing/history?limit=${limit}`),
   });
 
   const ledger = walletData?.recentLedger ?? [];

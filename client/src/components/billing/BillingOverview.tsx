@@ -43,14 +43,15 @@ export function BillingOverview() {
   });
 
   const { data: usageData, isLoading: usageLoading } = useQuery<{ summary: UsageSummary; events: UsageEvent[] }>({
-    queryKey: ["/api/admin/billing/usage", { limit: 100 }],
+    queryKey: ["/api/admin/billing/usage"],
+    queryFn: () => apiRequest("GET", "/api/admin/billing/usage?limit=100"),
   });
 
   const summary = usageData?.summary;
   const credits = wallet?.balanceCredits ?? 0;
 
   // Calculate monthly stats from usage events
-  const thisMonthEvents = usageData?.events.filter((e) => {
+  const thisMonthEvents = usageData?.events?.filter((e) => {
     const eventDate = new Date(e.createdAt);
     const now = new Date();
     return (

@@ -12,6 +12,7 @@ import AiAssistantPage from "@/pages/ai-assistant";
 import Dashboard from "@/pages/dashboard";
 import SocialMediaPage from "@/pages/social-media";
 import SettingsPage from "@/pages/settings";
+import BillingPage from "@/pages/billing";
 import AdminSettingsPage from "@/pages/admin-settings";
 import LoginPage from "@/pages/login";
 import IntegrationPage from "@/pages/integration";
@@ -60,6 +61,11 @@ function Router() {
       <Route path="/settings">
         <ProtectedRoute>
           <SettingsPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/billing">
+        <ProtectedRoute>
+          <BillingPage />
         </ProtectedRoute>
       </Route>
       <Route path="/admin/settings">

@@ -29,6 +29,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   FileText,
   Home,
   LayoutGrid,
@@ -585,6 +586,18 @@ function SidebarContent({
               </p>
             </div>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground"
+            data-testid="button-billing"
+            asChild
+            title={isCollapsed ? "Billing" : undefined}
+          >
+            <Link href="/billing">
+              <CreditCard className="h-4 w-4" />
+            </Link>
+          </Button>
           <Button
             variant="ghost"
             size="icon"

@@ -89,21 +89,30 @@ export class RealtimeService {
 
   initialize(server: Server) {
     this.wss = new WebSocketServer({
-      server,
-      path: "/ws",
-      verifyClient: (info, done) => {
-        // SECURITY: authenticate at the upgrade level so unauthenticated
-        // sockets are rejected before the handshake completes. The user
-        // identity is derived only from a verified JWT (cookie / Bearer
-        // token / ?token=). Any client-supplied ?userId= is ignored.
-        const auth = authenticateRequest(info.req);
-        if (!auth) {
-          console.warn("⚠️ WebSocket upgrade rejected: invalid or missing JWT");
-          return done(false, 401, "Unauthorized");
-        }
-        (info.req as any)._wsUserId = auth.userId;
-        return done(true);
-      },
+      noServer: true,
+    });
+
+    server.on("upgrade", (req, socket, head) => {
+      // Important: only consume upgrades for our realtime endpoint. Any
+      // other upgrade path (for example Vite HMR in dev) must be ignored so
+      // other listeners can handle it.
+      const pathname = (req.url || "/").split("?")[0];
+      if (pathname !== "/ws") {
+        return;
+      }
+
+      const auth = authenticateRequest(req);
+      if (!auth) {
+        console.warn("⚠️ WebSocket upgrade rejected: invalid or missing JWT");
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      (req as any)._wsUserId = auth.userId;
+      this.wss!.handleUpgrade(req, socket, head, (ws) => {
+        this.wss!.emit("connection", ws, req);
+      });
     });
 
     this.wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {

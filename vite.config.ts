@@ -20,11 +20,24 @@ export default defineConfig({
       : []),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path.resolve(import.meta.dirname, "shared"),
-      "@assets": path.resolve(import.meta.dirname, "attached_assets"),
-    },
+    alias: [
+      {
+        find: "@shared/schema",
+        replacement: path.resolve(import.meta.dirname, "shared", "schema.ts"),
+      },
+      {
+        find: "@",
+        replacement: path.resolve(import.meta.dirname, "client", "src"),
+      },
+      {
+        find: "@shared",
+        replacement: path.resolve(import.meta.dirname, "shared"),
+      },
+      {
+        find: "@assets",
+        replacement: path.resolve(import.meta.dirname, "attached_assets"),
+      },
+    ],
   },
   root: path.resolve(import.meta.dirname, "client"),
   build: {

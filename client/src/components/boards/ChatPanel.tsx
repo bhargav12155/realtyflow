@@ -150,6 +150,42 @@ export function extractSuggestedPrompt(content: string): string | null {
   return null;
 }
 
+type ScriptQuickAction = "enhance" | "shorten" | "voiceover";
+
+function buildScriptQuickActionPrompt(action: ScriptQuickAction, sourceText: string): string {
+  const normalized = sourceText.replace(/\s+/g, " ").trim();
+  const clipped = normalized.length > 1200 ? `${normalized.slice(0, 1200)}...` : normalized;
+
+  if (action === "enhance") {
+    return [
+      "Enhance this script and make it production-ready.",
+      "Keep the same core idea, but improve clarity, flow, emotional hook, and scene continuity.",
+      "Also give me a version split into short scene beats.",
+      "",
+      `Script:\n${clipped}`,
+    ].join("\n");
+  }
+
+  if (action === "shorten") {
+    return [
+      "Rewrite this into a short, punchy 20-30 second script.",
+      "Keep the key story and CTA, remove repetition, and keep language simple.",
+      "",
+      `Script:\n${clipped}`,
+    ].join("\n");
+  }
+
+  return [
+    "Turn this into a clean voice-over script for video.",
+    "Give me:",
+    "1) voice-over lines",
+    "2) scene-by-scene visual directions",
+    "3) final CTA line",
+    "",
+    `Script:\n${clipped}`,
+  ].join("\n");
+}
+
 export function ChatPanel({
   boardTitle,
   messages,
@@ -404,6 +440,13 @@ export function ChatPanel({
     }, 0);
   };
 
+  const handleScriptQuickAction = (action: ScriptQuickAction, sourceText: string) => {
+    setInput(buildScriptQuickActionPrompt(action, sourceText));
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+  };
+
   return (
     <aside
       className="flex-shrink-0 bg-white border-l border-neutral-200 flex flex-col dark:bg-neutral-900 dark:border-neutral-800 relative"
@@ -557,6 +600,7 @@ export function ChatPanel({
           const suggested = isPlan && m.role === "assistant" && !m.pending
             ? extractSuggestedPrompt(m.content)
             : null;
+          const canShowScriptActions = isPlan && m.role === "assistant" && !m.pending;
           // Only label user turns by another collaborator. The current
           // user's own bubbles stay clean so the most common case (private
           // board) looks unchanged.
@@ -599,8 +643,8 @@ export function ChatPanel({
                 )}
               </div>
               </div>
-              {suggested && (
-                <div className="mt-1.5">
+              {(suggested || canShowScriptActions) && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => handleBuildThis(suggested)}
@@ -611,6 +655,40 @@ export function ChatPanel({
                     <Wand2 className="w-3 h-3" />
                     Build this
                   </button>
+                  {canShowScriptActions && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleScriptQuickAction("enhance", m.content)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-medium border border-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 dark:text-emerald-200 dark:border-emerald-500/30"
+                        data-testid={`button-enhance-script-${m.id}`}
+                        title="Prefill an enhanced script request"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Enhance script
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleScriptQuickAction("shorten", m.content)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 text-[11px] font-medium border border-amber-200 dark:bg-amber-500/15 dark:hover:bg-amber-500/25 dark:text-amber-200 dark:border-amber-500/30"
+                        data-testid={`button-shorten-script-${m.id}`}
+                        title="Prefill a shorter script request"
+                      >
+                        <Minus className="w-3 h-3" />
+                        Shorten
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleScriptQuickAction("voiceover", m.content)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-medium border border-sky-200 dark:bg-sky-500/15 dark:hover:bg-sky-500/25 dark:text-sky-200 dark:border-sky-500/30"
+                        data-testid={`button-voiceover-script-${m.id}`}
+                        title="Prefill a voice-over script request"
+                      >
+                        <Mic className="w-3 h-3" />
+                        Voice-over
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

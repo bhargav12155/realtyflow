@@ -2002,6 +2002,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
   registerAdminHeygenAlertsRoutes(app, { requireAdmin });
 
+  // Admin billing: credits, top-ups, usage ledger
+  const { registerAdminBillingRoutes } = await import(
+    "./routes/admin-billing"
+  );
+  registerAdminBillingRoutes(app, { storage, requireAdmin });
+
   // Helper function to ensure S3 URLs are properly formatted
   const ensureS3Url = (urlOrKey: string | null | undefined): string | null => {
     if (!urlOrKey) return null;

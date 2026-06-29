@@ -15,17 +15,19 @@ interface WalletLedgerEntry {
   createdAt: string;
 }
 
+interface BillingHistoryResponse {
+  wallet: unknown;
+  recentLedger: WalletLedgerEntry[];
+}
+
 export function BillingHistory() {
   const [limit] = useState(50);
 
-  const { data: walletData, isLoading } = useQuery<{
-    wallet: any;
-    recentLedger: WalletLedgerEntry[];
-  }>({
+  const { data: walletData, isLoading } = useQuery<BillingHistoryResponse>({
     queryKey: ["/api/billing/history", limit],
-    queryFn: async () => {
-      // Use admin endpoint for full ledger
-      return apiRequest("GET", `/api/admin/billing/wallet/self?limit=${limit}`);
+    queryFn: async (): Promise<BillingHistoryResponse> => {
+      const response = await apiRequest("GET", `/api/billing/history?limit=${limit}`);
+      return (await response.json()) as BillingHistoryResponse;
     },
   });
 
@@ -39,11 +41,15 @@ export function BillingHistory() {
       },
       "luma_video_gen": {
         label: "Video Generation",
-        description: "Luma video creation",
+        description: "Video creation",
       },
       "admin_topup": {
-        label: "Admin Top-up",
-        description: "Manual credit addition",
+        label: "Credits Added",
+        description: "Credits added to your account",
+      },
+      "stripe_credit_purchase": {
+        label: "Credit Purchase",
+        description: "Credits purchased for this application",
       },
       "all_models_failed": {
         label: "Refund - All Failed",
@@ -139,7 +145,6 @@ export function BillingHistory() {
         <div className="space-y-3">
           {ledger.map((entry) => {
             const reason = getReasonLabel(entry.reason);
-            const isRefund = entry.deltaCredits > 0;
 
             return (
               <div

@@ -1,13 +1,15 @@
 import type { Express, Request, Response, NextFunction, RequestHandler } from "express";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
+import { db } from "../db";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
-import type { BoardAsset, BoardAssetEvalHistoryEntry, BoardMessageCta } from "@shared/schema";
+import { walletLedger, type BoardAsset, type BoardAssetEvalHistoryEntry, type BoardMessageCta } from "@shared/schema";
 import type { BoardAssetCreate, BoardMessageCreate } from "../storage";
 import OpenAI, { type Uploadable } from "openai";
-import type { LumaModel } from "../services/luma";
+import type { LumaAspectRatio, LumaModel, LumaResolution } from "../services/luma";
 import type {
   SeedanceModel,
   SeedanceAspectRatio,
@@ -21,7 +23,7 @@ import { realtimeService } from "../websocket";
 import {
   chargeCredits,
   InsufficientCreditsError,
-  lumaCreditCost,
+  videoCreditCost,
   refundCredits,
 } from "../services/usage-metering";
 
@@ -197,10 +199,39 @@ export type GenMode = "text-to-video" | "image-to-video" | "video-to-video";
 export type PollStatus = "pending" | "processing" | "completed" | "failed";
 
 const LUMA_MODELS: ReadonlySet<LumaModel> = new Set<LumaModel>(["ray-2", "ray-flash-2"]);
+const LUMA_ASPECT_RATIOS: readonly LumaAspectRatio[] = ["1:1", "3:4", "4:3", "9:16", "16:9", "9:21", "21:9"];
+const LUMA_RESOLUTIONS: readonly LumaResolution[] = ["540p", "720p", "1080p", "4k"];
+
 function asLumaModel(value: string | undefined): LumaModel {
   if (value && LUMA_MODELS.has(value as LumaModel)) return value as LumaModel;
   return "ray-2";
 }
+
+function sanitizeCameraMotion(value?: string): string | undefined {
+  if (!value) return undefined;
+  const sanitized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!sanitized) return undefined;
+  return sanitized.slice(0, 80);
+}
+
+function resolveLumaCallbackUrl(): string | undefined {
+  const token = (process.env.LUMA_CALLBACK_TOKEN || "").trim();
+  if (!token) return undefined;
+  return `${resolvePublicBaseUrl()}/api/luma/callback?token=${encodeURIComponent(token)}`;
+}
+
+const lumaOptionsSchema = z.object({
+  aspectRatio: z.enum(LUMA_ASPECT_RATIOS as [LumaAspectRatio, ...LumaAspectRatio[]]).optional(),
+  resolution: z.enum(LUMA_RESOLUTIONS as [LumaResolution, ...LumaResolution[]]).optional(),
+  duration: z.string().regex(/^\d+s$/).optional(),
+  loop: z.boolean().optional(),
+  concepts: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
+  cameraMotion: z.string().trim().min(1).max(80).optional(),
+});
 
 const chatBodySchema = z.object({
   message: z.string().min(1).max(4000),
@@ -210,12 +241,50 @@ const chatBodySchema = z.object({
   generationMode: z.enum(["text-to-video", "image-to-video", "video-to-video"]).optional(),
   forceModel: z.string().optional(),
   variations: z.number().int().min(1).max(4).optional(),
+  lumaOptions: lumaOptionsSchema.optional(),
   seedanceOptions: seedanceOptionsSchema.optional(),
   chatModel: z.enum(["claude", "gemini", "openai"]).optional(),
   conversationHistory: z
     .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() }))
     .optional(),
 });
+
+type ChatBody = z.infer<typeof chatBodySchema>;
+
+const CREATE_REQUEST_DEDUPE_WINDOW_MS = 4000;
+const recentCreateRequestExpiries = new Map<string, number>();
+
+function pruneRecentCreateRequestKeys(nowMs: number): void {
+  for (const [key, expiry] of recentCreateRequestExpiries.entries()) {
+    if (expiry <= nowMs) {
+      recentCreateRequestExpiries.delete(key);
+    }
+  }
+}
+
+function buildCreateRequestDedupeKey(input: {
+  userId: string;
+  boardId: string;
+  body: ChatBody;
+  provider: Provider;
+  genMode: GenMode;
+  effectiveMessage: string;
+}): string {
+  const normalizedReferences = [...(input.body.referencedAssetIds ?? [])].sort();
+  return JSON.stringify({
+    userId: input.userId,
+    boardId: input.boardId,
+    mode: input.body.mode,
+    provider: input.provider,
+    genMode: input.genMode,
+    message: input.effectiveMessage.trim(),
+    forceModel: input.body.forceModel ?? null,
+    variations: input.body.variations ?? null,
+    referencedAssetIds: normalizedReferences,
+    lumaOptions: input.body.lumaOptions ?? null,
+    seedanceOptions: input.body.seedanceOptions ?? null,
+  });
+}
 
 export type ChatModelId = "claude" | "gemini" | "openai";
 
@@ -335,6 +404,7 @@ function buildShotSpecPrompt(input: {
   provider: Provider;
   genMode: GenMode;
   refAssets: BoardAsset[];
+  cameraMotion?: string;
 }): string {
   const raw = input.prompt.trim();
   const compact = raw.replace(/\s+/g, " ");
@@ -352,6 +422,7 @@ function buildShotSpecPrompt(input: {
       : input.genMode === "video-to-video"
         ? "Preserve core scene continuity and subject identity from the selected source video."
         : "Establish clear visual continuity for a single, coherent shot.";
+  const cameraMotion = sanitizeCameraMotion(input.cameraMotion);
 
   return [
     "You are generating one production-quality shot.",
@@ -362,6 +433,12 @@ function buildShotSpecPrompt(input: {
     "- Subject: Keep one primary subject and avoid introducing unrelated objects.",
     "- Action: One clear action with readable beginning-to-end motion.",
     "- Camera: Stable cinematic framing, smooth motion, no random zoom or jitter.",
+    ...(cameraMotion
+      ? [
+          `- Camera motion directive: Prefer this move when possible — ${cameraMotion}.`,
+          "- If the requested motion conflicts with scene coherence, choose the closest smooth cinematic move.",
+        ]
+      : []),
     "- Lighting & Style: Natural contrast, clean details, realistic textures, avoid over-saturation.",
     `- Continuity: ${continuityHint}`,
     "- Safety/Quality Negatives: No flicker, no warped faces/hands, no duplicated limbs, no text artifacts, no watermark.",
@@ -397,27 +474,7 @@ function deriveScenePromptsFromScript(rawScript: string): string[] {
     return Array.from(new Set(explicitBlocks)).slice(0, 4);
   }
 
-  const paragraphs = text
-    .split(/\n{2,}/)
-    .map(normalize)
-    .filter((s) => s.length > 25);
-  if (paragraphs.length >= 2) {
-    return Array.from(new Set(paragraphs)).slice(0, 4);
-  }
-
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map(normalize)
-    .filter((s) => s.length > 10);
-  if (sentences.length < 4) return [];
-
-  const chunks: string[] = [];
-  for (let i = 0; i < sentences.length; i += 2) {
-    const chunk = normalize(sentences.slice(i, i + 2).join(" "));
-    if (chunk.length > 25) chunks.push(chunk);
-    if (chunks.length >= 4) break;
-  }
-  return chunks.length >= 2 ? chunks : [];
+  return [];
 }
 
 const GENERATE_SHORTCUT_RE =
@@ -468,6 +525,14 @@ export interface DispatchContext {
   prompt: string;
   refAssets: BoardAsset[];
   forceModel?: string;
+  lumaOptions?: {
+    aspectRatio?: LumaAspectRatio;
+    resolution?: LumaResolution;
+    duration?: string;
+    loop?: boolean;
+    concepts?: string[];
+    cameraMotion?: string;
+  };
   seedanceOptions?: {
     model?: SeedanceModel;
     aspectRatio?: SeedanceAspectRatio;
@@ -494,10 +559,72 @@ function resolvePublicBaseUrl(): string {
   return "http://localhost:5001";
 }
 
+function resolveRequestBaseUrl(req: Request): string {
+  const originHeader = (req.headers.origin || "").trim();
+  if (/^https?:\/\//i.test(originHeader)) {
+    return originHeader.replace(/\/$/, "");
+  }
+
+  const hostHeader = (req.headers["x-forwarded-host"] || req.headers.host || "").toString().trim();
+  if (hostHeader) {
+    const forwardedProto = (req.headers["x-forwarded-proto"] || "").toString().split(",")[0].trim();
+    const protocol = forwardedProto || req.protocol || "http";
+    return `${protocol}://${hostHeader}`.replace(/\/$/, "");
+  }
+
+  return resolvePublicBaseUrl();
+}
+
 function toAbsoluteImageUrl(rawUrl: string): string {
   if (/^https?:\/\//i.test(rawUrl) || rawUrl.startsWith("data:")) return rawUrl;
   if (rawUrl.startsWith("/")) return `${resolvePublicBaseUrl()}${rawUrl}`;
   return rawUrl;
+}
+
+function getStripeSecretKey(): string {
+  const key = (process.env.STRIPE_SECRET_KEY || "").trim();
+  if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
+  return key;
+}
+
+async function createStripeClient() {
+  const StripeMod = await import("stripe");
+  return new StripeMod.default(getStripeSecretKey());
+}
+
+async function releaseStripeCheckoutCredits(
+  storage: IStorage,
+  session: { id: string; payment_status?: string | null; metadata?: Record<string, string> | null },
+): Promise<{ released: boolean; credits: number; balance?: number }> {
+  if (session.payment_status !== "paid") {
+    return { released: false, credits: 0 };
+  }
+
+  const userId = session.metadata?.userId;
+  const credits = Number.parseInt(session.metadata?.credits ?? "", 10);
+  if (!userId || !Number.isFinite(credits) || credits <= 0) {
+    throw new Error("Stripe checkout session is missing credit metadata");
+  }
+
+  const requestId = `stripe_checkout_${session.id}`;
+  const [existing] = await db
+    .select({ balanceAfter: walletLedger.balanceAfter })
+    .from(walletLedger)
+    .where(eq(walletLedger.requestId, requestId))
+    .limit(1);
+
+  if (existing) {
+    return { released: false, credits, balance: existing.balanceAfter };
+  }
+
+  const result = await storage.creditWalletCredits(userId, credits, "stripe_credit_purchase", {
+    requestId,
+    metadata: {
+      stripeCheckoutSessionId: session.id,
+    },
+  });
+
+  return { released: true, credits, balance: result.balance };
 }
 
 async function fetchImageBufferForContactSheet(rawUrl: string): Promise<Buffer> {
@@ -592,6 +719,12 @@ export async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx
       const task = await lumaService.createVideoTask(ctx.prompt, {
         model,
         keyframeImageUrl,
+        aspectRatio: ctx.lumaOptions?.aspectRatio,
+        resolution: ctx.lumaOptions?.resolution,
+        duration: ctx.lumaOptions?.duration,
+        loop: ctx.lumaOptions?.loop,
+        concepts: ctx.lumaOptions?.concepts,
+        callbackUrl: resolveLumaCallbackUrl(),
       });
       return {
         taskId: task.taskId,
@@ -931,6 +1064,7 @@ async function runBatchInBackground(args: {
   refAssets: BoardAsset[];
   rows: BoardAsset[];
   forceModel?: string;
+  lumaOptions?: DispatchContext["lumaOptions"];
   seedanceOptions?: DispatchContext["seedanceOptions"];
   dispatch: DispatchOne;
   dispatchImageFn: DispatchImage;
@@ -944,27 +1078,37 @@ async function runBatchInBackground(args: {
    */
   recipients: string[];
 }) {
-  const { storage, boardId, userId, batchId, prompt, promptByAssetId, provider, genMode, refAssets, rows, forceModel, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
+  const { storage, boardId, userId, batchId, prompt, promptByAssetId, provider, genMode, refAssets, rows, forceModel, lumaOptions, seedanceOptions, dispatch, dispatchImageFn, autoEval, recipients } = args;
 
   await Promise.all(
     rows.map(async (row) => {
       const rowPrompt = promptByAssetId?.[row.id] ?? prompt;
-      let chargedLumaCredits = 0;
+      let chargedCredits = 0;
+      let billedProvider: "luma" | "veo" | null = null;
       const rowRequestId = `${batchId}:${row.id}`;
       try {
-        if (provider === "luma") {
-          chargedLumaCredits = lumaCreditCost(genMode);
+        if (provider === "luma" || provider === "veo") {
+          billedProvider = provider;
+          chargedCredits = videoCreditCost(billedProvider, genMode, {
+            resolution: lumaOptions?.resolution,
+            duration: lumaOptions?.duration,
+          });
           await chargeCredits(storage, {
             userId,
-            provider: "luma",
+            provider: billedProvider,
             feature: "board_video_generation",
-            credits: chargedLumaCredits,
+            credits: chargedCredits,
             requestId: rowRequestId,
             metadata: {
               boardId,
               batchId,
               assetId: row.id,
               genMode,
+              lumaResolution: lumaOptions?.resolution ?? "720p",
+              lumaDuration: lumaOptions?.duration ?? "5s",
+              lumaAspectRatio: lumaOptions?.aspectRatio ?? "16:9",
+              lumaConcepts: lumaOptions?.concepts ?? [],
+              lumaCameraMotion: lumaOptions?.cameraMotion ?? null,
             },
           });
         }
@@ -981,22 +1125,28 @@ async function runBatchInBackground(args: {
           return;
         }
         const videoProvider = provider as VideoProvider;
-        const dispatched = await dispatch(videoProvider, genMode, { prompt: rowPrompt, refAssets, forceModel, seedanceOptions });
+        const dispatched = await dispatch(videoProvider, genMode, { prompt: rowPrompt, refAssets, forceModel, lumaOptions, seedanceOptions });
         const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatched.modelLabel,
         });
         if (labelled) pushAssetStatus(recipients, boardId, labelled);
         const result = await pollUntilDone(dispatched.poll);
         if (result.error || !result.videoUrl) {
-          if (chargedLumaCredits > 0) {
+          if (chargedCredits > 0 && billedProvider) {
             await refundCredits(storage, {
               userId,
-              provider: "luma",
+              provider: billedProvider,
               feature: "board_video_generation",
-              credits: chargedLumaCredits,
+              credits: chargedCredits,
               requestId: rowRequestId,
               reason: "generation_failed",
-              metadata: { boardId, batchId, assetId: row.id },
+              metadata: {
+                boardId,
+                batchId,
+                assetId: row.id,
+                lumaResolution: lumaOptions?.resolution ?? "720p",
+                lumaDuration: lumaOptions?.duration ?? "5s",
+              },
             });
           }
           const failed = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
@@ -1022,15 +1172,22 @@ async function runBatchInBackground(args: {
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Generation failed";
         console.error(`[boards-chat] generation failed for asset ${row.id}:`, msg);
-        if (chargedLumaCredits > 0) {
+        if (chargedCredits > 0 && billedProvider) {
           await refundCredits(storage, {
             userId,
-            provider: "luma",
+            provider: billedProvider,
             feature: "board_video_generation",
-            credits: chargedLumaCredits,
+            credits: chargedCredits,
             requestId: rowRequestId,
             reason: "dispatch_or_poll_exception",
-            metadata: { boardId, batchId, assetId: row.id, error: msg },
+            metadata: {
+              boardId,
+              batchId,
+              assetId: row.id,
+              error: msg,
+              lumaResolution: lumaOptions?.resolution ?? "720p",
+              lumaDuration: lumaOptions?.duration ?? "5s",
+            },
           });
         }
         if (err instanceof InsufficientCreditsError) {
@@ -1655,10 +1812,189 @@ export function registerBoardsChatRoutes(
     });
   });
 
+  app.post("/api/luma/callback", async (req: Request, res: Response) => {
+    try {
+      const expectedToken = (process.env.LUMA_CALLBACK_TOKEN || "").trim();
+      if (expectedToken) {
+        const queryToken = typeof req.query.token === "string" ? req.query.token : "";
+        const headerToken = typeof req.headers["x-luma-callback-token"] === "string"
+          ? req.headers["x-luma-callback-token"]
+          : "";
+        if (queryToken !== expectedToken && headerToken !== expectedToken) {
+          console.warn("[boards-chat] ignored luma callback with invalid token");
+          return res.status(200).json({ ok: true, ignored: true });
+        }
+      }
+
+      const { lumaService } = await import("../services/luma");
+      lumaService.ingestGenerationCallback(req.body ?? {});
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.warn(
+        "[boards-chat] luma callback ingestion warning:",
+        error instanceof Error ? error.message : error,
+      );
+      return res.status(200).json({ ok: true });
+    }
+  });
+
+  app.get("/api/luma/concepts", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const { lumaService } = await import("../services/luma");
+      const concepts = await lumaService.listConcepts();
+      return res.json({ concepts });
+    } catch (error) {
+      console.error("[boards-chat] failed to list luma concepts:", error);
+      const message = error instanceof Error ? error.message : "Failed to fetch Luma concepts";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/luma/camera-motions", requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const { lumaService } = await import("../services/luma");
+      const cameraMotions = await lumaService.listCameraMotions();
+      return res.json({ cameraMotions });
+    } catch (error) {
+      console.error("[boards-chat] failed to list luma camera motions:", error);
+      const message = error instanceof Error ? error.message : "Failed to fetch Luma camera motions";
+      return res.status(500).json({ error: message });
+    }
+  });
+
   app.get("/api/billing/credits", requireAuth, async (req: Request, res: Response) => {
     const userId = String(req.user!.id);
     const wallet = await storage.getWalletAccount(userId);
     return res.json({ balanceCredits: wallet.balanceCredits });
+  });
+
+  app.get("/api/billing/history", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+      const limit = Math.min(Number.parseInt(String(req.query.limit ?? "50"), 10) || 50, 100);
+      const wallet = await storage.getWalletAccount(userId);
+      const recentLedger = await db
+        .select()
+        .from(walletLedger)
+        .where(eq(walletLedger.userId, userId))
+        .orderBy(desc(walletLedger.createdAt))
+        .limit(limit);
+
+      return res.json({ wallet, recentLedger });
+    } catch (error) {
+      console.error("[boards-chat] billing history failed:", error);
+      return res.status(500).json({ error: "Failed to load billing history" });
+    }
+  });
+
+  app.post("/api/billing/checkout", requireAuth, async (req: Request, res: Response) => {
+    const parsed = z.object({
+      credits: z.number().int().min(10).max(100000),
+    }).safeParse(req.body ?? {});
+
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid credit amount" });
+    }
+
+    try {
+      const stripe = await createStripeClient();
+      const user = req.user as { id: string | number; email?: string | null };
+      const userId = String(user.id);
+      const credits = parsed.data.credits;
+      const amountCents = credits * 10;
+      const baseUrl = resolveRequestBaseUrl(req);
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        customer_email: user.email && user.email.includes("@") ? user.email : undefined,
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "usd",
+              unit_amount: amountCents,
+              product_data: {
+                name: `${credits} app credits`,
+                description: "Credits for creating content in this application.",
+              },
+            },
+          },
+        ],
+        success_url: `${baseUrl}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${baseUrl}/billing?checkout=cancelled`,
+        metadata: {
+          userId,
+          credits: String(credits),
+          kind: "credit_purchase",
+        },
+      });
+
+      return res.json({ checkoutUrl: session.url });
+    } catch (error) {
+      console.error("[boards-chat] stripe checkout failed:", error);
+      const message = error instanceof Error ? error.message : "Failed to start checkout";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/billing/checkout-session/:sessionId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const stripe = await createStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+      const userId = String(req.user!.id);
+
+      if (session.metadata?.userId !== userId) {
+        return res.status(403).json({ error: "Checkout session does not belong to this account" });
+      }
+
+      const release = await releaseStripeCheckoutCredits(storage, session);
+      return res.json({
+        paid: session.payment_status === "paid",
+        ...release,
+      });
+    } catch (error) {
+      console.error("[boards-chat] checkout verification failed:", error);
+      const message = error instanceof Error ? error.message : "Failed to verify checkout";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
+    try {
+      const webhookSecret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+      if (!webhookSecret) {
+        return res.status(500).json({ error: "STRIPE_WEBHOOK_SECRET is not configured" });
+      }
+
+      const signature = req.headers["stripe-signature"];
+      if (typeof signature !== "string") {
+        return res.status(400).json({ error: "Missing Stripe signature" });
+      }
+
+      const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+      if (!rawBody) {
+        return res.status(400).json({ error: "Missing raw webhook body" });
+      }
+
+      const stripe = await createStripeClient();
+      const event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+
+      if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+        const session = event.data.object as {
+          id: string;
+          payment_status?: string | null;
+          metadata?: Record<string, string> | null;
+        };
+        await releaseStripeCheckoutCredits(storage, session);
+      }
+
+      return res.json({ received: true });
+    } catch (error) {
+      console.error("[boards-chat] stripe webhook failed:", error);
+      const message = error instanceof Error ? error.message : "Stripe webhook failed";
+      return res.status(400).json({ error: message });
+    }
   });
 
   // Stream board-generated local videos via an authenticated endpoint.
@@ -2001,11 +2337,56 @@ export function registerBoardsChatRoutes(
         }
       }
 
-      const variations = body.variations ?? (isImage ? 3 : 1);
-      const scenePrompts = deriveScenePromptsFromScript(effectiveMessage);
+      const dedupeNowMs = Date.now();
+      pruneRecentCreateRequestKeys(dedupeNowMs);
+      const dedupeKey = buildCreateRequestDedupeKey({
+        userId,
+        boardId,
+        body,
+        provider,
+        genMode,
+        effectiveMessage,
+      });
+      const existingExpiry = recentCreateRequestExpiries.get(dedupeKey) ?? 0;
+      if (existingExpiry > dedupeNowMs) {
+        return res.json({
+          mode: "create",
+          deduped: true,
+          reply: "Already generating this request. Please wait for the current batch to appear on the canvas.",
+        });
+      }
+      recentCreateRequestExpiries.set(
+        dedupeKey,
+        dedupeNowMs + CREATE_REQUEST_DEDUPE_WINDOW_MS,
+      );
+
+      const variations = isImage ? body.variations ?? 3 : 1;
+      const scenePrompts = isImage ? deriveScenePromptsFromScript(effectiveMessage) : [];
       const isSceneSplitBatch = scenePrompts.length >= 2;
       const effectivePrompts = isSceneSplitBatch ? scenePrompts : [effectiveMessage];
       const rowCount = isSceneSplitBatch ? effectivePrompts.length : variations;
+
+      // --- Pre-flight credit check ---
+      // Calculate the total credits this batch will need and verify the user has
+      // enough BEFORE creating any assets or making any provider API call.
+      if (provider === "luma" || provider === "veo") {
+        const creditsPerRow = videoCreditCost(provider, genMode, {
+          resolution: body.lumaOptions?.resolution,
+          duration: body.lumaOptions?.duration,
+        });
+        const totalRequired = creditsPerRow * rowCount;
+        const wallet = await storage.getWalletAccount(userId);
+        const balance = wallet.balanceCredits ?? 0;
+        if (balance < totalRequired) {
+          return res.status(402).json({
+            error: `Insufficient credits: required=${totalRequired}, balance=${balance}`,
+            requiredCredits: totalRequired,
+            balanceCredits: balance,
+          });
+        }
+      }
+      // --------------------------------
+
       const batchId = randomUUID();
       const kind: "image" | "video" = isImage ? "image" : "video";
       const refImageCount = refAssets.filter((a) => a.kind === "image").length;
@@ -2070,6 +2451,7 @@ export function registerBoardsChatRoutes(
         provider,
         genMode,
         refAssets,
+        cameraMotion: body.lumaOptions?.cameraMotion,
       });
 
       const structuredPromptByAssetId: Record<string, string> = {};
@@ -2081,9 +2463,18 @@ export function registerBoardsChatRoutes(
             provider,
             genMode,
             refAssets,
+            cameraMotion: body.lumaOptions?.cameraMotion,
           });
         }
       }
+
+      const normalizedLumaOptions = body.lumaOptions
+        ? {
+            ...body.lumaOptions,
+            cameraMotion: sanitizeCameraMotion(body.lumaOptions.cameraMotion),
+            concepts: (body.lumaOptions.concepts ?? []).map((c) => c.trim()).filter((c) => c.length > 0),
+          }
+        : undefined;
 
       const bgPromise = runBatchInBackground({
         storage,
@@ -2100,6 +2491,7 @@ export function registerBoardsChatRoutes(
         refAssets,
         rows,
         forceModel: body.forceModel,
+        lumaOptions: normalizedLumaOptions,
         seedanceOptions: body.seedanceOptions,
         dispatch,
         dispatchImageFn,

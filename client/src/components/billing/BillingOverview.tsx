@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, CreditCard, TrendingUp } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
-import { useState } from "react";
+import { Loader2, CreditCard } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useEffect, useState } from "react";
 
 interface WalletAccount {
   userId: string;
@@ -12,63 +12,73 @@ interface WalletAccount {
   updatedAt: string;
 }
 
-interface UsageEvent {
-  id: string;
-  userId: string;
-  provider: string;
-  feature: string;
-  status: "charged" | "refunded" | "blocked";
-  estimatedCredits: number;
-  actualCredits: number | null;
-  createdAt: string;
-}
-
-interface UsageSummary {
-  totalEvents: number;
-  byStatus: {
-    charged: number;
-    refunded: number;
-    blocked: number;
-  };
-  byProvider: Record<string, number>;
-  totalChargedCredits: number;
-  totalRefundedCredits: number;
-}
-
 export function BillingOverview() {
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [selectedCredits, setSelectedCredits] = useState(100);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
 
   const { data: wallet, isLoading: walletLoading } = useQuery<WalletAccount>({
     queryKey: ["/api/billing/credits"],
   });
-
-  const { data: usageData, isLoading: usageLoading } = useQuery<{ summary: UsageSummary; events: UsageEvent[] }>({
-    queryKey: ["/api/admin/billing/usage", { limit: 100 }],
-  });
-
-  const summary = usageData?.summary;
   const credits = wallet?.balanceCredits ?? 0;
+  const creditPacks = [100, 250, 500, 1000];
+  const selectedPriceUsd = selectedCredits * 0.1;
 
-  // Calculate monthly stats from usage events
-  const thisMonthEvents = usageData?.events.filter((e) => {
-    const eventDate = new Date(e.createdAt);
-    const now = new Date();
-    return (
-      eventDate.getMonth() === now.getMonth() &&
-      eventDate.getFullYear() === now.getFullYear() &&
-      e.status === "charged"
-    );
-  }) ?? [];
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkout = params.get("checkout");
+    const sessionId = params.get("session_id");
 
-  const monthlySpent = thisMonthEvents.reduce((sum, e) => sum + (e.actualCredits || 0), 0);
-  const estimatedCost = monthlySpent * 0.1; // 1 credit = $0.10
+    if (checkout === "cancelled") {
+      setCheckoutMessage("Payment was cancelled. No credits were added.");
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+
+    if (checkout !== "success" || !sessionId) return;
+
+    let cancelled = false;
+    setCheckoutMessage("Confirming payment and releasing credits...");
+
+    apiRequest("GET", `/api/billing/checkout-session/${encodeURIComponent(sessionId)}`)
+      .then(async (response) => {
+        const data = (await response.json()) as { paid?: boolean; credits?: number; balance?: number };
+        if (cancelled) return;
+        if (data.paid) {
+          setCheckoutMessage(`${data.credits ?? "Your"} credits are now available in your account.`);
+          queryClient.invalidateQueries({ queryKey: ["/api/billing/credits"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/billing/history"] });
+        } else {
+          setCheckoutMessage("Payment is still processing. Credits will be added after payment is confirmed.");
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Could not confirm payment.";
+        setCheckoutMessage(message);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAddCredits = async () => {
     setIsCheckingOut(true);
     try {
-      // Phase 2: This will call /api/billing/checkout
-      // For now, show a message
-      alert("Stripe checkout coming in Phase 2!");
+      setCheckoutMessage(null);
+      const response = await apiRequest("POST", "/api/billing/checkout", { credits: selectedCredits });
+      const data = (await response.json()) as { checkoutUrl?: string };
+      if (!data.checkoutUrl) throw new Error("Checkout could not be started.");
+      window.location.assign(data.checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start checkout.";
+      setCheckoutMessage(message);
     } finally {
       setIsCheckingOut(false);
     }
@@ -96,25 +106,37 @@ export function BillingOverview() {
 
             {/* This Month Stats */}
             <div className="border-t pt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-gray-600 uppercase tracking-wide">Usage This Month</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {usageLoading ? "—" : monthlySpent}
-                  </p>
-                  <p className="text-xs text-gray-500">credits used</p>
+              <div>
+                <p className="text-xs text-gray-600 uppercase tracking-wide">Buy credits</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+                  {creditPacks.map((pack) => (
+                    <button
+                      key={pack}
+                      type="button"
+                      onClick={() => setSelectedCredits(pack)}
+                      className={`rounded-md border px-3 py-3 text-left transition-colors ${
+                        selectedCredits === pack
+                          ? "border-blue-600 bg-blue-50 text-blue-700"
+                          : "border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="block text-lg font-semibold">{pack}</span>
+                      <span className="block text-xs text-gray-500">${(pack * 0.1).toFixed(2)}</span>
+                    </button>
+                  ))}
                 </div>
-                <div>
-                  <p className="text-xs text-gray-600 uppercase tracking-wide">Est. Cost</p>
-                  <p className="text-2xl font-semibold text-gray-900">
-                    {usageLoading ? "—" : `$${estimatedCost.toFixed(2)}`}
-                  </p>
-                  <p className="text-xs text-gray-500">this month</p>
-                </div>
+                <p className="text-sm text-gray-700 mt-3">
+                  Credits are added to your account after a successful card payment.
+                </p>
               </div>
             </div>
 
-            {/* CTA Buttons */}
+            {checkoutMessage ? (
+              <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                {checkoutMessage}
+              </div>
+            ) : null}
+
             <div className="flex gap-3 pt-4">
               <Button
                 onClick={handleAddCredits}
@@ -129,62 +151,14 @@ export function BillingOverview() {
                 ) : (
                   <>
                     <CreditCard className="h-4 w-4 mr-2" />
-                    Add More Credits
+                    Pay ${selectedPriceUsd.toFixed(2)}
                   </>
                 )}
-              </Button>
-              <Button variant="outline" className="flex-1">
-                🎟️ Redeem Coupon
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Usage Summary Cards */}
-      {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{summary.totalEvents}</div>
-              <p className="text-xs text-gray-500 mt-1">
-                <span className="text-green-600 font-semibold">{summary.byStatus.charged}</span> charged ·{" "}
-                <span className="text-orange-600 font-semibold">{summary.byStatus.refunded}</span> refunded
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium flex items-center gap-1">
-                <TrendingUp className="h-4 w-4" />
-                Most Used
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">
-                {Object.entries(summary.byProvider).sort(([, a], [, b]) => b - a)[0]?.[0] || "—"}
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                {Object.entries(summary.byProvider).sort(([, a], [, b]) => b - a)[0]?.[1] || 0} uses
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Total Spent</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-gray-900">{summary.totalChargedCredits}</div>
-              <p className="text-xs text-gray-500 mt-1">${(summary.totalChargedCredits * 0.1).toFixed(2)} total</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
     </div>
   );
 }

@@ -4,6 +4,12 @@ import type { IncomingMessage } from "http";
 import jwt from "jsonwebtoken";
 import type { JWTPayload } from "./middleware/auth";
 
+const DEBUG_WEBSOCKET_LOGS =
+  process.env.DEBUG_WEBSOCKET_LOGS === "1"
+  || process.env.DEBUG_WEBSOCKET_LOGS === "true"
+  || (process.env.DEBUG || "").split(",").map((v) => v.trim()).includes("websocket");
+const WS_AUTH_REJECT_LOG_INTERVAL_MS = 30_000;
+
 function parseCookieHeader(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!header) return out;
@@ -86,6 +92,31 @@ export class RealtimeService {
   // Cache of resolved {name, email} per userId so a chatty client (lots of
   // typing events) doesn't hammer storage. Best-effort only.
   private userInfoCache: Map<string, { name: string | null; email: string | null }> = new Map();
+  private lastWsAuthRejectLogAt = 0;
+  private suppressedWsAuthRejectCount = 0;
+
+  private logWsUpgradeAuthReject() {
+    if (DEBUG_WEBSOCKET_LOGS) {
+      console.warn("⚠️ WebSocket upgrade rejected: invalid or missing JWT");
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastWsAuthRejectLogAt >= WS_AUTH_REJECT_LOG_INTERVAL_MS) {
+      if (this.suppressedWsAuthRejectCount > 0) {
+        console.warn(
+          `⚠️ WebSocket upgrade rejected: invalid or missing JWT (plus ${this.suppressedWsAuthRejectCount} more in last ${Math.round(WS_AUTH_REJECT_LOG_INTERVAL_MS / 1000)}s)`,
+        );
+      } else {
+        console.warn("⚠️ WebSocket upgrade rejected: invalid or missing JWT");
+      }
+      this.lastWsAuthRejectLogAt = now;
+      this.suppressedWsAuthRejectCount = 0;
+      return;
+    }
+
+    this.suppressedWsAuthRejectCount += 1;
+  }
 
   initialize(server: Server) {
     this.wss = new WebSocketServer({
@@ -103,7 +134,7 @@ export class RealtimeService {
 
       const auth = authenticateRequest(req);
       if (!auth) {
-        console.warn("⚠️ WebSocket upgrade rejected: invalid or missing JWT");
+        this.logWsUpgradeAuthReject();
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
         socket.destroy();
         return;
@@ -121,12 +152,16 @@ export class RealtimeService {
       const verified = (req as any)._wsUserId as string | undefined;
       const fallback = verified ? { userId: verified } : authenticateRequest(req);
       if (!fallback) {
-        console.warn("⚠️ WebSocket connection rejected: authentication missing post-upgrade");
+        if (DEBUG_WEBSOCKET_LOGS) {
+          console.warn("⚠️ WebSocket connection rejected: authentication missing post-upgrade");
+        }
         ws.close(1008, "Authentication required");
         return;
       }
       const userId = fallback.userId;
-      console.log(`✅ WebSocket client authenticated: userId=${userId}`);
+      if (DEBUG_WEBSOCKET_LOGS) {
+        console.log(`✅ WebSocket client authenticated: userId=${userId}`);
+      }
 
       // Add client to the user's set
       if (!this.clients.has(userId)) {

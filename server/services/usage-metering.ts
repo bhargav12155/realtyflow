@@ -104,8 +104,56 @@ export function brainstormCreditCost(imageCount: number): number {
   return imageCount > 0 ? 2 : 1;
 }
 
-export function lumaCreditCost(genMode: "text-to-video" | "image-to-video" | "video-to-video"): number {
-  if (genMode === "image-to-video") return 8;
-  if (genMode === "video-to-video") return 10;
-  return 6;
+export type LumaGenerationMode = "text-to-video" | "image-to-video" | "video-to-video";
+export type LumaResolution = "540p" | "720p" | "1080p" | "4k";
+export type VideoBillingProvider = "luma" | "veo";
+
+export interface LumaCreditOptions {
+  resolution?: LumaResolution;
+  duration?: string;
+}
+
+const BASE_CREDITS_BY_MODE: Record<LumaGenerationMode, number> = {
+  "text-to-video": 6,
+  "image-to-video": 8,
+  "video-to-video": 10,
+};
+
+const RESOLUTION_MULTIPLIER: Record<LumaResolution, number> = {
+  "540p": 0.5625,
+  "720p": 1,
+  "1080p": 2.25,
+  "4k": 9,
+};
+
+function parseDurationSeconds(duration?: string): number {
+  if (!duration) return 5;
+  const match = duration.trim().toLowerCase().match(/^(\d+)s$/);
+  if (!match) return 5;
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 5;
+  return seconds;
+}
+
+export function lumaCreditCost(
+  genMode: LumaGenerationMode,
+  options: LumaCreditOptions = {},
+): number {
+  const baseCredits = BASE_CREDITS_BY_MODE[genMode] ?? 6;
+  const resolutionMultiplier = options.resolution
+    ? (RESOLUTION_MULTIPLIER[options.resolution] ?? 1)
+    : 1;
+  const durationMultiplier = parseDurationSeconds(options.duration) / 5;
+  const scaled = baseCredits * resolutionMultiplier * durationMultiplier;
+  return Math.max(1, Math.ceil(scaled));
+}
+
+export function videoCreditCost(
+  provider: VideoBillingProvider,
+  genMode: LumaGenerationMode,
+  options: LumaCreditOptions = {},
+): number {
+  const base = lumaCreditCost(genMode, options);
+  const multiplier = provider === "veo" ? 2 : 1;
+  return Math.max(1, Math.ceil(base * multiplier));
 }

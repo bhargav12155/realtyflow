@@ -112,6 +112,8 @@ interface ChatPanelProps {
   onTypingChange?: (isTyping: boolean) => void;
   /** Called when the user picks or drops files from their device to attach as references. */
   onAttachFiles?: (files: File[]) => void;
+  /** Open the in-app voice recorder from the chat composer. */
+  onOpenRecord?: () => void;
   /** Collapse/hide the chat panel from the board layout. */
   onCollapse?: () => void;
 }
@@ -218,6 +220,7 @@ export function ChatPanel({
   typingUserNames,
   onTypingChange,
   onAttachFiles,
+  onOpenRecord,
   onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -237,6 +240,7 @@ export function ChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
+  const submitLockRef = useRef(false);
 
   // Resizable panel width. The panel lives on the right edge of the board, so
   // dragging the left handle leftward widens it. Width is clamped and persisted
@@ -247,7 +251,7 @@ export function ChatPanel({
   const CHAT_WIDTH_KEY = "boards.chatPanelWidth";
   const [panelWidth, setPanelWidth] = useState<number>(() => {
     if (typeof window === "undefined") return CHAT_WIDTH_DEFAULT;
-    const saved = Number(window.localStorage.getItem(CHAT_WIDTH_KEY));
+    const saved = Number(window.localStorage?.getItem?.(CHAT_WIDTH_KEY));
     if (!Number.isFinite(saved) || saved <= 0) return CHAT_WIDTH_DEFAULT;
     return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, saved));
   });
@@ -293,7 +297,7 @@ export function ChatPanel({
   // Persist the chosen width once the user finishes dragging.
   useEffect(() => {
     if (isResizing || typeof window === "undefined") return;
-    window.localStorage.setItem(CHAT_WIDTH_KEY, String(panelWidth));
+    window.localStorage?.setItem?.(CHAT_WIDTH_KEY, String(panelWidth));
   }, [isResizing, panelWidth]);
 
   // Double-clicking the handle snaps back to the default width.
@@ -330,6 +334,7 @@ export function ChatPanel({
   useEffect(() => {
     if (!isSending) {
       setWaitStage(0);
+      submitLockRef.current = false;
       return;
     }
     setWaitStage(0);
@@ -406,14 +411,15 @@ export function ChatPanel({
     setIsDragging(false);
     if (!onAttachFiles) return;
     const files = Array.from(e.dataTransfer.files).filter(
-      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/") || f.type.startsWith("audio/")
     );
     if (files.length > 0) onAttachFiles(files);
   }, [onAttachFiles]);
 
   const submit = () => {
     const text = input.trim();
-    if (!text || isSending || isClearingChat) return;
+    if (!text || isSending || isClearingChat || submitLockRef.current) return;
+    submitLockRef.current = true;
     onSend(text);
     setInput("");
     // Sending implicitly means "stopped typing" — clear the indicator on the
@@ -428,7 +434,8 @@ export function ChatPanel({
     else onTypingChange(false);
   };
 
-  const handleBuildThis = (suggested: string) => {
+  const handleBuildThis = (suggested: string | null) => {
+    if (!suggested) return;
     onModeChange("create");
     setInput(suggested);
     // Focus the input on the next tick so the mode-switch render has flushed.
@@ -484,7 +491,7 @@ export function ChatPanel({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,video/*"
+        accept="image/*,video/*,audio/*"
         multiple
         className="hidden"
         onChange={handleFilePick}
@@ -645,16 +652,18 @@ export function ChatPanel({
               </div>
               {(suggested || canShowScriptActions) && (
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleBuildThis(suggested)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200 dark:bg-violet-500/15 dark:hover:bg-violet-500/25 dark:text-violet-200 dark:border-violet-500/30"
-                    data-testid={`button-build-this-${m.id}`}
-                    title="Switch to Build and pre-fill this prompt"
-                  >
-                    <Wand2 className="w-3 h-3" />
-                    Build this
-                  </button>
+                  {suggested && (
+                    <button
+                      type="button"
+                      onClick={() => handleBuildThis(suggested)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200 dark:bg-violet-500/15 dark:hover:bg-violet-500/25 dark:text-violet-200 dark:border-violet-500/30"
+                      data-testid={`button-build-this-${m.id}`}
+                      title="Switch to Build and pre-fill this prompt"
+                    >
+                      <Wand2 className="w-3 h-3" />
+                      Build this
+                    </button>
+                  )}
                   {canShowScriptActions && (
                     <>
                       <button
@@ -836,9 +845,8 @@ export function ChatPanel({
       })()}
 
       <div className="px-3 pb-3">
-        <div className="border border-neutral-200 rounded-xl bg-white shadow-sm focus-within:border-neutral-400 focus-within:ring-0 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:focus-within:border-neutral-500 transition-colors" style={{ outline: "none" }}>
+        <div className="border border-neutral-200 rounded-2xl bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)] focus-within:border-neutral-400 focus-within:ring-0 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:focus-within:border-neutral-500 transition-colors" style={{ outline: "none" }}>
           <div className="flex items-start gap-2 px-3 pt-3">
-            <div className="w-6 h-6 rounded bg-gradient-to-br from-amber-300 via-rose-300 to-violet-400 flex-shrink-0" />
             <textarea
               ref={inputRef}
               rows={1}
@@ -958,7 +966,10 @@ export function ChatPanel({
                   <PopoverContent align="start" className="w-[420px] p-0">
                     <PlatformPicker
                       selectedProvider={provider}
-                      onSelectProvider={onProviderChange}
+                      onSelectProvider={(id) => {
+                        onProviderChange(id);
+                        setPickerOpen(false);
+                      }}
                       selectedMode={generationMode}
                       onSelectMode={onGenerationModeChange}
                       seedanceOptions={seedanceOptions}
@@ -1011,13 +1022,24 @@ export function ChatPanel({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200"
+                className="h-8 w-8 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                 data-testid="button-attach"
-                title="Attach image or video from device"
+                title="Attach image, video, or audio from device"
+                aria-label="Attach image, video, or audio from device"
               >
-                <Paperclip className="w-3.5 h-3.5" />
+                <Paperclip className="mx-auto w-4 h-4" />
               </button>
-              <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-mic"><Mic className="w-3.5 h-3.5" /></button>
+              <button
+                type="button"
+                onClick={onOpenRecord}
+                disabled={!onOpenRecord}
+                className="h-8 w-8 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                data-testid="button-mic"
+                title="Record voice-over"
+                aria-label="Record voice-over"
+              >
+                <Mic className="mx-auto w-4 h-4" />
+              </button>
               <button
                 onClick={submit}
                 disabled={isSending || isClearingChat || !input.trim()}

@@ -132,6 +132,11 @@ import {
   users as usersTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+
+const DEBUG_STORAGE_LOGS =
+  process.env.DEBUG_STORAGE_LOGS === "1"
+  || process.env.DEBUG_STORAGE_LOGS === "true"
+  || (process.env.DEBUG || "").split(",").map((v) => v.trim()).includes("storage");
 import { and, desc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "./db";
 
@@ -866,7 +871,9 @@ export class MemStorage implements IStorage {
     // Check memory first (for seeded users)
     const memUser = this.users.get(id);
     if (memUser) {
-      console.log(`[STORAGE] getUser(${id}) - Found in memory`);
+      if (DEBUG_STORAGE_LOGS) {
+        console.log(`[STORAGE] getUser(${id}) - Found in memory`);
+      }
       return memUser;
     }
 
@@ -877,14 +884,18 @@ export class MemStorage implements IStorage {
         where: (table, { eq }) => eq(table.id, id),
       });
       if (dbUser) {
-        console.log(`[STORAGE] getUser(${id}) - Found in database`);
+        if (DEBUG_STORAGE_LOGS) {
+          console.log(`[STORAGE] getUser(${id}) - Found in database`);
+        }
         return dbUser as User;
       }
     } catch (error) {
       console.error(`[STORAGE] getUser(${id}) - Database error:`, error);
     }
 
-    console.log(`[STORAGE] getUser(${id}) - Not found`);
+    if (DEBUG_STORAGE_LOGS) {
+      console.log(`[STORAGE] getUser(${id}) - Not found`);
+    }
     return undefined;
   }
 

@@ -31,6 +31,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import NotFound from "@/pages/not-found";
 import { DemoModeBanner } from "@/components/shared/demo-mode-banner";
 import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 
 function TemplateDataImporter() {
   useTemplateDataImport();
@@ -145,7 +146,9 @@ function App() {
               <ConfirmDialogProvider>
                 <DemoModeBanner />
                 <Toaster />
-                <Router />
+                <OnboardingGate>
+                  <Router />
+                </OnboardingGate>
               </ConfirmDialogProvider>
             </TooltipProvider>
           </DemoProvider>

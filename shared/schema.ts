@@ -49,6 +49,7 @@ export const users = pgTable("users", {
   // the user row so the snooze survives server restarts and redeploys.
   // Null/past values mean no active snooze. Only meaningful for admin users.
   adminAlertSnoozedUntil: timestamp("admin_alert_snoozed_until"),
+  hasCompletedOnboarding: boolean("has_completed_onboarding").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

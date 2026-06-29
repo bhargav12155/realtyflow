@@ -86,6 +86,7 @@ export function BillingOverview() {
 
   return (
     <div className="space-y-6">
+      {/* Main Balance Card */}
       <Card className="border-2 border-blue-100 bg-gradient-to-br from-blue-50 to-transparent">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -135,21 +136,21 @@ export function BillingOverview() {
               </div>
             ) : null}
 
-            <div className="pt-2">
+            <div className="flex gap-3 pt-4">
               <Button
                 onClick={handleAddCredits}
                 disabled={isCheckingOut}
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
               >
                 {isCheckingOut ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Starting checkout...
+                    Processing...
                   </>
                 ) : (
                   <>
                     <CreditCard className="h-4 w-4 mr-2" />
-                    Pay ${selectedPriceUsd.toFixed(2)} — {selectedCredits} credits
+                    Pay ${selectedPriceUsd.toFixed(2)}
                   </>
                 )}
               </Button>

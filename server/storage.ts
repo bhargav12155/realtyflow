@@ -107,6 +107,12 @@ import {
   boardMessages as boardMessagesTable,
   boardShares as boardSharesTable,
   notifications as notificationsTable,
+  aiUsageEvents as aiUsageEventsTable,
+  walletAccounts as walletAccountsTable,
+  walletLedger as walletLedgerTable,
+  type AiUsageEvent,
+  type InsertAiUsageEvent,
+  type WalletAccount,
   heygenShapeDriftIncidents,
   type HeygenShapeDriftIncident,
   type InsertHeygenShapeDriftIncident,
@@ -126,7 +132,12 @@ import {
   users as usersTable,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+
+const DEBUG_STORAGE_LOGS =
+  process.env.DEBUG_STORAGE_LOGS === "1"
+  || process.env.DEBUG_STORAGE_LOGS === "true"
+  || (process.env.DEBUG || "").split(",").map((v) => v.trim()).includes("storage");
+import { and, desc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "./db";
 
 export interface IStorage {
@@ -136,7 +147,23 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
-  
+
+  // Billing / credits
+  getWalletAccount(userId: string): Promise<WalletAccount>;
+  debitWalletCredits(
+    userId: string,
+    amount: number,
+    reason: string,
+    options?: { requestId?: string; metadata?: Record<string, unknown> | null },
+  ): Promise<{ success: boolean; balance: number }>;
+  creditWalletCredits(
+    userId: string,
+    amount: number,
+    reason: string,
+    options?: { requestId?: string; metadata?: Record<string, unknown> | null },
+  ): Promise<{ balance: number }>;
+  recordAiUsageEvent(event: InsertAiUsageEvent): Promise<AiUsageEvent>;
+
   // Public Users
   getPublicUserById(id: number): Promise<{ id: number; email: string; role?: string | null } | undefined>;
 
@@ -844,7 +871,9 @@ export class MemStorage implements IStorage {
     // Check memory first (for seeded users)
     const memUser = this.users.get(id);
     if (memUser) {
-      console.log(`[STORAGE] getUser(${id}) - Found in memory`);
+      if (DEBUG_STORAGE_LOGS) {
+        console.log(`[STORAGE] getUser(${id}) - Found in memory`);
+      }
       return memUser;
     }
 
@@ -855,14 +884,18 @@ export class MemStorage implements IStorage {
         where: (table, { eq }) => eq(table.id, id),
       });
       if (dbUser) {
-        console.log(`[STORAGE] getUser(${id}) - Found in database`);
+        if (DEBUG_STORAGE_LOGS) {
+          console.log(`[STORAGE] getUser(${id}) - Found in database`);
+        }
         return dbUser as User;
       }
     } catch (error) {
       console.error(`[STORAGE] getUser(${id}) - Database error:`, error);
     }
 
-    console.log(`[STORAGE] getUser(${id}) - Not found`);
+    if (DEBUG_STORAGE_LOGS) {
+      console.log(`[STORAGE] getUser(${id}) - Not found`);
+    }
     return undefined;
   }
 
@@ -1015,6 +1048,129 @@ export class MemStorage implements IStorage {
       `[STORAGE] createUser - Created user with ID: ${id} (email: ${insertUser.email})`
     );
     return user;
+  }
+
+  async getWalletAccount(userId: string): Promise<WalletAccount> {
+    await db
+      .insert(walletAccountsTable)
+      .values({ userId })
+      .onConflictDoNothing({ target: walletAccountsTable.userId });
+
+    const [row] = await db
+      .select()
+      .from(walletAccountsTable)
+      .where(eq(walletAccountsTable.userId, userId))
+      .limit(1);
+
+    if (row) return row;
+
+    // Fallback safety: create and return a zero-balance row if the read missed.
+    const [created] = await db
+      .insert(walletAccountsTable)
+      .values({ userId, balanceCredits: 0 })
+      .returning();
+    return created;
+  }
+
+  async debitWalletCredits(
+    userId: string,
+    amount: number,
+    reason: string,
+    options?: { requestId?: string; metadata?: Record<string, unknown> | null },
+  ): Promise<{ success: boolean; balance: number }> {
+    const debitAmount = Math.max(0, Math.trunc(amount));
+    if (debitAmount === 0) {
+      const wallet = await this.getWalletAccount(userId);
+      return { success: true, balance: wallet.balanceCredits };
+    }
+
+    return await db.transaction(async (tx) => {
+      await tx
+        .insert(walletAccountsTable)
+        .values({ userId })
+        .onConflictDoNothing({ target: walletAccountsTable.userId });
+
+      const [updated] = await tx
+        .update(walletAccountsTable)
+        .set({
+          balanceCredits: sql`${walletAccountsTable.balanceCredits} - ${debitAmount}`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(walletAccountsTable.userId, userId),
+            gte(walletAccountsTable.balanceCredits, debitAmount),
+          ),
+        )
+        .returning();
+
+      if (!updated) {
+        const [current] = await tx
+          .select()
+          .from(walletAccountsTable)
+          .where(eq(walletAccountsTable.userId, userId))
+          .limit(1);
+        return { success: false, balance: current?.balanceCredits ?? 0 };
+      }
+
+      await tx.insert(walletLedgerTable).values({
+        userId,
+        deltaCredits: -debitAmount,
+        balanceAfter: updated.balanceCredits,
+        reason,
+        requestId: options?.requestId ?? null,
+        metadata: options?.metadata ?? null,
+      });
+
+      return { success: true, balance: updated.balanceCredits };
+    });
+  }
+
+  async creditWalletCredits(
+    userId: string,
+    amount: number,
+    reason: string,
+    options?: { requestId?: string; metadata?: Record<string, unknown> | null },
+  ): Promise<{ balance: number }> {
+    const creditAmount = Math.max(0, Math.trunc(amount));
+    if (creditAmount === 0) {
+      const wallet = await this.getWalletAccount(userId);
+      return { balance: wallet.balanceCredits };
+    }
+
+    return await db.transaction(async (tx) => {
+      await tx
+        .insert(walletAccountsTable)
+        .values({ userId })
+        .onConflictDoNothing({ target: walletAccountsTable.userId });
+
+      const [updated] = await tx
+        .update(walletAccountsTable)
+        .set({
+          balanceCredits: sql`${walletAccountsTable.balanceCredits} + ${creditAmount}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(walletAccountsTable.userId, userId))
+        .returning();
+
+      const balance = updated?.balanceCredits ?? 0;
+
+      await tx.insert(walletLedgerTable).values({
+        userId,
+        deltaCredits: creditAmount,
+        balanceAfter: balance,
+        reason,
+        requestId: options?.requestId ?? null,
+        metadata: options?.metadata ?? null,
+      });
+
+      return { balance };
+    });
+  }
+
+  async recordAiUsageEvent(event: InsertAiUsageEvent): Promise<AiUsageEvent> {
+    const [created] = await db.insert(aiUsageEventsTable).values(event).returning();
+    return created;
   }
 
   async getContentPieces(userId: string): Promise<ContentPiece[]> {

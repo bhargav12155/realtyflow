@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2 } from "lucide-react";
+import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2, AlertTriangle } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
 import {
@@ -67,6 +67,52 @@ const RESIZE_MIN_BY_KIND: Record<string, { width: number; height: number }> = {
 };
 const RESIZE_MAX = { width: 800, height: 600 };
 const COMPACT_NO_PREVIEW_SIZE = { width: 180, height: 126 };
+
+function previewStatusFor(asset: CanvasAsset, videoLoadFailed: boolean): { title: string; detail: string; tone: "error" | "muted" } {
+  if (asset.status === "failed" || asset.status === "rejected") {
+    return {
+      title: asset.status === "rejected" ? "Rejected" : "Generation failed",
+      detail: asset.rejectionReason || "The provider did not return a usable preview for this item.",
+      tone: "error",
+    };
+  }
+
+  if (videoLoadFailed) {
+    return {
+      title: "Video preview unavailable",
+      detail: asset.rejectionReason || "The file was generated, but this browser view could not play it.",
+      tone: "muted",
+    };
+  }
+
+  return {
+    title: "No preview yet",
+    detail: asset.rejectionReason || "This item has no preview URL yet. It may still be processing or the provider returned no media.",
+    tone: "muted",
+  };
+}
+
+function PreviewStatusCard({ asset, videoLoadFailed = false }: { asset: CanvasAsset; videoLoadFailed?: boolean }) {
+  const status = previewStatusFor(asset, videoLoadFailed);
+  const isError = status.tone === "error";
+  return (
+    <div
+      className={`w-full h-full flex flex-col items-center justify-center gap-1.5 px-3 text-center ${
+        isError
+          ? "bg-rose-50 text-rose-900 dark:bg-rose-950/30 dark:text-rose-100"
+          : "bg-neutral-100 text-neutral-700 dark:bg-neutral-900/70 dark:text-neutral-200"
+      }`}
+      data-testid={`preview-status-${asset.id}`}
+      title={status.detail}
+    >
+      <AlertTriangle className={`w-4 h-4 ${isError ? "text-rose-500" : "text-neutral-400"}`} />
+      <div className="text-[10px] font-semibold leading-tight">{status.title}</div>
+      <div className={`line-clamp-3 text-[9px] leading-snug ${isError ? "text-rose-700 dark:text-rose-200" : "text-neutral-500 dark:text-neutral-400"}`}>
+        {status.detail}
+      </div>
+    </div>
+  );
+}
 
 export interface CanvasBatch {
   batchId: string;
@@ -1369,17 +1415,7 @@ function AssetTile({
         ) : src ? (
           asset.kind === "video" ? (
             videoLoadFailed ? (
-              <div
-                className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-neutral-50 dark:bg-neutral-900/60 text-center px-2"
-                data-testid={`video-error-${asset.id}`}
-              >
-                <div className="text-[10px] font-medium text-neutral-700 dark:text-neutral-300">
-                  Video preview unavailable
-                </div>
-                <div className="text-[9px] text-neutral-500 dark:text-neutral-400">
-                  The file was generated but could not be played in this browser view.
-                </div>
-              </div>
+              <PreviewStatusCard asset={asset} videoLoadFailed />
             ) : (
               <video
                 src={src}
@@ -1423,9 +1459,7 @@ function AssetTile({
             </div>
           </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-400 dark:text-neutral-500">
-            no preview
-          </div>
+          <PreviewStatusCard asset={asset} />
         )}
         {asset.durationSeconds != null && (
           <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[10px] text-white">

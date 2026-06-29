@@ -53,6 +53,94 @@ export const users = pgTable("users", {
 });
 
 // =====================================================
+// USER WALLET ACCOUNTS (Credit balance)
+// =====================================================
+export const walletAccounts = pgTable(
+  "wallet_accounts",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull().unique(),
+    balanceCredits: integer("balance_credits").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [index("IDX_wallet_accounts_user").on(table.userId)],
+);
+
+export const insertWalletAccountSchema = createInsertSchema(walletAccounts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type WalletAccount = typeof walletAccounts.$inferSelect;
+export type InsertWalletAccount = z.infer<typeof insertWalletAccountSchema>;
+
+// =====================================================
+// WALLET LEDGER (immutable credit deltas)
+// =====================================================
+export const walletLedger = pgTable(
+  "wallet_ledger",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull(),
+    deltaCredits: integer("delta_credits").notNull(),
+    balanceAfter: integer("balance_after").notNull(),
+    reason: text("reason").notNull(),
+    requestId: text("request_id"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("IDX_wallet_ledger_user_created").on(table.userId, table.createdAt),
+    index("IDX_wallet_ledger_request").on(table.requestId),
+  ],
+);
+
+export const insertWalletLedgerSchema = createInsertSchema(walletLedger).omit({
+  id: true,
+  createdAt: true,
+});
+export type WalletLedgerEntry = typeof walletLedger.$inferSelect;
+export type InsertWalletLedgerEntry = z.infer<typeof insertWalletLedgerSchema>;
+
+// =====================================================
+// AI USAGE EVENTS (cost/accounting telemetry)
+// =====================================================
+export const aiUsageEvents = pgTable(
+  "ai_usage_events",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id").notNull(),
+    provider: text("provider").notNull(),
+    feature: text("feature").notNull(),
+    status: text("status").notNull(), // charged | refunded | blocked
+    estimatedCredits: integer("estimated_credits"),
+    actualCredits: integer("actual_credits"),
+    requestId: text("request_id"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    index("IDX_ai_usage_events_user_created").on(table.userId, table.createdAt),
+    index("IDX_ai_usage_events_provider").on(table.provider),
+    index("IDX_ai_usage_events_request").on(table.requestId),
+  ],
+);
+
+export const insertAiUsageEventSchema = createInsertSchema(aiUsageEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type AiUsageEvent = typeof aiUsageEvents.$inferSelect;
+export type InsertAiUsageEvent = z.infer<typeof insertAiUsageEventSchema>;
+
+// =====================================================
 // USER PREFERENCES TABLE (AI Settings & Location)
 // =====================================================
 export const userPreferences = pgTable("user_preferences", {

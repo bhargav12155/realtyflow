@@ -112,6 +112,8 @@ interface ChatPanelProps {
   onTypingChange?: (isTyping: boolean) => void;
   /** Called when the user picks or drops files from their device to attach as references. */
   onAttachFiles?: (files: File[]) => void;
+  /** Open the in-app voice recorder from the chat composer. */
+  onOpenRecord?: () => void;
   /** Collapse/hide the chat panel from the board layout. */
   onCollapse?: () => void;
 }
@@ -150,6 +152,42 @@ export function extractSuggestedPrompt(content: string): string | null {
   return null;
 }
 
+type ScriptQuickAction = "enhance" | "shorten" | "voiceover";
+
+function buildScriptQuickActionPrompt(action: ScriptQuickAction, sourceText: string): string {
+  const normalized = sourceText.replace(/\s+/g, " ").trim();
+  const clipped = normalized.length > 1200 ? `${normalized.slice(0, 1200)}...` : normalized;
+
+  if (action === "enhance") {
+    return [
+      "Enhance this script and make it production-ready.",
+      "Keep the same core idea, but improve clarity, flow, emotional hook, and scene continuity.",
+      "Also give me a version split into short scene beats.",
+      "",
+      `Script:\n${clipped}`,
+    ].join("\n");
+  }
+
+  if (action === "shorten") {
+    return [
+      "Rewrite this into a short, punchy 20-30 second script.",
+      "Keep the key story and CTA, remove repetition, and keep language simple.",
+      "",
+      `Script:\n${clipped}`,
+    ].join("\n");
+  }
+
+  return [
+    "Turn this into a clean voice-over script for video.",
+    "Give me:",
+    "1) voice-over lines",
+    "2) scene-by-scene visual directions",
+    "3) final CTA line",
+    "",
+    `Script:\n${clipped}`,
+  ].join("\n");
+}
+
 export function ChatPanel({
   boardTitle,
   messages,
@@ -182,6 +220,7 @@ export function ChatPanel({
   typingUserNames,
   onTypingChange,
   onAttachFiles,
+  onOpenRecord,
   onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -201,6 +240,7 @@ export function ChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
+  const submitLockRef = useRef(false);
 
   // Resizable panel width. The panel lives on the right edge of the board, so
   // dragging the left handle leftward widens it. Width is clamped and persisted
@@ -211,7 +251,7 @@ export function ChatPanel({
   const CHAT_WIDTH_KEY = "boards.chatPanelWidth";
   const [panelWidth, setPanelWidth] = useState<number>(() => {
     if (typeof window === "undefined") return CHAT_WIDTH_DEFAULT;
-    const saved = Number(window.localStorage.getItem(CHAT_WIDTH_KEY));
+    const saved = Number(window.localStorage?.getItem?.(CHAT_WIDTH_KEY));
     if (!Number.isFinite(saved) || saved <= 0) return CHAT_WIDTH_DEFAULT;
     return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, saved));
   });
@@ -257,7 +297,7 @@ export function ChatPanel({
   // Persist the chosen width once the user finishes dragging.
   useEffect(() => {
     if (isResizing || typeof window === "undefined") return;
-    window.localStorage.setItem(CHAT_WIDTH_KEY, String(panelWidth));
+    window.localStorage?.setItem?.(CHAT_WIDTH_KEY, String(panelWidth));
   }, [isResizing, panelWidth]);
 
   // Double-clicking the handle snaps back to the default width.
@@ -294,6 +334,7 @@ export function ChatPanel({
   useEffect(() => {
     if (!isSending) {
       setWaitStage(0);
+      submitLockRef.current = false;
       return;
     }
     setWaitStage(0);
@@ -370,14 +411,15 @@ export function ChatPanel({
     setIsDragging(false);
     if (!onAttachFiles) return;
     const files = Array.from(e.dataTransfer.files).filter(
-      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/") || f.type.startsWith("audio/")
     );
     if (files.length > 0) onAttachFiles(files);
   }, [onAttachFiles]);
 
   const submit = () => {
     const text = input.trim();
-    if (!text || isSending || isClearingChat) return;
+    if (!text || isSending || isClearingChat || submitLockRef.current) return;
+    submitLockRef.current = true;
     onSend(text);
     setInput("");
     // Sending implicitly means "stopped typing" — clear the indicator on the
@@ -392,13 +434,21 @@ export function ChatPanel({
     else onTypingChange(false);
   };
 
-  const handleBuildThis = (suggested: string) => {
+  const handleBuildThis = (suggested: string | null) => {
+    if (!suggested) return;
     onModeChange("create");
     setInput(suggested);
     // Focus the input on the next tick so the mode-switch render has flushed.
     // We intentionally do not auto-open the platform picker — the user can
     // tap it if they want to change provider; otherwise the existing default
     // provider is used and they can hit send immediately.
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+  };
+
+  const handleScriptQuickAction = (action: ScriptQuickAction, sourceText: string) => {
+    setInput(buildScriptQuickActionPrompt(action, sourceText));
     setTimeout(() => {
       inputRef.current?.focus();
     }, 0);
@@ -441,7 +491,7 @@ export function ChatPanel({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,video/*"
+        accept="image/*,video/*,audio/*"
         multiple
         className="hidden"
         onChange={handleFilePick}
@@ -557,6 +607,7 @@ export function ChatPanel({
           const suggested = isPlan && m.role === "assistant" && !m.pending
             ? extractSuggestedPrompt(m.content)
             : null;
+          const canShowScriptActions = isPlan && m.role === "assistant" && !m.pending;
           // Only label user turns by another collaborator. The current
           // user's own bubbles stay clean so the most common case (private
           // board) looks unchanged.
@@ -599,18 +650,54 @@ export function ChatPanel({
                 )}
               </div>
               </div>
-              {suggested && (
-                <div className="mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleBuildThis(suggested)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200 dark:bg-violet-500/15 dark:hover:bg-violet-500/25 dark:text-violet-200 dark:border-violet-500/30"
-                    data-testid={`button-build-this-${m.id}`}
-                    title="Switch to Build and pre-fill this prompt"
-                  >
-                    <Wand2 className="w-3 h-3" />
-                    Build this
-                  </button>
+              {(suggested || canShowScriptActions) && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {suggested && (
+                    <button
+                      type="button"
+                      onClick={() => handleBuildThis(suggested)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-50 hover:bg-violet-100 text-violet-700 text-[11px] font-medium border border-violet-200 dark:bg-violet-500/15 dark:hover:bg-violet-500/25 dark:text-violet-200 dark:border-violet-500/30"
+                      data-testid={`button-build-this-${m.id}`}
+                      title="Switch to Build and pre-fill this prompt"
+                    >
+                      <Wand2 className="w-3 h-3" />
+                      Build this
+                    </button>
+                  )}
+                  {canShowScriptActions && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleScriptQuickAction("enhance", m.content)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-medium border border-emerald-200 dark:bg-emerald-500/15 dark:hover:bg-emerald-500/25 dark:text-emerald-200 dark:border-emerald-500/30"
+                        data-testid={`button-enhance-script-${m.id}`}
+                        title="Prefill an enhanced script request"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Enhance script
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleScriptQuickAction("shorten", m.content)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-700 text-[11px] font-medium border border-amber-200 dark:bg-amber-500/15 dark:hover:bg-amber-500/25 dark:text-amber-200 dark:border-amber-500/30"
+                        data-testid={`button-shorten-script-${m.id}`}
+                        title="Prefill a shorter script request"
+                      >
+                        <Minus className="w-3 h-3" />
+                        Shorten
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleScriptQuickAction("voiceover", m.content)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-medium border border-sky-200 dark:bg-sky-500/15 dark:hover:bg-sky-500/25 dark:text-sky-200 dark:border-sky-500/30"
+                        data-testid={`button-voiceover-script-${m.id}`}
+                        title="Prefill a voice-over script request"
+                      >
+                        <Mic className="w-3 h-3" />
+                        Voice-over
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -758,9 +845,8 @@ export function ChatPanel({
       })()}
 
       <div className="px-3 pb-3">
-        <div className="border border-neutral-200 rounded-xl bg-white shadow-sm focus-within:border-neutral-400 focus-within:ring-0 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:focus-within:border-neutral-500 transition-colors" style={{ outline: "none" }}>
+        <div className="border border-neutral-200 rounded-2xl bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)] focus-within:border-neutral-400 focus-within:ring-0 outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:focus-within:border-neutral-500 transition-colors" style={{ outline: "none" }}>
           <div className="flex items-start gap-2 px-3 pt-3">
-            <div className="w-6 h-6 rounded bg-gradient-to-br from-amber-300 via-rose-300 to-violet-400 flex-shrink-0" />
             <textarea
               ref={inputRef}
               rows={1}
@@ -880,7 +966,10 @@ export function ChatPanel({
                   <PopoverContent align="start" className="w-[420px] p-0">
                     <PlatformPicker
                       selectedProvider={provider}
-                      onSelectProvider={onProviderChange}
+                      onSelectProvider={(id) => {
+                        onProviderChange(id);
+                        setPickerOpen(false);
+                      }}
                       selectedMode={generationMode}
                       onSelectMode={onGenerationModeChange}
                       seedanceOptions={seedanceOptions}
@@ -933,13 +1022,24 @@ export function ChatPanel({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200"
+                className="h-8 w-8 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
                 data-testid="button-attach"
-                title="Attach image or video from device"
+                title="Attach image, video, or audio from device"
+                aria-label="Attach image, video, or audio from device"
               >
-                <Paperclip className="w-3.5 h-3.5" />
+                <Paperclip className="mx-auto w-4 h-4" />
               </button>
-              <button className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200" data-testid="button-mic"><Mic className="w-3.5 h-3.5" /></button>
+              <button
+                type="button"
+                onClick={onOpenRecord}
+                disabled={!onOpenRecord}
+                className="h-8 w-8 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-40 disabled:cursor-not-allowed dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                data-testid="button-mic"
+                title="Record voice-over"
+                aria-label="Record voice-over"
+              >
+                <Mic className="mx-auto w-4 h-4" />
+              </button>
               <button
                 onClick={submit}
                 disabled={isSending || isClearingChat || !input.trim()}

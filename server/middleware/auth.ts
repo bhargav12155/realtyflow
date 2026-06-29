@@ -3,6 +3,11 @@ import { Request, Response, NextFunction } from "express";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
+const DEBUG_AUTH_LOGS =
+  process.env.DEBUG_AUTH_LOGS === "1"
+  || process.env.DEBUG_AUTH_LOGS === "true"
+  || (process.env.DEBUG || "").split(",").map((v) => v.trim()).includes("auth");
+
 // Extend Express Request interface to include user information
 declare global {
   namespace Express {
@@ -55,7 +60,9 @@ async function tryRefreshExpiredToken(token: string): Promise<{ decoded: JWTPayl
 
     const { iat, exp, ...payload } = decoded;
     const newToken = generateToken(payload);
-    console.log(`🔐 [AUTH] Token refreshed for ${decoded.email} (${decoded.type})`);
+    if (DEBUG_AUTH_LOGS) {
+      console.log(`🔐 [AUTH] Token refreshed for ${decoded.email} (${decoded.type})`);
+    }
     return { decoded, newToken };
   } catch (e) {
     return null;
@@ -103,7 +110,9 @@ export const extractUserId = async (
       req.cookies?.authToken;
 
     if (!token) {
-      console.log("🔐 [AUTH] No token provided");
+      if (DEBUG_AUTH_LOGS) {
+        console.log("🔐 [AUTH] No token provided");
+      }
       return res.status(401).json({ error: "No token provided" });
     }
 
@@ -129,19 +138,25 @@ export const extractUserId = async (
       return res.status(401).json({ error: "Invalid token" });
     }
 
-    console.log("🔐 [AUTH] Token decoded:", {
-      id: decoded.id,
-      email: decoded.email,
-      type: decoded.type,
-      username: decoded.username,
-    });
+    if (DEBUG_AUTH_LOGS) {
+      console.log("🔐 [AUTH] Token decoded:", {
+        id: decoded.id,
+        email: decoded.email,
+        type: decoded.type,
+        username: decoded.username,
+      });
+    }
 
     applyDecodedToRequest(req, decoded);
 
     if (decoded.type === "public") {
-      console.log("🔐 [AUTH] Public user authenticated:", req.user!.id);
+      if (DEBUG_AUTH_LOGS) {
+        console.log("🔐 [AUTH] Public user authenticated:", req.user!.id);
+      }
     } else {
-      console.log("🔐 [AUTH] Agent user authenticated:", req.user!.id, `(${req.user!.email})`, decoded.isDemo ? "[DEMO]" : "");
+      if (DEBUG_AUTH_LOGS) {
+        console.log("🔐 [AUTH] Agent user authenticated:", req.user!.id, `(${req.user!.email})`, decoded.isDemo ? "[DEMO]" : "");
+      }
     }
 
     next();

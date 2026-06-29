@@ -128,23 +128,26 @@ export function UserSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <Label htmlFor="email-notifications" className="text-base">
-                    Send me transactional emails
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Turn this off to stop receiving board-share emails and
-                    other account notifications.
-                  </p>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="email-notifications" className="text-base">
+                      Send me transactional emails
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Turn this off to stop receiving board-share emails and
+                      other account notifications.
+                    </p>
+                  </div>
+                  <Switch
+                    id="email-notifications"
+                    data-testid="switch-email-notifications"
+                    checked={emailNotifications}
+                    onCheckedChange={handleEmailToggle}
+                    disabled={settingsLoading || emailMutation.isPending}
+                  />
                 </div>
-                <Switch
-                  id="email-notifications"
-                  data-testid="switch-email-notifications"
-                  checked={emailNotifications}
-                  onCheckedChange={handleEmailToggle}
-                  disabled={settingsLoading || emailMutation.isPending}
-                />
+
               </div>
             </CardContent>
           </Card>

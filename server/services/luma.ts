@@ -83,8 +83,14 @@ async function assertSafeFetchUrl(rawUrl: string): Promise<void> {
 }
 
 export type LumaModel = "ray-2" | "ray-flash-2";
-export type LumaAspectRatio = "16:9" | "9:16" | "1:1";
+export type LumaAspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9" | "9:21" | "21:9";
+export type LumaResolution = "540p" | "720p" | "1080p" | "4k";
 export type LumaStatus = "dreaming" | "completed" | "failed";
+
+export interface LumaConcept {
+  key: string;
+  label?: string;
+}
 
 export interface LumaTaskResult {
   taskId: string;
@@ -236,9 +242,58 @@ async function hostKeyframeImage(imageUrl: string): Promise<string> {
 interface CreateVideoOptions {
   model?: LumaModel;
   aspectRatio?: LumaAspectRatio;
+  resolution?: LumaResolution;
   duration?: string;
   loop?: boolean;
+  concepts?: string[];
+  callbackUrl?: string;
   keyframeImageUrl?: string;
+}
+
+const lumaTaskStatusCache = new Map<string, LumaStatusResult>();
+
+function normalizeConcepts(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const value = typeof entry === "string"
+      ? entry
+      : (entry && typeof entry === "object" && "key" in entry ? (entry as { key?: unknown }).key : undefined);
+    if (typeof value !== "string") continue;
+    const key = value.trim();
+    if (!key) continue;
+    out.push(key);
+  }
+  return Array.from(new Set(out));
+}
+
+function statusFromGenerationPayload(raw: unknown): { taskId?: string; status: LumaStatusResult } {
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const taskId = typeof obj.id === "string" ? obj.id : undefined;
+  const state = typeof obj.state === "string" ? obj.state : "";
+  const failureReason = typeof obj.failure_reason === "string" ? obj.failure_reason : undefined;
+  const assets = obj.assets && typeof obj.assets === "object"
+    ? (obj.assets as Record<string, unknown>)
+    : null;
+  const videoUrl = assets && typeof assets.video === "string" ? assets.video : undefined;
+
+  if (state === "completed") {
+    if (videoUrl) return { taskId, status: { status: "completed", videoUrl } };
+    return {
+      taskId,
+      status: {
+        status: "failed",
+        error: "Video generation completed but no video URL was returned.",
+      },
+    };
+  }
+  if (state === "failed") {
+    return { taskId, status: { status: "failed", error: failureReason || "Video generation failed" } };
+  }
+  if (state === "dreaming") {
+    return { taskId, status: { status: "processing" } };
+  }
+  return { taskId, status: { status: "pending" } };
 }
 
 interface DirectGenerateResponse {
@@ -260,8 +315,14 @@ async function createVideoTaskDirect(
     model: options.model || "ray-2",
   };
   if (options.aspectRatio) body.aspect_ratio = options.aspectRatio;
+  if (options.resolution) body.resolution = options.resolution;
   if (options.duration) body.duration = options.duration;
   if (options.loop !== undefined) body.loop = options.loop;
+  const concepts = normalizeConcepts(options.concepts);
+  if (concepts.length > 0) {
+    body.concepts = concepts.map((key) => ({ key }));
+  }
+  if (options.callbackUrl) body.callback_url = options.callbackUrl;
   if (options.keyframeImageUrl) {
     body.keyframes = {
       frame0: { type: "image", url: options.keyframeImageUrl },
@@ -324,31 +385,89 @@ async function getTaskStatusDirect(taskId: string): Promise<LumaStatusResult> {
   }
 
   const data = (await response.json()) as DirectStatusResponse;
-  const state = data.state;
-
-  if (state === "completed") {
-    const videoUrl = data.assets?.video;
-    if (videoUrl) return { status: "completed", videoUrl };
-    return {
-      status: "failed",
-      error: "Video generation completed but no video URL was returned.",
-    };
-  }
-  if (state === "failed") {
-    return { status: "failed", error: data.failure_reason || "Video generation failed" };
-  }
-  if (state === "dreaming") return { status: "processing" };
-  return { status: "pending" };
+  const normalized = statusFromGenerationPayload(data).status;
+  lumaTaskStatusCache.set(taskId, normalized);
+  return normalized;
 }
 
 export async function getTaskStatus(taskId: string): Promise<LumaStatusResult> {
   if (!hasDirectKey()) throw noTransportError();
+  const cached = lumaTaskStatusCache.get(taskId);
+  if (cached && (cached.status === "completed" || cached.status === "failed")) {
+    return cached;
+  }
   return getTaskStatusDirect(taskId);
+}
+
+export function ingestGenerationCallback(payload: unknown): void {
+  const normalized = statusFromGenerationPayload(payload);
+  if (!normalized.taskId) return;
+  lumaTaskStatusCache.set(normalized.taskId, normalized.status);
+}
+
+export async function listConcepts(): Promise<LumaConcept[]> {
+  if (!hasDirectKey()) throw noTransportError();
+  const response = await fetch(`${LUMA_API_BASE}/generations/concepts/list`, {
+    method: "GET",
+    headers: directAuthHeaders(),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(normalizeLumaErrorMessage(response.status, text));
+  }
+  const data = await response.json().catch(() => ({}));
+  const listRaw = Array.isArray(data)
+    ? data
+    : (data && typeof data === "object" && Array.isArray((data as { concepts?: unknown }).concepts)
+      ? (data as { concepts: unknown[] }).concepts
+      : []);
+  return listRaw
+    .map((entry) => {
+      if (typeof entry === "string") return { key: entry };
+      if (!entry || typeof entry !== "object") return null;
+      const key = typeof (entry as { key?: unknown }).key === "string"
+        ? String((entry as { key: unknown }).key)
+        : "";
+      if (!key.trim()) return null;
+      const label = typeof (entry as { label?: unknown }).label === "string"
+        ? String((entry as { label: unknown }).label)
+        : undefined;
+      return { key, label };
+    })
+    .filter((item): item is LumaConcept => !!item);
+}
+
+export async function listCameraMotions(): Promise<string[]> {
+  if (!hasDirectKey()) throw noTransportError();
+  const response = await fetch(`${LUMA_API_BASE}/generations/camera_motion/list`, {
+    method: "GET",
+    headers: directAuthHeaders(),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(normalizeLumaErrorMessage(response.status, text));
+  }
+  const data = await response.json().catch(() => ({}));
+  const listRaw = Array.isArray(data)
+    ? data
+    : (data && typeof data === "object"
+      ? ((data as { camera_motions?: unknown }).camera_motions
+        ?? (data as { cameraMotions?: unknown }).cameraMotions
+        ?? (data as { motions?: unknown }).motions)
+      : undefined);
+  if (!Array.isArray(listRaw)) return [];
+  return listRaw
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 export const lumaService = {
   createVideoTask,
   getTaskStatus,
+  ingestGenerationCallback,
+  listConcepts,
+  listCameraMotions,
   createLumaBatch,
   getLumaBatch,
   updateLumaBatch,

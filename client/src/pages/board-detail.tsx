@@ -70,6 +70,7 @@ type CompileCandidate = {
   thumbnailUrl: string | null;
   assetUrl: string | null;
 };
+const TOP_UP_CREDIT_PACKS = [100, 250, 500, 1000] as const;
 
 function CompilePreview({
   thumbnailUrl,
@@ -124,12 +125,16 @@ export default function BoardDetailPage() {
     if (typeof window === "undefined") return null;
     const sp = new URLSearchParams(window.location.search);
     const seed = sp.get("seed");
+    const refs = (sp.get("refs") ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
     const chatModeRaw = sp.get("chatMode");
     const chatMode: "plan" | "build" | null =
       chatModeRaw === "plan" || chatModeRaw === "build" ? chatModeRaw : null;
     // Even with no `seed`, a `chatMode=plan|build` should still drive the
     // initial mode (e.g. opening a board from a plan-mode handoff link).
-    if (!seed && !chatMode) return null;
+    if (!seed && !chatMode && refs.length === 0) return null;
     const providerRaw = sp.get("provider");
     const modeRaw = sp.get("mode");
     return {
@@ -139,6 +144,7 @@ export default function BoardDetailPage() {
       template: sp.get("template"),
       intent: sp.get("intent"),
       chatMode,
+      refs,
     };
   }, [location, boardId]);
   const seedAppliedRef = useRef<string | null>(null);
@@ -920,6 +926,45 @@ export default function BoardDetailPage() {
   // can cancel a slow reply via the Stop button. Also remembers the pending
   // assistant message id so onError can distinguish a true failure from a
   // user-initiated abort (we already cleared the bubble in handleStopChat).
+  const [topUpDialogOpen, setTopUpDialogOpen] = useState(false);
+  const [topUpSelectedCredits, setTopUpSelectedCredits] = useState<number>(TOP_UP_CREDIT_PACKS[0]);
+  const [topUpRequiredCredits, setTopUpRequiredCredits] = useState<number | null>(null);
+  const [topUpBalanceCredits, setTopUpBalanceCredits] = useState<number | null>(null);
+  const [isStartingTopUp, setIsStartingTopUp] = useState(false);
+
+  const openTopUpDialog = useCallback((meta?: { requiredCredits?: number; balanceCredits?: number }) => {
+    const required = typeof meta?.requiredCredits === "number" && Number.isFinite(meta.requiredCredits)
+      ? meta.requiredCredits
+      : null;
+    const balance = typeof meta?.balanceCredits === "number" && Number.isFinite(meta.balanceCredits)
+      ? meta.balanceCredits
+      : null;
+    const needed = required != null
+      ? Math.max(10, required - (balance ?? 0))
+      : null;
+    const recommendedPack = TOP_UP_CREDIT_PACKS.find((pack) => needed != null && pack >= needed)
+      ?? TOP_UP_CREDIT_PACKS[0];
+    setTopUpRequiredCredits(required);
+    setTopUpBalanceCredits(balance);
+    setTopUpSelectedCredits(recommendedPack);
+    setTopUpDialogOpen(true);
+  }, []);
+
+  const startTopUpCheckout = useCallback(async () => {
+    if (isStartingTopUp) return;
+    setIsStartingTopUp(true);
+    try {
+      const response = await apiRequest("POST", "/api/billing/checkout", { credits: topUpSelectedCredits });
+      const data = (await response.json()) as { checkoutUrl?: string };
+      if (!data.checkoutUrl) throw new Error("Checkout could not be started.");
+      window.location.assign(data.checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start checkout.";
+      toast({ title: "Top up failed", description: message, variant: "destructive" });
+      setIsStartingTopUp(false);
+    }
+  }, [isStartingTopUp, topUpSelectedCredits, toast]);
+
   const chatAbortRef = useRef<AbortController | null>(null);
   const chatAbortedPendingIdRef = useRef<string | null>(null);
   const trackedCreateBatchesRef = useRef(
@@ -1006,9 +1051,13 @@ export default function BoardDetailPage() {
         chatAbortedPendingIdRef.current = null;
         return;
       }
+      const statusCodeMatch = e?.message?.match(/^(\d+):\s*/);
+      const statusCode = statusCodeMatch ? Number(statusCodeMatch[1]) : null;
       let errText = e?.message?.replace(/^\d+:\s*/, "") ?? String(e);
+      let parsedError: { code?: string; error?: string; requiredCredits?: number; balanceCredits?: number } | null = null;
       try {
         const parsed = JSON.parse(errText);
+        parsedError = parsed as { code?: string; error?: string; requiredCredits?: number; balanceCredits?: number };
         if (parsed?.code === "v2v_disabled") {
           errText = "Video-to-video is disabled in this build. Use Text-to-Video or Image-to-Video.";
         } else if (parsed?.code === "veo_image_to_video_only") {
@@ -1020,6 +1069,21 @@ export default function BoardDetailPage() {
         }
       } catch {
         // non-JSON error; keep original text
+      }
+
+      const isInsufficientCredits =
+        statusCode === 402
+        || typeof parsedError?.requiredCredits === "number"
+        || /insufficient credits/i.test(errText);
+      if (isInsufficientCredits) {
+        openTopUpDialog({
+          requiredCredits: parsedError?.requiredCredits,
+          balanceCredits: parsedError?.balanceCredits,
+        });
+        // Clean low-credits UX: drop the pending bubble and skip the scary
+        // "Chat error" toast — the top-up modal is the call to action.
+        setMessages((m) => m.filter((msg) => msg.id !== pendingId));
+        return;
       }
       setMessages((m) =>
         m.map((msg) =>
@@ -1050,6 +1114,13 @@ export default function BoardDetailPage() {
       const ready = batchAssets.filter((a) => a.status === "ready");
       const failed = batchAssets.filter((a) => a.status === "failed" || a.status === "rejected");
       const sampleReason = failed.find((a) => (a.rejectionReason ?? "").trim())?.rejectionReason?.trim();
+      const hasInsufficientCreditsFailure = failed.some((a) =>
+        /insufficient credits/i.test((a.rejectionReason ?? "").trim()),
+      );
+
+      if (hasInsufficientCreditsFailure) {
+        openTopUpDialog();
+      }
 
       if (ready.length === 0) {
         const contextLabel = meta.isImageEdit ? "image edit" : "generation";
@@ -1079,7 +1150,7 @@ export default function BoardDetailPage() {
 
       tracked.delete(batchId);
     }
-  }, [boardQuery.data?.assets, toast]);
+  }, [boardQuery.data?.assets, openTopUpDialog, toast]);
 
   // Cancel the in-flight chat request and clear the optimistic pending bubble
   // so the conversation doesn't show an orphan "…" message. Used by both the
@@ -1903,6 +1974,9 @@ export default function BoardDetailPage() {
     seedAppliedRef.current = boardId;
     if (seedParams.provider) setProvider(seedParams.provider);
     if (seedParams.mode) setGenerationMode(seedParams.mode);
+    if (seedParams.refs.length > 0) {
+      setSelectedAssetIds(seedParams.refs);
+    }
     // Plan-mode intents (Social Post / Blog Article) land in conversational
     // brainstorm mode; build/generation intents land in create mode.
     setMode(seedParams.chatMode === "plan" ? "brainstorm" : "create");
@@ -2294,6 +2368,7 @@ export default function BoardDetailPage() {
             typingUserNames={board.isShared ? typingNames : []}
             onTypingChange={board.isShared ? handleChatTypingChange : undefined}
             onAttachFiles={handleChatAttachFiles}
+            onOpenRecord={() => setRecordOpen(true)}
             onCollapse={() => setChatOpen(false)}
           />
         )}
@@ -2388,6 +2463,70 @@ export default function BoardDetailPage() {
                 {isCompiling ? "Compiling…" : `Compile ${compileSelection.length} video${compileSelection.length === 1 ? "" : "s"}`}
               </button>
             </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={topUpDialogOpen}
+        onOpenChange={(open) => {
+          if (!isStartingTopUp) setTopUpDialogOpen(open);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-top-up-credits" className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Low credits</AlertDialogTitle>
+            <AlertDialogDescription>
+              {topUpRequiredCredits != null
+                ? `This generation needs ${topUpRequiredCredits} credits${topUpBalanceCredits != null ? `, and you currently have ${topUpBalanceCredits}` : ""}.`
+                : "You don't have enough credits to continue this generation."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="text-[12px] text-neutral-600 dark:text-neutral-300">
+              Top up now and continue from this board.
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {TOP_UP_CREDIT_PACKS.map((pack) => (
+                <button
+                  key={pack}
+                  type="button"
+                  onClick={() => setTopUpSelectedCredits(pack)}
+                  disabled={isStartingTopUp}
+                  className={`rounded-md border px-3 py-2 text-left transition-colors ${
+                    topUpSelectedCredits === pack
+                      ? "border-blue-600 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-300"
+                      : "border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  }`}
+                  data-testid={`button-top-up-pack-${pack}`}
+                >
+                  <span className="block text-sm font-semibold">{pack} credits</span>
+                  <span className="block text-xs opacity-80">${(pack * 0.1).toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isStartingTopUp} data-testid="button-cancel-top-up">
+              Maybe later
+            </AlertDialogCancel>
+            <button
+              type="button"
+              onClick={() => {
+                void startTopUpCheckout();
+              }}
+              disabled={isStartingTopUp}
+              className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid="button-start-top-up"
+            >
+              {isStartingTopUp ? (
+                <>
+                  <Spinner className="mr-2 h-4 w-4 animate-spin" />
+                  Starting checkout...
+                </>
+              ) : (
+                `Pay $${(topUpSelectedCredits * 0.1).toFixed(2)}`
+              )}
+            </button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

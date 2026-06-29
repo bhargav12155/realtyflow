@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+  import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video, CalendarDays, Share2 } from "lucide-react";
+  import { ArrowUp, MoreVertical, Paperclip, Mic, Search, MessageSquare, FileText, Image as ImageIcon, Video, CalendarDays, Share2, X, FileAudio, Loader2 } from "lucide-react";
 import { BoardsSidebar } from "@/components/boards/BoardsSidebar";
 import { BoardCard, NewBoardCard, type BoardSummary } from "@/components/boards/BoardCard";
 import { NotificationsBell } from "@/components/boards/NotificationsBell";
@@ -11,6 +11,8 @@ import { useBoardsTheme } from "@/hooks/useBoardsTheme";
 import { useRenameBoardMutation } from "@/hooks/use-rename-board";
 import { useDeleteBoardMutation } from "@/hooks/use-delete-board";
 import { useLeaveBoardMutation } from "@/hooks/use-leave-board";
+  import { uploadFileToBoard } from "@/lib/boardUpload";
+  import { RecordModal } from "@/components/boards/RecordModal";
 
 type Tab = "all" | "shared" | "mine";
 
@@ -87,6 +89,10 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -111,6 +117,7 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
     seedProvider?: QuickAction["provider"];
     seedGenerationMode?: QuickAction["generationMode"];
     seedMode?: SeedMode;
+    files?: File[];
   }
 
   const createBoardMutation = useMutation({
@@ -126,7 +133,10 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
       const board = (await res.json()) as BoardSummary;
       return { board, args };
     },
-    onSuccess: ({ board, args }) => {
+    onMutate: () => {
+      setIsCreatingBoard(true);
+    },
+    onSuccess: async ({ board, args }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/boards"] });
       onBoardCreated?.(board);
       const params = new URLSearchParams();
@@ -137,11 +147,29 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
       // Use a distinct query key (chatMode) to avoid colliding with the
       // existing `mode` param which carries the video generation mode.
       if (args.seedMode) params.set("chatMode", args.seedMode);
+      const uploadedAssetIds: string[] = [];
+      for (const file of args.files ?? []) {
+        try {
+          const result = await uploadFileToBoard(board.id, file);
+          if (result) uploadedAssetIds.push(result.id);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          toast({ title: `Couldn't attach ${file.name}`, description: message, variant: "destructive" });
+        }
+      }
+      if (uploadedAssetIds.length > 0) {
+        params.set("refs", uploadedAssetIds.join(","));
+        queryClient.invalidateQueries({ queryKey: ["/api/boards", board.id] });
+      }
+      setSelectedFiles([]);
       const qs = params.toString();
       setLocation(qs ? `/boards/${board.id}?${qs}` : `/boards/${board.id}`);
     },
     onError: (e: Error) => {
       toast({ title: "Couldn't create board", description: e?.message ?? String(e), variant: "destructive" });
+    },
+    onSettled: () => {
+      setIsCreatingBoard(false);
     },
   });
 
@@ -160,6 +188,7 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
       seedProvider: action.provider,
       seedGenerationMode: action.generationMode,
       seedMode: action.seedMode,
+      files: selectedFiles,
     });
   };
 
@@ -169,8 +198,28 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
     // mode on the new board so the assistant opens with a planning question
     // instead of the "press send to start" build seed.
     createBoardMutation.mutate(
-      trimmed ? { title: trimmed, seedPrompt: trimmed, seedMode: "plan" } : {},
+      trimmed
+        ? { title: trimmed, seedPrompt: trimmed, seedMode: "plan", files: selectedFiles }
+        : { files: selectedFiles },
     );
+  };
+
+  const addSelectedFiles = (files: File[]) => {
+    const supported = files.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/") || file.type.startsWith("audio/"),
+    );
+    if (supported.length !== files.length) {
+      toast({
+        title: "Unsupported file skipped",
+        description: "Use images, videos, or audio files here.",
+      });
+    }
+    if (supported.length === 0) return;
+    setSelectedFiles((prev) => [...prev, ...supported].slice(0, 8));
+  };
+
+  const removeSelectedFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const filtered = useMemo(() => {
@@ -211,7 +260,7 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
                   key={action.id}
                   type="button"
                   onClick={() => handleQuickAction(action)}
-                  disabled={createBoardMutation.isPending}
+                  disabled={isCreatingBoard}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-neutral-200 text-[12px] text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 disabled:opacity-50 transition-colors dark:bg-neutral-900 dark:border-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-800/60 dark:hover:border-neutral-700"
                   data-testid={`chip-intent-${action.id}`}
                 >
@@ -222,33 +271,106 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
             })}
           </div>
           <div
-            className="w-[560px] max-w-full bg-white rounded-2xl shadow-[0_2px_12px_rgba(0,0,0,0.04)] border border-neutral-200/80 px-5 py-4 dark:bg-neutral-900 dark:border-neutral-800"
+            className="w-[640px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[24px] border border-neutral-200/90 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.14)] ring-1 ring-black/[0.02] transition-colors focus-within:border-neutral-300 focus-within:shadow-[0_22px_70px_rgba(15,23,42,0.18)] dark:border-neutral-800 dark:bg-neutral-900 dark:ring-white/[0.04]"
             data-overlay-keep
           >
             <input
-              className="w-full bg-transparent outline-none text-[14px] placeholder:text-neutral-400 dark:placeholder:text-neutral-500 dark:text-neutral-100"
-              placeholder="Describe what you want to create..."
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handlePromptSubmit();
-                }
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*,audio/*"
+              multiple
+              className="hidden"
+              data-testid="input-prompt-attachments"
+              onChange={(e) => {
+                addSelectedFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
               }}
-              data-testid="input-prompt"
             />
-            <div className="flex items-center justify-end gap-3 mt-6">
-              <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-attach"><Paperclip className="w-4 h-4" /></button>
-              <button className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100" data-testid="button-mic"><Mic className="w-4 h-4" /></button>
+            <div className="min-h-[104px] px-5 pt-5">
+              <textarea
+                className="block w-full min-h-[72px] max-h-36 resize-none border-0 bg-transparent p-0 text-[17px] leading-7 text-neutral-900 shadow-none outline-none ring-0 placeholder:text-neutral-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500"
+                placeholder="Describe what you want to create..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handlePromptSubmit();
+                  }
+                }}
+                data-testid="input-prompt"
+              />
+            </div>
+            {selectedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-2 pb-2" data-testid="row-prompt-attachments">
+                {selectedFiles.map((file, index) => {
+                  const isImage = file.type.startsWith("image/");
+                  return (
+                    <div
+                      key={`${file.name}-${index}`}
+                      className="inline-flex max-w-[180px] items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+                      data-testid={`chip-prompt-attachment-${index}`}
+                    >
+                      {isImage ? <ImageIcon className="h-3.5 w-3.5" /> : file.type.startsWith("audio/") ? <FileAudio className="h-3.5 w-3.5" /> : <Video className="h-3.5 w-3.5" />}
+                      <span className="truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedFile(index)}
+                        className="rounded-full p-0.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                        data-testid={`button-remove-prompt-attachment-${index}`}
+                        aria-label={`Remove ${file.name}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50/70 px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950/40">
+              {isCreatingBoard ? (
+                <div className="inline-flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400" data-testid="text-creating-board">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Creating board and uploading attachments...
+                </div>
+              ) : (
+                <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                  Add media or record a note
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isCreatingBoard}
+                className="h-10 w-10 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                data-testid="button-attach"
+                aria-label="Attach images, videos, or audio"
+                title="Attach images, videos, or audio"
+              >
+                <Paperclip className="mx-auto w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecordOpen(true)}
+                disabled={isCreatingBoard}
+                className="h-10 w-10 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+                data-testid="button-mic"
+                aria-label="Record voice-over"
+                title="Record voice-over"
+              >
+                <Mic className="mx-auto w-5 h-5" />
+              </button>
               <button
                 onClick={handlePromptSubmit}
-                disabled={createBoardMutation.isPending}
-                className="w-7 h-7 rounded-full bg-neutral-300 hover:bg-neutral-400 disabled:opacity-50 flex items-center justify-center dark:bg-neutral-700 dark:hover:bg-neutral-600"
+                disabled={isCreatingBoard}
+                className="w-11 h-11 rounded-full bg-neutral-900 hover:bg-neutral-700 disabled:opacity-50 flex items-center justify-center text-white dark:bg-neutral-100 dark:hover:bg-white dark:text-neutral-900"
                 data-testid="button-prompt-send"
+                aria-label="Create board"
               >
-                <ArrowUp className="w-3.5 h-3.5 text-neutral-700 dark:text-neutral-200" />
+                {isCreatingBoard ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
               </button>
+              </div>
             </div>
           </div>
           <div className="mt-4 flex items-start justify-center gap-6" data-overlay-keep>
@@ -366,6 +488,14 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
           )}
         </div>
       </main>
+      <RecordModal
+        open={recordOpen}
+        onCancel={() => setRecordOpen(false)}
+        onSave={(file) => {
+          addSelectedFiles([file]);
+          setRecordOpen(false);
+        }}
+      />
     </div>
   );
 }

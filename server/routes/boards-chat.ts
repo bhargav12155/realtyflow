@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { db } from "../db";
 import { storage as defaultStorage, type IStorage } from "../storage";
 import { requireAuth as defaultRequireAuth } from "../middleware/auth";
-import { walletLedger, type BoardAsset, type BoardAssetEvalHistoryEntry, type BoardMessageCta } from "@shared/schema";
+import { walletLedger, users, type BoardAsset, type BoardAssetEvalHistoryEntry, type BoardMessageCta } from "@shared/schema";
 import type { BoardAssetCreate, BoardMessageCreate } from "../storage";
 import OpenAI, { type Uploadable } from "openai";
 import type { LumaAspectRatio, LumaModel, LumaResolution } from "../services/luma";
@@ -2704,4 +2704,55 @@ export function registerBoardsChatRoutes(
       }
     },
   );
+
+  // =====================================================
+  // ONBOARDING ENDPOINTS
+  // =====================================================
+
+  app.post("/api/users/onboarding/complete", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+
+      // Update user's onboarding status
+      await db
+        .update(users)
+        .set({ hasCompletedOnboarding: true })
+        .where(eq(users.id, userId));
+
+      return res.json({ success: true });
+    } catch (error: unknown) {
+      console.error("[boards-chat] complete onboarding error:", error);
+      const message = error instanceof Error ? error.message : "Failed to complete onboarding";
+      return res.status(500).json({ error: message });
+    }
+  });
+
+  app.get("/api/users/me", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = String(req.user!.id);
+
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then((rows) => rows[0]);
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      return res.json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        name: user.name,
+        hasCompletedOnboarding: user.hasCompletedOnboarding,
+      });
+    } catch (error: unknown) {
+      console.error("[boards-chat] get user error:", error);
+      const message = error instanceof Error ? error.message : "Failed to get user";
+      return res.status(500).json({ error: message });
+    }
+  });
 }

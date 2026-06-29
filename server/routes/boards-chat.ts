@@ -1960,6 +1960,27 @@ export function registerBoardsChatRoutes(
     }
   });
 
+  app.get("/api/billing/payment-methods", requireAuth, async (req: Request, res: Response) => {
+    try {
+      // Placeholder: Stripe payment methods management would go here
+      // For now, return empty list (payment methods can be added in phase 2)
+      return res.json({ paymentMethods: [] });
+    } catch (error) {
+      console.error("[boards-chat] fetch payment methods failed:", error);
+      return res.status(500).json({ error: "Failed to load payment methods" });
+    }
+  });
+
+  app.delete("/api/billing/payment-methods/:paymentMethodId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      // Placeholder: Would delete from Stripe in production
+      return res.json({ success: true });
+    } catch (error) {
+      console.error("[boards-chat] delete payment method failed:", error);
+      return res.status(500).json({ error: "Failed to delete payment method" });
+    }
+  });
+
   app.post("/api/webhooks/stripe", async (req: Request, res: Response) => {
     try {
       const webhookSecret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();

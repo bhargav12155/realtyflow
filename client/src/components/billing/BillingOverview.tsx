@@ -134,9 +134,6 @@ export function BillingOverview() {
                   </>
                 )}
               </Button>
-              <Button variant="outline" className="flex-1">
-                🎟️ Redeem Coupon
-              </Button>
             </div>
           </div>
         </CardContent>

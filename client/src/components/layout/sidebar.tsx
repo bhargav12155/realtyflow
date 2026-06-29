@@ -688,3 +688,4 @@ export function Sidebar({ activeView = "dashboard" }: SidebarProps) {
     </>
   );
 }
+

@@ -8,7 +8,7 @@ import { users, publicUsers, userPreferences, insertUserPreferencesSchema } from
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import multer from "multer";
-import { persistImageBufferPublic } from "../../objectStorage";
+import { unifiedUploadService } from "../../services/unifiedUpload";
 
 const router = Router();
 
@@ -190,10 +190,12 @@ router.post("/photo", requireAuth, agentPhotoUpload.single("file"), async (req: 
     const ext = file.originalname.split(".").pop() || "jpg";
     const filename = `${userId}-${Date.now()}.${ext}`;
 
-    // Persist to public object storage so the URL is serveable without auth
-    const url = await persistImageBufferPublic(file.buffer, filename, file.mimetype, "agent-photos");
-    
-    if (!url) {
+    // Persist via unified upload (signed-URL sidecar → S3 fallback) so it works in production
+    let url: string;
+    try {
+      url = await unifiedUploadService.uploadBuffer(file.buffer, `agent-photos/${filename}`, file.mimetype);
+    } catch (err) {
+      console.error("Failed to upload agent photo:", err);
       return res.status(500).json({ error: "Failed to upload photo to storage" });
     }
 

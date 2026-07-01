@@ -8,14 +8,14 @@ import { users, publicUsers, userPreferences, insertUserPreferencesSchema } from
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import multer from "multer";
-import { persistImageBuffer } from "../../objectStorage";
+import { persistImageBufferPublic } from "../../objectStorage";
 
 const router = Router();
 
 // Configure multer for agent photo uploads
 const agentPhotoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith("image/")) {
       cb(null, true);
@@ -188,10 +188,10 @@ router.post("/photo", requireAuth, agentPhotoUpload.single("file"), async (req: 
 
     // Generate unique filename
     const ext = file.originalname.split(".").pop() || "jpg";
-    const filename = `agent-photos/${userId}-${Date.now()}.${ext}`;
+    const filename = `${userId}-${Date.now()}.${ext}`;
 
-    // Persist to object storage
-    const url = await persistImageBuffer(file.buffer, filename, file.mimetype);
+    // Persist to public object storage so the URL is serveable without auth
+    const url = await persistImageBufferPublic(file.buffer, filename, file.mimetype, "agent-photos");
     
     if (!url) {
       return res.status(500).json({ error: "Failed to upload photo to storage" });

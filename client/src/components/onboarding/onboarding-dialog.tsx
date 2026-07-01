@@ -162,10 +162,10 @@ export function OnboardingDialog({ open: controlledOpen, onOpenChange }: Onboard
       return;
     }
 
-    if (file.size > 50 * 1024 * 1024) {
+    if (file.size > 10 * 1024 * 1024) {
       toast({
         title: "File Too Large",
-        description: "Please upload an image smaller than 50MB. Large images are auto-compressed.",
+        description: "Please upload an image smaller than 10MB.",
         variant: "destructive",
       });
       return;

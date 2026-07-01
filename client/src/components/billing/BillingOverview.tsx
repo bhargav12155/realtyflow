@@ -75,7 +75,7 @@ export function BillingOverview() {
       const response = await apiRequest("POST", "/api/billing/checkout", { credits: selectedCredits });
       const data = (await response.json()) as { checkoutUrl?: string };
       if (!data.checkoutUrl) throw new Error("Checkout could not be started.");
-      (window.top || window).location.href = data.checkoutUrl;
+      window.open(data.checkoutUrl, '_blank');
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start checkout.";
       setCheckoutMessage(message);

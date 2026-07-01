@@ -187,19 +187,10 @@ export class UnifiedUploadService {
     returnPresignedUrl: boolean = false,
     expiresInSeconds: number = 3600
   ): Promise<string> {
-    if (this.canUseS3()) {
-      try {
-        return await this.s3Service!.uploadBuffer(fileBuffer, key, contentType, returnPresignedUrl, expiresInSeconds);
-      } catch (error: any) {
-        if (isS3CredentialError(error)) {
-          console.warn("⚠️ [UnifiedUpload] S3 credentials invalid, falling back to Object Storage");
-          this.disableS3();
-        } else {
-          throw error;
-        }
-      }
+    if (!this.canUseS3()) {
+      throw new Error("S3 is required for image storage but AWS credentials are not configured.");
     }
-    return this.uploadToObjectStorage(fileBuffer, key, contentType);
+    return this.s3Service!.uploadBuffer(fileBuffer, key, contentType, returnPresignedUrl, expiresInSeconds);
   }
 
   async uploadFile(
@@ -208,20 +199,10 @@ export class UnifiedUploadService {
     fileName: string,
     contentType: string
   ): Promise<string> {
-    const key = `user-${userId}/photo-avatars/${fileName}`;
-    if (this.canUseS3()) {
-      try {
-        return await this.s3Service!.uploadFile(userId, fileBuffer, fileName, contentType);
-      } catch (error: any) {
-        if (isS3CredentialError(error)) {
-          console.warn("⚠️ [UnifiedUpload] S3 credentials invalid, falling back to Object Storage");
-          this.disableS3();
-        } else {
-          throw error;
-        }
-      }
+    if (!this.canUseS3()) {
+      throw new Error("S3 is required for image storage but AWS credentials are not configured.");
     }
-    return this.uploadToObjectStorage(fileBuffer, key, contentType);
+    return this.s3Service!.uploadFile(userId, fileBuffer, fileName, contentType);
   }
 
   async getFile(key: string): Promise<Buffer> {

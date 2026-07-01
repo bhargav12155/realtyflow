@@ -1,6 +1,7 @@
 import { Storage, File } from "@google-cloud/storage";
 import { Response } from "express";
 import { randomUUID } from "crypto";
+import { S3UploadService } from "./services/s3Upload";
 import {
   ObjectAclPolicy,
   ObjectPermission,
@@ -378,31 +379,11 @@ export async function persistImageBuffer(
   contentType: string = "image/jpeg"
 ): Promise<string | null> {
   try {
-    const objectStorage = new ObjectStorageService();
-    if (!objectStorage.isConfigured()) {
-      console.warn("Object storage not configured, cannot persist image");
-      return null;
-    }
-
-    console.log(`📥 Saving image buffer to storage: ${filename}`);
-    
-    const privateDir = objectStorage.getPrivateObjectDir();
-    const fullPath = `${privateDir}/photos/${filename}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-
-    await file.save(imageBuffer, {
-      contentType,
-      resumable: false,
-      metadata: {
-        cacheControl: "private, max-age=31536000",
-      },
-    });
-
-    console.log(`✅ Image saved to: ${fullPath}`);
-    return `/objects/photos/${filename}`;
+    console.log(`📥 Saving image buffer to S3: ${filename}`);
+    const s3 = new S3UploadService();
+    const url = await s3.uploadBuffer(imageBuffer, `photos/${filename}`, contentType);
+    console.log(`✅ Image saved to S3: ${url}`);
+    return url;
   } catch (error) {
     console.error("Failed to persist image buffer:", error);
     return null;
@@ -459,30 +440,11 @@ export async function persistImageBufferPublic(
   subdir: string = "api-safe"
 ): Promise<string | null> {
   try {
-    const objectStorage = new ObjectStorageService();
-    if (!objectStorage.hasPublicPaths()) {
-      console.warn("Public object paths not configured, cannot persist image publicly");
-      return null;
-    }
-
-    const publicPaths = objectStorage.getPublicObjectSearchPaths();
-    const basePath = publicPaths[0];
-    const fullPath = `${basePath}/${subdir}/${filename}`;
-
-    const { bucketName, objectName } = parseObjectPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectName);
-
-    await file.save(imageBuffer, {
-      contentType,
-      resumable: false,
-      metadata: {
-        cacheControl: "public, max-age=31536000",
-      },
-    });
-
-    console.log(`✅ Public image saved to: ${fullPath}`);
-    return `/public-objects/${subdir}/${filename}`;
+    console.log(`📥 Saving public image buffer to S3: ${subdir}/${filename}`);
+    const s3 = new S3UploadService();
+    const url = await s3.uploadBuffer(imageBuffer, `${subdir}/${filename}`, contentType);
+    console.log(`✅ Public image saved to S3: ${url}`);
+    return url;
   } catch (error) {
     console.error("Failed to persist public image buffer:", error);
     return null;

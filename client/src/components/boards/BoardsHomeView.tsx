@@ -241,7 +241,13 @@ export function BoardsHomeView({ onBoardCreated, onRequestClose, hideSidebar }: 
       className={`${theme === "dark" ? "dark " : ""}min-h-screen bg-neutral-200/40 flex font-sans text-[13px] text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100`}
       data-testid="boards-home-view"
     >
-      {!hideSidebar && <BoardsSidebar active="boards" />}
+      {!hideSidebar && (
+        <BoardsSidebar
+          active="boards"
+          onBackToApp={onRequestClose}
+          onShowShared={() => setTab("shared")}
+        />
+      )}
       <main className="flex-1 flex flex-col">
         <header className="flex items-center justify-end gap-1 px-6 pt-4">
           <NotificationsBell />

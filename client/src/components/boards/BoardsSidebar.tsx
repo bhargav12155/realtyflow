@@ -11,6 +11,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 interface BoardsSidebarProps {
   active: "boards" | "discover" | "team" | "usage";
+  onBackToApp?: () => void;
+  onShowShared?: () => void;
 }
 
 interface SidebarBoard {
@@ -41,7 +43,7 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function BoardsSidebar({ active }: BoardsSidebarProps) {
+export function BoardsSidebar({ active, onBackToApp, onShowShared }: BoardsSidebarProps) {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { theme, toggle } = useBoardsTheme();
@@ -71,11 +73,9 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
     }`;
     if (href) {
       return (
-        <Link href={href}>
-          <a className={className} data-testid={testId}>
-            <Icon className="w-4 h-4" />
-            <span>{label}</span>
-          </a>
+        <Link href={href} className={className} data-testid={testId}>
+          <Icon className="w-4 h-4" />
+          <span>{label}</span>
         </Link>
       );
     }
@@ -261,7 +261,7 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
         <button
           className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-neutral-200/60 text-neutral-700 text-[13px] dark:hover:bg-neutral-800/60 dark:text-neutral-300"
           data-testid="button-back-to-app"
-          onClick={() => setLocation("/dashboard")}
+          onClick={() => onBackToApp ? onBackToApp() : setLocation("/dashboard")}
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to app</span>
@@ -270,7 +270,7 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
           type="button"
           className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-neutral-200/60 text-neutral-700 text-[13px] dark:hover:bg-neutral-800/60 dark:text-neutral-300"
           data-testid="button-shared"
-          onClick={() => setLocation("/boards?tab=shared")}
+          onClick={() => onShowShared ? onShowShared() : setLocation("/boards?tab=shared")}
         >
           <Share2 className="w-4 h-4" />
           <span>Shared with you</span>

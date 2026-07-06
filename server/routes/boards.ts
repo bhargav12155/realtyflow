@@ -1188,6 +1188,54 @@ export function registerBoardsRoutes(
     }
   });
 
+  // ── Proxy download ────────────────────────────────────────────────────────
+  // Fetches a remote asset server-side and streams it back as an attachment so
+  // the browser shows a true "Save As" dialog instead of opening in a new tab.
+  // Auth-required to prevent open-proxy abuse.
+  app.get("/api/proxy-download", requireAuth, async (req: Request, res: Response) => {
+    const rawUrl = typeof req.query.url === "string" ? req.query.url : "";
+    const suggestedName = typeof req.query.filename === "string" ? req.query.filename : "";
+
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return res.status(400).json({ error: "Invalid url" });
+    }
+
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return res.status(400).json({ error: "Only http/https URLs are supported" });
+    }
+
+    try {
+      const upstream = await fetch(rawUrl);
+      if (!upstream.ok) {
+        return res.status(502).json({ error: `Upstream returned ${upstream.status}` });
+      }
+
+      const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+      const filename =
+        suggestedName ||
+        parsed.pathname.split("/").pop()?.split("?")[0] ||
+        "download";
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename.replace(/"/g, "'")}"`
+      );
+
+      const contentLength = upstream.headers.get("content-length");
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+
+      const buf = await upstream.arrayBuffer();
+      res.send(Buffer.from(buf));
+    } catch (err) {
+      console.error("[proxy-download] fetch error:", err);
+      res.status(502).json({ error: "Failed to fetch remote asset" });
+    }
+  });
+
   // NOTE: POST /api/boards/:id/chat is registered in `routes/boards-chat.ts`
   // (the full Brainstorm/Create handler with auto-eval). The chat schema and
   // validation helpers above are exported so that handler — and tests — can

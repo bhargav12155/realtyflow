@@ -23,10 +23,13 @@ export function AssetToolbar({
   // local-file providers, assetUrl is a /tmp/... path browsers can't open;
   // thumbnailUrl is always the authenticated board streaming endpoint.
   const rawUrl = asset.assetUrl || asset.thumbnailUrl || "";
-  const downloadHref = rawUrl.startsWith("/tmp/")
-    ? (asset.thumbnailUrl || rawUrl)
-    : rawUrl;
-  const canDownload = !!downloadHref && asset.status === "ready";
+  const resolvedUrl = rawUrl.startsWith("/tmp/") ? (asset.thumbnailUrl || rawUrl) : rawUrl;
+  // Route through proxy so cross-origin URLs (HeyGen, S3, etc.) trigger a real
+  // "Save As" download instead of opening in a new browser tab.
+  const downloadHref = resolvedUrl
+    ? `/api/proxy-download?url=${encodeURIComponent(resolvedUrl)}`
+    : "";
+  const canDownload = !!resolvedUrl && asset.status === "ready";
   const isRejected = asset.status === "rejected";
 
   const beforeSrc = sourceAsset ? sourceAsset.assetUrl || sourceAsset.thumbnailUrl : null;
@@ -88,8 +91,6 @@ export function AssetToolbar({
         <a
           href={canDownload ? downloadHref : undefined}
           download
-          target="_blank"
-          rel="noreferrer"
           className={`w-7 h-7 rounded-full flex items-center justify-center ${
             canDownload ? "hover:bg-neutral-100 text-neutral-700 dark:hover:bg-neutral-800 dark:text-neutral-200" : "text-neutral-300 pointer-events-none dark:text-neutral-600"
           }`}

@@ -93,11 +93,11 @@ export function GroupAssetToolbar({
   const onDownloadAll = () => {
     if (!canDownload || typeof document === "undefined") return;
     for (const url of urls) {
+      // Route through proxy so cross-origin URLs trigger a real "Save As" download.
+      const proxyUrl = `/api/proxy-download?url=${encodeURIComponent(url)}`;
       const a = document.createElement("a");
-      a.href = url;
+      a.href = proxyUrl;
       a.download = "";
-      a.target = "_blank";
-      a.rel = "noreferrer";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

@@ -954,7 +954,9 @@ export default function BoardDetailPage() {
     if (isStartingTopUp) return;
     setIsStartingTopUp(true);
     try {
-      const response = await apiRequest("POST", "/api/billing/checkout", { credits: topUpSelectedCredits, returnUrl: window.location.origin });
+      const params = new URLSearchParams(window.location.search);
+      const returnUrl = params.get("returnUrl") || window.location.href.split("?")[0];
+      const response = await apiRequest("POST", "/api/billing/checkout", { credits: topUpSelectedCredits, returnUrl });
       const data = (await response.json()) as { checkoutUrl?: string };
       if (!data.checkoutUrl) throw new Error("Checkout could not be started.");
       window.open(data.checkoutUrl, '_blank');

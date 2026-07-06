@@ -1607,6 +1607,28 @@ function resolveRequestBaseUrl(req: Request): string {
   return `${proto}://${host}`;
 }
 
+const ALLOWED_RETURN_ORIGINS = new Set([
+  "https://www.imakepage.com",
+  "https://imakepage.com",
+  "https://multi-users-realtyflow.replit.app",
+]);
+
+function sanitizeReturnUrl(input: string | undefined, fallback: string): string {
+  if (!input) return fallback;
+  try {
+    const url = new URL(input);
+    if (!["http:", "https:"].includes(url.protocol)) return fallback;
+    if (!ALLOWED_RETURN_ORIGINS.has(url.origin)) return fallback;
+    return url.href.replace(/\/+$/, ""); // strip trailing slashes
+  } catch {
+    return fallback;
+  }
+}
+
+function appendQueryParam(url: string, param: string): string {
+  return url.includes("?") ? `${url}&${param}` : `${url}?${param}`;
+}
+
 function getStripeSecretKey(): string {
   const key = (process.env.STRIPE_SECRET_KEY || "").trim();
   if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
@@ -1754,7 +1776,8 @@ export function registerBoardsChatRoutes(
       const userId = String(user.id);
       const credits = parsed.data.credits;
       const amountCents = credits * 10;
-      const baseUrl = parsed.data.returnUrl ?? resolveRequestBaseUrl(req);
+      const fallbackReturn = `${resolveRequestBaseUrl(req)}/billing`;
+      const safeReturnUrl = sanitizeReturnUrl(parsed.data.returnUrl, fallbackReturn);
 
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
@@ -1773,8 +1796,8 @@ export function registerBoardsChatRoutes(
             },
           },
         ],
-        success_url: `${baseUrl}/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${baseUrl}/billing?checkout=cancelled`,
+        success_url: appendQueryParam(safeReturnUrl, "checkout=success&session_id={CHECKOUT_SESSION_ID}"),
+        cancel_url: appendQueryParam(safeReturnUrl, "checkout=cancelled"),
         metadata: {
           userId,
           credits: String(credits),

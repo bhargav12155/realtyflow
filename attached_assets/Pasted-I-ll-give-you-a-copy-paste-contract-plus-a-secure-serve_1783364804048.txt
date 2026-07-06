@@ -1,0 +1,82 @@
+I’ll give you a copy-paste contract plus a secure server-side validation snippet your Replit team can apply directly, so the Stripe redirect always returns to your host page.
+
+Perfect. Send this to the Replit team exactly.
+
+Payload contract (host app -> iframe app -> iframe backend)
+Request body for create-checkout-session must include:
+
+plan
+interval
+returnUrl
+Example:
+{
+"plan": "pro",
+"interval": "monthly",
+"returnUrl": "https://www.imakepage.com/external"
+}
+
+Rules:
+
+returnUrl must be the parent page you want after Stripe, not the iframe origin.
+Use the full URL, including path.
+For your case, use https://www.imakepage.com/external
+Frontend change in iframe app
+When calling checkout API, pass parent-return URL explicitly:
+
+Prefer value passed from host query param like returnUrl
+Fallback only if missing
+Example logic:
+const params = new URLSearchParams(window.location.search);
+const hostReturnUrl = params.get("returnUrl") || "https://www.imakepage.com/external";
+
+await fetch("/api/billing/create-checkout-session", {
+method: "POST",
+headers: { "Content-Type": "application/json" },
+credentials: "include",
+body: JSON.stringify({
+plan,
+interval,
+returnUrl: hostReturnUrl
+})
+});
+
+Backend validation in Replit app (required)
+Do not trust returnUrl directly. Validate against allowlist.
+
+Example Express helper:
+const ALLOWED_RETURN_ORIGINS = new Set([
+"https://www.imakepage.com",
+"https://imakepage.com"
+]);
+
+function sanitizeReturnUrl(input, fallback) {
+try {
+const url = new URL(input);
+
+}
+
+In checkout route:
+const fallbackReturn = "https://www.imakepage.com/external";
+const safeReturnUrl = sanitizeReturnUrl(req.body?.returnUrl, fallbackReturn);
+
+const successUrl = safeReturnUrl.includes("?")
+? safeReturnUrl + "&checkout=success&session_id={CHECKOUT_SESSION_ID}"
+: safeReturnUrl + "?checkout=success&session_id={CHECKOUT_SESSION_ID}";
+
+const cancelUrl = safeReturnUrl.includes("?")
+? safeReturnUrl + "&checkout=cancel"
+: safeReturnUrl + "?checkout=cancel";
+
+// use successUrl/cancelUrl in Stripe session creation
+
+If you need custom domains too
+Instead of fixed set, allow a vetted tenant-domain list from DB:
+
+Only domains mapped to active tenants
+Only https
+No raw user-supplied domain without verification
+Why this works
+Stops Stripe from using Replit host as return target
+Forces redirect destination to your host page
+Prevents open redirect abuse with strict origin validation
+If you want, I can also draft the host-side URL format so your main app passes returnUrl into the iframe URL in one standard way (including URL encoding and fallback behavior).

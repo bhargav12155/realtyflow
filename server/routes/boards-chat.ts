@@ -1741,6 +1741,7 @@ export function registerBoardsChatRoutes(
   app.post("/api/billing/checkout", requireAuth, async (req: Request, res: Response) => {
     const parsed = z.object({
       credits: z.number().int().min(10).max(100000),
+      returnUrl: z.string().url().max(512).optional(),
     }).safeParse(req.body ?? {});
 
     if (!parsed.success) {
@@ -1753,7 +1754,7 @@ export function registerBoardsChatRoutes(
       const userId = String(user.id);
       const credits = parsed.data.credits;
       const amountCents = credits * 10;
-      const baseUrl = resolveRequestBaseUrl(req);
+      const baseUrl = parsed.data.returnUrl ?? resolveRequestBaseUrl(req);
 
       const session = await stripe.checkout.sessions.create({
         mode: "payment",

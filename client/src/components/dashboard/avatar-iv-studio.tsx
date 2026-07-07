@@ -46,6 +46,7 @@ import {
   MoreVertical,
   Shirt,
   ArrowRight,
+  Star,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -377,6 +378,13 @@ export function AvatarIVStudio() {
     queryKey: ["/api/avatar-iv/voices"],
   });
 
+  // Fetch user's custom (cloned) voices
+  const { data: customVoicesData } = useQuery<{ id: string; name: string; heygenVoiceId: string | null; status: string; isDefault: boolean | null; sampleAudioUrl: string | null }[]>({
+    queryKey: ["/api/custom-voices"],
+    enabled: isAuthenticated,
+  });
+  const readyCustomVoices = (customVoicesData ?? []).filter((v) => v.status === "ready" && v.heygenVoiceId);
+
   const { data: allLooksResponse, isLoading: isLoadingAllLooks } = useQuery<{ looks: any[]; count: number }>({
     queryKey: ["/api/photo-avatars/all-looks"],
   });
@@ -422,12 +430,35 @@ export function AvatarIVStudio() {
     });
   }, [voices, genderFilter, voiceSearch]);
   
-  // Set default voice when voices load
+  // Set default voice when voices load — prefer a custom cloned default voice
   useEffect(() => {
-    if (voices.length > 0 && !selectedVoice) {
+    if (selectedVoice) return;
+    const defaultCustom = readyCustomVoices.find((v) => v.isDefault);
+    if (defaultCustom?.heygenVoiceId) {
+      setSelectedVoice(defaultCustom.heygenVoiceId);
+    } else if (voices.length > 0) {
       setSelectedVoice(voices[0].voice_id);
     }
-  }, [voices, selectedVoice]);
+  }, [voices, readyCustomVoices, selectedVoice]);
+
+  // Set-default mutation for custom voices
+  const setDefaultVoiceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/custom-voices/${id}/set-default`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to set default voice");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Default Voice Set", description: "This voice will be pre-selected next time." });
+    },
+    onError: () => {
+      toast({ title: "Failed", description: "Could not set default voice.", variant: "destructive" });
+    },
+  });
 
   // Sync values from refs when needed
   const syncFromRefs = useCallback(() => {
@@ -2094,7 +2125,72 @@ export function AvatarIVStudio() {
                           {filteredVoices.length} of {voices.length}
                         </Badge>
                       </Label>
-                      
+
+                      {/* My Voices — cloned voices from Voice Library */}
+                      {readyCustomVoices.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Cloned Voices</p>
+                          {readyCustomVoices.map((cv) => (
+                            <div
+                              key={cv.id}
+                              className={`flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border ${
+                                selectedVoice === cv.heygenVoiceId
+                                  ? "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700"
+                                  : "border-transparent"
+                              }`}
+                              onClick={() => setSelectedVoice(cv.heygenVoiceId!)}
+                              data-testid={`custom-voice-option-${cv.id}`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                                  <Mic className="h-3 w-3 text-amber-600" />
+                                </div>
+                                <span className="text-sm font-medium">{cv.name}</span>
+                                {cv.isDefault && (
+                                  <Badge variant="outline" className="text-[10px] px-1 py-0 border-yellow-400 text-yellow-600">
+                                    Default
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                {cv.sampleAudioUrl && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 w-7 p-0"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      playVoicePreview(cv.sampleAudioUrl!, cv.heygenVoiceId!);
+                                    }}
+                                    data-testid={`button-preview-custom-${cv.id}`}
+                                  >
+                                    <Volume2 className={`h-4 w-4 ${playingPreview === cv.heygenVoiceId ? "text-blue-500 animate-pulse" : ""}`} />
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!cv.isDefault) setDefaultVoiceMutation.mutate(cv.id);
+                                  }}
+                                  disabled={setDefaultVoiceMutation.isPending || !!cv.isDefault}
+                                  data-testid={`button-default-custom-${cv.id}`}
+                                  title={cv.isDefault ? "Default voice" : "Set as default"}
+                                >
+                                  <Star className={`h-3.5 w-3.5 ${cv.isDefault ? "fill-yellow-400 text-yellow-400" : "text-gray-400"}`} />
+                                </Button>
+                                {selectedVoice === cv.heygenVoiceId && (
+                                  <Check className="h-4 w-4 text-blue-500" />
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          <div className="border-t pt-2 mt-2" />
+                        </div>
+                      )}
+
                       {/* Search and Gender Filter */}
                       <div className="flex flex-col sm:flex-row gap-2">
                         <div className="relative flex-1">

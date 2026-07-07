@@ -10475,6 +10475,22 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
     })
   );
 
+  // Set a voice as the user's default
+  app.post("/api/custom-voices/:id/set-default", requireAuth, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.params;
+      const voice = await storage.setDefaultCustomVoice(id, user.id);
+      if (!voice) {
+        return res.status(404).json({ error: "Voice not found" });
+      }
+      res.json(voice);
+    } catch (error) {
+      console.error("Failed to set default voice:", error);
+      res.status(500).json({ error: "Failed to set default voice" });
+    }
+  });
+
   // Delete a custom voice
   app.delete("/api/custom-voices/:id", requireAuth, async (req, res) => {
     try {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Search, Sparkles, Plus, Pencil, X, AlertCircle, RefreshCw } from "lucide-react";
+import { Trash2, Upload, Mic, Loader2, Check, CheckCircle, Clock, XCircle, Search, Sparkles, Plus, Pencil, X, AlertCircle, RefreshCw, Square, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -157,6 +157,14 @@ export function VoiceLibraryManager() {
   const [voiceName, setVoiceName] = useState("");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});
+
+  // Record tab state
+  const [recordVoiceName, setRecordVoiceName] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   // Browse tab state
   const [browseSearch, setBrowseSearch] = useState("");
@@ -485,6 +493,106 @@ export function VoiceLibraryManager() {
     renameVoiceMutation.mutate({ id: voiceId, name: trimmed });
   };
 
+  // Recording functions
+  const getSupportedMimeType = () => {
+    const types = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", ""];
+    for (const type of types) {
+      if (type === "" || MediaRecorder.isTypeSupported(type)) return type;
+    }
+    return "";
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = getSupportedMimeType();
+      const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+      const mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mediaRecorder.onstop = () => {
+        const mime = mediaRecorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: mime });
+        setAudioBlob(blob);
+        setRecordedAudioUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err: any) {
+      toast({ title: "Microphone Error", description: err?.message || "Could not access microphone.", variant: "destructive" });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const clearRecording = () => {
+    setAudioBlob(null);
+    setRecordedAudioUrl(null);
+  };
+
+  // Save recorded audio to voice library
+  const saveRecordingMutation = useMutation({
+    mutationFn: async () => {
+      if (!audioBlob) throw new Error("No recording found");
+      if (!recordVoiceName.trim()) throw new Error("Voice name is required");
+      let ext = "webm";
+      if (audioBlob.type.includes("mp4") || audioBlob.type.includes("m4a")) ext = "m4a";
+      else if (audioBlob.type.includes("ogg")) ext = "ogg";
+      else if (audioBlob.type.includes("wav")) ext = "wav";
+      const file = new File([audioBlob], `recording.${ext}`, { type: audioBlob.type });
+      const formData = new FormData();
+      formData.append("name", recordVoiceName.trim());
+      formData.append("audio", file);
+      const response = await fetch("/api/custom-voices", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to save voice");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Voice Saved", description: "Your recording is being cloned. It will be ready shortly." });
+      setRecordVoiceName("");
+      clearRecording();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Save Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Set default voice mutation
+  const setDefaultMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/custom-voices/${id}/set-default`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to set default voice");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Default Voice Set", description: "This voice will be pre-selected in the video studio." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   // Delete voice mutation
   const deleteVoiceMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -614,20 +722,139 @@ export function VoiceLibraryManager() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid grid-cols-3 w-full max-w-xl" data-testid="tabs-voice-library">
+        <TabsList className="grid grid-cols-4 w-full max-w-2xl" data-testid="tabs-voice-library">
+          <TabsTrigger value="record" data-testid="tab-voice-record">
+            <Mic className="h-4 w-4 mr-1 sm:mr-2" />
+            <span>Record</span>
+          </TabsTrigger>
           <TabsTrigger value="upload" data-testid="tab-voice-upload">
-            <Mic className="h-4 w-4 mr-2" />
-            Upload
+            <Upload className="h-4 w-4 mr-1 sm:mr-2" />
+            <span>Upload</span>
           </TabsTrigger>
           <TabsTrigger value="browse" data-testid="tab-voice-browse">
-            <Search className="h-4 w-4 mr-2" />
-            Browse
+            <Search className="h-4 w-4 mr-1 sm:mr-2" />
+            <span>Browse</span>
           </TabsTrigger>
           <TabsTrigger value="design" data-testid="tab-voice-design">
-            <Sparkles className="h-4 w-4 mr-2" />
-            Design
+            <Sparkles className="h-4 w-4 mr-1 sm:mr-2" />
+            <span>Design</span>
           </TabsTrigger>
         </TabsList>
+
+        {/* Record Tab */}
+        <TabsContent value="record" className="mt-4">
+          <Card data-testid="card-voice-record">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mic className="h-5 w-5" />
+                Record Your Voice
+              </CardTitle>
+              <CardDescription>
+                Record a voice sample directly in your browser to clone for video generation
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="record-voice-name">Voice Name</Label>
+                <Input
+                  id="record-voice-name"
+                  data-testid="input-record-voice-name"
+                  placeholder="e.g., My Voice"
+                  value={recordVoiceName}
+                  onChange={(e) => setRecordVoiceName(e.target.value)}
+                />
+              </div>
+
+              {!audioBlob ? (
+                <div className="flex flex-col items-center gap-4 p-8 border-2 border-dashed rounded-lg">
+                  {isRecording ? (
+                    <>
+                      <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center animate-pulse">
+                        <Mic className="h-8 w-8 text-white" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">Recording... speak clearly</p>
+                      <Button
+                        onClick={stopRecording}
+                        variant="destructive"
+                        data-testid="button-stop-recording-library"
+                      >
+                        <Square className="h-4 w-4 mr-2" />
+                        Stop Recording
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                        <Mic className="h-8 w-8 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">Click the button below to start recording</p>
+                      <p className="text-xs text-muted-foreground text-center">
+                        For best results, record at least 30 seconds of clear speech in a quiet environment
+                      </p>
+                      <Button
+                        onClick={startRecording}
+                        data-testid="button-start-recording-library"
+                      >
+                        <Mic className="h-4 w-4 mr-2" />
+                        Start Recording
+                      </Button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3 p-4 bg-muted/30 rounded-lg border">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                      <Check className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium">Recording complete</p>
+                      <p className="text-sm text-muted-foreground">Listen back, then save or retake</p>
+                    </div>
+                  </div>
+                  {recordedAudioUrl && (
+                    <audio
+                      controls
+                      src={recordedAudioUrl}
+                      className="w-full"
+                      data-testid="audio-record-preview"
+                    />
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => saveRecordingMutation.mutate()}
+                      disabled={saveRecordingMutation.isPending || !recordVoiceName.trim()}
+                      data-testid="button-save-recording"
+                    >
+                      {saveRecordingMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="h-4 w-4 mr-2" />
+                          Save Voice
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={clearRecording}
+                      disabled={saveRecordingMutation.isPending}
+                      data-testid="button-retake-recording"
+                    >
+                      Retake
+                    </Button>
+                  </div>
+                  {!recordVoiceName.trim() && (
+                    <p className="text-xs text-muted-foreground">Add a name above before saving.</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* Upload Tab */}
         <TabsContent value="upload" className="mt-4">
@@ -1128,6 +1355,18 @@ export function VoiceLibraryManager() {
                           </div>
                         ) : (
                           <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={() => !voice.isDefault && setDefaultMutation.mutate(voice.id)}
+                              disabled={setDefaultMutation.isPending || voice.isDefault}
+                              data-testid={`button-set-default-voice-${voice.id}`}
+                              aria-label={voice.isDefault ? "Default voice" : "Set as default"}
+                              title={voice.isDefault ? "Default voice" : "Set as default for video studio"}
+                            >
+                              <Star className={`h-3.5 w-3.5 ${voice.isDefault ? "fill-yellow-400 text-yellow-400" : "text-gray-400"}`} />
+                            </Button>
                             <h4 className="font-medium" data-testid={`text-voice-name-${voice.id}`}>
                               {voice.name}
                             </h4>

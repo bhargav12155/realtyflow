@@ -270,8 +270,9 @@ export interface IStorage {
   updateCustomVoice(
     id: string,
     userId: string,
-    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name">>
+    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name" | "isDefault">>
   ): Promise<CustomVoice | undefined>;
+  setDefaultCustomVoice(id: string, userId: string): Promise<CustomVoice | undefined>;
   deleteCustomVoice(id: string, userId: string): Promise<boolean>;
 
   // Photo Avatar Groups
@@ -1887,7 +1888,7 @@ export class MemStorage implements IStorage {
   async updateCustomVoice(
     id: string,
     userId: string,
-    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name">>
+    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name" | "isDefault">>
   ): Promise<CustomVoice | undefined> {
     const [voice] = await db
       .update(customVoices)
@@ -1897,8 +1898,22 @@ export class MemStorage implements IStorage {
     return voice;
   }
 
+  async setDefaultCustomVoice(id: string, userId: string): Promise<CustomVoice | undefined> {
+    // Clear any existing default for this user, then set the requested one
+    await db
+      .update(customVoices)
+      .set({ isDefault: false })
+      .where(eq(customVoices.userId, userId));
+    const [voice] = await db
+      .update(customVoices)
+      .set({ isDefault: true })
+      .where(and(eq(customVoices.id, id), eq(customVoices.userId, userId)))
+      .returning();
+    return voice;
+  }
+
   async deleteCustomVoice(id: string, userId: string): Promise<boolean> {
-    const result = await db
+    await db
       .delete(customVoices)
       .where(and(eq(customVoices.id, id), eq(customVoices.userId, userId)));
     return true;

@@ -175,6 +175,7 @@ export const customVoices = pgTable("custom_voices", {
   language: text("language"),
   gender: text("gender"),
   sampleAudioUrl: text("sample_audio_url"),
+  isDefault: boolean("is_default").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

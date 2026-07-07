@@ -164,8 +164,12 @@ export function VoiceLibraryManager() {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const MIN_DURATION_S = 10;
+  const MAX_DURATION_S = 30;
 
   // Browse tab state
   const [browseSearch, setBrowseSearch] = useState("");
@@ -511,6 +515,7 @@ export function VoiceLibraryManager() {
       const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      setRecordingSeconds(0);
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
@@ -520,9 +525,21 @@ export function VoiceLibraryManager() {
         setAudioBlob(blob);
         setRecordedAudioUrl(URL.createObjectURL(blob));
         stream.getTracks().forEach((t) => t.stop());
+        if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; }
       };
       mediaRecorder.start();
       setIsRecording(true);
+      // Tick every second; auto-stop at MAX_DURATION_S
+      timerIntervalRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => {
+          const next = prev + 1;
+          if (next >= MAX_DURATION_S) {
+            mediaRecorder.stop();
+            setIsRecording(false);
+          }
+          return next;
+        });
+      }, 1000);
     } catch (err: any) {
       toast({ title: "Microphone Error", description: err?.message || "Could not access microphone.", variant: "destructive" });
     }
@@ -532,12 +549,14 @@ export function VoiceLibraryManager() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      if (timerIntervalRef.current) { clearInterval(timerIntervalRef.current); timerIntervalRef.current = null; }
     }
   };
 
   const clearRecording = () => {
     setAudioBlob(null);
     setRecordedAudioUrl(null);
+    setRecordingSeconds(0);
   };
 
   // Save recorded audio to voice library
@@ -773,7 +792,10 @@ export function VoiceLibraryManager() {
                       <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center animate-pulse">
                         <Mic className="h-8 w-8 text-white" />
                       </div>
-                      <p className="text-sm text-muted-foreground">Recording... speak clearly</p>
+                      <p className="text-sm font-mono tabular-nums text-red-600">
+                        {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:{String(recordingSeconds % 60).padStart(2, "0")} / {String(Math.floor(MAX_DURATION_S / 60)).padStart(2, "0")}:{String(MAX_DURATION_S % 60).padStart(2, "0")}
+                      </p>
+                      <p className="text-sm text-muted-foreground">Recording… speak clearly into your mic</p>
                       <Button
                         onClick={stopRecording}
                         variant="destructive"
@@ -790,7 +812,7 @@ export function VoiceLibraryManager() {
                       </div>
                       <p className="text-sm text-muted-foreground">Click the button below to start recording</p>
                       <p className="text-xs text-muted-foreground text-center">
-                        For best results, record at least 30 seconds of clear speech in a quiet environment
+                        Record <strong>10–30 seconds</strong> of clear speech in a quiet environment. Recording stops automatically at 30 s.
                       </p>
                       <Button
                         onClick={startRecording}
@@ -805,12 +827,21 @@ export function VoiceLibraryManager() {
               ) : (
                 <div className="space-y-3 p-4 bg-muted/30 rounded-lg border">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                      <Check className="h-5 w-5 text-green-600" />
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${recordingSeconds >= MIN_DURATION_S ? "bg-green-100 dark:bg-green-900/30" : "bg-yellow-100 dark:bg-yellow-900/30"}`}>
+                      {recordingSeconds >= MIN_DURATION_S
+                        ? <Check className="h-5 w-5 text-green-600" />
+                        : <AlertCircle className="h-5 w-5 text-yellow-600" />
+                      }
                     </div>
                     <div>
-                      <p className="font-medium">Recording complete</p>
-                      <p className="text-sm text-muted-foreground">Listen back, then save or retake</p>
+                      <p className="font-medium">
+                        Recording complete — {recordingSeconds}s
+                      </p>
+                      {recordingSeconds < MIN_DURATION_S ? (
+                        <p className="text-sm text-yellow-600 dark:text-yellow-400">Too short (min {MIN_DURATION_S}s). Retake for a better clone.</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Listen back, then save or retake</p>
+                      )}
                     </div>
                   </div>
                   {recordedAudioUrl && (
@@ -824,7 +855,7 @@ export function VoiceLibraryManager() {
                   <div className="flex gap-2">
                     <Button
                       onClick={() => saveRecordingMutation.mutate()}
-                      disabled={saveRecordingMutation.isPending || !recordVoiceName.trim()}
+                      disabled={saveRecordingMutation.isPending || !recordVoiceName.trim() || recordingSeconds < MIN_DURATION_S}
                       data-testid="button-save-recording"
                     >
                       {saveRecordingMutation.isPending ? (
@@ -848,9 +879,8 @@ export function VoiceLibraryManager() {
                       Retake
                     </Button>
                   </div>
-                  {!recordVoiceName.trim() && (
-                    <p className="text-xs text-muted-foreground">Add a name above before saving.</p>
-                  )}
+                  {!recordVoiceName.trim() && <p className="text-xs text-muted-foreground">Add a name above before saving.</p>}
+                  {recordingSeconds < MIN_DURATION_S && <p className="text-xs text-yellow-600 dark:text-yellow-400">Recording must be at least {MIN_DURATION_S} seconds.</p>}
                 </div>
               )}
             </CardContent>

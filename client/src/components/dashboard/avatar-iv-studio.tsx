@@ -31,6 +31,7 @@ import {
   Video,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   X,
   Volume2,
   Mic,
@@ -47,6 +48,7 @@ import {
   Shirt,
   ArrowRight,
   Star,
+  AlertCircle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -58,6 +60,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -275,6 +278,22 @@ export function AvatarIVStudio() {
   const [selectedVoice, setSelectedVoice] = useState("");
   const [voiceSearch, setVoiceSearch] = useState("");
   const [genderFilter, setGenderFilter] = useState<"all" | "female" | "male">("all");
+  const [myVoicesExpanded, setMyVoicesExpanded] = useState(true);
+  // Inline "Record New" dialog state
+  const [inlineRecordOpen, setInlineRecordOpen] = useState(false);
+  const [inlineRecordName, setInlineRecordName] = useState("");
+  const [inlineIsRecording, setInlineIsRecording] = useState(false);
+  const [inlineAudioBlob, setInlineAudioBlob] = useState<Blob | null>(null);
+  const [inlineAudioUrl, setInlineAudioUrl] = useState<string | null>(null);
+  const [inlineRecordingSeconds, setInlineRecordingSeconds] = useState(0);
+  const inlineMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const inlineAudioChunksRef = useRef<Blob[]>([]);
+  const inlineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Inline "Upload" dialog state
+  const [inlineUploadOpen, setInlineUploadOpen] = useState(false);
+  const [inlineUploadName, setInlineUploadName] = useState("");
+  const [inlineUploadFile, setInlineUploadFile] = useState<File | null>(null);
+  const inlineUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedMotion, setSelectedMotion] = useState(MOTION_PROMPTS[0].id);
   const [videoOrientation, setVideoOrientation] = useState<"landscape" | "portrait">("portrait");
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
@@ -467,6 +486,96 @@ export function AvatarIVStudio() {
     onError: () => {
       toast({ title: "Failed", description: "Could not set default voice.", variant: "destructive" });
     },
+  });
+
+  // Inline Record dialog handlers
+  const INLINE_MIN_S = 10;
+  const INLINE_MAX_S = 30;
+  const inlineStartRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const types = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg", "audio/mp4", ""];
+      const mimeType = types.find((t) => t === "" || MediaRecorder.isTypeSupported(t)) ?? "";
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+      inlineMediaRecorderRef.current = mr;
+      inlineAudioChunksRef.current = [];
+      setInlineRecordingSeconds(0);
+      mr.ondataavailable = (e) => { if (e.data.size > 0) inlineAudioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        const blob = new Blob(inlineAudioChunksRef.current, { type: mr.mimeType || mimeType || "audio/webm" });
+        setInlineAudioBlob(blob);
+        setInlineAudioUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((t) => t.stop());
+        if (inlineTimerRef.current) { clearInterval(inlineTimerRef.current); inlineTimerRef.current = null; }
+      };
+      mr.start();
+      setInlineIsRecording(true);
+      inlineTimerRef.current = setInterval(() => {
+        setInlineRecordingSeconds((prev) => {
+          const next = prev + 1;
+          if (next >= INLINE_MAX_S) { mr.stop(); setInlineIsRecording(false); }
+          return next;
+        });
+      }, 1000);
+    } catch (err: any) {
+      toast({ title: "Microphone Error", description: err?.message || "Could not access microphone.", variant: "destructive" });
+    }
+  };
+  const inlineStopRecording = () => {
+    if (inlineMediaRecorderRef.current && inlineIsRecording) {
+      inlineMediaRecorderRef.current.stop();
+      setInlineIsRecording(false);
+      if (inlineTimerRef.current) { clearInterval(inlineTimerRef.current); inlineTimerRef.current = null; }
+    }
+  };
+  const inlineClearRecording = () => { setInlineAudioBlob(null); setInlineAudioUrl(null); setInlineRecordingSeconds(0); };
+  const inlineCloseRecordDialog = () => {
+    inlineStopRecording();
+    inlineClearRecording();
+    setInlineRecordName("");
+    setInlineRecordOpen(false);
+  };
+  const inlineSaveRecordingMutation = useMutation({
+    mutationFn: async () => {
+      if (!inlineAudioBlob) throw new Error("No recording");
+      if (!inlineRecordName.trim()) throw new Error("Name required");
+      let ext = "webm";
+      if (inlineAudioBlob.type.includes("mp4") || inlineAudioBlob.type.includes("m4a")) ext = "m4a";
+      else if (inlineAudioBlob.type.includes("ogg")) ext = "ogg";
+      else if (inlineAudioBlob.type.includes("wav")) ext = "wav";
+      const fd = new FormData();
+      fd.append("name", inlineRecordName.trim());
+      fd.append("audio", new File([inlineAudioBlob], `recording.${ext}`, { type: inlineAudioBlob.type }));
+      const res = await fetch("/api/custom-voices", { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Voice Saved", description: "Your voice is being cloned and will appear here shortly." });
+      inlineCloseRecordDialog();
+    },
+    onError: (e: Error) => toast({ title: "Save Failed", description: e.message, variant: "destructive" }),
+  });
+  const inlineUploadMutation = useMutation({
+    mutationFn: async () => {
+      if (!inlineUploadFile) throw new Error("No file selected");
+      if (!inlineUploadName.trim()) throw new Error("Name required");
+      const fd = new FormData();
+      fd.append("name", inlineUploadName.trim());
+      fd.append("audio", inlineUploadFile);
+      const res = await fetch("/api/custom-voices", { method: "POST", body: fd, credentials: "include" });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Failed"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Voice Uploading", description: "Your voice is being cloned and will appear here shortly." });
+      setInlineUploadOpen(false);
+      setInlineUploadName("");
+      setInlineUploadFile(null);
+    },
+    onError: (e: Error) => toast({ title: "Upload Failed", description: e.message, variant: "destructive" }),
   });
 
   // Sync values from refs when needed
@@ -2136,16 +2245,22 @@ export function AvatarIVStudio() {
                       </Label>
 
                       {/* My Voices — all cloned voices from Voice Library with lifecycle status */}
-                      {allCustomVoices.length > 0 && (
-                        <div className="space-y-1">
+                      <div className="space-y-1">
                           <div className="flex items-center justify-between">
-                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Cloned Voices</p>
+                            <button
+                              className="flex items-center gap-1 text-xs font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+                              onClick={() => setMyVoicesExpanded((v) => !v)}
+                              data-testid="button-toggle-my-voices"
+                            >
+                              <ChevronDown className={`h-3 w-3 transition-transform ${myVoicesExpanded ? "" : "-rotate-90"}`} />
+                              My Cloned Voices {allCustomVoices.length > 0 && `(${allCustomVoices.length})`}
+                            </button>
                             <div className="flex gap-1">
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 px-2 text-xs gap-1"
-                                onClick={() => setLocation("/dashboard?tab=my-voices&action=record")}
+                                onClick={() => setInlineRecordOpen(true)}
                                 data-testid="button-record-new-voice"
                               >
                                 <Mic className="h-3 w-3" />
@@ -2155,7 +2270,7 @@ export function AvatarIVStudio() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-6 px-2 text-xs gap-1"
-                                onClick={() => setLocation("/dashboard?tab=my-voices&action=upload")}
+                                onClick={() => setInlineUploadOpen(true)}
                                 data-testid="button-upload-voice"
                               >
                                 <Upload className="h-3 w-3" />
@@ -2163,7 +2278,7 @@ export function AvatarIVStudio() {
                               </Button>
                             </div>
                           </div>
-                          {allCustomVoices.map((cv) => {
+                      {myVoicesExpanded && allCustomVoices.map((cv) => {
                             const isReady = cv.status === "ready" && !!cv.heygenVoiceId;
                             const isPending = cv.status === "pending";
                             const isFailed = cv.status === "failed";
@@ -2229,22 +2344,21 @@ export function AvatarIVStudio() {
                               </div>
                             );
                           })}
-                          <div className="border-t pt-2 mt-2" />
-                        </div>
-                      )}
-                      {allCustomVoices.length === 0 && (
+                      {myVoicesExpanded && allCustomVoices.length === 0 && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
                           <Mic className="h-3.5 w-3.5 flex-shrink-0" />
                           <span>No cloned voices yet —</span>
                           <button
                             className="underline hover:text-foreground"
-                            onClick={() => setLocation("/dashboard?tab=my-voices&action=record")}
+                            onClick={() => setInlineRecordOpen(true)}
                             data-testid="link-go-record-voice"
                           >
                             Record your voice
                           </button>
                         </div>
                       )}
+                      {myVoicesExpanded && allCustomVoices.length > 0 && <div className="border-t pt-2 mt-2" />}
+                      </div>
 
                       {/* Search and Gender Filter */}
                       <div className="flex flex-col sm:flex-row gap-2">
@@ -2899,6 +3013,145 @@ export function AvatarIVStudio() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Inline Record Voice Dialog */}
+      <Dialog open={inlineRecordOpen} onOpenChange={(open) => { if (!open) inlineCloseRecordDialog(); }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-inline-record">
+          <DialogHeader>
+            <DialogTitle>Record Your Voice</DialogTitle>
+            <DialogDescription>Record 10–30 seconds of clear speech to clone your voice.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="inline-record-name">Voice Name</Label>
+              <Input
+                id="inline-record-name"
+                value={inlineRecordName}
+                onChange={(e) => setInlineRecordName(e.target.value)}
+                placeholder="e.g. My Voice"
+                disabled={inlineIsRecording}
+                data-testid="input-inline-record-name"
+              />
+            </div>
+            <div className="flex flex-col items-center gap-3 py-2">
+              {!inlineAudioBlob ? (
+                <Button
+                  variant={inlineIsRecording ? "destructive" : "default"}
+                  className="w-full gap-2"
+                  onClick={inlineIsRecording ? inlineStopRecording : inlineStartRecording}
+                  data-testid="button-inline-record-toggle"
+                >
+                  {inlineIsRecording ? (
+                    <>
+                      <Square className="h-4 w-4" />
+                      Stop ({String(Math.floor((30 - inlineRecordingSeconds) / 60)).padStart(2, "0")}:{String((30 - inlineRecordingSeconds) % 60).padStart(2, "0")} left)
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="h-4 w-4" />
+                      Start Recording
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="w-full space-y-2">
+                  <audio src={inlineAudioUrl ?? undefined} controls className="w-full h-10" />
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="flex-1" onClick={inlineClearRecording} data-testid="button-inline-record-clear">
+                      Re-record
+                    </Button>
+                  </div>
+                  {inlineRecordingSeconds < 10 && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Recording too short — minimum 10 seconds required
+                    </p>
+                  )}
+                </div>
+              )}
+              {inlineIsRecording && (
+                <p className="text-xs text-muted-foreground">
+                  Recording… {inlineRecordingSeconds}s
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={inlineCloseRecordDialog} data-testid="button-inline-record-cancel">Cancel</Button>
+            <Button
+              onClick={() => inlineSaveRecordingMutation.mutate()}
+              disabled={
+                !inlineAudioBlob ||
+                !inlineRecordName.trim() ||
+                inlineRecordingSeconds < 10 ||
+                inlineSaveRecordingMutation.isPending
+              }
+              data-testid="button-inline-record-save"
+            >
+              {inlineSaveRecordingMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save Voice"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Inline Upload Voice Dialog */}
+      <Dialog open={inlineUploadOpen} onOpenChange={(open) => { if (!open) { setInlineUploadOpen(false); setInlineUploadName(""); setInlineUploadFile(null); } }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-inline-upload">
+          <DialogHeader>
+            <DialogTitle>Upload Voice Sample</DialogTitle>
+            <DialogDescription>Upload an audio file (10–30 seconds) to clone your voice.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="inline-upload-name">Voice Name</Label>
+              <Input
+                id="inline-upload-name"
+                value={inlineUploadName}
+                onChange={(e) => setInlineUploadName(e.target.value)}
+                placeholder="e.g. My Voice"
+                data-testid="input-inline-upload-name"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Audio File</Label>
+              <input
+                ref={inlineUploadInputRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={(e) => setInlineUploadFile(e.target.files?.[0] ?? null)}
+                data-testid="input-inline-upload-file"
+              />
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => inlineUploadInputRef.current?.click()}
+                data-testid="button-inline-upload-browse"
+              >
+                <Upload className="h-4 w-4" />
+                {inlineUploadFile ? inlineUploadFile.name : "Browse…"}
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setInlineUploadOpen(false); setInlineUploadName(""); setInlineUploadFile(null); }}
+              data-testid="button-inline-upload-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => inlineUploadMutation.mutate()}
+              disabled={!inlineUploadFile || !inlineUploadName.trim() || inlineUploadMutation.isPending}
+              data-testid="button-inline-upload-save"
+            >
+              {inlineUploadMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Uploading…</> : "Upload Voice"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       </Card>
     </div>
   );

@@ -1899,7 +1899,14 @@ export class MemStorage implements IStorage {
   }
 
   async setDefaultCustomVoice(id: string, userId: string): Promise<CustomVoice | undefined> {
-    // Clear any existing default for this user, then set the requested one
+    // Validate the target voice exists and belongs to this user BEFORE touching any defaults
+    const [target] = await db
+      .select({ id: customVoices.id })
+      .from(customVoices)
+      .where(and(eq(customVoices.id, id), eq(customVoices.userId, userId)))
+      .limit(1);
+    if (!target) return undefined;
+    // Safe to clear existing defaults and set the new one
     await db
       .update(customVoices)
       .set({ isDefault: false })

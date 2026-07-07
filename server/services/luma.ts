@@ -4,6 +4,7 @@ import { S3UploadService } from "./s3Upload";
 
 const LUMA_API_BASE = "https://api.lumalabs.ai/dream-machine/v1";
 const LUMA_CREDITS_URL = "https://lumalabs.ai/api/keys";
+const LUMA_SAFE_PROMPT_CHARS = 3200;
 
 function normalizeLumaErrorMessage(status: number, text: string): string {
   const lower = text.toLowerCase();
@@ -306,12 +307,24 @@ interface DirectStatusResponse {
   failure_reason?: string;
 }
 
+function normalizePromptForLuma(prompt: string): string {
+  const compact = prompt.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    throw new Error("Prompt is required for Luma generation");
+  }
+  if (compact.length <= LUMA_SAFE_PROMPT_CHARS) {
+    return compact;
+  }
+  return `${compact.slice(0, LUMA_SAFE_PROMPT_CHARS - 1)}…`;
+}
+
 async function createVideoTaskDirect(
   prompt: string,
   options: CreateVideoOptions
 ): Promise<LumaTaskResult> {
+  const safePrompt = normalizePromptForLuma(prompt);
   const body: Record<string, unknown> = {
-    prompt,
+    prompt: safePrompt,
     model: options.model || "ray-2",
   };
   if (options.aspectRatio) body.aspect_ratio = options.aspectRatio;
@@ -353,6 +366,7 @@ export async function createVideoTask(
   prompt: string,
   options: CreateVideoOptions = {}
 ): Promise<LumaTaskResult> {
+  const safePrompt = normalizePromptForLuma(prompt);
   const model = options.model || "ray-2";
 
   if (!hasDirectKey()) throw noTransportError();
@@ -368,9 +382,9 @@ export async function createVideoTask(
   }
 
   console.log(
-    `🎬 [Luma] Creating video task: prompt="${prompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
+    `🎬 [Luma] Creating video task: promptLen=${safePrompt.length} prompt="${safePrompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
   );
-  return createVideoTaskDirect(prompt, options);
+  return createVideoTaskDirect(safePrompt, options);
 }
 
 async function getTaskStatusDirect(taskId: string): Promise<LumaStatusResult> {

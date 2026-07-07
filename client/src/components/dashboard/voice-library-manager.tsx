@@ -31,6 +31,7 @@ interface CustomVoice {
   gender: string | null;
   sampleAudioUrl: string | null;
   status: 'pending' | 'ready' | 'failed';
+  isDefault: boolean | null;
   createdAt: string;
 }
 

@@ -345,6 +345,12 @@ export function AvatarIVStudio() {
         variant: "destructive",
         duration: 8000,
       });
+    } else if (message.type === "voice_clone_complete") {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Voice Ready", description: `"${message.data?.name || 'Your cloned voice'}" is ready to use.`, duration: 6000 });
+    } else if (message.type === "voice_clone_failed") {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      toast({ title: "Voice Clone Failed", description: message.data?.error || "Voice cloning failed.", variant: "destructive", duration: 6000 });
     }
   };
 
@@ -383,7 +389,8 @@ export function AvatarIVStudio() {
     queryKey: ["/api/custom-voices"],
     enabled: isAuthenticated,
   });
-  const readyCustomVoices = (customVoicesData ?? []).filter((v) => v.status === "ready" && v.heygenVoiceId);
+  const allCustomVoices = customVoicesData ?? [];
+  const readyCustomVoices = allCustomVoices.filter((v) => v.status === "ready" && v.heygenVoiceId);
 
   const { data: allLooksResponse, isLoading: isLoadingAllLooks } = useQuery<{ looks: any[]; count: number }>({
     queryKey: ["/api/photo-avatars/all-looks"],
@@ -430,16 +437,18 @@ export function AvatarIVStudio() {
     });
   }, [voices, genderFilter, voiceSearch]);
   
-  // Set default voice when voices load — prefer a custom cloned default voice
+  // Set default voice when voices load — prefer the pinned default custom voice over any fallback
   useEffect(() => {
-    if (selectedVoice) return;
     const defaultCustom = readyCustomVoices.find((v) => v.isDefault);
     if (defaultCustom?.heygenVoiceId) {
+      // Always apply the user's pinned default, even if a fallback was already selected
       setSelectedVoice(defaultCustom.heygenVoiceId);
     } else if (voices.length > 0) {
-      setSelectedVoice(voices[0].voice_id);
+      // Only set built-in fallback when nothing is selected yet
+      setSelectedVoice((prev: string) => prev || voices[0].voice_id);
     }
-  }, [voices, readyCustomVoices, selectedVoice]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customVoicesData, voices]);
 
   // Set-default mutation for custom voices
   const setDefaultVoiceMutation = useMutation({
@@ -2126,68 +2135,114 @@ export function AvatarIVStudio() {
                         </Badge>
                       </Label>
 
-                      {/* My Voices — cloned voices from Voice Library */}
-                      {readyCustomVoices.length > 0 && (
+                      {/* My Voices — all cloned voices from Voice Library with lifecycle status */}
+                      {allCustomVoices.length > 0 && (
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Cloned Voices</p>
-                          {readyCustomVoices.map((cv) => (
-                            <div
-                              key={cv.id}
-                              className={`flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border ${
-                                selectedVoice === cv.heygenVoiceId
-                                  ? "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700"
-                                  : "border-transparent"
-                              }`}
-                              onClick={() => setSelectedVoice(cv.heygenVoiceId!)}
-                              data-testid={`custom-voice-option-${cv.id}`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-                                  <Mic className="h-3 w-3 text-amber-600" />
-                                </div>
-                                <span className="text-sm font-medium">{cv.name}</span>
-                                {cv.isDefault && (
-                                  <Badge variant="outline" className="text-[10px] px-1 py-0 border-yellow-400 text-yellow-600">
-                                    Default
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                {cv.sampleAudioUrl && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 w-7 p-0"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      playVoicePreview(cv.sampleAudioUrl!, cv.heygenVoiceId!);
-                                    }}
-                                    data-testid={`button-preview-custom-${cv.id}`}
-                                  >
-                                    <Volume2 className={`h-4 w-4 ${playingPreview === cv.heygenVoiceId ? "text-blue-500 animate-pulse" : ""}`} />
-                                  </Button>
-                                )}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-7 w-7 p-0"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (!cv.isDefault) setDefaultVoiceMutation.mutate(cv.id);
-                                  }}
-                                  disabled={setDefaultVoiceMutation.isPending || !!cv.isDefault}
-                                  data-testid={`button-default-custom-${cv.id}`}
-                                  title={cv.isDefault ? "Default voice" : "Set as default"}
-                                >
-                                  <Star className={`h-3.5 w-3.5 ${cv.isDefault ? "fill-yellow-400 text-yellow-400" : "text-gray-400"}`} />
-                                </Button>
-                                {selectedVoice === cv.heygenVoiceId && (
-                                  <Check className="h-4 w-4 text-blue-500" />
-                                )}
-                              </div>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">My Cloned Voices</p>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs gap-1"
+                                onClick={() => setLocation("/dashboard?tab=my-voices&action=record")}
+                                data-testid="button-record-new-voice"
+                              >
+                                <Mic className="h-3 w-3" />
+                                Record New
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs gap-1"
+                                onClick={() => setLocation("/dashboard?tab=my-voices&action=upload")}
+                                data-testid="button-upload-voice"
+                              >
+                                <Upload className="h-3 w-3" />
+                                Upload
+                              </Button>
                             </div>
-                          ))}
+                          </div>
+                          {allCustomVoices.map((cv) => {
+                            const isReady = cv.status === "ready" && !!cv.heygenVoiceId;
+                            const isPending = cv.status === "pending";
+                            const isFailed = cv.status === "failed";
+                            return (
+                              <div
+                                key={cv.id}
+                                className={`flex items-center justify-between p-2 rounded-md transition-colors border ${
+                                  !isReady
+                                    ? "opacity-60 cursor-not-allowed border-transparent"
+                                    : selectedVoice === cv.heygenVoiceId
+                                    ? "bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700 cursor-pointer"
+                                    : "border-transparent cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800"
+                                }`}
+                                onClick={() => isReady && setSelectedVoice(cv.heygenVoiceId!)}
+                                data-testid={`custom-voice-option-${cv.id}`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+                                    {isPending ? <Loader2 className="h-3 w-3 text-amber-500 animate-spin" /> : <Mic className="h-3 w-3 text-amber-600" />}
+                                  </div>
+                                  <span className="text-sm font-medium">{cv.name}</span>
+                                  {isPending && <Badge variant="secondary" className="text-[10px] px-1 py-0">Preparing…</Badge>}
+                                  {isFailed && <Badge variant="destructive" className="text-[10px] px-1 py-0">Failed</Badge>}
+                                  {isReady && cv.isDefault && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 border-yellow-400 text-yellow-600">Default</Badge>
+                                  )}
+                                </div>
+                                {isReady && (
+                                  <div className="flex items-center gap-1">
+                                    {cv.sampleAudioUrl && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 w-7 p-0"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          playVoicePreview(cv.sampleAudioUrl!, cv.heygenVoiceId!);
+                                        }}
+                                        data-testid={`button-preview-custom-${cv.id}`}
+                                      >
+                                        <Volume2 className={`h-4 w-4 ${playingPreview === cv.heygenVoiceId ? "text-blue-500 animate-pulse" : ""}`} />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 w-7 p-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!cv.isDefault) setDefaultVoiceMutation.mutate(cv.id);
+                                      }}
+                                      disabled={setDefaultVoiceMutation.isPending || !!cv.isDefault}
+                                      data-testid={`button-default-custom-${cv.id}`}
+                                      title={cv.isDefault ? "Default voice" : "Set as default"}
+                                    >
+                                      <Star className={`h-3.5 w-3.5 ${cv.isDefault ? "fill-yellow-400 text-yellow-400" : "text-gray-400"}`} />
+                                    </Button>
+                                    {selectedVoice === cv.heygenVoiceId && (
+                                      <Check className="h-4 w-4 text-blue-500" />
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                           <div className="border-t pt-2 mt-2" />
+                        </div>
+                      )}
+                      {allCustomVoices.length === 0 && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                          <Mic className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span>No cloned voices yet —</span>
+                          <button
+                            className="underline hover:text-foreground"
+                            onClick={() => setLocation("/dashboard?tab=my-voices&action=record")}
+                            data-testid="link-go-record-voice"
+                          >
+                            Record your voice
+                          </button>
                         </div>
                       )}
 

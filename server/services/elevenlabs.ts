@@ -25,10 +25,16 @@ interface TextToSpeechRequest {
   outputFormat?: string;
 }
 
-interface TextToSpeechResult {
+export interface TextToSpeechResult {
   success: boolean;
   audioUrl?: string;
   audioBuffer?: Buffer;
+  error?: string;
+}
+
+export interface CloneVoiceResult {
+  success: boolean;
+  voiceId?: string;
   error?: string;
 }
 
@@ -63,6 +69,67 @@ class ElevenLabsService {
     } catch (error) {
       console.error("❌ Error fetching ElevenLabs voices:", error);
       return [];
+    }
+  }
+
+  /**
+   * Instant Voice Cloning: create a reusable ElevenLabs voice from a single
+   * uploaded audio sample (10–30s of clean speech works best).
+   */
+  async cloneVoice(input: {
+    name: string;
+    audioBuffer: Buffer;
+    mimeType?: string;
+  }): Promise<CloneVoiceResult> {
+    try {
+      console.log("🧬 ElevenLabs: Cloning voice:", input.name);
+      const form = new FormData();
+      form.append("name", input.name);
+      const mimeType = input.mimeType || "audio/webm";
+      const ext = mimeType.includes("ogg")
+        ? "ogg"
+        : mimeType.includes("mp4") || mimeType.includes("m4a")
+          ? "m4a"
+          : mimeType.includes("wav")
+            ? "wav"
+            : mimeType.includes("mpeg") || mimeType.includes("mp3")
+              ? "mp3"
+              : "webm";
+      form.append(
+        "files",
+        new Blob([new Uint8Array(input.audioBuffer)], { type: mimeType }),
+        `sample.${ext}`,
+      );
+
+      const response = await fetch(`${ELEVENLABS_API_URL}/voices/add`, {
+        method: "POST",
+        headers: {
+          "xi-api-key": this.apiKey,
+        },
+        body: form,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("❌ ElevenLabs clone voice error:", response.status, errorText);
+        return {
+          success: false,
+          error: `ElevenLabs API error: ${response.status} - ${errorText}`,
+        };
+      }
+
+      const data = (await response.json()) as { voice_id?: string };
+      if (!data.voice_id) {
+        return { success: false, error: "ElevenLabs did not return a voice id" };
+      }
+      console.log("✅ ElevenLabs: Voice cloned, id:", data.voice_id);
+      return { success: true, voiceId: data.voice_id };
+    } catch (error) {
+      console.error("❌ ElevenLabs clone voice error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
     }
   }
 
@@ -207,6 +274,23 @@ export async function generateSpeech(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export async function cloneElevenLabsVoice(input: {
+  name: string;
+  audioBuffer: Buffer;
+  mimeType?: string;
+}): Promise<CloneVoiceResult> {
+  try {
+    const service = new ElevenLabsService();
+    return await service.cloneVoice(input);
+  } catch (error) {
+    console.error("❌ Error creating ElevenLabs service:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "ElevenLabs is not configured",
     };
   }
 }

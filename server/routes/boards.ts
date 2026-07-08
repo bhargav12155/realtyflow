@@ -56,6 +56,9 @@ export const ASSET_PROVIDERS = [
   // Created on the canvas by a bottom-toolbar tool (sticky note, text,
   // frame, drawing, in-browser audio recording). Not a generation source.
   "tool",
+  // ElevenLabs voice-over audio generated from the board "speak" action.
+  // Not a chat generation target — dispatched via POST /api/boards/:id/speak.
+  "elevenlabs",
 ] as const;
 
 const updateBoardSchema = z.object({
@@ -223,13 +226,14 @@ export const BOARD_CHAT_GENERATION_MODES = [
 ] as const;
 export type BoardChatGenerationMode = (typeof BOARD_CHAT_GENERATION_MODES)[number];
 
-// Providers the chat handler is allowed to dispatch to. "upload" and "tool"
-// are board asset providers (uploaded files / on-board tool kinds like
-// stickies, frames, drawings) but never generation targets, so they are
-// intentionally excluded here even though they are part of `ASSET_PROVIDERS`.
+// Providers the chat handler is allowed to dispatch to. "upload", "tool" and
+// "elevenlabs" are board asset providers (uploaded files / on-board tool kinds
+// like stickies, frames, drawings / speak voice-overs) but never chat
+// generation targets, so they are intentionally excluded here even though
+// they are part of `ASSET_PROVIDERS`.
 export const CHAT_PROVIDERS = ASSET_PROVIDERS.filter(
-  (p) => p !== "upload" && p !== "tool",
-) as Exclude<(typeof ASSET_PROVIDERS)[number], "upload" | "tool">[];
+  (p) => p !== "upload" && p !== "tool" && p !== "elevenlabs",
+) as Exclude<(typeof ASSET_PROVIDERS)[number], "upload" | "tool" | "elevenlabs">[];
 
 export const boardChatPayloadSchema = z.object({
   message: z.string().min(1).max(8000),

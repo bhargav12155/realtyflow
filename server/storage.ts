@@ -270,7 +270,7 @@ export interface IStorage {
   updateCustomVoice(
     id: string,
     userId: string,
-    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name" | "isDefault">>
+    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "elevenlabsVoiceId" | "language" | "gender" | "sampleAudioUrl" | "name" | "isDefault">>
   ): Promise<CustomVoice | undefined>;
   setDefaultCustomVoice(id: string, userId: string): Promise<CustomVoice | undefined>;
   deleteCustomVoice(id: string, userId: string): Promise<boolean>;
@@ -1888,7 +1888,7 @@ export class MemStorage implements IStorage {
   async updateCustomVoice(
     id: string,
     userId: string,
-    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "language" | "gender" | "sampleAudioUrl" | "name" | "isDefault">>
+    updates: Partial<Pick<CustomVoice, "status" | "heygenVoiceId" | "heygenAudioAssetId" | "elevenlabsVoiceId" | "language" | "gender" | "sampleAudioUrl" | "name" | "isDefault">>
   ): Promise<CustomVoice | undefined> {
     const [voice] = await db
       .update(customVoices)

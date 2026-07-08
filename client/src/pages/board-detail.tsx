@@ -37,6 +37,7 @@ import {
 } from "@/lib/boardUpload";
 import { DrawingModal } from "@/components/boards/DrawingModal";
 import { RecordModal } from "@/components/boards/RecordModal";
+import { SpeakModal } from "@/components/boards/SpeakModal";
 import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
 import { PresenceAvatars } from "@/components/boards/PresenceAvatars";
 import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
@@ -157,6 +158,8 @@ export default function BoardDetailPage() {
   const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
+  const [speakOpen, setSpeakOpen] = useState(false);
+  const [speakDraft, setSpeakDraft] = useState("");
   // Multi-select: an array of asset ids (insertion order preserved). For
   // backwards-compat with the rest of the page, `selectedAssetId` is derived
   // and only non-null when exactly one asset is selected — that's the case
@@ -182,6 +185,14 @@ export default function BoardDetailPage() {
     queryKey: ["/api/boards", boardId],
     enabled: !!boardId,
   });
+
+  // Voice features (clone-my-voice + speak) hide entirely when the server
+  // reports ElevenLabs isn't configured, so users never hit a dead end.
+  const elevenLabsStatusQuery = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/elevenlabs/status"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const voiceFeaturesEnabled = elevenLabsStatusQuery.data?.configured === true;
 
   type PersistedBoardMessageAuthor = {
     id: string;
@@ -369,6 +380,27 @@ export default function BoardDetailPage() {
     showToast: false,
     onMessage: (msg) => {
       const t = msg.type;
+      if (t === "voice_clone_complete") {
+        const d = msg.data as { voiceName?: string };
+        queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+        toast({
+          title: "Voice ready",
+          description: d?.voiceName
+            ? `"${d.voiceName}" is ready — pick it when generating a voice-over.`
+            : "Your cloned voice is ready to use.",
+        });
+        return;
+      }
+      if (t === "voice_clone_failed") {
+        const d = msg.data as { voiceName?: string; error?: string };
+        queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+        toast({
+          title: "Voice clone failed",
+          description: d?.error || "Something went wrong cloning your voice. Try again.",
+          variant: "destructive",
+        });
+        return;
+      }
       if (t === "board_presence") {
         const d = msg.data as { boardId: string; viewers: BoardViewer[] };
         if (d.boardId !== boardId) return;
@@ -1781,6 +1813,46 @@ export default function BoardDetailPage() {
     [boardId, toast],
   );
 
+  const handleCloneVoice = useCallback(
+    async (file: File, name: string) => {
+      setRecordOpen(false);
+      try {
+        const form = new FormData();
+        form.append("audio", file);
+        form.append("name", name);
+        await apiRequest("POST", "/api/elevenlabs/voice-clone", form);
+        queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+        toast({
+          title: "Cloning your voice…",
+          description: `"${name}" will be ready to use in a moment.`,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast({ title: "Voice clone failed", description: msg, variant: "destructive" });
+      }
+    },
+    [toast],
+  );
+
+  const speakMutation = useMutation({
+    mutationFn: async (params: { text: string; voiceId: string; voiceName: string }) => {
+      const res = await apiRequest("POST", `/api/boards/${boardId}/speak`, params);
+      return (await res.json()) as { asset: { id: string } };
+    },
+    onSuccess: () => {
+      setSpeakOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/boards", boardId] });
+      toast({
+        title: "Generating voice-over…",
+        description: "The audio tile will appear on the board when it's ready.",
+      });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: "Voice-over failed", description: msg, variant: "destructive" });
+    },
+  });
+
   // In-flight + just-failed uploads, surfaced as chips above the bottom
   // toolbar. The original `File` is kept on the entry so retries can re-run
   // the upload without re-prompting the picker.
@@ -2371,13 +2443,33 @@ export default function BoardDetailPage() {
             onTypingChange={board.isShared ? handleChatTypingChange : undefined}
             onAttachFiles={handleChatAttachFiles}
             onOpenRecord={() => setRecordOpen(true)}
+            onOpenSpeak={
+              voiceFeaturesEnabled
+                ? (draft) => {
+                    setSpeakDraft(draft);
+                    setSpeakOpen(true);
+                  }
+                : undefined
+            }
             onCollapse={() => setChatOpen(false)}
           />
         )}
       </div>
       <ShareBoardDialog boardId={board.id} open={shareOpen} onOpenChange={setShareOpen} />
       <DrawingModal open={drawOpen} onCancel={() => setDrawOpen(false)} onSave={handleSaveDrawing} />
-      <RecordModal open={recordOpen} onCancel={() => setRecordOpen(false)} onSave={handleSaveRecording} />
+      <RecordModal
+        open={recordOpen}
+        onCancel={() => setRecordOpen(false)}
+        onSave={handleSaveRecording}
+        onClone={voiceFeaturesEnabled ? handleCloneVoice : undefined}
+      />
+      <SpeakModal
+        open={speakOpen}
+        defaultText={speakDraft}
+        onCancel={() => setSpeakOpen(false)}
+        onSubmit={(params) => speakMutation.mutate(params)}
+        isSubmitting={speakMutation.isPending}
+      />
       <AlertDialog open={compileModalOpen} onOpenChange={setCompileModalOpen}>
         <AlertDialogContent data-testid="dialog-compile-order" className="max-w-xl">
           <AlertDialogHeader>

@@ -172,6 +172,13 @@ export const customVoices = pgTable("custom_voices", {
   heygenAudioAssetId: text("heygen_audio_asset_id"),
   status: text("status").notNull().default("pending"),
   heygenVoiceId: text("heygen_voice_id"),
+  // Which cloning provider owns this voice. "heygen" rows power Avatar
+  // Studio narration; "elevenlabs" rows power board voice-overs. Defaults
+  // to "heygen" so every pre-existing row keeps its meaning.
+  provider: text("provider").notNull().default("heygen"),
+  // ElevenLabs voice id produced by Instant Voice Cloning. Null for HeyGen
+  // rows and for ElevenLabs rows still in the "cloning" lifecycle.
+  elevenlabsVoiceId: text("elevenlabs_voice_id"),
   language: text("language"),
   gender: text("gender"),
   sampleAudioUrl: text("sample_audio_url"),

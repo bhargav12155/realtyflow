@@ -72,6 +72,8 @@ import {
   startShapeDriftRetentionJob,
 } from "./routes/heygen-v3";
 import { createRetryCloneHandler, createVoiceWithClone, createRenameVoiceHandler, startVoiceClone } from "./routes/custom-voices-clone";
+import { createElevenLabsCloneHandler, createBoardSpeakHandler } from "./routes/elevenlabs-voices";
+import { pushAssetStatus, resolveBoardRecipients } from "./routes/boards-chat";
 
 async function getWhatsappSettingsWithFallback(userId: string) {
   const settings = await storage.getWhatsappSettingsByUserId(userId);
@@ -19136,6 +19138,57 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       res.status(500).json({ error: "Failed to generate speech" });
     }
   });
+
+  // Clone the user's voice via ElevenLabs Instant Voice Cloning (board flow).
+  // Persists a custom_voices row with provider="elevenlabs" in the
+  // cloning → ready|failed lifecycle and notifies over WebSocket.
+  app.post(
+    "/api/elevenlabs/voice-clone",
+    requireAuth,
+    memoryUpload.single("audio"),
+    createElevenLabsCloneHandler({
+      storage,
+      uploadSampleAudio: async (userId, buffer, fileName, mimeType) => {
+        const s3Service = new UnifiedUploadService();
+        return s3Service.uploadFile(Number(userId), buffer, fileName, mimeType);
+      },
+      cloneFn: async (input) => {
+        const { cloneElevenLabsVoice } = await import("./services/elevenlabs");
+        return cloneElevenLabsVoice(input);
+      },
+      isConfigured: () => !!process.env.ELEVENLABS_API_KEY,
+      onCloneComplete: ({ userId, voice }) => {
+        realtimeService.notifyVoiceCloneComplete(
+          userId,
+          voice.id,
+          voice.name,
+          voice.elevenlabsVoiceId ?? null,
+        );
+      },
+      onCloneFailed: ({ userId, voiceId, voiceName, error }) => {
+        realtimeService.notifyVoiceCloneFailed(userId, voiceId, voiceName, error);
+      },
+    }),
+  );
+
+  // Generate an ElevenLabs voice-over as a board audio tile. Responds 202
+  // with the queued asset; the TTS + S3 upload runs in the background and
+  // status flips fan out to every board collaborator over WebSocket.
+  app.post(
+    "/api/boards/:id/speak",
+    requireAuth,
+    createBoardSpeakHandler({
+      storage,
+      generateSpeechFn: async (text, voiceId, options) => {
+        const { generateSpeech } = await import("./services/elevenlabs");
+        return generateSpeech(text, voiceId, options);
+      },
+      isConfigured: () => !!process.env.ELEVENLABS_API_KEY,
+      resolveRecipients: (boardId, actorUserId) =>
+        resolveBoardRecipients(storage, boardId, actorUserId),
+      pushStatus: pushAssetStatus,
+    }),
+  );
 
   // ==================== TUTORIAL VIDEOS ENDPOINTS ====================
 

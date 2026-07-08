@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon } from "lucide-react";
+import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon, Volume2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   PlatformPicker,
@@ -114,6 +114,9 @@ interface ChatPanelProps {
   onAttachFiles?: (files: File[]) => void;
   /** Open the in-app voice recorder from the chat composer. */
   onOpenRecord?: () => void;
+  /** Open the voice-over ("speak") dialog seeded with the current draft
+   *  text. Absent when ElevenLabs isn't configured — the button hides. */
+  onOpenSpeak?: (draftText: string) => void;
   /** Collapse/hide the chat panel from the board layout. */
   onCollapse?: () => void;
 }
@@ -221,6 +224,7 @@ export function ChatPanel({
   onTypingChange,
   onAttachFiles,
   onOpenRecord,
+  onOpenSpeak,
   onCollapse,
 }: ChatPanelProps) {
   const [input, setInput] = useState("");
@@ -1040,6 +1044,18 @@ export function ChatPanel({
               >
                 <Mic className="mx-auto w-4 h-4" />
               </button>
+              {onOpenSpeak && (
+                <button
+                  type="button"
+                  onClick={() => onOpenSpeak(input)}
+                  className="h-8 w-8 rounded-full text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+                  data-testid="button-speak"
+                  title="Generate a voice-over"
+                  aria-label="Generate a voice-over"
+                >
+                  <Volume2 className="mx-auto w-4 h-4" />
+                </button>
+              )}
               <button
                 onClick={submit}
                 disabled={isSending || isClearingChat || !input.trim()}

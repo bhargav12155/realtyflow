@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useWebSocket } from "@/hooks/useWebSocket";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -155,6 +157,19 @@ function friendlyDesignError(err: unknown): { title: string; description: string
 
 export function VoiceLibraryManager() {
   const { toast } = useToast();
+  const { user, isAuthenticated } = useAuth();
+
+  // Invalidate custom-voices cache when a WS clone event arrives
+  const handleWsMessage = useCallback((message: { type: string; data?: unknown }) => {
+    if (message.type === "voice_clone_complete" || message.type === "voice_clone_failed") {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+    }
+  }, []);
+  useWebSocket({
+    userId: user?.id?.toString() || undefined,
+    onMessage: handleWsMessage,
+    autoConnect: isAuthenticated && !!user?.id,
+  });
   const [voiceName, setVoiceName] = useState("");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrls, setAudioUrls] = useState<Record<string, string>>({});

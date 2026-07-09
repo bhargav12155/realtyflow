@@ -10482,6 +10482,19 @@ Generate exactly 5 content opportunities. Return ONLY a valid JSON object with N
     try {
       const user = (req as any).user;
       const { id } = req.params;
+      // Only HeyGen voices can be pinned as the avatar-studio default
+      const { db } = await import("./db");
+      const { customVoices } = await import("../shared/schema");
+      const { and, eq } = await import("drizzle-orm");
+      const [target] = await db
+        .select({ provider: customVoices.provider })
+        .from(customVoices)
+        .where(and(eq(customVoices.id, id), eq(customVoices.userId, user.id)))
+        .limit(1);
+      if (!target) return res.status(404).json({ error: "Voice not found" });
+      if (target.provider && target.provider !== "heygen") {
+        return res.status(400).json({ error: "Only HeyGen voices can be set as the avatar studio default" });
+      }
       const voice = await storage.setDefaultCustomVoice(id, user.id);
       if (!voice) {
         return res.status(404).json({ error: "Voice not found" });

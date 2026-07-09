@@ -404,11 +404,12 @@ export function AvatarIVStudio() {
   });
 
   // Fetch user's custom (cloned) voices
-  const { data: customVoicesData } = useQuery<{ id: string; name: string; heygenVoiceId: string | null; status: string; isDefault: boolean | null; sampleAudioUrl: string | null }[]>({
+  const { data: customVoicesData } = useQuery<{ id: string; name: string; heygenVoiceId: string | null; status: string; isDefault: boolean | null; sampleAudioUrl: string | null; provider?: string }[]>({
     queryKey: ["/api/custom-voices"],
     enabled: isAuthenticated,
   });
-  const allCustomVoices = customVoicesData ?? [];
+  // Only show HeyGen voices in the Avatar/Video workflow — ElevenLabs clones live in Boards
+  const allCustomVoices = (customVoicesData ?? []).filter((v) => !v.provider || v.provider === "heygen");
   const readyCustomVoices = allCustomVoices.filter((v) => v.status === "ready" && v.heygenVoiceId);
 
   const { data: allLooksResponse, isLoading: isLoadingAllLooks } = useQuery<{ looks: any[]; count: number }>({

@@ -30,7 +30,7 @@ interface CustomVoice {
   language: string | null;
   gender: string | null;
   sampleAudioUrl: string | null;
-  status: 'pending' | 'ready' | 'failed';
+  status: 'pending' | 'cloning' | 'ready' | 'failed';
   isDefault: boolean | null;
   createdAt: string;
 }
@@ -713,10 +713,11 @@ export function VoiceLibraryManager() {
     }
     switch (status) {
       case 'pending':
+      case 'cloning':
         return (
           <Badge variant="secondary">
             <Clock className="h-3 w-3 mr-1 animate-pulse" />
-            Processing...
+            Preparing…
           </Badge>
         );
       case 'failed':

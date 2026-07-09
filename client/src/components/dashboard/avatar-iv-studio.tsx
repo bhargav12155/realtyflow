@@ -456,15 +456,17 @@ export function AvatarIVStudio() {
     });
   }, [voices, genderFilter, voiceSearch]);
   
-  // Set default voice when voices load — prefer the pinned default custom voice over any fallback
+  // Set default voice on initial load only — do not override a user's manual selection on refetch
+  const defaultVoiceApplied = useRef(false);
   useEffect(() => {
+    if (defaultVoiceApplied.current) return;
     const defaultCustom = readyCustomVoices.find((v) => v.isDefault);
     if (defaultCustom?.heygenVoiceId) {
-      // Always apply the user's pinned default, even if a fallback was already selected
       setSelectedVoice(defaultCustom.heygenVoiceId);
+      defaultVoiceApplied.current = true;
     } else if (voices.length > 0) {
-      // Only set built-in fallback when nothing is selected yet
       setSelectedVoice((prev: string) => prev || voices[0].voice_id);
+      defaultVoiceApplied.current = true;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customVoicesData, voices]);
@@ -2280,7 +2282,7 @@ export function AvatarIVStudio() {
                           </div>
                       {myVoicesExpanded && allCustomVoices.map((cv) => {
                             const isReady = cv.status === "ready" && !!cv.heygenVoiceId;
-                            const isPending = cv.status === "pending";
+                            const isPending = cv.status === "pending" || cv.status === "cloning";
                             const isFailed = cv.status === "failed";
                             return (
                               <div

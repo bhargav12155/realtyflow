@@ -1,6 +1,96 @@
-node_modules
-dist
-.DS_Store
-server/public
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Build outputs ─────────────────────────────────────────────
+dist/
+build/
+server/public/
 vite.config.ts.*
+*.tsbuildinfo
+
+# ── Environment variables & secrets ───────────────────────────
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+server-logs.txt
+latest-error-logs.txt
+
+# ── Local uploads (runtime file storage) ──────────────────────
+uploads/
+
+# ── Test / coverage artifacts ─────────────────────────────────
+coverage/
+.nyc_output/
+test/
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Editor & IDE ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+
+# ── Certificates & keys ───────────────────────────────────────
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ── Archives ──────────────────────────────────────────────────
 *.tar.gz
+*.zip
+*.rar
+
+# ── Replit internals ──────────────────────────────────────────
+.cache/
+.upm/
+.config/
+.local/
+.agents/
+
+# ── Large binary / screenshot assets in root ──────────────────
+social_disconnected.png
+social_final.png
+attached_assets/
+
+# ── Scratch & one-off debug scripts ───────────────────────────
+check-session.js
+check-user.js
+simulate-linkedin.js
+test-linkedin-oauth.js
+test-linkedin-post.js
+test-linkedin-post-simulation.js
+create-demo-video.js
+diagnose-twitter-oauth.ts
+test-twitter-flow.ts
+test-api-endpoints.sh
+test-twitter-integration.sh
+test-video-avatar.sh
+
+# ── Misc generated / temp ─────────────────────────────────────
+*.tmp
+*.temp
+.eslintcache
+.parcel-cache

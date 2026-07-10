@@ -34,6 +34,7 @@ interface CustomVoice {
   sampleAudioUrl: string | null;
   status: 'pending' | 'cloning' | 'ready' | 'failed';
   isDefault: boolean | null;
+  provider?: string | null;
   createdAt: string;
 }
 
@@ -1402,6 +1403,7 @@ export function VoiceLibraryManager() {
                           </div>
                         ) : (
                           <>
+                            {(!voice.provider || voice.provider === "heygen") && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1414,6 +1416,7 @@ export function VoiceLibraryManager() {
                             >
                               <Star className={`h-3.5 w-3.5 ${voice.isDefault ? "fill-yellow-400 text-yellow-400" : "text-gray-400"}`} />
                             </Button>
+                            )}
                             <h4 className="font-medium" data-testid={`text-voice-name-${voice.id}`}>
                               {voice.name}
                             </h4>

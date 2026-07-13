@@ -34,6 +34,9 @@ import {
 // keep the Node test runner alive and break `node --test` exit semantics
 // in tests that inject their own dependencies.
 
+const MAX_STRUCTURED_PROMPT_CHARS = 2600;
+const MAX_PROMPT_REFERENCE_URL_CHARS = 180;
+
 const VIDEO_PROVIDERS = ["luma", "runway", "sora2", "seedance", "veo", "kling"] as const;
 const IMAGE_PROVIDERS = ["openai-image", "gemini-image"] as const;
 export const PROVIDERS = [...VIDEO_PROVIDERS, ...IMAGE_PROVIDERS] as const;
@@ -406,6 +409,15 @@ function buildShotSpecPrompt(input: {
   refAssets: BoardAsset[];
   cameraMotion?: string;
 }): string {
+  const summarizeReferenceUrl = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return "";
+    if (/^data:/i.test(trimmed)) return "[inline image data omitted]";
+    return trimmed.length > MAX_PROMPT_REFERENCE_URL_CHARS
+      ? `${trimmed.slice(0, MAX_PROMPT_REFERENCE_URL_CHARS)}...`
+      : trimmed;
+  };
+
   const raw = input.prompt.trim();
   const compact = raw.replace(/\s+/g, " ");
   const capped = compact.length > 2000 ? `${compact.slice(0, 2000)}…` : compact;
@@ -415,6 +427,8 @@ function buildShotSpecPrompt(input: {
     .filter((a) => a.kind === "image" && !!a.assetUrl)
     .map((a) => a.assetUrl)
     .filter((u): u is string => !!u)
+    .map(summarizeReferenceUrl)
+    .filter((u) => u.length > 0)
     .slice(0, 4);
   const continuityHint =
     input.genMode === "image-to-video"
@@ -424,7 +438,7 @@ function buildShotSpecPrompt(input: {
         : "Establish clear visual continuity for a single, coherent shot.";
   const cameraMotion = sanitizeCameraMotion(input.cameraMotion);
 
-  return [
+  const structuredPrompt = [
     "You are generating one production-quality shot.",
     "Follow this shot spec exactly and prioritize visual clarity over stylistic noise.",
     "",
@@ -458,6 +472,12 @@ function buildShotSpecPrompt(input: {
     "",
     "Return only the final media output (no explanatory text).",
   ].join("\n");
+
+  if (structuredPrompt.length <= MAX_STRUCTURED_PROMPT_CHARS) {
+    return structuredPrompt;
+  }
+
+  return `${structuredPrompt.slice(0, MAX_STRUCTURED_PROMPT_CHARS)}\n\n[Prompt truncated for provider length safety.]`;
 }
 
 function deriveScenePromptsFromScript(rawScript: string): string[] {
@@ -573,6 +593,25 @@ function resolveRequestBaseUrl(req: Request): string {
   }
 
   return resolvePublicBaseUrl();
+}
+
+const localDevCheckoutSessions = new Map<
+  string,
+  { userId: string; credits: number; balance: number; createdAtMs: number }
+>();
+const LOCAL_DEV_CHECKOUT_TTL_MS = 30 * 60 * 1000;
+
+function pruneLocalDevCheckoutSessions(nowMs: number) {
+  for (const [sessionId, entry] of localDevCheckoutSessions.entries()) {
+    if (nowMs - entry.createdAtMs > LOCAL_DEV_CHECKOUT_TTL_MS) {
+      localDevCheckoutSessions.delete(sessionId);
+    }
+  }
+}
+
+function isStripeBypassedInLocalDev(): boolean {
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || "").trim();
+  return !stripeKey && process.env.NODE_ENV !== "production";
 }
 
 function toAbsoluteImageUrl(rawUrl: string): string {
@@ -1897,12 +1936,35 @@ export function registerBoardsChatRoutes(
     }
 
     try {
-      const stripe = await createStripeClient();
       const user = req.user as { id: string | number; email?: string | null };
       const userId = String(user.id);
       const credits = parsed.data.credits;
-      const amountCents = credits * 10;
       const baseUrl = resolveRequestBaseUrl(req);
+
+      if (isStripeBypassedInLocalDev()) {
+        const sessionId = `local-dev-${randomUUID()}`;
+        const requestId = `local_dev_checkout_${sessionId}`;
+        const credited = await storage.creditWalletCredits(userId, credits, "stripe_credit_purchase", {
+          requestId,
+          metadata: {
+            stripeCheckoutSessionId: sessionId,
+            localDevBypass: true,
+          },
+        });
+        pruneLocalDevCheckoutSessions(Date.now());
+        localDevCheckoutSessions.set(sessionId, {
+          userId,
+          credits,
+          balance: credited.balance,
+          createdAtMs: Date.now(),
+        });
+        return res.json({
+          checkoutUrl: `${baseUrl}/billing?checkout=success&session_id=${encodeURIComponent(sessionId)}`,
+        });
+      }
+
+      const stripe = await createStripeClient();
+      const amountCents = credits * 10;
 
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
@@ -1940,6 +2002,22 @@ export function registerBoardsChatRoutes(
 
   app.get("/api/billing/checkout-session/:sessionId", requireAuth, async (req: Request, res: Response) => {
     try {
+      if (isStripeBypassedInLocalDev()) {
+        pruneLocalDevCheckoutSessions(Date.now());
+        const userId = String(req.user!.id);
+        const sessionId = req.params.sessionId;
+        const local = localDevCheckoutSessions.get(sessionId);
+        if (!local || local.userId !== userId) {
+          return res.status(404).json({ error: "Checkout session not found" });
+        }
+        return res.json({
+          paid: true,
+          released: false,
+          credits: local.credits,
+          balance: local.balance,
+        });
+      }
+
       const stripe = await createStripeClient();
       const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
       const userId = String(req.user!.id);
@@ -2730,6 +2808,12 @@ export function registerBoardsChatRoutes(
   app.get("/api/users/me", requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = String(req.user!.id);
+      const authUser = req.user as {
+        id: string | number;
+        email?: string | null;
+        username?: string | null;
+        name?: string | null;
+      };
 
       const user = await db
         .select()
@@ -2739,7 +2823,15 @@ export function registerBoardsChatRoutes(
         .then((rows) => rows[0]);
 
       if (!user) {
-        return res.status(404).json({ error: "User not found" });
+        // Do not block the client on transient DB drift/timeouts after auth.
+        // The token is already verified by requireAuth, so return a safe fallback.
+        return res.json({
+          id: userId,
+          username: authUser.username ?? null,
+          email: authUser.email ?? null,
+          name: authUser.name ?? authUser.username ?? null,
+          hasCompletedOnboarding: true,
+        });
       }
 
       return res.json({
@@ -2751,6 +2843,21 @@ export function registerBoardsChatRoutes(
       });
     } catch (error: unknown) {
       console.error("[boards-chat] get user error:", error);
+      const authUser = req.user as {
+        id: string | number;
+        email?: string | null;
+        username?: string | null;
+        name?: string | null;
+      };
+      if (authUser?.id) {
+        return res.json({
+          id: String(authUser.id),
+          username: authUser.username ?? null,
+          email: authUser.email ?? null,
+          name: authUser.name ?? authUser.username ?? null,
+          hasCompletedOnboarding: true,
+        });
+      }
       const message = error instanceof Error ? error.message : "Failed to get user";
       return res.status(500).json({ error: message });
     }

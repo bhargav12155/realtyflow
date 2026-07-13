@@ -19,6 +19,7 @@ import {
   Upload as UploadIcon,
   Wand2,
 } from "lucide-react";
+import { VOICE_RECORDING_MIN_SECONDS } from "./voice-recording-scripts";
 import type {
   ActivityLog,
   AvatarGroup,
@@ -45,6 +46,7 @@ export function usePhotoAvatarManager() {
     null
   );
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isPlayingRecording, setIsPlayingRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [selectedGroupForVoice, setSelectedGroupForVoice] = useState<
     string | null
@@ -113,6 +115,24 @@ export function usePhotoAvatarManager() {
   const [aiLookSelectedGroup, setAiLookSelectedGroup] = useState<string>("");
   const [aiLookGenerating, setAiLookGenerating] = useState(false);
   const aiLookFileRef = useRef<HTMLInputElement>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const clearRecordingTimer = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
+
+  const cleanupPlaybackAudio = () => {
+    if (!playbackAudioRef.current) return;
+    playbackAudioRef.current.pause();
+    playbackAudioRef.current.src = "";
+    playbackAudioRef.current = null;
+    setIsPlayingRecording(false);
+  };
 
   // Query avatar groups
   const { data: avatarGroupsResponse, isLoading: isLoadingGroups } = useQuery<AvatarGroupsResponse>({
@@ -1257,7 +1277,7 @@ export function usePhotoAvatarManager() {
   };
 
   const stopRecording = () => {
-    if (mediaRecorder && isRecording) {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
       mediaRecorder.stop();
       mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       setIsRecording(false);
@@ -1278,6 +1298,15 @@ export function usePhotoAvatarManager() {
         return;
       }
 
+      cleanupPlaybackAudio();
+      clearRecordingTimer();
+
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+      setRecordedAudio(null);
+      setAudioUrl(null);
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       const chunks: Blob[] = [];
@@ -1288,34 +1317,30 @@ export function usePhotoAvatarManager() {
         }
       };
 
-      recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        setRecordedAudio(blob);
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-      };
-
       setMediaRecorder(recorder);
       recorder.start();
       setIsRecording(true);
       setRecordingTime(0);
 
-      const startTime = Date.now();
-      const timer = setInterval(() => {
+      recordingStartTimeRef.current = Date.now();
+      recordingTimerRef.current = setInterval(() => {
+        const startTime = recordingStartTimeRef.current ?? Date.now();
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
         setRecordingTime(elapsed);
-
-        if (elapsed >= 15) {
-          stopRecording();
-        }
-      }, 100);
+      }, 200);
 
       recorder.onstop = () => {
-        clearInterval(timer);
+        clearRecordingTimer();
+        const startTime = recordingStartTimeRef.current;
+        if (startTime) {
+          setRecordingTime(Math.floor((Date.now() - startTime) / 1000));
+        }
+        recordingStartTimeRef.current = null;
         const blob = new Blob(chunks, { type: "audio/webm" });
         setRecordedAudio(blob);
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
+        setIsRecording(false);
       };
     } catch (error: any) {
       const { title, description } = getRecordingErrorMessage(error);
@@ -1328,16 +1353,40 @@ export function usePhotoAvatarManager() {
   };
 
   const playRecording = () => {
-    if (audioUrl) {
+    if (!audioUrl) return;
+
+    if (!playbackAudioRef.current || playbackAudioRef.current.src !== audioUrl) {
+      cleanupPlaybackAudio();
       const audio = new Audio(audioUrl);
-      audio.play();
+      audio.onended = () => setIsPlayingRecording(false);
+      audio.onpause = () => setIsPlayingRecording(false);
+      audio.onplay = () => setIsPlayingRecording(true);
+      playbackAudioRef.current = audio;
     }
+
+    playbackAudioRef.current
+      .play()
+      .catch(() => setIsPlayingRecording(false));
+  };
+
+  const pauseRecording = () => {
+    if (!playbackAudioRef.current) return;
+    playbackAudioRef.current.pause();
+    setIsPlayingRecording(false);
   };
 
   const resetRecording = () => {
+    clearRecordingTimer();
+    recordingStartTimeRef.current = null;
+    cleanupPlaybackAudio();
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
     setRecordedAudio(null);
     setAudioUrl(null);
     setRecordingTime(0);
+    setIsRecording(false);
+    setMediaRecorder(null);
   };
 
   const saveVoiceToGroup = async () => {
@@ -1356,6 +1405,15 @@ export function usePhotoAvatarManager() {
       toast({
         title: "Missing Data",
         description: "Please select an avatar group and record a voice sample.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (recordingTime < VOICE_RECORDING_MIN_SECONDS) {
+      toast({
+        title: "Recording Too Short",
+        description: `Please record at least ${VOICE_RECORDING_MIN_SECONDS} seconds for a better voice clone.`,
         variant: "destructive",
       });
       return;
@@ -1466,9 +1524,9 @@ export function usePhotoAvatarManager() {
     consentVideoUrl, setConsentVideoUrl,
     openLooksGroupId, setOpenLooksGroupId,
     // recording
-    isRecording, recordedAudio, audioUrl, recordingTime,
+    isRecording, recordedAudio, audioUrl, recordingTime, isPlayingRecording,
     selectedGroupForVoice, setSelectedGroupForVoice,
-    startRecording, stopRecording, playRecording, resetRecording, saveVoiceToGroup,
+    startRecording, stopRecording, playRecording, pauseRecording, resetRecording, saveVoiceToGroup,
     // train all
     showTrainAllDialog, setShowTrainAllDialog,
     trainAllVoiceId, setTrainAllVoiceId,

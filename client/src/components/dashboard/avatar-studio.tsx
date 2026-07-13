@@ -63,6 +63,12 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import {
+  DEFAULT_VOICE_READING_SCRIPT_ID,
+  VOICE_READING_SCRIPTS,
+  VOICE_RECORDING_MIN_SECONDS,
+  VOICE_RECORDING_RECOMMENDED_SECONDS,
+} from "@/components/dashboard/photo-avatars/voice-recording-scripts";
 
 const PROFESSIONAL_VOICES = [
   { id: "92c93dc0dff2428ab0bea258ba68f173", name: "Professional Male - Confident" },
@@ -247,15 +253,21 @@ export function AvatarStudio() {
   
   // Voice input mode for motion dialog: "tts" | "record" | "upload"
   const [voiceInputMode, setVoiceInputMode] = useState<"tts" | "record" | "upload">("tts");
+  const [selectedGuidedScriptId, setSelectedGuidedScriptId] = useState<string>(
+    DEFAULT_VOICE_READING_SCRIPT_ID
+  );
   const [motionRecordedBlob, setMotionRecordedBlob] = useState<Blob | null>(null);
   const [motionRecordedUrl, setMotionRecordedUrl] = useState<string>("");
   const [motionRecordingTime, setMotionRecordingTime] = useState(0);
   const [isMotionRecording, setIsMotionRecording] = useState(false);
+  const [isMotionRecordedAudioPlaying, setIsMotionRecordedAudioPlaying] = useState(false);
   const [uploadedAudioFile, setUploadedAudioFile] = useState<File | null>(null);
   const [uploadedAudioUrl, setUploadedAudioUrl] = useState<string>("");
   const motionMediaRecorderRef = useRef<MediaRecorder | null>(null);
   const motionChunksRef = useRef<Blob[]>([]);
   const motionRecordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const motionRecordingStartedAtRef = useRef<number | null>(null);
+  const motionRecordedAudioRef = useRef<HTMLAudioElement | null>(null);
   
   // Upload motion video state (skip to voice step)
   const [uploadedMotionFile, setUploadedMotionFile] = useState<File | null>(null);
@@ -305,6 +317,30 @@ export function AvatarStudio() {
   ];
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [voiceAudioUrls, setVoiceAudioUrls] = useState<Record<string, string>>({});
+
+  const activeGuidedScript =
+    VOICE_READING_SCRIPTS.find((script) => script.id === selectedGuidedScriptId) ??
+    VOICE_READING_SCRIPTS[0];
+  const motionRecordingProgress = Math.min(
+    (motionRecordingTime / VOICE_RECORDING_MIN_SECONDS) * 100,
+    100
+  );
+  const motionMinDurationReached = motionRecordingTime >= VOICE_RECORDING_MIN_SECONDS;
+
+  const stopMotionRecordedPlayback = () => {
+    if (!motionRecordedAudioRef.current) return;
+    motionRecordedAudioRef.current.pause();
+    motionRecordedAudioRef.current.src = "";
+    motionRecordedAudioRef.current = null;
+    setIsMotionRecordedAudioPlaying(false);
+  };
+
+  const clearMotionRecordingTimer = () => {
+    if (motionRecordingIntervalRef.current) {
+      clearInterval(motionRecordingIntervalRef.current);
+      motionRecordingIntervalRef.current = null;
+    }
+  };
   
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -317,6 +353,9 @@ export function AvatarStudio() {
   const [renamingVoiceId, setRenamingVoiceId] = useState<string | null>(null);
   const [renamingVoiceName, setRenamingVoiceName] = useState("");
   const renameSubmittedRef = useRef(false);
+  const [showGuidedVoiceRecordDialog, setShowGuidedVoiceRecordDialog] = useState(false);
+  const [isGuidedPlaybackPlaying, setIsGuidedPlaybackPlaying] = useState(false);
+  const guidedPlaybackAudioRef = useRef<HTMLAudioElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1692,6 +1731,46 @@ export function AvatarStudio() {
     }
   };
 
+  const stopGuidedPlayback = () => {
+    if (!guidedPlaybackAudioRef.current) return;
+    guidedPlaybackAudioRef.current.pause();
+    guidedPlaybackAudioRef.current.src = "";
+    guidedPlaybackAudioRef.current = null;
+    setIsGuidedPlaybackPlaying(false);
+  };
+
+  const toggleGuidedPlayback = () => {
+    if (!recordedUrl) return;
+
+    if (!guidedPlaybackAudioRef.current || guidedPlaybackAudioRef.current.src !== recordedUrl) {
+      stopGuidedPlayback();
+      const audio = new Audio(recordedUrl);
+      audio.onplay = () => setIsGuidedPlaybackPlaying(true);
+      audio.onpause = () => setIsGuidedPlaybackPlaying(false);
+      audio.onended = () => setIsGuidedPlaybackPlaying(false);
+      guidedPlaybackAudioRef.current = audio;
+    }
+
+    if (isGuidedPlaybackPlaying) {
+      guidedPlaybackAudioRef.current.pause();
+      return;
+    }
+
+    guidedPlaybackAudioRef.current.play().catch(() => {
+      setIsGuidedPlaybackPlaying(false);
+    });
+  };
+
+  const clearRecordedVoiceSample = () => {
+    stopGuidedPlayback();
+    if (recordedUrl) {
+      URL.revokeObjectURL(recordedUrl);
+    }
+    setRecordedBlob(null);
+    setRecordedUrl("");
+    setRecordingTime(0);
+  };
+
   const startMotionRecording = async () => {
     try {
       const permissionStatus = await checkMicrophonePermission();
@@ -1706,6 +1785,16 @@ export function AvatarStudio() {
         return;
       }
 
+      stopMotionRecordedPlayback();
+      clearMotionRecordingTimer();
+
+      if (motionRecordedUrl) {
+        URL.revokeObjectURL(motionRecordedUrl);
+      }
+      setMotionRecordedBlob(null);
+      setMotionRecordedUrl("");
+      setMotionRecordingTime(0);
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
       motionMediaRecorderRef.current = mediaRecorder;
@@ -1718,6 +1807,12 @@ export function AvatarStudio() {
       };
 
       mediaRecorder.onstop = () => {
+        clearMotionRecordingTimer();
+        const startedAt = motionRecordingStartedAtRef.current;
+        if (startedAt) {
+          setMotionRecordingTime(Math.floor((Date.now() - startedAt) / 1000));
+        }
+        motionRecordingStartedAtRef.current = null;
         const blob = new Blob(motionChunksRef.current, { type: "audio/webm" });
         setMotionRecordedBlob(blob);
         const url = URL.createObjectURL(blob);
@@ -1728,9 +1823,11 @@ export function AvatarStudio() {
       mediaRecorder.start();
       setIsMotionRecording(true);
       setMotionRecordingTime(0);
+      motionRecordingStartedAtRef.current = Date.now();
 
       motionRecordingIntervalRef.current = setInterval(() => {
-        setMotionRecordingTime((prev) => prev + 1);
+        const startedAt = motionRecordingStartedAtRef.current ?? Date.now();
+        setMotionRecordingTime(Math.floor((Date.now() - startedAt) / 1000));
       }, 1000);
     } catch (error: any) {
       const { title, description } = getRecordingErrorMessage(error);
@@ -1746,17 +1843,42 @@ export function AvatarStudio() {
     if (motionMediaRecorderRef.current && isMotionRecording) {
       motionMediaRecorderRef.current.stop();
       setIsMotionRecording(false);
-      if (motionRecordingIntervalRef.current) {
-        clearInterval(motionRecordingIntervalRef.current);
-        motionRecordingIntervalRef.current = null;
-      }
     }
   };
 
+  const toggleMotionRecordedPlayback = () => {
+    if (!motionRecordedUrl) return;
+
+    if (!motionRecordedAudioRef.current || motionRecordedAudioRef.current.src !== motionRecordedUrl) {
+      stopMotionRecordedPlayback();
+      const audio = new Audio(motionRecordedUrl);
+      audio.onplay = () => setIsMotionRecordedAudioPlaying(true);
+      audio.onpause = () => setIsMotionRecordedAudioPlaying(false);
+      audio.onended = () => setIsMotionRecordedAudioPlaying(false);
+      motionRecordedAudioRef.current = audio;
+    }
+
+    if (isMotionRecordedAudioPlaying) {
+      motionRecordedAudioRef.current.pause();
+      return;
+    }
+
+    motionRecordedAudioRef.current.play().catch(() => {
+      setIsMotionRecordedAudioPlaying(false);
+    });
+  };
+
   const clearMotionRecording = () => {
+    clearMotionRecordingTimer();
+    motionRecordingStartedAtRef.current = null;
+    stopMotionRecordedPlayback();
+    if (motionRecordedUrl) {
+      URL.revokeObjectURL(motionRecordedUrl);
+    }
     setMotionRecordedBlob(null);
     setMotionRecordedUrl("");
     setMotionRecordingTime(0);
+    setIsMotionRecording(false);
   };
 
   const handleUploadMotionVideo = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1808,6 +1930,31 @@ export function AvatarStudio() {
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
+
+  const activeVoiceCloneScript = VOICE_READING_SCRIPTS[0];
+  const guidedRecordingProgress = Math.min(
+    (recordingTime / VOICE_RECORDING_MIN_SECONDS) * 100,
+    100
+  );
+
+  useEffect(() => {
+    return () => {
+      stopGuidedPlayback();
+      if (recordedUrl) {
+        URL.revokeObjectURL(recordedUrl);
+      }
+    };
+  }, [recordedUrl]);
+
+  useEffect(() => {
+    return () => {
+      clearMotionRecordingTimer();
+      stopMotionRecordedPlayback();
+      if (motionRecordedUrl) {
+        URL.revokeObjectURL(motionRecordedUrl);
+      }
+    };
+  }, [motionRecordedUrl]);
 
   const handleUseHeygenVoice = () => {
     if (heygenVoiceId.trim()) {
@@ -2731,17 +2878,17 @@ export function AvatarStudio() {
                         
                         <Button
                           size="lg"
-                          onClick={isRecording ? stopRecording : startRecording}
+                          onClick={() => setShowGuidedVoiceRecordDialog(true)}
                           className={isRecording 
                             ? "bg-red-500 hover:bg-red-600" 
                             : "bg-[#D4AF37] hover:bg-[#D4AF37]/90"
                           }
-                          data-testid={isRecording ? "button-stop-recording" : "button-start-recording"}
+                          data-testid="button-start-recording"
                         >
                           {isRecording ? (
                             <>
-                              <Square className="h-5 w-5 mr-2" />
-                              Stop Recording
+                              <Mic className="h-5 w-5 mr-2" />
+                              Open Recorder
                             </>
                           ) : (
                             <>
@@ -2752,7 +2899,7 @@ export function AvatarStudio() {
                         </Button>
                         
                         <p className="text-xs text-gray-500">
-                          Record at least 30 seconds of clear speech for best results
+                          Start recording to open a guided reading script popup.
                         </p>
 
                         <div className="flex items-center gap-2 w-full">
@@ -2771,9 +2918,10 @@ export function AvatarStudio() {
                             const file = e.target.files?.[0];
                             if (!file) return;
                             const url = URL.createObjectURL(file);
+                            stopGuidedPlayback();
                             setRecordedBlob(file);
                             setRecordedUrl(url);
-                            setRecordingTime(0);
+                            setRecordingTime(VOICE_RECORDING_MIN_SECONDS);
                             e.target.value = "";
                           }}
                         />
@@ -2811,11 +2959,7 @@ export function AvatarStudio() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => {
-                                setRecordedBlob(null);
-                                setRecordedUrl("");
-                                setRecordingTime(0);
-                              }}
+                              onClick={clearRecordedVoiceSample}
                               data-testid="button-discard-recording"
                             >
                               <X className="h-4 w-4" />
@@ -2873,7 +3017,11 @@ export function AvatarStudio() {
 
                           <Button
                             className="w-full bg-[#D4AF37] hover:bg-[#D4AF37]/90"
-                            disabled={!voiceName.trim() || uploadVoiceMutation.isPending}
+                            disabled={
+                              !voiceName.trim() ||
+                              uploadVoiceMutation.isPending ||
+                              recordingTime < VOICE_RECORDING_MIN_SECONDS
+                            }
                             onClick={() => {
                               if (recordedBlob && voiceName.trim()) {
                                 uploadVoiceMutation.mutate({
@@ -2898,10 +3046,133 @@ export function AvatarStudio() {
                               </>
                             )}
                           </Button>
+
+                          {recordingTime < VOICE_RECORDING_MIN_SECONDS && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds before saving.
+                            </p>
+                          )}
                         </div>
                       </>
                     )}
                   </div>
+
+                  <Dialog
+                    open={showGuidedVoiceRecordDialog}
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen && isRecording) {
+                        stopRecording();
+                      }
+                      setShowGuidedVoiceRecordDialog(nextOpen);
+                    }}
+                  >
+                    <DialogContent className="sm:max-w-2xl" data-testid="dialog-guided-voice-recording">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Mic className="h-5 w-5 text-[#D4AF37]" />
+                          Guided Voice Recording
+                        </DialogTitle>
+                        <DialogDescription>
+                          Read the script below naturally. It is designed for at least {VOICE_RECORDING_MIN_SECONDS} seconds to improve voice clone quality.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium">{activeVoiceCloneScript.title}</p>
+                          <Badge variant="secondary" className="text-[11px]">
+                            {activeVoiceCloneScript.language} ({activeVoiceCloneScript.locale}) · ~{activeVoiceCloneScript.estimatedDurationSeconds}s
+                          </Badge>
+                        </div>
+
+                        <div className="rounded-lg border border-dashed bg-gray-50 dark:bg-gray-900 p-4 space-y-2">
+                          {activeVoiceCloneScript.lines.map((line, idx) => (
+                            <p key={`${activeVoiceCloneScript.id}-${idx}`} className="text-sm leading-6 text-gray-700 dark:text-gray-200">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+
+                        <div className="rounded-lg border p-3 space-y-2 bg-white dark:bg-gray-950">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium">{isRecording ? "Recording..." : "Recording progress"}</span>
+                            <span className="tabular-nums text-gray-600 dark:text-gray-300">
+                              {recordingTime} / {VOICE_RECORDING_MIN_SECONDS} seconds
+                            </span>
+                          </div>
+                          <Progress value={guidedRecordingProgress} className="h-2" />
+                          {recordingTime < VOICE_RECORDING_MIN_SECONDS ? (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds for better cloning quality.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                              Minimum recording reached. You can stop now or continue for richer voice quality.
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {!isRecording ? (
+                            <Button
+                              onClick={startRecording}
+                              className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
+                              data-testid="button-guided-start-recording"
+                            >
+                              <Mic className="h-4 w-4 mr-2" />
+                              Start Recording
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={stopRecording}
+                              className="bg-red-500 hover:bg-red-600"
+                              data-testid="button-guided-stop-recording"
+                            >
+                              <Square className="h-4 w-4 mr-2" />
+                              Stop Recording
+                            </Button>
+                          )}
+
+                          {recordedBlob && !isRecording && (
+                            <>
+                              <Button
+                                variant="outline"
+                                onClick={toggleGuidedPlayback}
+                                data-testid="button-guided-play-recording"
+                              >
+                                {isGuidedPlaybackPlaying ? (
+                                  <>
+                                    <Pause className="h-4 w-4 mr-2" />
+                                    Pause
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="h-4 w-4 mr-2" />
+                                    Play
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={clearRecordedVoiceSample}
+                                data-testid="button-guided-rerecord"
+                              >
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Re-record
+                              </Button>
+                              <Button
+                                onClick={() => setShowGuidedVoiceRecordDialog(false)}
+                                className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
+                                data-testid="button-guided-use-recording"
+                              >
+                                Use Recording
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </TabsContent>
 
                 <TabsContent value="heygen" className="space-y-4 mt-4">
@@ -3918,70 +4189,146 @@ export function AvatarStudio() {
 
                 {/* Record Mode */}
                 {voiceInputMode === "record" && (
-                  <div className="space-y-4">
-                    <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg bg-gray-50 dark:bg-gray-900">
-                      {!motionRecordedUrl ? (
-                        <>
-                          <div 
-                            className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all ${
-                              isMotionRecording 
-                                ? "bg-red-500 animate-pulse" 
-                                : "bg-purple-100 dark:bg-purple-900"
-                            }`}
-                          >
-                            <Mic className={`h-10 w-10 ${isMotionRecording ? "text-white" : "text-purple-600"}`} />
-                          </div>
-                          {isMotionRecording && (
-                            <div className="text-2xl font-mono text-red-500 mb-4">
-                              {formatTime(motionRecordingTime)}
-                            </div>
-                          )}
-                          <Button
-                            onClick={isMotionRecording ? stopMotionRecording : startMotionRecording}
-                            className={isMotionRecording 
-                              ? "bg-red-500 hover:bg-red-600" 
-                              : "bg-purple-500 hover:bg-purple-600"}
-                            data-testid={isMotionRecording ? "button-stop-motion-recording" : "button-start-motion-recording"}
-                          >
-                            {isMotionRecording ? (
-                              <>
-                                <Square className="h-4 w-4 mr-2" />
-                                Stop Recording
-                              </>
-                            ) : (
-                              <>
-                                <Mic className="h-4 w-4 mr-2" />
-                                Start Recording
-                              </>
-                            )}
-                          </Button>
-                          <p className="text-xs text-gray-500 mt-3 text-center">
-                            Record your voice speaking what you want the avatar to say.
-                            <br />Keep it under 30 seconds for best results.
+                  <div className="grid gap-4 md:grid-cols-[1.35fr_1fr]">
+                    <div className="space-y-4 p-4 border rounded-lg bg-gray-50 dark:bg-gray-900">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">Guided Reading Script</p>
+                          <p className="text-xs text-gray-500">
+                            Read naturally in one take for better voice quality.
                           </p>
-                        </>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2 text-green-600 mb-4">
-                            <CheckCircle className="h-5 w-5" />
-                            <span className="font-medium">Recording saved ({formatTime(motionRecordingTime)})</span>
-                          </div>
-                          <audio 
-                            src={motionRecordedUrl} 
-                            controls 
-                            className="w-full max-w-xs mb-4"
-                            data-testid="audio-motion-recording"
-                          />
-                          <Button
-                            variant="outline"
-                            onClick={clearMotionRecording}
-                            data-testid="button-clear-motion-recording"
+                        </div>
+                        <Badge variant="secondary" className="text-[11px]">
+                          ~{activeGuidedScript.estimatedDurationSeconds}s
+                        </Badge>
+                      </div>
+
+                      {VOICE_READING_SCRIPTS.length > 1 && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-gray-500">Script</Label>
+                          <Select
+                            value={selectedGuidedScriptId}
+                            onValueChange={setSelectedGuidedScriptId}
                           >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Record Again
-                          </Button>
-                        </>
+                            <SelectTrigger data-testid="select-guided-script">
+                              <SelectValue placeholder="Select script" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {VOICE_READING_SCRIPTS.map((scriptOption) => (
+                                <SelectItem key={scriptOption.id} value={scriptOption.id}>
+                                  {scriptOption.title}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       )}
+
+                      <div className="rounded-md border border-dashed bg-white dark:bg-gray-950 p-3 space-y-1.5">
+                        {activeGuidedScript.lines.map((line, idx) => (
+                          <p
+                            key={`${activeGuidedScript.id}-${idx}`}
+                            className="text-sm leading-6 text-gray-700 dark:text-gray-200"
+                          >
+                            {line}
+                          </p>
+                        ))}
+                      </div>
+
+                      <div className="rounded-md border bg-white dark:bg-gray-950 p-3 space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium">
+                            {isMotionRecording ? "Recording..." : motionRecordedBlob ? "Recording complete" : "Ready to record"}
+                          </span>
+                          <span className="tabular-nums text-gray-600 dark:text-gray-300">
+                            {motionRecordingTime} / {VOICE_RECORDING_MIN_SECONDS} seconds
+                          </span>
+                        </div>
+                        <Progress value={motionRecordingProgress} className="h-2" />
+                        {!motionMinDurationReached ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-400">
+                            Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds for a better voice clone.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                            Minimum recording reached. You can continue for even better voice quality.
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                          Recommended recording length: {VOICE_RECORDING_RECOMMENDED_SECONDS.min}-{VOICE_RECORDING_RECOMMENDED_SECONDS.max} seconds.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          onClick={isMotionRecording ? stopMotionRecording : startMotionRecording}
+                          className={isMotionRecording
+                            ? "bg-red-500 hover:bg-red-600"
+                            : "bg-purple-500 hover:bg-purple-600"}
+                          data-testid={isMotionRecording ? "button-stop-motion-recording" : "button-start-motion-recording"}
+                        >
+                          {isMotionRecording ? (
+                            <>
+                              <Square className="h-4 w-4 mr-2" />
+                              Stop Recording
+                            </>
+                          ) : (
+                            <>
+                              <Mic className="h-4 w-4 mr-2" />
+                              Start Recording
+                            </>
+                          )}
+                        </Button>
+                        {motionRecordedBlob && !isMotionRecording && (
+                          <>
+                            <Button
+                              variant="outline"
+                              onClick={toggleMotionRecordedPlayback}
+                              data-testid="button-play-motion-recording"
+                            >
+                              {isMotionRecordedAudioPlaying ? (
+                                <>
+                                  <Pause className="h-4 w-4 mr-2" />
+                                  Pause
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-4 w-4 mr-2" />
+                                  Play
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={clearMotionRecording}
+                              data-testid="button-clear-motion-recording"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Re-record
+                            </Button>
+                          </>
+                        )}
+                      </div>
+
+                      {motionRecordedUrl && (
+                        <audio
+                          src={motionRecordedUrl}
+                          controls
+                          className="w-full"
+                          data-testid="audio-motion-recording"
+                        />
+                      )}
+                    </div>
+
+                    <div className="p-4 border rounded-lg bg-white dark:bg-gray-950 h-fit">
+                      <Badge variant="outline" className="mb-3">Recording Tips</Badge>
+                      <ul className="text-sm text-gray-700 dark:text-gray-200 space-y-2 list-disc pl-5">
+                        <li>Speak naturally and at a steady pace.</li>
+                        <li>Read the script continuously without long pauses.</li>
+                        <li>Use a quiet room and reduce background noise.</li>
+                        <li>Keep your microphone at a consistent distance.</li>
+                        <li>Avoid clipping by speaking clearly, not too loudly.</li>
+                      </ul>
                     </div>
                   </div>
                 )}
@@ -4124,6 +4471,15 @@ export function AvatarStudio() {
                         toast({
                           title: "Record your voice",
                           description: "Please record your voice before continuing.",
+                          variant: "destructive",
+                        });
+                        return;
+                      }
+
+                      if (voiceInputMode === "record" && motionRecordingTime < VOICE_RECORDING_MIN_SECONDS) {
+                        toast({
+                          title: "Recording too short",
+                          description: `Please record at least ${VOICE_RECORDING_MIN_SECONDS} seconds for a better voice clone.`,
                           variant: "destructive",
                         });
                         return;

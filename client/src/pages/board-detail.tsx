@@ -164,7 +164,7 @@ export default function BoardDetailPage() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const selectedAssetId = selectedAssetIds.length === 1 ? selectedAssetIds[0] : null;
   const selectedAssetSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
-  const [mode, setMode] = useState<ChatMode>("create");
+  const [mode, setMode] = useState<ChatMode>("brainstorm");
   const [provider, setProvider] = useState<ProviderId>("luma");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
   const [seedanceOptions, setSeedanceOptions] = useState<SeedanceOptions>(DEFAULT_SEEDANCE_OPTIONS);

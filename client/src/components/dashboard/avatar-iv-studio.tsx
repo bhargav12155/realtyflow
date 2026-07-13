@@ -61,6 +61,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import {
+  VOICE_READING_SCRIPTS,
+  VOICE_RECORDING_MIN_SECONDS,
+  VOICE_RECORDING_RECOMMENDED_SECONDS,
+} from "@/components/dashboard/photo-avatars/voice-recording-scripts";
 
 interface Voice {
   voice_id: string;
@@ -70,6 +75,8 @@ interface Voice {
   preview_audio?: string;
   is_custom?: boolean;
   custom_voice_id?: string;
+  status?: string;
+  is_usable?: boolean;
 }
 
 interface PhotoAsset {
@@ -88,6 +95,8 @@ interface PhotoAsset {
 const FALLBACK_VOICES: Voice[] = [
   { voice_id: "119caed25533477ba63822d5d1552d25", name: "Default Voice", language: "English", gender: "female" },
 ];
+
+const MAX_INITIAL_VOICE_RENDER = 200;
 
 const MOTION_PROMPTS = [
   { id: "natural", label: "Natural", prompt: "nodding and smiling naturally while speaking, making gentle hand gestures" },
@@ -273,6 +282,7 @@ export function AvatarIVStudio() {
   const scriptTextareaRef = useRef<IsolatedInputHandle>(null);
   const [selectedVoice, setSelectedVoice] = useState("");
   const [voiceSearch, setVoiceSearch] = useState("");
+  const [showAllVoices, setShowAllVoices] = useState(false);
   const [genderFilter, setGenderFilter] = useState<"all" | "female" | "male">("all");
   const [selectedMotion, setSelectedMotion] = useState(MOTION_PROMPTS[0].id);
   const [videoOrientation, setVideoOrientation] = useState<"landscape" | "portrait">("portrait");
@@ -295,9 +305,29 @@ export function AvatarIVStudio() {
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [uploadedAudioUrl, setUploadedAudioUrl] = useState<string | null>(null);
+  const [saveVoiceName, setSaveVoiceName] = useState("");
+  const [saveVoiceLanguage, setSaveVoiceLanguage] = useState("");
+  const [saveVoiceGender, setSaveVoiceGender] = useState("");
+  const [showGuidedRecordDialog, setShowGuidedRecordDialog] = useState(false);
+  const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const stylePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const activeReadScript = VOICE_READING_SCRIPTS[0];
+  const minimumRecordingReached = recordingElapsedSeconds >= VOICE_RECORDING_MIN_SECONDS;
+  const recordingProgress = Math.min(
+    (recordingElapsedSeconds / VOICE_RECORDING_MIN_SECONDS) * 100,
+    100
+  );
+
+  const clearRecordingTimer = () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  };
   
   const [generatingVideoId, setGeneratingVideoId] = useState<string | null>(null);
   const [videoStatus, setVideoStatus] = useState<VideoStatus | null>(null);
@@ -326,7 +356,7 @@ export function AvatarIVStudio() {
         action: (
           <Button
             size="sm"
-            onClick={() => setLocation(`/dashboard?tab=video-generator&videoId=${videoId}`)}
+            onClick={() => setLocation("/dashboard#video-generation")}
             data-testid="toast-view-video"
           >
             <ExternalLink className="h-4 w-4 mr-1" />
@@ -343,6 +373,27 @@ export function AvatarIVStudio() {
         description: `"${title || 'Your video'}" failed: ${error || 'Unknown error'}`,
         variant: "destructive",
         duration: 8000,
+      });
+    } else if (message.type === "voice_clone_complete") {
+      queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/voices"] });
+      const voiceName = message.data?.voiceName ?? "Voice";
+      toast({
+        title: "Voice Ready",
+        description: `"${voiceName}" is ready to reuse in your videos.`,
+      });
+    } else if (message.type === "voice_clone_failed") {
+      queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/voices"] });
+      const voiceName = message.data?.voiceName ?? "Voice";
+      const providerError =
+        typeof message.data?.error === "string" && message.data.error.trim()
+          ? message.data.error.trim()
+          : null;
+      toast({
+        title: "Voice Clone Failed",
+        description: providerError
+          ? `"${voiceName}" was saved, but cloning failed. ${providerError}`
+          : `"${voiceName}" was saved, but cloning failed. You can still retry later in Voice Library.`,
+        variant: "destructive",
       });
     }
   };
@@ -413,7 +464,7 @@ export function AvatarIVStudio() {
       }
       // Text search
       if (voiceSearch.trim()) {
-        const searchLower = voiceSearch.toLowerCase();
+        const searchLower = voiceSearch.trim().replace(/\s+/g, " ").toLowerCase();
         const nameMatch = voice.name?.toLowerCase().includes(searchLower);
         const languageMatch = voice.language?.toLowerCase().includes(searchLower);
         if (!nameMatch && !languageMatch) return false;
@@ -421,11 +472,34 @@ export function AvatarIVStudio() {
       return true;
     });
   }, [voices, genderFilter, voiceSearch]);
+
+  const renderedVoices = useMemo(() => {
+    const hasSearch = voiceSearch.trim().length > 0;
+    if (hasSearch || showAllVoices) {
+      return filteredVoices;
+    }
+    return filteredVoices.slice(0, MAX_INITIAL_VOICE_RENDER);
+  }, [filteredVoices, voiceSearch, showAllVoices]);
+
+  const isVoiceListTruncated =
+    voiceSearch.trim().length === 0 && !showAllVoices && filteredVoices.length > renderedVoices.length;
+
+  const selectedVoiceDetails = useMemo(
+    () => voices.find((voice) => voice.voice_id === selectedVoice),
+    [voices, selectedVoice],
+  );
+
+  const isSelectedVoiceUsable = useMemo(() => {
+    if (!selectedVoiceDetails) return false;
+    return selectedVoiceDetails.is_custom ? selectedVoiceDetails.is_usable !== false : true;
+  }, [selectedVoiceDetails]);
   
   // Set default voice when voices load
   useEffect(() => {
     if (voices.length > 0 && !selectedVoice) {
-      setSelectedVoice(voices[0].voice_id);
+      const firstUsableVoice =
+        voices.find((voice) => (voice.is_custom ? voice.is_usable !== false : true)) ?? voices[0];
+      setSelectedVoice(firstUsableVoice.voice_id);
     }
   }, [voices, selectedVoice]);
 
@@ -600,6 +674,7 @@ export function AvatarIVStudio() {
       };
 
       mediaRecorder.onstop = () => {
+        clearRecordingTimer();
         const recordedMime = mediaRecorder.mimeType || mimeType || "audio/webm";
         const blob = new Blob(audioChunksRef.current, { type: recordedMime });
         setAudioBlob(blob);
@@ -609,6 +684,11 @@ export function AvatarIVStudio() {
 
       mediaRecorder.start();
       setIsRecording(true);
+      setRecordingElapsedSeconds(0);
+      clearRecordingTimer();
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingElapsedSeconds((prev) => prev + 1);
+      }, 1000);
       toast({
         title: "Recording Started",
         description: "Speak now. Click stop when finished.",
@@ -627,14 +707,26 @@ export function AvatarIVStudio() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      clearRecordingTimer();
     }
   };
 
   const clearRecording = () => {
+    clearRecordingTimer();
     setAudioBlob(null);
     setAudioUrl(null);
     setUploadedAudioUrl(null);
+    setSaveVoiceName("");
+    setSaveVoiceLanguage("");
+    setSaveVoiceGender("");
+    setRecordingElapsedSeconds(0);
   };
+
+  useEffect(() => {
+    return () => {
+      clearRecordingTimer();
+    };
+  }, []);
 
   // Upload recorded audio
   const audioUploadMutation = useMutation({
@@ -671,6 +763,62 @@ export function AvatarIVStudio() {
       toast({
         title: "Upload Failed",
         description: error?.message || "Could not upload audio",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const saveVoiceMutation = useMutation({
+    mutationFn: async ({
+      blob,
+      name,
+      language,
+      gender,
+    }: {
+      blob: Blob;
+      name: string;
+      language?: string;
+      gender?: string;
+    }) => {
+      const formData = new FormData();
+      let ext = "webm";
+      if (blob.type.includes("mp4") || blob.type.includes("m4a")) ext = "m4a";
+      else if (blob.type.includes("ogg")) ext = "ogg";
+      else if (blob.type.includes("wav")) ext = "wav";
+      formData.append("audio", blob, `recording.${ext}`);
+      formData.append("name", name);
+      if (language) formData.append("language", language);
+      if (gender) formData.append("gender", gender);
+
+      const response = await fetch("/api/custom-voices", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to save voice");
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-voices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/avatar-iv/voices"] });
+      toast({
+        title: "Voice Saved",
+        description: "Your recording is saved. It will appear in the voice list once cloning is ready.",
+      });
+      setSaveVoiceName("");
+      setSaveVoiceLanguage("");
+      setSaveVoiceGender("");
+      setInputMode("text");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Save Failed",
+        description: error?.message || "Could not save voice",
         variant: "destructive",
       });
     },
@@ -884,6 +1032,17 @@ export function AvatarIVStudio() {
       if (inputMode === "audio" && uploadedAudioUrl) {
         payload.audioUrl = uploadedAudioUrl;
       } else {
+        if (!selectedVoice) {
+          throw new Error("Please select a voice before generating.");
+        }
+        if (!selectedVoiceDetails) {
+          throw new Error("The selected voice is no longer available. Please re-select a voice.");
+        }
+        if (!isSelectedVoiceUsable) {
+          throw new Error(
+            `"${selectedVoiceDetails.name}" is not ready yet (${selectedVoiceDetails.status || "processing"}). Please choose a ready voice.`,
+          );
+        }
         payload.script = script;
         payload.voiceId = selectedVoice;
       }
@@ -2003,37 +2162,21 @@ export function AvatarIVStudio() {
                       
                       {!audioBlob ? (
                         <div className="flex flex-col items-center gap-4 p-6 border-2 border-dashed rounded-lg">
-                          {isRecording ? (
-                            <>
-                              <div className="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center animate-pulse">
-                                <Mic className="h-8 w-8 text-white" />
-                              </div>
-                              <p className="text-sm text-gray-500">Recording...</p>
-                              <Button
-                                onClick={stopRecording}
-                                variant="destructive"
-                                data-testid="button-stop-recording"
-                              >
-                                <Square className="h-4 w-4 mr-2" />
-                                Stop Recording
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
-                                <Mic className="h-8 w-8 text-gray-400" />
-                              </div>
-                              <p className="text-sm text-gray-500">Click to start recording</p>
-                              <Button
-                                onClick={startRecording}
-                                className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
-                                data-testid="button-start-recording"
-                              >
-                                <Mic className="h-4 w-4 mr-2" />
-                                Start Recording
-                              </Button>
-                            </>
-                          )}
+                          <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
+                            <Mic className="h-8 w-8 text-gray-400" />
+                          </div>
+                          <p className="text-sm text-gray-500">Click to start recording</p>
+                          <Button
+                            onClick={() => setShowGuidedRecordDialog(true)}
+                            className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
+                            data-testid="button-start-recording"
+                          >
+                            <Mic className="h-4 w-4 mr-2" />
+                            Start Recording
+                          </Button>
+                          <p className="text-xs text-gray-400 text-center">
+                            A guided reading script opens first to improve clone quality.
+                          </p>
                         </div>
                       ) : (
                         <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
@@ -2052,12 +2195,62 @@ export function AvatarIVStudio() {
                           {audioUrl && (
                             <audio controls src={audioUrl} className="w-full" data-testid="audio-preview" />
                           )}
+
+                          <div className="space-y-2 rounded-md border bg-white p-3">
+                            <p className="text-sm font-medium">Save for Future Videos</p>
+                            <Input
+                              placeholder="Voice name (e.g., My Brand Voice)"
+                              value={saveVoiceName}
+                              onChange={(e) => setSaveVoiceName(e.target.value)}
+                              data-testid="input-save-voice-name"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input
+                                placeholder="Language (optional)"
+                                value={saveVoiceLanguage}
+                                onChange={(e) => setSaveVoiceLanguage(e.target.value)}
+                                data-testid="input-save-voice-language"
+                              />
+                              <Select value={saveVoiceGender || "none"} onValueChange={(value) => setSaveVoiceGender(value === "none" ? "" : value)}>
+                                <SelectTrigger data-testid="select-save-voice-gender">
+                                  <SelectValue placeholder="Gender (optional)" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Gender</SelectItem>
+                                  <SelectItem value="female">Female</SelectItem>
+                                  <SelectItem value="male">Male</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
                           
                           <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                if (!audioBlob) return;
+                                saveVoiceMutation.mutate({
+                                  blob: audioBlob,
+                                  name: saveVoiceName.trim(),
+                                  language: saveVoiceLanguage.trim() || undefined,
+                                  gender: saveVoiceGender || undefined,
+                                });
+                              }}
+                              disabled={!audioBlob || !saveVoiceName.trim() || saveVoiceMutation.isPending}
+                              disabled={!audioBlob || !saveVoiceName.trim() || saveVoiceMutation.isPending || !minimumRecordingReached}
+                              data-testid="button-save-recording-voice"
+                            >
+                              {saveVoiceMutation.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                              )}
+                              Save Voice
+                            </Button>
                             {!uploadedAudioUrl && (
                               <Button
                                 onClick={() => audioBlob && audioUploadMutation.mutate(audioBlob)}
-                                disabled={audioUploadMutation.isPending}
+                                disabled={audioUploadMutation.isPending || !minimumRecordingReached}
                                 className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
                                 data-testid="button-upload-audio"
                               >
@@ -2078,8 +2271,132 @@ export function AvatarIVStudio() {
                               Retake
                             </Button>
                           </div>
+                          {!minimumRecordingReached && (
+                            <p className="text-xs text-amber-700">
+                              Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds before saving or uploading.
+                            </p>
+                          )}
                         </div>
                       )}
+
+                      <Dialog
+                        open={showGuidedRecordDialog}
+                        onOpenChange={(nextOpen) => {
+                          if (!nextOpen && isRecording) {
+                            stopRecording();
+                          }
+                          setShowGuidedRecordDialog(nextOpen);
+                        }}
+                      >
+                        <DialogContent className="sm:max-w-2xl" data-testid="dialog-guided-record-script">
+                          <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                              <Mic className="h-5 w-5 text-[#D4AF37]" />
+                              Guided Voice Recording
+                            </DialogTitle>
+                            <DialogDescription>
+                              Read this script naturally. Record for at least {VOICE_RECORDING_MIN_SECONDS} seconds for better voice cloning.
+                            </DialogDescription>
+                          </DialogHeader>
+
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-medium">{activeReadScript.title}</p>
+                              <Badge variant="secondary" className="text-[11px]">
+                                {activeReadScript.language} ({activeReadScript.locale}) · ~{activeReadScript.estimatedDurationSeconds}s
+                              </Badge>
+                            </div>
+
+                            <div className="rounded-lg border border-dashed bg-gray-50 p-4 space-y-2">
+                              {activeReadScript.lines.map((line, index) => (
+                                <p key={`${activeReadScript.id}-${index}`} className="text-sm leading-6 text-gray-700">
+                                  {line}
+                                </p>
+                              ))}
+                            </div>
+
+                            <div className="rounded-lg border bg-white p-3 space-y-2">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium">{isRecording ? "Recording..." : "Recording progress"}</span>
+                                <span className="tabular-nums text-gray-600">
+                                  {recordingElapsedSeconds} / {VOICE_RECORDING_MIN_SECONDS} seconds
+                                </span>
+                              </div>
+                              <Progress value={recordingProgress} className="h-2" />
+                              {minimumRecordingReached ? (
+                                <p className="text-xs text-emerald-700">
+                                  Minimum recording reached. You can stop now or continue for richer voice quality.
+                                </p>
+                              ) : (
+                                <p className="text-xs text-amber-700">
+                                  Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds for a better voice clone.
+                                </p>
+                              )}
+                              <p className="text-xs text-gray-500">
+                                Recommended recording length: {VOICE_RECORDING_RECOMMENDED_SECONDS.min}-{VOICE_RECORDING_RECOMMENDED_SECONDS.max} seconds.
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {!isRecording ? (
+                                <Button
+                                  onClick={startRecording}
+                                  className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
+                                  data-testid="button-guided-start-recording"
+                                >
+                                  <Mic className="h-4 w-4 mr-2" />
+                                  {audioBlob ? "Record Again" : "Start Recording"}
+                                </Button>
+                              ) : (
+                                <Button
+                                  onClick={stopRecording}
+                                  variant="destructive"
+                                  data-testid="button-guided-stop-recording"
+                                >
+                                  <Square className="h-4 w-4 mr-2" />
+                                  Stop Recording
+                                </Button>
+                              )}
+
+                              {audioUrl && !isRecording && (
+                                <Button
+                                  variant="outline"
+                                  onClick={clearRecording}
+                                  data-testid="button-guided-retake-recording"
+                                >
+                                  <RotateCcw className="h-4 w-4 mr-2" />
+                                  Retake
+                                </Button>
+                              )}
+
+                              {audioBlob && !isRecording && (
+                                <Button
+                                  onClick={() => setShowGuidedRecordDialog(false)}
+                                  className="bg-[#D4AF37] hover:bg-[#D4AF37]/90"
+                                  data-testid="button-guided-use-recording"
+                                >
+                                  Use Recording
+                                </Button>
+                              )}
+                            </div>
+
+                            {audioUrl && !isRecording && (
+                              <div className="rounded-lg border bg-white p-3 space-y-2">
+                                <p className="text-sm font-medium">Preview recording</p>
+                                <audio
+                                  controls
+                                  src={audioUrl}
+                                  className="w-full"
+                                  data-testid="audio-guided-preview"
+                                />
+                                <p className="text-xs text-gray-500">
+                                  Listen here. If you do not like it, click Retake and record again.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   )}
                 </div>
@@ -2091,9 +2408,17 @@ export function AvatarIVStudio() {
                         Voice
                         {voicesLoading && <Loader2 className="h-3 w-3 animate-spin" />}
                         <Badge variant="secondary" className="text-xs">
-                          {filteredVoices.length} of {voices.length}
+                          {renderedVoices.length} of {filteredVoices.length}
                         </Badge>
                       </Label>
+                      {selectedVoiceDetails && (
+                        <p className="text-xs text-gray-500">
+                          Selected: {selectedVoiceDetails.name}
+                          {selectedVoiceDetails.is_custom && selectedVoiceDetails.status
+                            ? ` (${selectedVoiceDetails.status})`
+                            : ""}
+                        </p>
+                      )}
                       
                       {/* Search and Gender Filter */}
                       <div className="flex flex-col sm:flex-row gap-2">
@@ -2137,23 +2462,48 @@ export function AvatarIVStudio() {
                       
                       {/* Voice List */}
                       <ScrollArea className="h-[250px] border rounded-md p-2">
-                        {filteredVoices.length === 0 ? (
+                        {renderedVoices.length === 0 ? (
                           <p className="text-center text-gray-500 py-4">No voices match your search</p>
                         ) : (
                           <div className="space-y-1">
-                            {filteredVoices.map((voice) => (
+                            {renderedVoices.map((voice) => (
+                              (() => {
+                                const isSelectable = voice.is_custom ? voice.is_usable !== false : true;
+                                const customStatus = voice.is_custom ? (voice.status || (voice.is_usable ? "ready" : "saved")) : null;
+                                return (
                               <div
                                 key={voice.voice_id}
-                                className={`flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+                                className={`flex items-center justify-between p-2 rounded-md transition-colors ${
+                                  isSelectable ? "cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800" : "cursor-not-allowed opacity-70"
+                                } ${
                                   selectedVoice === voice.voice_id ? "bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700" : ""
                                 }`}
-                                onClick={() => setSelectedVoice(voice.voice_id)}
+                                onClick={() => {
+                                  if (!isSelectable) {
+                                    const statusText = voice.status || "processing";
+                                    toast({
+                                      title: "Voice Not Ready",
+                                      description: `"${voice.name}" is ${statusText}. Please choose a ready voice or retry cloning.`,
+                                      variant: "destructive",
+                                    });
+                                    return;
+                                  }
+                                  setSelectedVoice(voice.voice_id);
+                                }}
                                 data-testid={`voice-option-${voice.voice_id}`}
                               >
                                 <div className="flex items-center gap-2">
                                   <div className="flex flex-col">
                                     <span className="font-medium text-sm">{voice.name}</span>
                                     <div className="flex items-center gap-1 mt-0.5">
+                                      {customStatus && (
+                                        <Badge
+                                          variant={customStatus === "ready" ? "default" : customStatus === "failed" ? "destructive" : "secondary"}
+                                          className="text-[10px] px-1 py-0"
+                                        >
+                                          {customStatus}
+                                        </Badge>
+                                      )}
                                       {voice.language && voice.language !== "unknown" && (
                                         <Badge variant="outline" className="text-[10px] px-1 py-0">
                                           {voice.language}
@@ -2187,7 +2537,22 @@ export function AvatarIVStudio() {
                                   )}
                                 </div>
                               </div>
+                                );
+                              })()
                             ))}
+                            {isVoiceListTruncated && (
+                              <div className="pt-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full"
+                                  onClick={() => setShowAllVoices(true)}
+                                  data-testid="button-show-all-voices"
+                                >
+                                  Show all {filteredVoices.length} voices
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </ScrollArea>

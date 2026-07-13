@@ -1,6 +1,8 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -9,32 +11,46 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TabsContent } from "@/components/ui/tabs";
-import { Check, Mic, MicOff, Play, RotateCcw } from "lucide-react";
+import { Check, Mic, MicOff, Pause, Play, RotateCcw, Sparkles } from "lucide-react";
 import { usePhotoAvatars } from "./context";
 import type { AvatarGroup } from "./types";
+import {
+  getDefaultVoiceReadingScript,
+  VOICE_RECORDING_MIN_SECONDS,
+  VOICE_RECORDING_RECOMMENDED_SECONDS,
+} from "./voice-recording-scripts";
 
 export function VoiceRecordTab() {
   const m = usePhotoAvatars();
   const {
     avatarGroups,
     selectedGroupForVoice, setSelectedGroupForVoice,
-    isRecording, recordedAudio, recordingTime,
-    startRecording, stopRecording, playRecording, resetRecording, saveVoiceToGroup,
+    isRecording, recordedAudio, recordingTime, isPlayingRecording,
+    startRecording, stopRecording, playRecording, pauseRecording, resetRecording, saveVoiceToGroup,
   } = m;
 
+  const activeScript = getDefaultVoiceReadingScript();
+  const minDurationReached = recordingTime >= VOICE_RECORDING_MIN_SECONDS;
+  const progressValue = Math.min(
+    (recordingTime / VOICE_RECORDING_MIN_SECONDS) * 100,
+    100
+  );
+  const hasGroupOptions = Array.isArray(avatarGroups) && avatarGroups.length > 0;
+  const canSaveAndClone = !!recordedAudio && !!selectedGroupForVoice && minDurationReached;
+
   return (
-    <TabsContent value="voice" className="space-y-4">
-      <Alert>
+    <TabsContent value="voice" className="space-y-5">
+      <Alert className="border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/30">
         <Mic className="h-4 w-4" />
         <AlertDescription>
-          Record a custom voice for your photo avatars. Your voice will be used
-          to generate personalized video content.
+          Record a guided sample for custom voice cloning. A clear 20-30 second
+          take gives the best results.
         </AlertDescription>
       </Alert>
 
-      {avatarGroups && avatarGroups.length > 0 && (
+      {hasGroupOptions && (
         <div>
-          <Label>Select Avatar Group for Voice</Label>
+          <Label>Select Avatar Group for Voice Clone</Label>
           <Select
             value={selectedGroupForVoice || ""}
             onValueChange={setSelectedGroupForVoice}
@@ -75,18 +91,67 @@ export function VoiceRecordTab() {
         </div>
       )}
 
-      <div className="border rounded-lg p-6 space-y-4 bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+        <div className="border rounded-xl p-5 space-y-4 bg-white dark:bg-neutral-950">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Reading Script</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Keep this visible while recording for a consistent sample.
+              </p>
+            </div>
+            <Badge variant="secondary" className="text-[11px]">
+              {activeScript.language} ({activeScript.locale}) · ~{activeScript.estimatedDurationSeconds}s
+            </Badge>
+          </div>
+
+          <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/40 p-4 space-y-2">
+            {activeScript.lines.map((line, idx) => (
+              <p
+                key={`${activeScript.id}-${idx}`}
+                className="text-sm leading-6 text-gray-700 dark:text-gray-200"
+              >
+                {line}
+              </p>
+            ))}
+          </div>
+
+          <div className="rounded-lg border bg-gray-50 dark:bg-gray-900 p-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">
+                {isRecording ? "Recording..." : recordedAudio ? "Recorded sample" : "Waiting to record"}
+              </span>
+              <span className="tabular-nums text-gray-600 dark:text-gray-300">
+                {recordingTime} / {VOICE_RECORDING_MIN_SECONDS} seconds
+              </span>
+            </div>
+            <Progress value={progressValue} className="h-2" />
+            {!minDurationReached ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds for a better voice clone.
+              </p>
+            ) : (
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                Minimum recording reached. You can save now or continue recording for even better voice quality.
+              </p>
+            )}
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Recommended recording length: {VOICE_RECORDING_RECOMMENDED_SECONDS.min}-{VOICE_RECORDING_RECOMMENDED_SECONDS.max} seconds for best voice quality.
+            </p>
+          </div>
+
+          <div className="text-center pt-1">
           {!isRecording && !recordedAudio && (
             <>
               <Mic className="w-12 h-12 mx-auto mb-4 text-gray-400" />
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Record a 5-15 second voice sample for your avatar
+                Start recording and read the script naturally in one continuous take.
               </p>
               <Button
                 onClick={startRecording}
                 size="lg"
                 className="w-full max-w-xs"
+                disabled={!hasGroupOptions}
                 data-testid="button-start-recording"
               >
                 <Mic className="w-4 h-4 mr-2" />
@@ -107,7 +172,7 @@ export function VoiceRecordTab() {
                 Recording... {recordingTime}s
               </p>
               <p className="text-sm text-gray-500 mb-4">
-                Speak clearly into your microphone
+                Speak naturally and continue reading the guided script.
               </p>
               <Button
                 onClick={stopRecording}
@@ -126,16 +191,20 @@ export function VoiceRecordTab() {
             <>
               <Check className="w-12 h-12 mx-auto mb-4 text-green-500" />
               <p className="text-sm font-semibold mb-4">
-                Voice Recording Complete!
+                Voice Recording Complete
               </p>
               <div className="flex gap-2 justify-center mb-4">
                 <Button
-                  onClick={playRecording}
+                  onClick={isPlayingRecording ? pauseRecording : playRecording}
                   variant="outline"
                   data-testid="button-play-recording"
                 >
-                  <Play className="w-4 h-4 mr-2" />
-                  Play Recording
+                  {isPlayingRecording ? (
+                    <Pause className="w-4 h-4 mr-2" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {isPlayingRecording ? "Pause" : "Play"}
                 </Button>
                 <Button
                   onClick={resetRecording}
@@ -146,28 +215,51 @@ export function VoiceRecordTab() {
                   Re-record
                 </Button>
               </div>
-              {selectedGroupForVoice && (
-                <Button
-                  onClick={saveVoiceToGroup}
-                  className="w-full max-w-xs"
-                  data-testid="button-save-voice"
-                >
-                  Save Voice to Avatar Group
-                </Button>
+              <Button
+                onClick={saveVoiceToGroup}
+                className="w-full max-w-xs"
+                disabled={!canSaveAndClone}
+                data-testid="button-save-voice"
+              >
+                <Sparkles className="w-4 h-4 mr-2" />
+                Save & Clone
+              </Button>
+              {!selectedGroupForVoice && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Select an avatar group to save this recording.
+                </p>
+              )}
+              {selectedGroupForVoice && !minDurationReached && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">
+                  Please record at least {VOICE_RECORDING_MIN_SECONDS} seconds for a better voice clone.
+                </p>
               )}
             </>
           )}
         </div>
       </div>
 
-      {!avatarGroups ||
-        (avatarGroups.length === 0 && (
-          <Alert>
-            <AlertDescription>
-              Create an avatar group first before recording a custom voice.
-            </AlertDescription>
-          </Alert>
-        ))}
+        <div className="border rounded-xl p-5 bg-white dark:bg-neutral-950 h-fit">
+          <div className="flex items-center gap-2 mb-3">
+            <Badge variant="outline">Recording Tips</Badge>
+          </div>
+          <ul className="text-sm text-gray-700 dark:text-gray-200 space-y-2 list-disc pl-5">
+            <li>Speak naturally and at a steady pace.</li>
+            <li>Read the script continuously in one take.</li>
+            <li>Record in a quiet room.</li>
+            <li>Avoid background noise and interruptions.</li>
+            <li>Keep your microphone at a consistent distance.</li>
+          </ul>
+        </div>
+      </div>
+
+      {(!avatarGroups || avatarGroups.length === 0) && (
+        <Alert>
+          <AlertDescription>
+            Create an avatar group first before recording and cloning a custom voice.
+          </AlertDescription>
+        </Alert>
+      )}
     </TabsContent>
   );
 }

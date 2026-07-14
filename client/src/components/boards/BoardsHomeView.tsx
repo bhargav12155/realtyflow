@@ -57,7 +57,7 @@ const QUICK_ACTIONS: QuickAction[] = [
     label: "Image",
     icon: ImageIcon,
     starterPrompt: "Create an image of ",
-    seedMode: "build",
+    seedMode: "plan",
   },
   {
     id: "video",
@@ -69,7 +69,7 @@ const QUICK_ACTIONS: QuickAction[] = [
     // direct text-to-video call, which previously jumped straight to VEO.
     starterPrompt: "Generate 3 image options for a video scene of ",
     provider: "gemini-image",
-    seedMode: "build",
+    seedMode: "plan",
   },
 ];
 

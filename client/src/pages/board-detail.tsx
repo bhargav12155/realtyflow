@@ -1977,16 +1977,16 @@ export default function BoardDetailPage() {
     if (seedParams.refs.length > 0) {
       setSelectedAssetIds(seedParams.refs);
     }
-    // Plan-mode intents (Social Post / Blog Article) land in conversational
-    // brainstorm mode; build/generation intents land in create mode.
-    setMode(seedParams.chatMode === "plan" ? "brainstorm" : "create");
+    // Think mode is the default for the board. Only force Build mode when
+    // an explicit `chatMode=build` seed is provided.
+    setMode(seedParams.chatMode === "build" ? "create" : "brainstorm");
     const intentLabels: Record<string, string> = {
       "social-post": "Social Post",
       "blog-article": "Blog Article",
       image: "Image",
       video: "Video",
     };
-    if (seedParams.chatMode === "plan") {
+    if (seedParams.chatMode !== "build") {
       // Plan mode: don't stuff the typed idea into a fake assistant message.
       // Pre-fill the input so the user can keep typing, and open with one
       // focused planning question to get the conversation going.

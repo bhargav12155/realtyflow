@@ -5,8 +5,28 @@ import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
+function getGeminiApiKeys(): string[] {
+  const keys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2]
+    .map((k) => (k || "").trim())
+    .filter((k) => k.length > 10);
+  return Array.from(new Set(keys));
+}
+
 function getGeminiClient(): GoogleGenAI {
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+  const primary = getGeminiApiKeys()[0] || "";
+  return new GoogleGenAI({ apiKey: primary });
+}
+
+function isGeminiAuthError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error || "")).toLowerCase();
+  return (
+    msg.includes("api key") ||
+    msg.includes("permission_denied") ||
+    msg.includes("unauthorized") ||
+    msg.includes("invalid_argument") ||
+    msg.includes("403") ||
+    msg.includes("leaked")
+  );
 }
 
 async function fetchImageAsBase64(
@@ -665,49 +685,76 @@ RULES:
   }
 
   async generateImage({ prompt, size = "1024x1024", isPublic = false }: { prompt: string; size?: string; isPublic?: boolean }): Promise<string | null> {
-    try {
-      const genAI = getGeminiClient();
-      console.log(`🎨 [ImageGen] Generating image with prompt: "${prompt.substring(0, 100)}..."`);
-
-      const response = await genAI.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: { responseModalities: ["TEXT", "IMAGE"] },
-      });
-
-      const imgPart = pickInlineImagePart(response);
-
-      if (!imgPart?.inlineData?.data) {
-        console.warn("⚠️ [ImageGen] No image returned from Gemini image generation:", geminiNoImageDiagnostics(response));
-        return null;
-      }
-
-      const imageBase64 = imgPart.inlineData.data;
-      const mimeType = imgPart.inlineData.mimeType || "image/png";
-      const ext = mimeType.includes("jpeg") ? "jpg" : "png";
-      const imageBuffer = Buffer.from(imageBase64, "base64");
-      const filename = `ai-generated-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-
-      try {
-        const { persistImageBuffer, persistImageBufferPublic } = await import("../objectStorage");
-        const storedUrl = isPublic
-          ? await persistImageBufferPublic(imageBuffer, filename, mimeType)
-          : await persistImageBuffer(imageBuffer, filename, mimeType);
-        if (storedUrl) {
-          console.log(`✅ [ImageGen] Image generated and stored: ${storedUrl}`);
-          return storedUrl;
-        }
-      } catch (storageError: any) {
-        console.warn(`⚠️ [ImageGen] Object storage failed, using base64 fallback:`, storageError?.message);
-      }
-
-      const base64DataUri = `data:${mimeType};base64,${imageBase64}`;
-      console.log(`✅ [ImageGen] Image generated (base64 fallback, ${imageBuffer.length} bytes)`);
-      return base64DataUri;
-    } catch (error: any) {
-      console.error("❌ [ImageGen] Image generation error:", error?.message || error);
+    const apiKeys = getGeminiApiKeys();
+    if (apiKeys.length === 0) {
+      console.error("❌ [ImageGen] No GEMINI_API_KEY configured");
       return null;
     }
+
+    let lastError: unknown = null;
+    for (let i = 0; i < apiKeys.length; i++) {
+      try {
+        const genAI = new GoogleGenAI({ apiKey: apiKeys[i] });
+        console.log(`🎨 [ImageGen] Generating image with key #${i + 1} and prompt: "${prompt.substring(0, 100)}..."`);
+
+        const response = await genAI.models.generateContent({
+          model: "gemini-2.5-flash-image",
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          config: { responseModalities: ["TEXT", "IMAGE"] },
+        });
+
+        const imgPart = pickInlineImagePart(response);
+
+        if (!imgPart?.inlineData?.data) {
+          throw new Error(
+            `Gemini image generation returned no image part (${geminiNoImageDiagnostics(response)})`,
+          );
+        }
+
+        const imageBase64 = imgPart.inlineData.data;
+        const mimeType = imgPart.inlineData.mimeType || "image/png";
+        const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+        const imageBuffer = Buffer.from(imageBase64, "base64");
+        const filename = `ai-generated-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+        try {
+          const { persistImageBuffer, persistImageBufferPublic } = await import("../objectStorage");
+          const storedUrl = isPublic
+            ? await persistImageBufferPublic(imageBuffer, filename, mimeType)
+            : await persistImageBuffer(imageBuffer, filename, mimeType);
+          if (storedUrl) {
+            console.log(`✅ [ImageGen] Image generated and stored: ${storedUrl}`);
+            return storedUrl;
+          }
+        } catch (storageError: any) {
+          console.warn(`⚠️ [ImageGen] Object storage failed, using base64 fallback:`, storageError?.message);
+        }
+
+        const base64DataUri = `data:${mimeType};base64,${imageBase64}`;
+        console.log(`✅ [ImageGen] Image generated (base64 fallback, ${imageBuffer.length} bytes)`);
+        return base64DataUri;
+      } catch (error: any) {
+        lastError = error;
+        const message = error?.message || String(error);
+        const canRetry = i < apiKeys.length - 1;
+        if (canRetry) {
+          if (isGeminiAuthError(error)) {
+            console.warn(`⚠️ [ImageGen] Key #${i + 1} failed auth; trying fallback key #${i + 2}`);
+          } else {
+            console.warn(`⚠️ [ImageGen] Key #${i + 1} failed (${message}); trying fallback key #${i + 2}`);
+          }
+          continue;
+        }
+        console.error("❌ [ImageGen] Image generation error:", message);
+      }
+    }
+
+    if (lastError) {
+      const lastMessage = lastError instanceof Error ? lastError.message : String(lastError);
+      console.error("❌ [ImageGen] Final failure after trying all configured keys:", lastMessage);
+      throw new Error(`Gemini image generation failed: ${lastMessage}`);
+    }
+    throw new Error("Gemini image generation failed: no configured key could produce an image");
   }
 
   async editImage({
@@ -717,56 +764,81 @@ RULES:
     prompt: string;
     referenceImageUrls: string[];
   }): Promise<string | null> {
-    try {
-      const genAI = getGeminiClient();
-      console.log(
-        `🎨 [ImageEdit] Editing ${referenceImageUrls.length} image(s) with prompt: "${prompt.substring(0, 100)}..."`,
-      );
-
-      const parts: any[] = [{ text: prompt }];
-      for (const url of referenceImageUrls) {
-        const fetched = await fetchImageAsBase64(url);
-        if (!fetched) {
-          console.warn(`⚠️ [ImageEdit] Could not fetch reference image: ${url}`);
-          continue;
-        }
-        parts.push({ inlineData: { mimeType: fetched.mimeType, data: fetched.base64 } });
-      }
-
-      const response = await genAI.models.generateContent({
-        model: "gemini-2.5-flash-image",
-        contents: [{ role: "user", parts }],
-        config: { responseModalities: ["TEXT", "IMAGE"] },
-      });
-
-      const imgPart = pickInlineImagePart(response);
-      if (!imgPart?.inlineData?.data) {
-        console.warn("⚠️ [ImageEdit] No image returned from Gemini image edit:", geminiNoImageDiagnostics(response));
-        return null;
-      }
-
-      const imageBase64 = imgPart.inlineData.data;
-      const mimeType = imgPart.inlineData.mimeType || "image/png";
-      const ext = mimeType.includes("jpeg") ? "jpg" : "png";
-      const imageBuffer = Buffer.from(imageBase64, "base64");
-      const filename = `ai-edited-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
-
-      try {
-        const { persistImageBuffer } = await import("../objectStorage");
-        const storedUrl = await persistImageBuffer(imageBuffer, filename, mimeType);
-        if (storedUrl) {
-          console.log(`✅ [ImageEdit] Edited image stored: ${storedUrl}`);
-          return storedUrl;
-        }
-      } catch (storageError: any) {
-        console.warn(`⚠️ [ImageEdit] Object storage failed, using base64 fallback:`, storageError?.message);
-      }
-
-      return `data:${mimeType};base64,${imageBase64}`;
-    } catch (error: any) {
-      console.error("❌ [ImageEdit] Image edit error:", error?.message || error);
+    const apiKeys = getGeminiApiKeys();
+    if (apiKeys.length === 0) {
+      console.error("❌ [ImageEdit] No GEMINI_API_KEY configured");
       return null;
     }
+
+    const parts: any[] = [{ text: prompt }];
+    for (const url of referenceImageUrls) {
+      const fetched = await fetchImageAsBase64(url);
+      if (!fetched) {
+        console.warn(`⚠️ [ImageEdit] Could not fetch reference image: ${url}`);
+        continue;
+      }
+      parts.push({ inlineData: { mimeType: fetched.mimeType, data: fetched.base64 } });
+    }
+
+    let lastError: unknown = null;
+    for (let i = 0; i < apiKeys.length; i++) {
+      try {
+        const genAI = new GoogleGenAI({ apiKey: apiKeys[i] });
+        console.log(
+          `🎨 [ImageEdit] Editing ${referenceImageUrls.length} image(s) with key #${i + 1} and prompt: "${prompt.substring(0, 100)}..."`,
+        );
+
+        const response = await genAI.models.generateContent({
+          model: "gemini-2.5-flash-image",
+          contents: [{ role: "user", parts }],
+          config: { responseModalities: ["TEXT", "IMAGE"] },
+        });
+
+        const imgPart = pickInlineImagePart(response);
+        if (!imgPart?.inlineData?.data) {
+          throw new Error(`Gemini image edit returned no image part (${geminiNoImageDiagnostics(response)})`);
+        }
+
+        const imageBase64 = imgPart.inlineData.data;
+        const mimeType = imgPart.inlineData.mimeType || "image/png";
+        const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+        const imageBuffer = Buffer.from(imageBase64, "base64");
+        const filename = `ai-edited-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+        try {
+          const { persistImageBuffer } = await import("../objectStorage");
+          const storedUrl = await persistImageBuffer(imageBuffer, filename, mimeType);
+          if (storedUrl) {
+            console.log(`✅ [ImageEdit] Edited image stored: ${storedUrl}`);
+            return storedUrl;
+          }
+        } catch (storageError: any) {
+          console.warn(`⚠️ [ImageEdit] Object storage failed, using base64 fallback:`, storageError?.message);
+        }
+
+        return `data:${mimeType};base64,${imageBase64}`;
+      } catch (error: any) {
+        lastError = error;
+        const message = error?.message || String(error);
+        const canRetry = i < apiKeys.length - 1;
+        if (canRetry) {
+          if (isGeminiAuthError(error)) {
+            console.warn(`⚠️ [ImageEdit] Key #${i + 1} failed auth; trying fallback key #${i + 2}`);
+          } else {
+            console.warn(`⚠️ [ImageEdit] Key #${i + 1} failed (${message}); trying fallback key #${i + 2}`);
+          }
+          continue;
+        }
+        console.error("❌ [ImageEdit] Image edit error:", message);
+      }
+    }
+
+    if (lastError) {
+      const lastMessage = lastError instanceof Error ? lastError.message : String(lastError);
+      console.error("❌ [ImageEdit] Final failure after trying all configured keys:", lastMessage);
+      throw new Error(`Gemini image edit failed: ${lastMessage}`);
+    }
+    throw new Error("Gemini image edit failed: no configured key could produce an image");
   }
 
   async analyzeImage(imageUrl: string, prompt: string): Promise<string | null> {

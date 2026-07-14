@@ -2,8 +2,11 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool, type PoolConfig } from "pg";
+import pg from "pg";
 import * as schema from "@shared/schema";
+
+const { Pool } = pg;
+type PoolConfig = pg.PoolConfig;
 
 const resolvedDatabaseUrl =
   process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
@@ -23,8 +26,6 @@ if (requiresSsl) {
 
 const poolConfig: PoolConfig = {
   connectionString: databaseUrl.toString(),
-  // Keep pool connections healthy during long idle periods so background
-  // workers don't fail their next query with terminated-socket errors.
   max: Number.parseInt(process.env.PG_POOL_MAX ?? "10", 10),
   idleTimeoutMillis: Number.parseInt(process.env.PG_IDLE_TIMEOUT_MS ?? "30000", 10),
   connectionTimeoutMillis: Number.parseInt(process.env.PG_CONNECTION_TIMEOUT_MS ?? "10000", 10),

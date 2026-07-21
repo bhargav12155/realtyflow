@@ -36,16 +36,18 @@ export interface Property {
 interface PropertySelectorProps {
   onSelectProperty: (property: Property) => void;
   selectedProperty?: Property | null;
+  searchState?: string;
 }
 
 // Google Maps API Key
 const GOOGLE_MAPS_API_KEY = "AIzaSyABw7DX0sg8fmhPt9H6JdlIGO-GikNgWhI";
 
-export function PropertySelector({ onSelectProperty, selectedProperty }: PropertySelectorProps) {
+export function PropertySelector({ onSelectProperty, selectedProperty, searchState }: PropertySelectorProps) {
   const { toast } = useToast();
+  const normalizedSearchState = searchState?.trim().toUpperCase() || "NE";
   const [searchParams, setSearchParams] = useState({
     city: "",
-    state: "NE",
+    state: normalizedSearchState,
     neighborhood: "",
     propertyType: "",
     mlsNumber: "",
@@ -68,6 +70,22 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
   const addressInputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<any>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const isLikelyFullAddress = (value: string) => {
+    const normalized = value.trim();
+    if (normalized.length < 8) return false;
+    const hasStreetNumber = /\d+/.test(normalized);
+    const hasStreetText = /[a-zA-Z]{3,}/.test(normalized);
+    return hasStreetNumber && hasStreetText;
+  };
+
+  useEffect(() => {
+    setSearchParams((prev) =>
+      prev.state === normalizedSearchState
+        ? prev
+        : { ...prev, state: normalizedSearchState },
+    );
+  }, [normalizedSearchState]);
 
   // Load Google Maps API with enhanced error handling
   useEffect(() => {
@@ -141,16 +159,6 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
           setAutoFoundMissingPrice(mapped.listPrice === null);
           const foundProperty: Property = mapped;
 
-          setSearchParams(prev => ({
-            ...prev,
-            // Use the LISTING's MLS number (not the agent's ID).
-            mlsNumber: foundProperty.mlsId || prev.mlsNumber,
-            listingAgent: propertyData.ListAgentFullName || propertyData.ListingAgent || propertyData.listingAgent || prev.listingAgent,
-            city: propertyData.City || prev.city,
-            neighborhood: propertyData.SubdivisionName || propertyData.Neighborhood || prev.neighborhood,
-            address: propertyData.UnparsedAddress || prev.address
-          }));
-
           setAutoFoundProperty(foundProperty);
           toast({
             title: "Property Found",
@@ -216,9 +224,14 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
         params.append('city', searchParams.city.trim());
       }
 
+      if (searchParams.state && searchParams.state.trim() !== '') {
+        params.append('state', searchParams.state.trim().toUpperCase());
+      }
+
       // Only default to Omaha if no search criteria at all
       if (params.toString() === '') {
         params.append('city', 'Omaha');
+        params.append('state', normalizedSearchState);
       }
 
       const fullUrl = `${baseUrl}?${params.toString()}`;
@@ -257,26 +270,25 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
   });
 
   const handleSearch = () => {
-    // If we have an auto-found property, auto-select it and close modal
-    if (autoFoundProperty) {
-      console.log('Auto-selecting found property:', autoFoundProperty);
-      onSelectProperty(autoFoundProperty);
-      setShowDialog(false);
-      toast({
-        title: "Property Selected",
-        description: autoFoundProperty.address,
-      });
-      return;
-    }
-    
     refetch();
+  };
+
+  const handleSelectFoundProperty = () => {
+    if (!autoFoundProperty) return;
+    console.log('Selecting found property:', autoFoundProperty);
+    onSelectProperty(autoFoundProperty);
+    setShowDialog(false);
+    toast({
+      title: "Property Selected",
+      description: autoFoundProperty.address,
+    });
   };
 
   // Clear all search fields
   const clearForm = () => {
     setSearchParams({
       city: "",
-      state: "NE",
+      state: normalizedSearchState,
       neighborhood: "",
       propertyType: "",
       mlsNumber: "",
@@ -514,7 +526,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                         </span>
                       ) : (
                         <span className="text-gray-500 flex items-center gap-1">
-                          Type address to search
+                          Type full address for auto-detect
                         </span>
                       )}
                     </div>
@@ -533,16 +545,16 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                           clearTimeout(searchTimeoutRef.current);
                         }
                         
-                        // Only search after user stops typing for 1.5 seconds and has enough characters
-                        if (newAddress && newAddress.trim().length > 5) {
+                        // Only run single-property auto-detect for full addresses.
+                        if (isLikelyFullAddress(newAddress)) {
                           searchTimeoutRef.current = setTimeout(() => {
                             fetchPropertyDetails(newAddress);
                           }, 1500);
                         }
                       }}
                       onKeyDown={(e) => {
-                        // When user presses Enter, search immediately
-                        if (e.key === 'Enter' && searchParams.address && searchParams.address.trim().length > 5) {
+                        // Enter only triggers auto-detect for full addresses.
+                        if (e.key === 'Enter' && isLikelyFullAddress(searchParams.address)) {
                           e.preventDefault();
                           if (searchTimeoutRef.current) {
                             clearTimeout(searchTimeoutRef.current);
@@ -571,6 +583,9 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                       </button>
                     )}
                   </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Tip: use a full street address for auto-detect. For broader keyword matches (for example, cottonwood), click Search Properties.
+                  </p>
                   {autoFoundProperty && (
                     <p className="text-xs text-green-600 flex items-center gap-1">
                       <CheckCircle className="h-3 w-3" />
@@ -586,7 +601,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                   <Input
                     value={searchParams.city}
                     onChange={(e) => setSearchParams(prev => ({ ...prev, city: e.target.value }))}
-                    placeholder="Enter city"
+                    placeholder={`Enter city in ${searchParams.state}`}
                     data-testid="input-city"
                   />
                 </div>
@@ -615,35 +630,34 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
               </div>
 
               <div className="flex justify-center gap-3">
-                {autoFoundProperty ? (
-                  <Button 
-                    onClick={handleSearch} 
-                    disabled={isLoading || isSearchingAddress}
+                {autoFoundProperty && (
+                  <Button
+                    onClick={handleSelectFoundProperty}
+                    disabled={isSearchingAddress}
                     className="bg-green-600 hover:bg-green-700"
                     data-testid="button-select-found-property"
                   >
                     <CheckCircle className="mr-2 h-4 w-4" />
                     Select This Property
                   </Button>
-                ) : (
-                  <Button 
-                    onClick={handleSearch} 
-                    disabled={isLoading || isSearchingAddress} 
-                    data-testid="button-search-properties"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Searching...
-                      </>
-                    ) : (
-                      <>
-                        <Search className="mr-2 h-4 w-4" />
-                        Search Properties
-                      </>
-                    )}
-                  </Button>
                 )}
+                <Button 
+                  onClick={handleSearch} 
+                  disabled={isLoading || isSearchingAddress} 
+                  data-testid="button-search-properties"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Searching...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="mr-2 h-4 w-4" />
+                      Search Properties
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
 
@@ -674,7 +688,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                 </div>
               )}
 
-              {!autoFoundProperty && properties && properties.length === 0 && (
+              {properties && properties.length === 0 && (
                 <div className="text-center py-8">
                   <Home className="mx-auto h-12 w-12 text-muted-foreground/50 mb-4" />
                   <h3 className="text-lg font-medium">No Properties Found</h3>
@@ -682,7 +696,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty }: Propert
                 </div>
               )}
 
-              {!autoFoundProperty && properties && properties.length > 0 && (
+              {properties && properties.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-medium">Found {properties.length} Properties</h3>

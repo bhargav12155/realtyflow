@@ -1,11 +1,31 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { getAuthHeaders, clearAuthToken } from "./authToken";
+import { getAuthHeaders, getAuthToken, clearAuthToken } from "./authToken";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
+}
+
+async function fetchWithAuthRecovery(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  let res = await fetch(input, init);
+
+  // Recover from stale/invalid local bearer token by clearing it and retrying once.
+  if (res.status === 401 && getAuthToken()) {
+    clearAuthToken();
+    const retryHeaders = new Headers(init?.headers);
+    retryHeaders.delete("Authorization");
+    res = await fetch(input, {
+      ...init,
+      headers: retryHeaders,
+    });
+  }
+
+  return res;
 }
 
 export async function apiRequest(
@@ -23,7 +43,7 @@ export async function apiRequest(
       ? { "Content-Type": "application/json", ...authHeaders }
       : { ...authHeaders };
   
-  const res = await fetch(url, {
+  const res = await fetchWithAuthRecovery(url, {
     method,
     headers,
     body: isFormData ? data as FormData : (data ? JSON.stringify(data) : undefined),
@@ -43,7 +63,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const authHeaders = getAuthHeaders();
     
-    const res = await fetch(queryKey.join("/") as string, {
+    const res = await fetchWithAuthRecovery(queryKey.join("/") as string, {
       credentials: "include",
       headers: authHeaders,
     });

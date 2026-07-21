@@ -190,6 +190,12 @@ export class MLSService {
       );
     }
 
+    if (params.state) {
+      filtered = filtered.filter(
+        p => p.state.toUpperCase() === params.state!.toUpperCase(),
+      );
+    }
+
     if (params.mlsNumber) {
       filtered = filtered.filter(p => p.mlsId === params.mlsNumber);
     }

@@ -17531,11 +17531,21 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       },
     ];
 
+    const requestedState = typeof searchParams?.state === "string"
+      ? searchParams.state.trim().toUpperCase()
+      : "";
+
+    const filteredProperties = requestedState
+      ? sampleProperties.filter(
+          (property) => property.state.toUpperCase() === requestedState,
+        )
+      : sampleProperties;
+
     return {
       success: true,
-      count: sampleProperties.length,
-      totalAvailable: sampleProperties.length,
-      properties: sampleProperties,
+      count: filteredProperties.length,
+      totalAvailable: filteredProperties.length,
+      properties: filteredProperties,
       searchCriteria: searchParams,
       fallback: true,
       message: "Demo data - External property service temporarily unavailable",
@@ -17544,6 +17554,25 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
   // Unified property search helper with fallback chain
   async function tryFallbackChain(query: any, res: any) {
+    const hasExactMlsSearch = Boolean(query.mls_number || query.mls);
+    const requestedState =
+      typeof query.state === "string" ? query.state.trim().toUpperCase() : "";
+
+    const enforceRequestedState = (properties: any[] = []) => {
+      if (!requestedState) return properties;
+      return properties.filter((property) => {
+        const rawState =
+          property?.state ||
+          property?.StateOrProvince ||
+          property?.stateOrProvince ||
+          "";
+        return (
+          typeof rawState === "string" &&
+          rawState.trim().toUpperCase() === requestedState
+        );
+      });
+    };
+
     // Try Paragon MLS service
     try {
       const mlsService = new MLSService();
@@ -17551,19 +17580,34 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         mlsNumber: query.mls_number || query.mls,
         address: query.address,
         city: query.city,
+        state: query.state,
         listingAgent: query.agent || query.listing_agent_name,
       });
-      if (paragonResult && paragonResult.length > 0) {
+      const stateFilteredParagon = enforceRequestedState(paragonResult || []);
+      if (stateFilteredParagon.length > 0) {
         console.log("Fallback: Paragon MLS returned results");
         return res.json({
           success: true,
-          count: paragonResult.length,
-          properties: paragonResult,
+          count: stateFilteredParagon.length,
+          properties: stateFilteredParagon,
           source: "paragon-mls",
         });
       }
     } catch (error) {
       console.warn("Paragon MLS fallback failed:", error);
+    }
+
+    if (hasExactMlsSearch) {
+      console.log("Exact MLS search had no in-state match; returning empty result set");
+      return res.json({
+        success: true,
+        count: 0,
+        total: 0,
+        totalAvailable: 0,
+        properties: [],
+        searchCriteria: query,
+        source: "filtered-mls-search",
+      });
     }
 
     // Try IDX service
@@ -17573,12 +17617,13 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         city: query.city,
         state: query.state || "NE",
       });
-      if (idxResult && idxResult.length > 0) {
+      const stateFilteredIdx = enforceRequestedState(idxResult || []);
+      if (stateFilteredIdx.length > 0) {
         console.log("Fallback: IDX service returned results");
         return res.json({
           success: true,
-          count: idxResult.length,
-          properties: idxResult,
+          count: stateFilteredIdx.length,
+          properties: stateFilteredIdx,
           source: "idx-service",
         });
       }
@@ -17610,6 +17655,7 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         params.append("listing_agent_name", agent as string);
       }
       if (req.query.city) params.append("city", req.query.city as string);
+      if (req.query.state) params.append("state", req.query.state as string);
 
       const fullUrl = `${baseUrl}?${params.toString()}`;
       console.log("Proxying to gbcma API:", fullUrl);
@@ -17625,15 +17671,38 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       }
 
       const data = await response.json();
-      console.log("GBCMA API response:", data);
+      const requestedState =
+        typeof req.query.state === "string"
+          ? req.query.state.trim().toUpperCase()
+          : "";
+      const filteredProperties = requestedState
+        ? (data.properties || []).filter(
+            (property: any) =>
+              typeof (property?.state || property?.StateOrProvince) === "string" &&
+              (property.state || property.StateOrProvince)
+                .trim()
+                .toUpperCase() === requestedState,
+          )
+        : data.properties || [];
+      const filteredData = requestedState
+        ? {
+            ...data,
+            count: filteredProperties.length,
+            total: filteredProperties.length,
+            totalAvailable: filteredProperties.length,
+            properties: filteredProperties,
+          }
+        : data;
+
+      console.log("GBCMA API response:", filteredData);
 
       // If API returns no results, try fallback chain
-      if (data.success && data.count === 0) {
+      if (filteredData.success && filteredData.count === 0) {
         console.log("No properties found in GBCMA, trying fallback chain");
         return await tryFallbackChain(req.query, res);
       }
 
-      res.json({ ...data, source: "gbcma" });
+      res.json({ ...filteredData, source: "gbcma" });
     } catch (error: any) {
       console.error("GBCMA proxy error:", error);
       // Try fallback chain instead of immediate sample data

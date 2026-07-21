@@ -264,6 +264,11 @@ export class IDXService {
     if (params.city) {
       filtered = filtered.filter(p => p.city.toLowerCase().includes(params.city!.toLowerCase()));
     }
+    if (params.state) {
+      filtered = filtered.filter(
+        p => p.state.toUpperCase() === params.state!.toUpperCase(),
+      );
+    }
     if (params.neighborhood) {
       filtered = filtered.filter(p => p.neighborhood?.toLowerCase().includes(params.neighborhood!.toLowerCase()));
     }

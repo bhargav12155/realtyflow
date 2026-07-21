@@ -1052,9 +1052,12 @@ export function SocialMediaManager() {
     agentName?: string;
     brokerageName?: string;
     businessName?: string;
+    state?: string;
   }>({
     queryKey: ["/api/company/profile"],
   });
+
+  const propertySearchState = companyProfile?.state?.trim()?.toUpperCase() || "NE";
 
   const { data: messagingLimitData } = useQuery<{
     limit: number;
@@ -2597,6 +2600,7 @@ ${agentName} | ${brokerageName}
             <PropertySelector
               onSelectProperty={setSelectedProperty}
               selectedProperty={selectedProperty}
+              searchState={propertySearchState}
             />
             {selectedProperty && selectedProperty.photoUrls && selectedProperty.photoUrls.length > 0 && (
               <div className="mt-2 space-y-1">

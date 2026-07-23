@@ -8,6 +8,8 @@ export interface AddressLookupResponse {
   ListingAgent?: string | null;
   UnparsedAddress?: string | null;
   City?: string | null;
+  StateOrProvince?: string | null;
+  state?: string | null;
   PostalCode?: string | null;
   SubdivisionName?: string | null;
   Neighborhood?: string | null;
@@ -62,6 +64,11 @@ function firstString(...values: Array<unknown>): string {
     if (s.length > 0) return s;
   }
   return "";
+}
+
+function parseStateFromAddress(value: string): string {
+  const match = value.match(/,\s*([A-Za-z]{2})\s*(?:\d{5}(?:-\d{4})?)?\s*$/);
+  return match ? match[1].toUpperCase() : "";
 }
 
 /**
@@ -122,6 +129,12 @@ export function pickBathrooms(p: AddressLookupResponse): number | null {
 export interface SearchResultProperty {
   id?: string | number | null;
   mlsId?: string | number | null;
+  mlsNumber?: string | number | null;
+  MLSNumber?: string | number | null;
+  listingId?: string | number | null;
+  ListingId?: string | number | null;
+  listingKey?: string | number | null;
+  ListingKey?: string | number | null;
   listPrice?: number | string | null;
   address?: string | null;
   city?: string | null;
@@ -154,8 +167,17 @@ export interface SearchResultProperty {
 export function mapSearchResultToProperty(
   p: SearchResultProperty,
 ): MappedAddressProperty {
+  const resolvedMlsId = firstString(
+    p.mlsNumber,
+    p.MLSNumber,
+    p.mlsId,
+    p.listingId,
+    p.ListingId,
+    p.id,
+  );
+
   const id =
-    firstString(p.id, p.mlsId) ||
+    firstString(p.id, p.listingKey, p.ListingKey, p.listingId, p.ListingId, resolvedMlsId) ||
     Math.random().toString(36).slice(2);
 
   const photoUrls = Array.isArray(p.photoUrls)
@@ -174,7 +196,7 @@ export function mapSearchResultToProperty(
 
   return {
     id,
-    mlsId: firstString(p.mlsId, p.id),
+    mlsId: resolvedMlsId,
     address: firstString(p.address),
     city: firstString(p.city),
     state: firstString(p.state) || "NE",
@@ -215,7 +237,10 @@ export function mapAddressLookupToProperty(
     mlsId: pickListingMlsNumber(p),
     address: firstString(p.UnparsedAddress) || fallbackAddress,
     city: firstString(p.City),
-    state: "NE",
+    state:
+      firstString(p.StateOrProvince, p.state).toUpperCase() ||
+      parseStateFromAddress(firstString(p.UnparsedAddress) || fallbackAddress) ||
+      "NE",
     zipCode: firstString(p.PostalCode),
     listPrice: toFiniteNumber(p.ListPrice),
     bedrooms: toFiniteNumber(p.BedroomsTotal),

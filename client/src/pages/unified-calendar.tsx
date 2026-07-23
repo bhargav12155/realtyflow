@@ -411,6 +411,7 @@ export default function UnifiedCalendarPage() {
   });
 
   const { data: companyProfile } = useQuery<any>({ queryKey: ["/api/company/profile"] });
+  const propertySearchState = companyProfile?.state?.trim()?.toUpperCase() || "NE";
 
   const { data: apiScheduledPosts = [], isLoading: postsLoading } = useQuery<ScheduledPost[]>({
     queryKey: ["/api/scheduled-posts", statusFilter, businessType],
@@ -3624,6 +3625,7 @@ export default function UnifiedCalendarPage() {
                   }
                 }}
                 selectedProperty={null}
+                searchState={propertySearchState}
               />
             ) : (
               <div className="space-y-3">

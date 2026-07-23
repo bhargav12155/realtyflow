@@ -190,6 +190,10 @@ const ROOM_CLIP_DURATION = 16;
 
 export function PropertyTourStudio() {
   const { toast } = useToast();
+  const { data: companyProfile } = useQuery<{ state?: string }>({
+    queryKey: ["/api/company/profile"],
+  });
+  const propertySearchState = companyProfile?.state?.trim()?.toUpperCase() || "NE";
   
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
@@ -1206,6 +1210,7 @@ ${propertyDetails}`;
             <PropertySelector
               onSelectProperty={handlePropertySelect}
               selectedProperty={selectedProperty}
+              searchState={propertySearchState}
             />
             {selectedProperty && (
               <div className="p-4 bg-muted rounded-lg">

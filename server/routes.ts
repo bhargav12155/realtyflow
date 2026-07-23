@@ -17582,6 +17582,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         city: query.city,
         state: query.state,
         listingAgent: query.agent || query.listing_agent_name,
+        neighborhood: query.neighborhood || query.subdivision,
+        propertyType: query.property_type || query.propertyType,
       });
       const stateFilteredParagon = enforceRequestedState(paragonResult || []);
       if (stateFilteredParagon.length > 0) {
@@ -17616,6 +17618,8 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       const idxResult = await idxService.searchProperties({
         city: query.city,
         state: query.state || "NE",
+        neighborhood: query.neighborhood || query.subdivision,
+        propertyType: query.property_type || query.propertyType,
       });
       const stateFilteredIdx = enforceRequestedState(idxResult || []);
       if (stateFilteredIdx.length > 0) {
@@ -17643,19 +17647,101 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
         "http://gbcma.us-east-2.elasticbeanstalk.com/api/property-search-new";
       const params = new URLSearchParams();
 
+      const escapeRegExp = (value: string) =>
+        value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      const parseAddressInput = (rawAddress: string) => {
+        const trimmed = rawAddress.trim().replace(/\s+/g, " ");
+        const match = trimmed.match(/^(.*?),\s*([A-Za-z]{2})\s*(\d{5}(?:-\d{4})?)?\s*$/);
+        if (!match) {
+          return {
+            normalizedAddress: trimmed,
+            inferredCity: "",
+            inferredState: "",
+          };
+        }
+
+        const prefix = (match[1] || "").trim();
+        const inferredState = (match[2] || "").trim().toUpperCase();
+        const words = prefix.split(/\s+/).filter(Boolean);
+        if (words.length < 2) {
+          return {
+            normalizedAddress: prefix || trimmed,
+            inferredCity: "",
+            inferredState,
+          };
+        }
+
+        // Heuristic: for "17 Hollow Way Bella Vista, AR 72715", infer city "Bella Vista"
+        // and keep the street part for address matching.
+        const inferredCity = words.slice(-2).join(" ");
+        const streetCandidate = words.slice(0, -2).join(" ").trim();
+        return {
+          normalizedAddress: streetCandidate.length >= 5 ? streetCandidate : prefix,
+          inferredCity,
+          inferredState,
+        };
+      };
+
+      const originalAddress =
+        typeof req.query.address === "string" ? req.query.address.trim() : "";
+      const parsedAddress = originalAddress
+        ? parseAddressInput(originalAddress)
+        : { normalizedAddress: "", inferredCity: "", inferredState: "" };
+      const requestedCity = typeof req.query.city === "string" ? req.query.city.trim() : "";
+      const requestedState = typeof req.query.state === "string" ? req.query.state.trim() : "";
+      const effectiveCity = requestedCity || parsedAddress.inferredCity;
+      const effectiveState = (requestedState || parsedAddress.inferredState).toUpperCase();
+
+      let effectiveAddress = parsedAddress.normalizedAddress || originalAddress;
+      if (effectiveAddress && effectiveCity) {
+        const cityAtEnd = new RegExp(`\\s+${escapeRegExp(effectiveCity)}$`, "i");
+        effectiveAddress = effectiveAddress.replace(cityAtEnd, "").trim();
+      }
+
+      const buildFilteredPayload = (data: any) => {
+        const stateScope = effectiveState;
+        const filteredProperties = stateScope
+          ? (data.properties || []).filter(
+              (property: any) =>
+                typeof (property?.state || property?.StateOrProvince) === "string" &&
+                (property.state || property.StateOrProvince)
+                  .trim()
+                  .toUpperCase() === stateScope,
+            )
+          : data.properties || [];
+
+        return stateScope
+          ? {
+              ...data,
+              count: filteredProperties.length,
+              total: filteredProperties.length,
+              totalAvailable: filteredProperties.length,
+              properties: filteredProperties,
+            }
+          : data;
+      };
+
       // Parameter mapping and forwarding to gbcma API
       if (req.query.mls_number || req.query.mls) {
         const mlsNumber = req.query.mls_number || req.query.mls;
         params.append("mls_number", mlsNumber as string);
       }
-      if (req.query.address)
-        params.append("address", req.query.address as string);
+      if (effectiveAddress) params.append("address", effectiveAddress);
       if (req.query.agent || req.query.listing_agent_name) {
         const agent = req.query.agent || req.query.listing_agent_name;
         params.append("listing_agent_name", agent as string);
       }
-      if (req.query.city) params.append("city", req.query.city as string);
-      if (req.query.state) params.append("state", req.query.state as string);
+      if (effectiveCity) params.append("city", effectiveCity);
+      if (effectiveState) params.append("state", effectiveState);
+      if (req.query.neighborhood || req.query.subdivision) {
+        const neighborhood = req.query.neighborhood || req.query.subdivision;
+        params.append("subdivision", neighborhood as string);
+      }
+      if (req.query.property_type || req.query.propertyType) {
+        const propertyType = req.query.property_type || req.query.propertyType;
+        params.append("property_type", propertyType as string);
+      }
 
       const fullUrl = `${baseUrl}?${params.toString()}`;
       console.log("Proxying to gbcma API:", fullUrl);
@@ -17671,30 +17757,29 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       }
 
       const data = await response.json();
-      const requestedState =
-        typeof req.query.state === "string"
-          ? req.query.state.trim().toUpperCase()
-          : "";
-      const filteredProperties = requestedState
-        ? (data.properties || []).filter(
-            (property: any) =>
-              typeof (property?.state || property?.StateOrProvince) === "string" &&
-              (property.state || property.StateOrProvince)
-                .trim()
-                .toUpperCase() === requestedState,
-          )
-        : data.properties || [];
-      const filteredData = requestedState
-        ? {
-            ...data,
-            count: filteredProperties.length,
-            total: filteredProperties.length,
-            totalAvailable: filteredProperties.length,
-            properties: filteredProperties,
-          }
-        : data;
+      const filteredData = buildFilteredPayload(data);
 
       console.log("GBCMA API response:", filteredData);
+
+      // If full-address search returns no results, retry broader city/state search once.
+      if (
+        filteredData.success &&
+        filteredData.count === 0 &&
+        effectiveAddress &&
+        effectiveCity
+      ) {
+        const relaxedParams = new URLSearchParams(params);
+        relaxedParams.delete("address");
+        const relaxedUrl = `${baseUrl}?${relaxedParams.toString()}`;
+        console.log("No exact address match, retrying relaxed search:", relaxedUrl);
+        const relaxedResponse = await globalThis.fetch(relaxedUrl);
+        if (relaxedResponse.ok) {
+          const relaxedData = buildFilteredPayload(await relaxedResponse.json());
+          if (relaxedData.success && relaxedData.count > 0) {
+            return res.json({ ...relaxedData, source: "gbcma-relaxed" });
+          }
+        }
+      }
 
       // If API returns no results, try fallback chain
       if (filteredData.success && filteredData.count === 0) {
@@ -17713,7 +17798,9 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
   // GBCMA property details by address API endpoint
   app.post("/api/property/details-by-address", async (req, res) => {
     try {
-      const { address, mlsNumber } = req.body;
+      const { address, mlsNumber, state } = req.body;
+      const requestedState =
+        typeof state === "string" ? state.trim().toUpperCase() : "";
 
       if (!address && !mlsNumber) {
         return res
@@ -17748,6 +17835,29 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
       }
 
       const data = await response.json();
+      const parseStateFromAddress = (value: string) => {
+        const match = value.match(/,\s*([A-Za-z]{2})\s*(?:\d{5}(?:-\d{4})?)?\s*$/);
+        return match ? match[1].toUpperCase() : "";
+      };
+      const responseState =
+        (typeof data?.StateOrProvince === "string"
+          ? data.StateOrProvince.trim().toUpperCase()
+          : "") ||
+        (typeof data?.state === "string" ? data.state.trim().toUpperCase() : "") ||
+        parseStateFromAddress(
+          typeof data?.UnparsedAddress === "string" ? data.UnparsedAddress : "",
+        );
+
+      if (requestedState && responseState && requestedState !== responseState) {
+        return res.json({
+          success: false,
+          stateMismatch: true,
+          requestedState,
+          detectedState: responseState,
+          message: `Selected state is ${requestedState}, but this address appears to be in ${responseState}.`,
+        });
+      }
+
       console.log("GBCMA property details response:", data);
       res.json(data);
     } catch (error: any) {

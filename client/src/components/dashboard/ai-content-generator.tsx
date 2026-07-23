@@ -707,7 +707,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         // Convert single property to array format using the same structure as dropdown
         const property: Property = {
           id: propertyData.ListingKey || "search-result",
-          mlsNumber: propertyData.ListAgentMlsId || "",
+          mlsNumber:
+            propertyData.ListingId ||
+            propertyData.MLSNumber ||
+            propertyData.mlsNumber ||
+            propertyData.ListingKey ||
+            "",
           address: propertyData.UnparsedAddress || propertySearchParams.address,
           city: propertyData.City || "",
           state: "NE",
@@ -755,7 +760,13 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
         return properties.map((prop: any) => ({
           id: prop.id || Math.random().toString(),
-          mlsNumber: propertySearchParams.mlsNumber || prop.id || "", // Use the searched MLS number
+          mlsNumber:
+            prop.mlsNumber ||
+            prop.MLSNumber ||
+            prop.mlsId ||
+            propertySearchParams.mlsNumber ||
+            prop.id ||
+            "",
           address: prop.address || "",
           city: prop.city || "",
           state: prop.state || "NE",
@@ -806,7 +817,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
         return properties.map((prop: any) => ({
           id: prop.id || Math.random().toString(),
-          mlsNumber: prop.id || "", // gbcma uses 'id' field as MLS number
+          mlsNumber:
+            prop.mlsNumber ||
+            prop.MLSNumber ||
+            prop.mlsId ||
+            prop.id ||
+            "",
           address: prop.address || "",
           city: prop.city || "",
           state: prop.state || "NE",

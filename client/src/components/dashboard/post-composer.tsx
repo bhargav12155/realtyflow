@@ -107,16 +107,19 @@ export function PostComposer({ open, onOpenChange }: PostComposerProps) {
   // Fetch social accounts
   const { data: socialAccounts } = useQuery<any[]>({
     queryKey: ["/api/social/accounts"],
+    enabled: open,
   });
 
   // Fetch avatars
   const { data: avatars } = useQuery<Avatar[]>({
     queryKey: ["/api/avatars"],
+    enabled: open,
   });
 
   // Fetch videos
   const { data: videos } = useQuery<VideoContent[]>({
     queryKey: ["/api/videos"],
+    enabled: open,
   });
 
   // Get connected platforms

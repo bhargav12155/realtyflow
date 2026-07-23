@@ -1010,6 +1010,7 @@ export function SocialMediaManager() {
     null,
   );
   const [showPostComposer, setShowPostComposer] = useState(false);
+  const [accountsLoadTimedOut, setAccountsLoadTimedOut] = useState(false);
   const [selectedPropertyPhotoUrl, setSelectedPropertyPhotoUrl] = useState<string | null>(null);
   const [tiktokVideoUploading, setTiktokVideoUploading] = useState(false);
   const [tiktokVideoUrl, setTiktokVideoUrl] = useState("");
@@ -1344,9 +1345,24 @@ export function SocialMediaManager() {
     data: accounts,
     isLoading,
     error,
+    refetch: refetchAccounts,
   } = useQuery<SocialMediaAccount[]>({
     queryKey: ["/api/social/accounts"],
+    placeholderData: [],
   });
+
+  useEffect(() => {
+    if (!isLoading) {
+      setAccountsLoadTimedOut(false);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setAccountsLoadTimedOut(true);
+    }, 8000);
+
+    return () => clearTimeout(timeout);
+  }, [isLoading]);
 
   // Debug: Log accounts when they change
   useEffect(() => {
@@ -2262,7 +2278,10 @@ ${agentName} | ${brokerageName}
     });
   };
 
-  if (isLoading) {
+  const accountList = accounts ?? [];
+  const accountsErrorMessage = error instanceof Error ? error.message : null;
+
+  if (isLoading && accountList.length === 0 && !accountsLoadTimedOut) {
     return (
       <Card>
         <CardContent className="p-6">
@@ -2283,6 +2302,21 @@ ${agentName} | ${brokerageName}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {(accountsLoadTimedOut || accountsErrorMessage) && (
+          <div className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <div className="flex items-center justify-between gap-2">
+              <span>
+                {accountsErrorMessage
+                  ? "We couldn't load social account status. You can still draft posts and retry loading connections."
+                  : "Loading social accounts is taking longer than expected. You can keep working and retry."}
+              </span>
+              <Button variant="outline" size="sm" onClick={() => refetchAccounts()}>
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Platform Selection */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -2290,7 +2324,7 @@ ${agentName} | ${brokerageName}
               Select Platforms
             </h3>
           </div>
-          {[...(accounts || []).filter(a => a.platform !== "email"), SYNTHETIC_EMAIL_ACCOUNT].map((account) => {
+          {[...accountList.filter(a => a.platform !== "email"), SYNTHETIC_EMAIL_ACCOUNT].map((account) => {
             const isEmailPlatform = account.platform === "email";
             // Normalize platform name (handle aliases like twitter->x, facebook_page->facebook)
             const normalizedPlatform = account.platform

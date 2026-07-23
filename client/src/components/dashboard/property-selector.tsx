@@ -10,6 +10,34 @@ import { Search, Home, MapPin, Bed, Bath, Square, DollarSign, Calendar, Eye, Loa
 import { useToast } from "@/hooks/use-toast";
 import { mapAddressLookupToProperty, mapSearchResultToProperty } from "@shared/mlsAddressMapping";
 
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+]);
+
+function extractStateHint(value: string): string | null {
+  if (!value) return null;
+
+  const patterns = [
+    /,\s*([A-Za-z]{2})\s*\d{5}(?:-\d{4})?\s*$/,
+    /,\s*([A-Za-z]{2})\s*$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = value.match(pattern);
+    if (!match) continue;
+    const code = match[1].toUpperCase();
+    if (US_STATE_CODES.has(code)) return code;
+  }
+
+  return null;
+}
+
+function toTitleCaseWords(value: string): string {
+  return value.replace(/\b([a-zA-Z])([a-zA-Z]*)/g, (_, first: string, rest: string) => {
+    return first.toUpperCase() + rest.toLowerCase();
+  });
+}
+
 export interface Property {
   id: string;
   mlsId: string;
@@ -63,6 +91,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isSearchingAddress, setIsSearchingAddress] = useState(false);
   const [autoFoundProperty, setAutoFoundProperty] = useState<Property | null>(null);
+  const [stateMismatchFromLookup, setStateMismatchFromLookup] = useState<string | null>(null);
   // Beds/baths/sqft are already conditionally rendered based on truthy
   // values, so null naturally hides them. Only listPrice needs an
   // explicit "missing" flag to render the "Price not provided" copy.
@@ -86,6 +115,13 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
         : { ...prev, state: normalizedSearchState },
     );
   }, [normalizedSearchState]);
+
+  const addressStateHint = extractStateHint(searchParams.address);
+  const selectedState = searchParams.state.trim().toUpperCase();
+  const stateMismatchHint =
+    addressStateHint && selectedState && addressStateHint !== selectedState
+      ? addressStateHint
+      : null;
 
   // Load Google Maps API with enhanced error handling
   useEffect(() => {
@@ -134,6 +170,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
     
     setIsSearchingAddress(true);
     setAutoFoundProperty(null); setAutoFoundMissingPrice(false);
+    setStateMismatchFromLookup(null);
     
     try {
       console.log('Fetching property details for address:', address);
@@ -142,12 +179,25 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ address })
+        body: JSON.stringify({
+          address,
+          state: searchParams.state?.trim()?.toUpperCase() || normalizedSearchState,
+        })
       });
 
       if (response.ok) {
         const propertyData = await response.json();
         console.log('GBCMA property details for address:', address, propertyData);
+
+        if (propertyData?.stateMismatch && propertyData?.detectedState) {
+          setStateMismatchFromLookup(propertyData.detectedState);
+          toast({
+            title: "State Mismatch",
+            description: `Your selected state is ${selectedState}. This address appears to be in ${propertyData.detectedState}.`,
+            variant: "destructive",
+          });
+          return;
+        }
         
         // Auto-fill search parameters with GBCMA data
         if (propertyData && (propertyData.ListingKey || propertyData.UnparsedAddress)) {
@@ -166,26 +216,31 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
           });
         } else {
           toast({
-            title: "No Match",
-            description: "No property found for that address. Try a different search.",
-            variant: "destructive",
+            title: "No Exact Address Match",
+            description: "Trying broader search using your current filters.",
           });
+
+          // Fall back to the broader property search path so address/city/neighborhood
+          // searches still return relevant results in the selected state.
+          await refetch();
         }
       } else {
         console.log('No property details found for address:', address);
         toast({
-          title: "Search Failed",
-          description: "Could not find property. Check the address and try again.",
-          variant: "destructive",
+          title: "Address Lookup Unavailable",
+          description: "Trying broader MLS search instead.",
         });
+
+        await refetch();
       }
     } catch (error) {
       console.error('Error fetching property details:', error);
       toast({
-        title: "Connection Error",
-        description: "Unable to search. Please check your connection.",
-        variant: "destructive",
+        title: "Address Lookup Error",
+        description: "Trying broader MLS search instead.",
       });
+
+      await refetch();
     } finally {
       setIsSearchingAddress(false);
     }
@@ -224,6 +279,14 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
         params.append('city', searchParams.city.trim());
       }
 
+      if (searchParams.neighborhood && searchParams.neighborhood.trim() !== '') {
+        params.append('neighborhood', searchParams.neighborhood.trim());
+      }
+
+      if (searchParams.propertyType && searchParams.propertyType.trim() !== '') {
+        params.append('property_type', searchParams.propertyType.trim());
+      }
+
       if (searchParams.state && searchParams.state.trim() !== '') {
         params.append('state', searchParams.state.trim().toUpperCase());
       }
@@ -258,18 +321,19 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
       // renderer below relies on these nulls to show explicit
       // "— beds/baths/sqft" placeholders (task #49) rather than
       // misrepresenting missing MLS data as a real "0".
-      return properties.map((prop: any) =>
-        mapSearchResultToProperty({
-          ...prop,
-          mlsId: prop.mlsId ?? prop.id, // gbcma uses 'id' field for the listing
-        }),
-      );
+      return properties.map((prop: any) => mapSearchResultToProperty(prop));
     },
     enabled: false, // Only search when user clicks search button
     retry: false, // Don't auto-retry failed requests
   });
 
   const handleSearch = () => {
+    if (stateMismatchHint) {
+      toast({
+        title: "Check State Selection",
+        description: `Selected state is ${selectedState}, but the address appears to be in ${stateMismatchHint}.`,
+      });
+    }
     refetch();
   };
 
@@ -296,6 +360,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
       listingAgent: "",
     });
     setAutoFoundProperty(null); setAutoFoundMissingPrice(false);
+    setStateMismatchFromLookup(null);
     setSearchMessage('');
   };
 
@@ -495,6 +560,40 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
 
             {/* Search Filters */}
             <div className="space-y-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200/70 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                <span>
+                  Search state from settings: <strong>{selectedState || normalizedSearchState}</strong>
+                </span>
+              </div>
+
+              {(stateMismatchHint || stateMismatchFromLookup) && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 mt-0.5" />
+                    <span>
+                      Selected state is <strong>{selectedState}</strong>, but this search looks like <strong>{stateMismatchHint || stateMismatchFromLookup}</strong>. Switch search state?
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const nextState = (stateMismatchHint || stateMismatchFromLookup || "").toUpperCase();
+                      if (!nextState) return;
+                      setSearchParams((prev) => ({ ...prev, state: nextState }));
+                      setStateMismatchFromLookup(null);
+                      toast({
+                        title: "Search State Updated",
+                        description: `Switched property search state to ${nextState}.`,
+                      });
+                    }}
+                  >
+                    Use {(stateMismatchHint || stateMismatchFromLookup || "").toUpperCase()}
+                  </Button>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">MLS#</label>
@@ -600,7 +699,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
                   <label className="text-sm font-medium">City</label>
                   <Input
                     value={searchParams.city}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, city: e.target.value }))}
+                    onChange={(e) => setSearchParams(prev => ({ ...prev, city: toTitleCaseWords(e.target.value) }))}
                     placeholder={`Enter city in ${searchParams.state}`}
                     data-testid="input-city"
                   />
@@ -609,7 +708,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
                   <label className="text-sm font-medium">Neighborhood</label>
                   <Input
                     value={searchParams.neighborhood}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, neighborhood: e.target.value }))}
+                    onChange={(e) => setSearchParams(prev => ({ ...prev, neighborhood: toTitleCaseWords(e.target.value) }))}
                     placeholder="Enter neighborhood"
                     data-testid="input-neighborhood"
                   />
@@ -622,7 +721,7 @@ export function PropertySelector({ onSelectProperty, selectedProperty, searchSta
                   <label className="text-sm font-medium">Listing Agent</label>
                   <Input
                     value={searchParams.listingAgent}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, listingAgent: e.target.value }))}
+                    onChange={(e) => setSearchParams(prev => ({ ...prev, listingAgent: toTitleCaseWords(e.target.value) }))}
                     placeholder="Enter agent name"
                     data-testid="input-listing-agent"
                   />

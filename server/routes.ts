@@ -17627,7 +17627,26 @@ Return JSON with: { "content": "post text", "hashtags": ["hashtag1", "hashtag2"]
 
     // Final fallback to sample data
     console.log("All services failed, returning sample data");
-    return res.json(getFallbackPropertyData(query));
+    const fallbackPayload = getFallbackPropertyData(query);
+    const scopedFallbackProperties = enforceRequestedState(
+      fallbackPayload?.properties || [],
+    );
+
+    if (requestedState) {
+      return res.json({
+        ...fallbackPayload,
+        count: scopedFallbackProperties.length,
+        total: scopedFallbackProperties.length,
+        totalAvailable: scopedFallbackProperties.length,
+        properties: scopedFallbackProperties,
+        source: "sample-fallback-state-filtered",
+      });
+    }
+
+    return res.json({
+      ...fallbackPayload,
+      source: "sample-fallback",
+    });
   }
 
   // GBCMA API proxy endpoint to handle CORS

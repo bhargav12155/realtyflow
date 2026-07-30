@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState, useCallback } from "react";
 import { ChevronDown, Minus, Paperclip, Mic, ArrowUp, Sparkles, Trash2, Wand2, X, Eye, Film, Square, Settings as SettingsIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -127,6 +127,15 @@ const I2V_PROVIDER_CHOICES: Array<{ id: ProviderId; label: string }> = [
   { id: "veo", label: "Google VEO" },
 ];
 
+const BUILD_PROGRESS_STAGES = [
+  "Analyzing prompt...",
+  "Planning composition...",
+  "Rendering image 1...",
+  "Rendering image 2...",
+  "Applying lighting...",
+  "Finalizing...",
+];
+
 /**
  * Pull a concrete suggested prompt out of an assistant message so the UI can
  * offer a one-click "Build this" handoff in Plan mode. Tries (in order):
@@ -188,6 +197,117 @@ function buildScriptQuickActionPrompt(action: ScriptQuickAction, sourceText: str
   ].join("\n");
 }
 
+function renderInlineMarkdown(text: string): ReactNode[] {
+  if (!text) return [""];
+  const parts = text.split(/(\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/g);
+  return parts
+    .filter((part) => part.length > 0)
+    .map((part, idx) => {
+      if (
+        (part.startsWith("**") && part.endsWith("**")) ||
+        (part.startsWith("__") && part.endsWith("__"))
+      ) {
+        return <strong key={`md-strong-${idx}`}>{part.slice(2, -2)}</strong>;
+      }
+      if (
+        (part.startsWith("*") && part.endsWith("*")) ||
+        (part.startsWith("_") && part.endsWith("_"))
+      ) {
+        return <em key={`md-em-${idx}`}>{part.slice(1, -1)}</em>;
+      }
+      return <Fragment key={`md-text-${idx}`}>{part}</Fragment>;
+    });
+}
+
+function renderMultilineInline(text: string): ReactNode {
+  const lines = text.split("\n");
+  return lines.map((line, idx) => (
+    <Fragment key={`md-line-${idx}`}>
+      {renderInlineMarkdown(line)}
+      {idx < lines.length - 1 && <br />}
+    </Fragment>
+  ));
+}
+
+function renderChatMarkdown(content: string): ReactNode {
+  const lines = content.split("\n");
+  const blocks: ReactNode[] = [];
+  let i = 0;
+  let blockKey = 0;
+
+  while (i < lines.length) {
+    const raw = lines[i] ?? "";
+    const trimmed = raw.trim();
+
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const current = (lines[i] ?? "").trim();
+        const match = current.match(/^\d+\.\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1]);
+        i += 1;
+      }
+      blocks.push(
+        <ol key={`md-ol-${blockKey++}`} className="list-decimal pl-5 space-y-1">
+          {items.map((item, idx) => (
+            <li key={`md-ol-item-${idx}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const current = (lines[i] ?? "").trim();
+        const match = current.match(/^[-*]\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1]);
+        i += 1;
+      }
+      blocks.push(
+        <ul key={`md-ul-${blockKey++}`} className="list-disc pl-5 space-y-1">
+          {items.map((item, idx) => (
+            <li key={`md-ul-item-${idx}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    const paragraphLines: string[] = [raw];
+    i += 1;
+    while (i < lines.length) {
+      const next = lines[i] ?? "";
+      const nextTrimmed = next.trim();
+      if (!nextTrimmed || /^\d+\.\s+/.test(nextTrimmed) || /^[-*]\s+/.test(nextTrimmed)) {
+        break;
+      }
+      paragraphLines.push(next);
+      i += 1;
+    }
+
+    blocks.push(
+      <p key={`md-p-${blockKey++}`} className="whitespace-pre-wrap">
+        {renderMultilineInline(paragraphLines.join("\n"))}
+      </p>,
+    );
+  }
+
+  if (blocks.length === 0) {
+    return <span className="whitespace-pre-wrap">{content}</span>;
+  }
+
+  return <div className="space-y-2">{blocks}</div>;
+}
+
 export function ChatPanel({
   boardTitle,
   messages,
@@ -236,11 +356,14 @@ export function ChatPanel({
     setCapDraft(String(chatHistoryCap ?? CHAT_HISTORY_CAP_DEFAULT));
   }, [chatHistoryCap]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messagesListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
   const submitLockRef = useRef(false);
+  const previousMessageCountRef = useRef(0);
+  const pendingAssistantIdRef = useRef<string | null>(null);
 
   // Resizable panel width. The panel lives on the right edge of the board, so
   // dragging the left handle leftward widens it. Width is clamped and persisted
@@ -323,9 +446,10 @@ export function ChatPanel({
   const showI2VProviderToggle = isBuild;
   const selectedThinkModel =
     THINK_MODELS.find((m) => m.id === chatModel) ?? THINK_MODELS[0];
+  const [buildProgressStageIndex, setBuildProgressStageIndex] = useState(0);
   const thinkingLabel = isPlan
     ? `${selectedThinkModel.name} is thinking…`
-    : "Generating…";
+    : BUILD_PROGRESS_STAGES[buildProgressStageIndex] ?? "Generating...";
 
   // Track how long the current request has been pending so we can show a
   // gentle reassurance after ~20 s and a stronger "try again" hint at ~60 s.
@@ -346,13 +470,52 @@ export function ChatPanel({
     };
   }, [isSending]);
 
-  // Keep the latest message (and the thinking row, when shown) in view.
   useEffect(() => {
-    const el = messagesEndRef.current;
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ block: "end" });
+    if (!(isBuild && isSending)) {
+      setBuildProgressStageIndex(0);
+      return;
     }
-  }, [messages.length, isSending, waitStage]);
+    const interval = window.setInterval(() => {
+      setBuildProgressStageIndex((prev) => (prev + 1) % BUILD_PROGRESS_STAGES.length);
+    }, 3500);
+    return () => window.clearInterval(interval);
+  }, [isBuild, isSending]);
+
+  // Keep input interactions smooth: when a new user/pending turn appears we
+  // keep the tail in view, but when the assistant finishes we snap to the top
+  // of that new reply so long responses start at the beginning.
+  useEffect(() => {
+    const previousCount = previousMessageCountRef.current;
+    const currentCount = messages.length;
+    const latest = currentCount > 0 ? messages[currentCount - 1] : null;
+    const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant") ?? null;
+
+    if (latestAssistant?.pending) {
+      pendingAssistantIdRef.current = latestAssistant.id;
+    }
+
+    const justCompletedAssistant =
+      !!latestAssistant &&
+      !latestAssistant.pending &&
+      pendingAssistantIdRef.current === latestAssistant.id;
+
+    if (justCompletedAssistant) {
+      const node = messagesListRef.current?.querySelector<HTMLElement>(
+        `[data-chat-message-id="${latestAssistant.id}"]`,
+      );
+      if (node && typeof node.scrollIntoView === "function") {
+        node.scrollIntoView({ block: "start" });
+      }
+      pendingAssistantIdRef.current = null;
+    } else if (currentCount > previousCount && (latest?.role === "user" || !!latest?.pending || isSending)) {
+      const el = messagesEndRef.current;
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ block: "end" });
+      }
+    }
+
+    previousMessageCountRef.current = currentCount;
+  }, [messages, isSending]);
 
   // Resize the composer whenever its value changes — covers both user typing
   // and programmatic updates (pre-fill, build-this, send-then-clear).
@@ -595,7 +758,11 @@ export function ChatPanel({
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto px-4 py-4 space-y-3 text-[13px]" data-testid="list-chat-messages">
+      <div
+        ref={messagesListRef}
+        className="flex-1 overflow-auto px-4 py-4 space-y-3 text-[13px]"
+        data-testid="list-chat-messages"
+      >
         {messages.length === 0 && (
           <div className="text-[12px] text-neutral-400 italic dark:text-neutral-500">
             {isPlan
@@ -614,7 +781,11 @@ export function ChatPanel({
           const showAuthor =
             m.role === "user" && m.author && !m.author.isSelf;
           return (
-            <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
+            <div
+              key={m.id}
+              className={m.role === "user" ? "flex justify-end" : ""}
+              data-chat-message-id={m.id}
+            >
               <div className={m.role === "user" ? "flex flex-col items-end" : ""}>
               {showAuthor && (
                 <div
@@ -635,7 +806,7 @@ export function ChatPanel({
                 {m.pending ? (
                   <span className="text-neutral-400 dark:text-neutral-500">…</span>
                 ) : (
-                  <span className="whitespace-pre-wrap">{m.content}</span>
+                  renderChatMarkdown(m.content)
                 )}
                 {m.cta && !m.pending && (
                   <div className="mt-2">

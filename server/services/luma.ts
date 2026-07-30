@@ -367,10 +367,44 @@ export async function createVideoTask(
     };
   }
 
-  console.log(
-    `🎬 [Luma] Creating video task: prompt="${prompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
+  // Luma rejects overly long prompts. Clamp by UTF-8 bytes (not JS char
+  // count) so non-ASCII text cannot exceed provider limits.
+  const LUMA_PROMPT_MAX_BYTES = 4600;
+  const promptBytes = Buffer.byteLength(prompt, "utf8");
+  let safePrompt = prompt;
+  if (promptBytes > LUMA_PROMPT_MAX_BYTES) {
+    let lo = 0;
+    let hi = prompt.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const candidate = prompt.slice(0, mid).trimEnd();
+      if (Buffer.byteLength(candidate, "utf8") <= LUMA_PROMPT_MAX_BYTES) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    safePrompt = prompt.slice(0, lo).trimEnd();
+    console.warn(
+      "[Luma] Prompt truncated",
+      JSON.stringify({ originalBytes: promptBytes, truncatedBytes: Buffer.byteLength(safePrompt, "utf8"), maxBytes: LUMA_PROMPT_MAX_BYTES }),
+    );
+  }
+
+  console.info(
+    "[Luma] Prompt sizing",
+    JSON.stringify({
+      originalBytes: promptBytes,
+      finalBytes: Buffer.byteLength(safePrompt, "utf8"),
+      maxBytes: LUMA_PROMPT_MAX_BYTES,
+      truncated: safePrompt !== prompt,
+    }),
   );
-  return createVideoTaskDirect(prompt, options);
+
+  console.log(
+    `🎬 [Luma] Creating video task: prompt="${safePrompt.substring(0, 80)}..." model=${model} aspect=${options.aspectRatio || "default"}`
+  );
+  return createVideoTaskDirect(safePrompt, options);
 }
 
 async function getTaskStatusDirect(taskId: string): Promise<LumaStatusResult> {

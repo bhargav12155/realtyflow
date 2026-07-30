@@ -71,11 +71,9 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
     }`;
     if (href) {
       return (
-        <Link href={href}>
-          <a className={className} data-testid={testId}>
-            <Icon className="w-4 h-4" />
-            <span>{label}</span>
-          </a>
+        <Link href={href} className={className} data-testid={testId}>
+          <Icon className="w-4 h-4" />
+          <span>{label}</span>
         </Link>
       );
     }
@@ -239,7 +237,7 @@ export function BoardsSidebar({ active }: BoardsSidebarProps) {
 
   return (
     <aside
-      className="w-[220px] flex-shrink-0 bg-white/60 backdrop-blur-sm border-r border-neutral-200/80 flex flex-col dark:bg-neutral-900/60 dark:border-neutral-800"
+      className="sticky top-0 h-screen w-[220px] flex-shrink-0 overflow-y-auto bg-white/60 backdrop-blur-sm border-r border-neutral-200/80 flex flex-col dark:bg-neutral-900/60 dark:border-neutral-800"
       data-overlay-keep
     >
       <div className="p-3">

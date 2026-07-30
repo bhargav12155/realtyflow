@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { OnboardingCarousel } from "@/components/onboarding/OnboardingCarousel";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getAuthHeaders } from "@/lib/authToken";
 
 interface User {
   id: string;
@@ -17,16 +18,15 @@ interface OnboardingGateProps {
 export function OnboardingGate({ children }: OnboardingGateProps) {
   const queryClient = useQueryClient();
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch current user
-  const { data: user } = useQuery<User>({
+  const { data: user, isLoading, isError } = useQuery<User>({
     queryKey: ["user", "me"],
+    retry: false,
     queryFn: async () => {
       const response = await fetch("/api/users/me", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
-        },
+        credentials: "include",
+        headers: getAuthHeaders(),
       });
       if (!response.ok) throw new Error("Failed to fetch user");
       return response.json();
@@ -39,9 +39,10 @@ export function OnboardingGate({ children }: OnboardingGateProps) {
       const response = await fetch("/api/users/onboarding/complete", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("auth_token")}`,
+          ...getAuthHeaders(),
           "Content-Type": "application/json",
         },
+        credentials: "include",
       });
       if (!response.ok) throw new Error("Failed to complete onboarding");
       return response.json();
@@ -54,15 +55,17 @@ export function OnboardingGate({ children }: OnboardingGateProps) {
   });
 
   useEffect(() => {
-    if (user !== undefined) {
-      setIsLoading(false);
-      if (!user?.hasCompletedOnboarding) {
-        setShowOnboarding(true);
-      } else {
-        setShowOnboarding(false);
-      }
+    if (isError) {
+      setShowOnboarding(false);
+      return;
     }
-  }, [user]);
+
+    if (user) {
+      setShowOnboarding(!user.hasCompletedOnboarding);
+    } else {
+      setShowOnboarding(false);
+    }
+  }, [user, isError]);
 
   if (isLoading) {
     // Show a loading state while fetching user data

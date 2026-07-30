@@ -102,7 +102,7 @@ export const BoardBottomToolbar = forwardRef<
 
   return (
     <div
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2"
+      className="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2"
       data-testid="container-board-bottom-toolbar"
     >
       {uploads.length > 0 && (
@@ -124,7 +124,7 @@ export const BoardBottomToolbar = forwardRef<
         </div>
       )}
       <div
-        className="bg-white rounded-full shadow-lg border border-neutral-200 px-2 py-1.5 flex items-center gap-1 dark:bg-neutral-900 dark:border-neutral-700"
+        className="bg-white/95 backdrop-blur rounded-full shadow-[0_16px_34px_rgba(15,23,42,0.18)] border border-neutral-200/90 px-2.5 py-2 flex items-center gap-1.5 dark:bg-neutral-900/95 dark:border-neutral-700"
         data-testid="toolbar-board-bottom"
         role="toolbar"
         aria-label="Board tools"

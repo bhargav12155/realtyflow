@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type ReactNode } from "react";
 import { useBusinessType } from "@/lib/businessContext";
 import { getIndustryContent } from "@shared/industryContent";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -55,6 +55,7 @@ import {
   ArrowRight,
   History,
   Trash2,
+  Download,
 } from "lucide-react";
 import {
   FaFacebook,
@@ -90,6 +91,176 @@ import {
 } from "@/lib/platform-intelligence";
 import type { PlatformScore as PlatformScoreType } from "@shared/schema";
 
+const renderInlineMarkdown = (text: string) => {
+  const tokens = text.split(/(\[[^\]]+\]\([^\)]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/g);
+  return tokens.filter(Boolean).map((token, index) => {
+    const linkMatch = token.match(/^\[([^\]]+)\]\(([^\)]+)\)$/);
+    if (linkMatch) {
+      const [, label, href] = linkMatch;
+      return (
+        <a
+          key={`md-link-${index}`}
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline underline-offset-4 hover:text-primary/80"
+        >
+          {label}
+        </a>
+      );
+    }
+    if ((token.startsWith("**") && token.endsWith("**")) || (token.startsWith("__") && token.endsWith("__"))) {
+      return <strong key={`md-strong-${index}`}>{token.slice(2, -2)}</strong>;
+    }
+    if ((token.startsWith("*") && token.endsWith("*")) || (token.startsWith("_") && token.endsWith("_"))) {
+      return <em key={`md-em-${index}`}>{token.slice(1, -1)}</em>;
+    }
+    return <span key={`md-text-${index}`}>{token}</span>;
+  });
+};
+
+const renderMarkdownContent = (content: string): ReactNode => {
+  const lines = content.replace(/\r/g, "").split("\n");
+  const blocks: ReactNode[] = [];
+  let i = 0;
+  let blockKey = 0;
+
+  while (i < lines.length) {
+    const currentLine = lines[i] ?? "";
+    const trimmed = currentLine.trim();
+
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const headingText = headingMatch[2];
+      const Tag = `h${Math.min(level, 6)}` as keyof JSX.IntrinsicElements;
+      const sizeClass =
+        level === 1
+          ? "text-2xl font-semibold"
+          : level === 2
+            ? "text-xl font-semibold"
+            : "text-lg font-semibold";
+      blocks.push(
+        <Tag key={`md-heading-${blockKey++}`} className={`${sizeClass} mt-5 first:mt-0`}>
+          {renderInlineMarkdown(headingText)}
+        </Tag>,
+      );
+      i += 1;
+      continue;
+    }
+
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push(<hr key={`md-hr-${blockKey++}`} className="my-4 border-border" />);
+      i += 1;
+      continue;
+    }
+
+    if (/^>\s+/.test(trimmed)) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && /^>\s+/.test((lines[i] ?? "").trim())) {
+        quoteLines.push((lines[i] ?? "").trim().replace(/^>\s+/, ""));
+        i += 1;
+      }
+      blocks.push(
+        <blockquote key={`md-quote-${blockKey++}`} className="border-l-4 border-primary/40 pl-4 italic text-muted-foreground">
+          {quoteLines.map((line, idx) => (
+            <p key={`md-quote-line-${idx}`} className="leading-7">
+              {renderInlineMarkdown(line)}
+            </p>
+          ))}
+        </blockquote>,
+      );
+      continue;
+    }
+
+    if (/^[-*+]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const line = (lines[i] ?? "").trim();
+        const match = line.match(/^[-*+]\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1]);
+        i += 1;
+      }
+      blocks.push(
+        <ul key={`md-ul-${blockKey++}`} className="list-disc pl-6 space-y-1">
+          {items.map((item, idx) => (
+            <li key={`md-ul-item-${idx}`} className="leading-7">
+              {renderInlineMarkdown(item)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const line = (lines[i] ?? "").trim();
+        const match = line.match(/^\d+\.\s+(.+)$/);
+        if (!match) break;
+        items.push(match[1]);
+        i += 1;
+      }
+      blocks.push(
+        <ol key={`md-ol-${blockKey++}`} className="list-decimal pl-6 space-y-1">
+          {items.map((item, idx) => (
+            <li key={`md-ol-item-${idx}`} className="leading-7">
+              {renderInlineMarkdown(item)}
+            </li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+
+    const paragraphLines: string[] = [];
+    while (i < lines.length) {
+      const line = lines[i] ?? "";
+      const lineTrimmed = line.trim();
+      if (!lineTrimmed) break;
+      if (/^(#{1,6})\s+/.test(lineTrimmed)) break;
+      if (/^[-*+]\s+/.test(lineTrimmed)) break;
+      if (/^\d+\.\s+/.test(lineTrimmed)) break;
+      if (/^>\s+/.test(lineTrimmed)) break;
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(lineTrimmed)) break;
+      paragraphLines.push(lineTrimmed);
+      i += 1;
+    }
+    if (paragraphLines.length > 0) {
+      blocks.push(
+        <p key={`md-p-${blockKey++}`} className="leading-8 text-[0.98rem] text-foreground/95">
+          {renderInlineMarkdown(paragraphLines.join(" "))}
+        </p>,
+      );
+    }
+    if (i < lines.length && !(lines[i] ?? "").trim()) {
+      i += 1;
+    }
+  }
+
+  return <div className="space-y-3">{blocks}</div>;
+};
+
+const plainTextFromMarkdown = (content: string) =>
+  content
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/\*\*|__|\*|_/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
 function ContentHistory() {
   const { toast } = useToast();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -116,7 +287,13 @@ function ContentHistory() {
           <History className="h-4 w-4 text-primary" />
           <h3 className="font-medium text-foreground">Content History</h3>
         </div>
-        <p className="text-sm text-muted-foreground">No content generated yet. Use the wizard below to create your first post!</p>
+        <div className="flex items-start gap-3 rounded-md border border-dashed bg-muted/30 p-3">
+          <FileText className="h-5 w-5 text-muted-foreground mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-foreground">No content generated yet.</p>
+            <p className="text-sm text-muted-foreground">Generate your first post to see it here.</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -178,8 +355,8 @@ function ContentHistory() {
             </div>
             {expandedId === piece.id && (
               <div className="mt-2 pt-2 border-t">
-                <div className="text-sm text-foreground whitespace-pre-wrap max-h-[300px] overflow-y-auto">
-                  {piece.content?.replace(/<[^>]*>/g, '') || "No content"}
+                <div className="text-sm text-foreground max-h-[320px] overflow-y-auto leading-relaxed">
+                  {renderMarkdownContent(piece.content?.replace(/<[^>]*>/g, "") || "No content")}
                 </div>
                 {piece.keywords?.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
@@ -218,6 +395,164 @@ interface GeneratedContent {
   };
 }
 
+
+interface ExtractedPromptDetails {
+  propertyType: string;
+  location: string;
+  highlights: string[];
+  tone: string;
+  platforms: string[];
+  cta: string;
+  additionalInstructions: string[];
+}
+
+const normalizePlatformName = (platform: string) => {
+  const trimmed = platform.trim().toLowerCase();
+  if (trimmed === "x" || trimmed === "twitter") {
+    return "X (Twitter)";
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+};
+
+const extractPromptDetails = (promptText: string): ExtractedPromptDetails => {
+  const rawLines = promptText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const normalized = promptText.replace(/\r/g, "");
+
+  const introMatch = normalized.match(/for\s+(?:an?\s+|the\s+)?(.+?)(?:\s+in\s+(.+?))?(?:[.\n]|$)/i);
+  const propertyType = introMatch?.[1]?.trim() || "";
+  const location = introMatch?.[2]?.trim() || "";
+
+  const platforms = Array.from(
+    new Set(
+      Array.from(normalized.matchAll(/\b(instagram|facebook|linkedin|x|twitter|tiktok|youtube|threads|pinterest)\b/gi))
+        .map((match) => normalizePlatformName(match[1] || ""))
+        .filter(Boolean),
+    ),
+  );
+
+  const toneMatch = normalized.match(/tone\s*[:\-]\s*([^\n.]+)/i);
+  const tone = toneMatch?.[1]?.trim() || "";
+
+  const ctaMatch = normalized.match(/(?:cta|call to action)\s*[:\-]\s*([^\n.]+(?:\.[^\n.]*)?)/i);
+  const ctaFromSentence = normalized.match(/encourag(?:e|ing)\s+users?\s+to\s+([^\n.]+?)(?:\.|$)/i);
+  const cta = ctaMatch?.[1]?.trim() || ctaFromSentence?.[1]?.trim() || "";
+
+  const highlightBlock = normalized.match(/highlight(?:s)?\s*[:\-]\s*([\s\S]*?)(?:\n\s*(?:include|tone|cta|call to action)\b|$)/i);
+  const highlightSource = highlightBlock?.[1] || "";
+  const highlights = (highlightSource ? highlightSource.split(/\r?\n/) : rawLines)
+    .map((line) => line.replace(/^[•\-*]\s*/, "").trim())
+    .filter((line) => line && !/^(include|tone|cta|call to action)\b/i.test(line));
+
+  const additionalInstructions = rawLines
+    .filter((line) => /^(include|ensure|make|add|use|keep|focus)\b/i.test(line))
+    .filter((line) => !/^highlight(?:s)?\s*[:\-]/i.test(line))
+    .map((line) => line.replace(/^[•\-*]\s*/, "").trim());
+
+  return {
+    propertyType,
+    location,
+    highlights,
+    tone,
+    platforms,
+    cta,
+    additionalInstructions,
+  };
+};
+
+const buildPromptTopic = (details: ExtractedPromptDetails, fallbackPrompt: string) => {
+  const subject = details.propertyType || fallbackPrompt.split(/[.\n]/)[0]?.trim() || fallbackPrompt.trim();
+  if (details.location) {
+    return `${subject} in ${details.location}`;
+  }
+  return subject;
+};
+
+const buildStructuredPrompt = (rawPrompt: string, details: ExtractedPromptDetails) => {
+  const sections = [
+    `Original user prompt:\n${rawPrompt.trim()}`,
+  ];
+
+  const extractedFields = [
+    details.propertyType ? `Property Type: ${details.propertyType}` : null,
+    details.location ? `Location: ${details.location}` : null,
+    details.highlights.length > 0 ? `Highlights:\n- ${details.highlights.join("\n- ")}` : null,
+    details.tone ? `Tone: ${details.tone}` : null,
+    details.platforms.length > 0 ? `Platforms: ${details.platforms.join(", ")}` : null,
+    details.cta ? `CTA: ${details.cta}` : null,
+    details.additionalInstructions.length > 0
+      ? `Additional instructions:\n- ${details.additionalInstructions.join("\n- ")}`
+      : null,
+  ].filter(Boolean);
+
+  if (extractedFields.length > 0) {
+    sections.push(`Extracted structured fields:\n${extractedFields.join("\n")}`);
+  }
+
+  sections.push(
+    "Use the original prompt and extracted fields as the only source of truth. Do not replace them with template defaults or generic placeholder real estate copy.",
+  );
+
+  return sections.join("\n\n");
+};
+
+const getSocialLengthInstruction = (platforms: string[]) => {
+  const selected = platforms.length > 0 ? platforms : ["Instagram", "Facebook"];
+  const instructions = selected.map((platform) => {
+    if (platform === "LinkedIn") {
+      return "LinkedIn length: 150-300 words.";
+    }
+    if (platform === "X (Twitter)") {
+      return "X length: under 280 characters unless the prompt explicitly asks for long form.";
+    }
+    return `${platform} length: 100-200 words.`;
+  });
+  return instructions.join(" ");
+};
+
+const getTypeSpecificDirective = (
+  type: string,
+  details: ExtractedPromptDetails,
+  rawPrompt: string,
+  style: string,
+) => {
+  const styleInstruction = style !== "None" ? `Use a ${style.toLowerCase()} tone only if it does not conflict with the user's requested tone.` : "";
+
+  if (type === "social") {
+    return [
+      "Generate a concise social media caption, not a blog post or landing page.",
+      getSocialLengthInstruction(details.platforms),
+      "Output exactly with these sections in order: Headline, Caption, CTA, Hashtags.",
+      "Keep hashtags only in the Hashtags section.",
+      details.platforms.length > 0 ? `Target these platforms: ${details.platforms.join(", ")}.` : "If no platform is provided, optimize for Instagram and Facebook.",
+      styleInstruction,
+      "Do not invent amenities, schools, or property features not explicitly present in the prompt or extracted details.",
+      `Prompt source: ${rawPrompt}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (type === "blog") {
+    return [
+      "Generate a structured long-form article.",
+      "Output with clear hierarchy: Title, Introduction, section headings, body content, Conclusion, and optional CTA.",
+      "Use markdown heading structure for article readability and SEO formatting.",
+      styleInstruction,
+      "Do not use social caption structure in blog output.",
+      "Do not invent amenities, schools, or property features not explicitly present in the prompt or extracted details.",
+      `Prompt source: ${rawPrompt}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return [
+    styleInstruction,
+    "Use only information explicitly provided by the user or selected property data.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+};
 interface Property {
   id: string;
   mlsNumber: string;
@@ -330,6 +665,7 @@ const getPlatformSuggestions = (
 export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const { businessType, terms } = useBusinessType();
   const isRealEstate = terms.features.mlsSearch;
+  const routedPromptRef = useRef(false);
 
   const dynamicContentTypes = useMemo(() => [
     { value: "blog", label: "Blog Post", icon: FileText, description: "Long-form articles for your website", color: "from-blue-500 to-blue-600" },
@@ -347,12 +683,38 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     const handleUrlChange = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const typeParam = urlParams.get('type');
+      const promptParam = urlParams.get('prompt');
       if (typeParam && ['blog', 'social', 'property_feature'].includes(typeParam)) {
         setContentType(typeParam);
         setCurrentStep(1); // Reset to first step when switching content type
         // Clear the URL parameter after using it
         const newUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, '', newUrl);
+      }
+      if (promptParam) {
+        routedPromptRef.current = true;
+        try {
+          const decodedPrompt = decodeURIComponent(promptParam);
+          const details = extractPromptDetails(decodedPrompt);
+          setPromptDetails(details);
+          setSourcePrompt(decodedPrompt);
+          setTopic(buildPromptTopic(details, decodedPrompt));
+          setAiPrompt(buildStructuredPrompt(decodedPrompt, details));
+          setContentStyles((prev) => ({
+            ...prev,
+            social: "Professional",
+          }));
+        } catch {
+          const details = extractPromptDetails(promptParam);
+          setPromptDetails(details);
+          setSourcePrompt(promptParam);
+          setTopic(buildPromptTopic(details, promptParam));
+          setAiPrompt(buildStructuredPrompt(promptParam, details));
+          setContentStyles((prev) => ({
+            ...prev,
+            social: "Professional",
+          }));
+        }
       }
     };
 
@@ -366,9 +728,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       window.removeEventListener('popstate', handleUrlChange);
     };
   }, []);
+  const [sourcePrompt, setSourcePrompt] = useState("");
+  const [promptDetails, setPromptDetails] = useState<ExtractedPromptDetails | null>(null);
   const [topic, setTopic] = useState("");
   const [aiPrompt, setAiPrompt] = useState(
-    "Create engaging, SEO-optimized content for Omaha real estate that drives leads and builds trust with potential clients."
+    "Follow the user request exactly, keep the writing clear and polished, and avoid filler. Use markdown formatting when structure improves readability."
   );
   const [neighborhood, setNeighborhood] = useState("All Omaha Areas");
   const [customLocation, setCustomLocation] = useState("");
@@ -379,9 +743,10 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const industryContent = getIndustryContent(businessType);
 
   const [contentStyles, setContentStyles] = useState<Record<string, string>>({
-    blog: "None",
-    social_media: "None",
-    property_feature: "None",
+    blog: "Professional",
+    social: "Professional",
+    social_media: "Professional",
+    property_feature: "Professional",
     market_analysis: "Market data",
     newsletter: "Things around town",
     listing_description: "Luxury",
@@ -389,7 +754,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
   useEffect(() => {
     const defaultStyle = industryContent.defaultStyle;
-    if (defaultStyle && defaultStyle !== "None") {
+    if (defaultStyle && defaultStyle !== "None" && !routedPromptRef.current) {
       setContentStyles((prev) => ({
         ...prev,
         blog: prev.blog === "None" ? defaultStyle : prev.blog,
@@ -397,7 +762,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         property_feature: prev.property_feature === "None" ? defaultStyle : prev.property_feature,
       }));
     }
-    if (!topic && industryContent.suggestedTopics.length > 0) {
+    if (!topic && !routedPromptRef.current && industryContent.suggestedTopics.length > 0) {
       setTopic(industryContent.suggestedTopics[0]);
     }
   }, [businessType]);
@@ -420,6 +785,8 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const [editedContent, setEditedContent] = useState("");
   const [showPlatformPreview, setShowPlatformPreview] = useState(false);
   const [previewPlatform, setPreviewPlatform] = useState<string | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
+  const postingSectionRef = useRef<HTMLDivElement | null>(null);
 
   // Photo upload dialog states
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
@@ -461,6 +828,39 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const activeContentBody = isEditing ? editedContent : lastGenerated?.content || "";
+  const previewText = useMemo(() => {
+    const normalized = plainTextFromMarkdown(activeContentBody);
+    if (!normalized) return "";
+    if (normalized.length <= 320) return normalized;
+    return `${normalized.slice(0, 320).trimEnd()}...`;
+  }, [activeContentBody]);
+
+  const handleExportGeneratedContent = () => {
+    if (!lastGenerated?.content) return;
+    const blob = new Blob([lastGenerated.content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const fileSafeTitle = (lastGenerated.title || "generated-content")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${fileSafeTitle || "generated-content"}.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    toast({
+      title: "Export Complete",
+      description: "Generated content exported as a markdown file.",
+    });
+  };
+
+  const handleScrollToShareActions = () => {
+    postingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   // Fetch company profile for dynamic content
   const { data: companyProfile } = useQuery({
@@ -1115,6 +1515,9 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     },
     onSuccess: (data: GeneratedContent) => {
       setLastGenerated(data);
+      setGeneratedAt(new Date());
+      setShowFullContent(false);
+      setIsEditing(false);
       toast({
         title: "Content Generated Successfully!",
         description: `Created "${data.title}" with ${data.wordCount} words`,
@@ -1202,6 +1605,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         [variables.platform]: data,
       }));
       setLastGenerated(data);
+      setGeneratedAt(new Date());
 
       const message =
         seoScore >= 80
@@ -1238,7 +1642,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   };
 
   const handleGenerate = () => {
-    if (!topic.trim() && contentType !== "property_feature") {
+    const promptInstruction = sourcePrompt.trim() || aiPrompt.trim();
+    const extractedDetails = promptDetails || extractPromptDetails(promptInstruction);
+    const topicInstruction = topic.trim() || buildPromptTopic(extractedDetails, promptInstruction);
+
+    if (!topicInstruction.trim() && contentType !== "property_feature") {
       toast({
         title: "Topic Required",
         description: "Please enter a topic or keywords for content generation",
@@ -1258,14 +1666,34 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
     }
 
     const selectedStyle = contentStyles[contentType] || "None";
-    const enhancedPrompt =
-      selectedStyle === "None"
-        ? aiPrompt.trim()
-        : `${aiPrompt.trim()} Use a ${selectedStyle.toLowerCase()} style and tone for this content.`;
+    const typeSpecificDirective = getTypeSpecificDirective(
+      contentType,
+      extractedDetails,
+      promptInstruction,
+      selectedStyle,
+    );
+
+    const routedInstruction = routedPromptRef.current
+      ? buildStructuredPrompt(promptInstruction, extractedDetails)
+      : null;
+
+    const qualityDirective = [
+      "Write with professional tone, strong grammar, and precise punctuation.",
+      `Stay tightly focused on this topic: ${topicInstruction || "the requested topic"}.`,
+      "Only use facts explicitly provided in the prompt, extracted details, or selected property data.",
+      "Never invent or assume amenities, schools, concierge, rooftop lounges, smart-home features, gyms, or gourmet kitchens unless they are explicitly provided.",
+      typeSpecificDirective,
+    ].join(" ");
+
+    const enhancedPrompt = routedInstruction
+      ? `${routedInstruction}\n\n${qualityDirective}`
+      : selectedStyle === "None"
+        ? `${aiPrompt.trim()} ${qualityDirective}`
+        : `${aiPrompt.trim()} Use a ${selectedStyle.toLowerCase()} style and tone for this content. ${qualityDirective}`;
 
     generateContentMutation.mutate({
       type: contentType,
-      topic: topic.trim(),
+      topic: topicInstruction,
       aiPrompt: enhancedPrompt,
       neighborhood:
         neighborhood === "All Omaha Areas" ? undefined : (neighborhood === "Custom" ? (customLocation.trim() || undefined) : neighborhood),
@@ -1785,6 +2213,54 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   </div>
                 </div>
 
+                {promptDetails && sourcePrompt.trim() && (
+                  <div className="rounded-lg border bg-muted/30 p-4 space-y-2" data-testid="extracted-prompt-details">
+                    <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Extracted from your prompt</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                      {promptDetails.propertyType && (
+                        <div>
+                          <span className="text-muted-foreground">Property Type:</span>
+                          <span className="ml-2 font-medium text-foreground">{promptDetails.propertyType}</span>
+                        </div>
+                      )}
+                      {promptDetails.location && (
+                        <div>
+                          <span className="text-muted-foreground">Location:</span>
+                          <span className="ml-2 font-medium text-foreground">{promptDetails.location}</span>
+                        </div>
+                      )}
+                      {promptDetails.platforms.length > 0 && (
+                        <div className="md:col-span-2">
+                          <span className="text-muted-foreground">Platforms:</span>
+                          <span className="ml-2 font-medium text-foreground">{promptDetails.platforms.join(", ")}</span>
+                        </div>
+                      )}
+                      {promptDetails.tone && (
+                        <div className="md:col-span-2">
+                          <span className="text-muted-foreground">Tone:</span>
+                          <span className="ml-2 font-medium text-foreground">{promptDetails.tone}</span>
+                        </div>
+                      )}
+                      {promptDetails.cta && (
+                        <div className="md:col-span-2">
+                          <span className="text-muted-foreground">CTA:</span>
+                          <span className="ml-2 font-medium text-foreground">{promptDetails.cta}</span>
+                        </div>
+                      )}
+                    </div>
+                    {promptDetails.highlights.length > 0 && (
+                      <div>
+                        <p className="text-muted-foreground text-xs mb-1">Highlights:</p>
+                        <ul className="list-disc pl-5 text-sm space-y-1">
+                          {promptDetails.highlights.map((highlight, index) => (
+                            <li key={`highlight-${index}`} className="text-foreground">{highlight}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Neighborhood Selection */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -1969,260 +2445,263 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         )}
 
         {/* Step 4: Share */}
+        {currentStep === 4 && !lastGenerated && (
+          <div className="mt-6 rounded-xl border border-dashed bg-muted/20 p-8 text-center" data-testid="content-preview-empty">
+            <FileText className="mx-auto h-8 w-8 text-muted-foreground mb-3" />
+            <p className="text-base font-medium text-foreground">No content generated yet.</p>
+            <p className="text-sm text-muted-foreground mt-1">Generate your first post to see it here.</p>
+            <Button className="mt-4" variant="outline" onClick={() => setCurrentStep(3)}>
+              Go To Generate Step
+            </Button>
+          </div>
+        )}
+
         {currentStep === 4 && lastGenerated && (
-          <div
-            className="mt-6 p-4 bg-muted rounded-lg"
-            data-testid="content-preview"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <h3 className="font-medium text-foreground">
-                  Latest Generated Content
-                </h3>
-                <AiGeneratedBadge size="sm" showTooltip={true} />
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(lastGenerated.content);
-                    toast({
-                      title: "Copied to Clipboard",
-                      description: "Content has been copied to your clipboard",
-                    });
-                  }}
-                  data-testid="button-copy-content"
-                >
-                  <Copy className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowFullContent(!showFullContent)}
-                  data-testid="button-toggle-content"
-                >
-                  {showFullContent ? (
-                    <>
-                      <ChevronUp className="mr-1 h-4 w-4" />
-                      Hide
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="mr-1 h-4 w-4" />
-                      View Full
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            <p className="text-sm font-medium text-foreground mb-3">
-              "{lastGenerated.title}"
-            </p>
-
-            {/* Photo Upload Section */}
-            <div className="mb-3">
-              <div className="flex items-center justify-between mb-2">
-                <Label className="text-xs font-medium text-foreground">
-                  Add Photo (Optional)
-                </Label>
-                {!selectedPhoto && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowPhotoUpload(true)}
-                    data-testid="button-add-photo"
-                  >
-                    <ImagePlus className="mr-1 h-3 w-3" />
-                    Upload Image
-                  </Button>
-                )}
-              </div>
-
-              {photoPreview && (
-                <div className="relative inline-block">
-                  <img
-                    src={photoPreview}
-                    alt="Selected photo"
-                    className="max-w-full h-32 object-cover rounded border"
-                  />
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
-                    onClick={removePhoto}
-                    data-testid="button-remove-photo"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
+          <div className="mt-6 rounded-xl border bg-card shadow-sm" data-testid="content-preview">
+            <div className="border-b px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-foreground text-base">Latest Generated Content</h3>
+                  <AiGeneratedBadge size="sm" showTooltip={true} />
                 </div>
-              )}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {generatedAt ? format(generatedAt, "MMM d, h:mm a") : "Generated just now"}
+                  </span>
+                  {lastGenerated.seoScore ? (
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${
+                        lastGenerated.seoScore >= 80
+                          ? "border-green-500 text-green-700 dark:text-green-400"
+                          : lastGenerated.seoScore >= 70
+                            ? "border-yellow-500 text-yellow-700 dark:text-yellow-400"
+                            : "border-red-500 text-red-700 dark:text-red-400"
+                      }`}
+                    >
+                      SEO {lastGenerated.seoScore}%
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+              <p className="text-lg font-semibold text-foreground mt-3">{lastGenerated.title}</p>
             </div>
 
-            {showFullContent && (
-              <div className="mb-4 p-3 bg-background rounded border">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Generated Content
-                  </span>
+            <div className="px-5 py-4 space-y-4">
+              <div className="rounded-lg border bg-muted/20 overflow-hidden">
+                <div
+                  className={`relative px-4 py-4 transition-all duration-300 ease-in-out ${showFullContent ? "max-h-[1400px]" : "max-h-[260px] overflow-hidden"}`}
+                  style={{ transitionDuration: "280ms" }}
+                >
+                  {isEditing ? (
+                    <Textarea
+                      value={editedContent}
+                      onChange={(e) => setEditedContent(e.target.value)}
+                      rows={12}
+                      className="resize-none text-sm"
+                      placeholder="Edit your generated content..."
+                    />
+                  ) : (
+                    <div className="max-w-3xl text-foreground/95 leading-relaxed space-y-3">
+                      {showFullContent ? renderMarkdownContent(lastGenerated.content) : (
+                        <p className="text-sm md:text-[0.96rem] leading-7 whitespace-pre-wrap">{previewText || "No content available."}</p>
+                      )}
+                    </div>
+                  )}
+                  {!showFullContent && !isEditing && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card via-card/85 to-transparent" />
+                  )}
+                </div>
+                <div className="border-t px-4 py-3">
                   <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (!isEditing) {
-                        setEditedContent(lastGenerated.content);
-                      } else {
-                        // Save edited content
-                        setLastGenerated((prev) =>
-                          prev ? { ...prev, content: editedContent } : null
-                        );
-                      }
-                      setIsEditing(!isEditing);
-                    }}
-                    className="h-6 px-2 text-xs"
+                    variant="ghost"
+                    className="h-8 px-0 text-sm font-medium text-primary hover:text-primary/80"
+                    onClick={() => setShowFullContent((prev) => !prev)}
+                    data-testid="button-toggle-content"
                   >
-                    {isEditing ? (
+                    {showFullContent ? (
                       <>
-                        <Save className="mr-1 h-3 w-3" />
-                        Save
+                        <ChevronUp className="mr-2 h-4 w-4" />
+                        Show Less
                       </>
                     ) : (
                       <>
-                        <Edit2 className="mr-1 h-3 w-3" />
-                        Edit
+                        <ChevronDown className="mr-2 h-4 w-4" />
+                        Continue Reading
                       </>
                     )}
                   </Button>
                 </div>
-                {isEditing ? (
-                  <Textarea
-                    value={editedContent}
-                    onChange={(e) => setEditedContent(e.target.value)}
-                    rows={8}
-                    className="resize-none text-sm"
-                    placeholder="Edit your generated content..."
-                  />
-                ) : (
-                  <div className="prose prose-sm max-w-none text-sm text-foreground whitespace-pre-wrap">
-                    {lastGenerated.content}
+              </div>
+
+              {/* BHHS Compliance Check */}
+              {isRealEstate && ((isEditing && editedContent.trim().length > 10) || (!isEditing && lastGenerated.content.trim().length > 10)) && (
+                <ComplianceChecker
+                  content={isEditing ? editedContent : lastGenerated.content}
+                  platform="general"
+                  hasMedia={false}
+                  hasVideo={false}
+                  onContentFix={(fixedContent) => {
+                    setEditedContent(fixedContent);
+                    if (!isEditing) {
+                      setIsEditing(true);
+                    }
+                  }}
+                  showGuidelines={false}
+                />
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 pt-1" data-testid="quick-actions-row">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!isEditing) {
+                      setEditedContent(lastGenerated.content);
+                      setShowFullContent(true);
+                    } else {
+                      setLastGenerated((prev) => (prev ? { ...prev, content: editedContent } : null));
+                    }
+                    setIsEditing((prev) => !prev);
+                  }}
+                >
+                  {isEditing ? <Save className="mr-2 h-4 w-4" /> : <Edit2 className="mr-2 h-4 w-4" />}
+                  {isEditing ? "Save" : "Edit"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(lastGenerated.content);
+                    toast({ title: "Copied", description: "Generated content copied to clipboard." });
+                  }}
+                  data-testid="button-copy-content"
+                >
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportGeneratedContent}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleScrollToShareActions}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Share
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerate}
+                  disabled={generateContentMutation.isPending}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${generateContentMutation.isPending ? "animate-spin" : ""}`} />
+                  Regenerate
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <div className="rounded-md border bg-background px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Word Count</p>
+                  <p className="font-medium text-foreground">{lastGenerated.wordCount}</p>
+                </div>
+                <div className="rounded-md border bg-background px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Keywords</p>
+                  <p className="font-medium text-foreground">{lastGenerated.keywords?.length || 0}</p>
+                </div>
+                <div className="rounded-md border bg-background px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Generated</p>
+                  <p className="font-medium text-foreground">{generatedAt ? format(generatedAt, "h:mm a") : "Just now"}</p>
+                </div>
+                <div className="rounded-md border bg-background px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Content Type</p>
+                  <p className="font-medium text-foreground">{dynamicContentTypes.find((t) => t.value === contentType)?.label}</p>
+                </div>
+              </div>
+
+              {(lastGenerated.keywords?.length || 0) > 0 && (
+                <div className="pt-2">
+                  <p className="text-xs text-muted-foreground mb-2">Keywords</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(lastGenerated.keywords || []).map((keyword, index) => (
+                      <Badge key={index} variant="secondary" className="text-xs">{keyword}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Photo Upload Section */}
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs font-medium text-foreground">Add Photo (Optional)</Label>
+                  {!selectedPhoto && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowPhotoUpload(true)}
+                      data-testid="button-add-photo"
+                    >
+                      <ImagePlus className="mr-1 h-3 w-3" />
+                      Upload Image
+                    </Button>
+                  )}
+                </div>
+
+                {photoPreview && (
+                  <div className="relative inline-block">
+                    <img
+                      src={photoPreview}
+                      alt="Selected photo"
+                      className="max-w-full h-32 object-cover rounded border"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                      onClick={removePhoto}
+                      data-testid="button-remove-photo"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
                   </div>
                 )}
-                
-                {/* BHHS Compliance Check */}
-                {isRealEstate && ((isEditing && editedContent.trim().length > 10) || 
-                  (!isEditing && lastGenerated.content.trim().length > 10)) && (
-                  <ComplianceChecker
-                    content={isEditing ? editedContent : lastGenerated.content}
-                    platform="general"
-                    hasMedia={false}
-                    hasVideo={false}
-                    onContentFix={(fixedContent) => {
-                      setEditedContent(fixedContent);
-                      if (!isEditing) {
-                        setIsEditing(true);
-                      }
-                    }}
-                    showGuidelines={false}
-                    className="mt-3"
-                  />
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4 text-xs text-muted-foreground">
-                <span className="flex items-center">
-                  <Eye className="mr-1 h-3 w-3" />
-                  {lastGenerated.wordCount} words
-                </span>
-                <span className="flex items-center">
-                  <Search className="mr-1 h-3 w-3" />
-                  {lastGenerated.keywords?.length || 0} keywords optimized
-                </span>
-                <span className="flex items-center">
-                  <Clock className="mr-1 h-3 w-3" />
-                  Generated just now
-                </span>
               </div>
 
-              {lastGenerated.seoScore && (
-                <Badge
-                  variant="outline"
-                  className={`text-xs ${
-                    lastGenerated.seoScore >= 80
-                      ? "border-green-500 text-green-700 dark:text-green-400"
-                      : lastGenerated.seoScore >= 70
-                      ? "border-yellow-500 text-yellow-700 dark:text-yellow-400"
-                      : "border-red-500 text-red-700 dark:text-red-400"
-                  }`}
-                >
-                  SEO Score: {lastGenerated.seoScore}%
-                </Badge>
+              {lastGenerated.seoBreakdown && (
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground mb-2">SEO Breakdown</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="flex justify-between">
+                      <span>Keywords:</span>
+                      <span className="font-mono">{lastGenerated.seoBreakdown.keywordOptimization}/25</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Structure:</span>
+                      <span className="font-mono">{lastGenerated.seoBreakdown.contentStructure}/20</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Local SEO:</span>
+                      <span className="font-mono">{lastGenerated.seoBreakdown.localSEO}/20</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Quality:</span>
+                      <span className="font-mono">{lastGenerated.seoBreakdown.contentQuality}/15</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Meta:</span>
+                      <span className="font-mono">{lastGenerated.seoBreakdown.metaOptimization}/10</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Call-to-Action:</span>
+                      <span className="font-mono">{lastGenerated.seoBreakdown.callToAction}/10</span>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
 
-            {(lastGenerated.keywords?.length || 0) > 0 && (
-              <div className="mt-3 pt-3 border-t">
-                <p className="text-xs text-muted-foreground mb-2">Keywords:</p>
-                <div className="flex flex-wrap gap-1">
-                  {lastGenerated.keywords?.map((keyword, index) => (
-                    <Badge key={index} variant="secondary" className="text-xs">
-                      {keyword}
-                    </Badge>
-                  )) || []}
-                </div>
-              </div>
-            )}
-
-            {lastGenerated.seoBreakdown && (
-              <div className="mt-3 pt-3 border-t">
-                <p className="text-xs text-muted-foreground mb-2">
-                  SEO Breakdown:
-                </p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="flex justify-between">
-                    <span>Keywords:</span>
-                    <span className="font-mono">
-                      {lastGenerated.seoBreakdown.keywordOptimization}/25
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Structure:</span>
-                    <span className="font-mono">
-                      {lastGenerated.seoBreakdown.contentStructure}/20
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Local SEO:</span>
-                    <span className="font-mono">
-                      {lastGenerated.seoBreakdown.localSEO}/20
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Quality:</span>
-                    <span className="font-mono">
-                      {lastGenerated.seoBreakdown.contentQuality}/15
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Meta:</span>
-                    <span className="font-mono">
-                      {lastGenerated.seoBreakdown.metaOptimization}/10
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Call-to-Action:</span>
-                    <span className="font-mono">
-                      {lastGenerated.seoBreakdown.callToAction}/10
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Social Media Account Selectors */}
-            <div className="mt-3 pt-3 border-t space-y-3">
+            <div ref={postingSectionRef} className="mt-3 px-5 pb-5 pt-4 border-t space-y-3">
               {/* Facebook Page Selector */}
               <FacebookPageSelector
                 pages={facebookPages}
@@ -2527,8 +3006,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       />
                     ) : (
                       <div className="text-sm mb-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                        {optimizedContent[previewPlatform]?.content ||
-                          lastGenerated?.content}
+                        {plainTextFromMarkdown(
+                          optimizedContent[previewPlatform]?.content ||
+                            lastGenerated?.content ||
+                            "",
+                        )}
                       </div>
                     )}
                   </div>
@@ -2667,8 +3149,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                           />
                         ) : (
                           <span className="whitespace-pre-wrap">
-                            {optimizedContent[previewPlatform]?.content ||
-                              lastGenerated?.content}
+                            {plainTextFromMarkdown(
+                              optimizedContent[previewPlatform]?.content ||
+                                lastGenerated?.content ||
+                                "",
+                            )}
                           </span>
                         )}
                       </span>
@@ -2727,8 +3212,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                     />
                   ) : (
                     <div className="text-sm mb-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                      {optimizedContent[previewPlatform]?.content ||
-                        lastGenerated?.content}
+                      {plainTextFromMarkdown(
+                        optimizedContent[previewPlatform]?.content ||
+                          lastGenerated?.content ||
+                          "",
+                      )}
                     </div>
                   )}
                   {photoPreview && (
@@ -2823,8 +3311,11 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       />
                     ) : (
                       <div className="text-xs text-gray-600 max-h-32 overflow-y-auto whitespace-pre-wrap">
-                        {optimizedContent[previewPlatform]?.content ||
-                          lastGenerated?.content}
+                        {plainTextFromMarkdown(
+                          optimizedContent[previewPlatform]?.content ||
+                            lastGenerated?.content ||
+                            "",
+                        )}
                       </div>
                     )}
                   </div>

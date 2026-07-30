@@ -117,9 +117,9 @@ describe("BoardDetailPage chatMode URL handling", () => {
     expect(panel.getAttribute("data-mode")).toBe("brainstorm");
   });
 
-  it("an unknown chatMode falls back to Build (create) mode", async () => {
+  it("an unknown chatMode falls back to Think (brainstorm) mode", async () => {
     renderAt("/boards/board-3?seed=x&chatMode=foo");
     const panel = await waitFor(() => screen.getByTestId("chat-panel-stub"));
-    expect(panel.getAttribute("data-mode")).toBe("create");
+    expect(panel.getAttribute("data-mode")).toBe("brainstorm");
   });
 });

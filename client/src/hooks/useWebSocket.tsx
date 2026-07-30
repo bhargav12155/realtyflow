@@ -89,6 +89,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const [lastMessage, setLastMessage] = useState<WebSocketMessage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasConnectedOnceRef = useRef(false);
   const { toast } = useToast();
 
   const connect = useCallback(() => {
@@ -115,13 +116,16 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         console.log("✅ WebSocket connected");
         setIsConnected(true);
 
-        if (showToast) {
+        // Avoid a noisy "Connected" toast on initial page load; only show
+        // it if we recovered from a previous disconnect.
+        if (showToast && hasConnectedOnceRef.current) {
           toast({
             title: "Connected",
             description: "Real-time updates enabled",
             duration: 2000,
           });
         }
+        hasConnectedOnceRef.current = true;
       };
 
       ws.onmessage = (event) => {

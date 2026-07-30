@@ -174,6 +174,7 @@ describe("BoardsHomeView create-from-prompt", () => {
       const last = history.at(-1) ?? "";
       expect(last.startsWith("/boards/brd_test_1?")).toBe(true);
       expect(last).toContain("intent=image");
+      expect(last).toContain("chatMode=plan");
       expect(last).not.toContain("provider=");
     });
   });
@@ -204,7 +205,7 @@ describe("BoardsHomeView create-from-prompt", () => {
     });
   });
 
-  it("clicking the Video chip seeds build mode and routes with chatMode=build", async () => {
+  it("clicking the Video chip seeds plan mode and routes with chatMode=plan", async () => {
     const { history } = renderWithProviders(<BoardsHomeView />);
 
     const chip = await screen.findByTestId("chip-intent-video");
@@ -213,7 +214,7 @@ describe("BoardsHomeView create-from-prompt", () => {
     await waitFor(() => {
       const postCalls = apiRequestMock.mock.calls.filter((c) => c[0] === "POST");
       const body = postCalls[0][2] as Record<string, unknown>;
-      expect(body.seedMode).toBe("build");
+      expect(body.seedMode).toBe("plan");
       // Video is an image-first guided flow: it seeds an image provider so the
       // first generation produces image options (not a direct text-to-video).
       expect(body.seedProvider).toBe("gemini-image");
@@ -221,7 +222,7 @@ describe("BoardsHomeView create-from-prompt", () => {
     });
 
     await waitFor(() => {
-      expect(history.at(-1) ?? "").toContain("chatMode=build");
+      expect(history.at(-1) ?? "").toContain("chatMode=plan");
     });
   });
 

@@ -260,6 +260,30 @@ export function assertProviderSupportsGenerationMode(
   }
 }
 
+async function withTimeoutFallback<T>(
+  label: string,
+  task: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeoutId = setTimeout(() => {
+      console.warn(`[boards] ${label} timed out after ${timeoutMs}ms; using fallback.`);
+      resolve(fallback);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task, timeoutPromise]);
+  } catch (error) {
+    console.error(`[boards] ${label} failed; using fallback.`, error);
+    return fallback;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 export function registerBoardsRoutes(
   app: Express,
   deps: { storage?: IStorage; auth?: RequestHandler } = {},
@@ -290,19 +314,38 @@ export function registerBoardsRoutes(
       const ownedBoardIds = boards.filter((b) => b.isOwner).map((b) => b.id);
       const sharedOwnerIds = boards.filter((b) => !b.isOwner).map((b) => b.userId);
       const allBoardIds = boards.map((b) => b.id);
+      const emptySharesByBoard = new Map<string, Awaited<ReturnType<IStorage["getBoardShares"]>>>();
+      const emptyOwnerUsers = [] as Awaited<ReturnType<IStorage["getUsersByIds"]>>;
+      const emptyAssetSummaries = new Map<
+        string,
+        Awaited<ReturnType<IStorage["getBoardAssetSummariesForBoards"]>> extends Map<string, infer V> ? V : never
+      >();
 
       const [sharesByBoard, ownerUsers, assetSummariesByBoard] = await Promise.all([
         ownedBoardIds.length
-          ? storage.getBoardSharesForBoards(ownedBoardIds)
-          : Promise.resolve(new Map<string, Awaited<ReturnType<IStorage["getBoardShares"]>>>()),
+          ? withTimeoutFallback(
+              "board share enrichment",
+              storage.getBoardSharesForBoards(ownedBoardIds),
+              2500,
+              emptySharesByBoard,
+            )
+          : Promise.resolve(emptySharesByBoard),
         sharedOwnerIds.length
-          ? storage.getUsersByIds(sharedOwnerIds)
-          : Promise.resolve([] as Awaited<ReturnType<IStorage["getUsersByIds"]>>),
+          ? withTimeoutFallback(
+              "board owner enrichment",
+              storage.getUsersByIds(sharedOwnerIds),
+              2500,
+              emptyOwnerUsers,
+            )
+          : Promise.resolve(emptyOwnerUsers),
         allBoardIds.length
-          ? storage.getBoardAssetSummariesForBoards(allBoardIds)
-          : Promise.resolve(
-              new Map<string, Awaited<ReturnType<IStorage["getBoardAssetSummariesForBoards"]>> extends Map<string, infer V> ? V : never>(),
-            ),
+          ? withTimeoutFallback(
+              "board asset enrichment",
+              storage.getBoardAssetSummariesForBoards(allBoardIds),
+              3000,
+              emptyAssetSummaries,
+            )
+          : Promise.resolve(emptyAssetSummaries),
       ]);
       const ownersById = new Map(ownerUsers.map((u) => [u.id, u]));
 

@@ -151,6 +151,7 @@ describe("Dashboard → Boards overlay flow", () => {
       const last = history[history.length - 1] ?? "";
       expect(last.startsWith("/boards/board-123?")).toBe(true);
       expect(last).toContain("intent=image");
+      expect(last).toContain("chatMode=plan");
     });
     await waitFor(() => expect(screen.queryByTestId("boards-overlay-content")).toBeNull());
   });

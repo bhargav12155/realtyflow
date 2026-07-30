@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2, AlertTriangle } from "lucide-react";
+import { Flag, Tag, Plus, Minus as MinusIcon, Crown, Sparkles, History, Loader2, AlertTriangle, Brain, Zap, Clock3, Image as ImageIcon, Download, Wand2, Pencil, ArrowUpRight, Heart, Share2 } from "lucide-react";
 import type { BoardAssetEvalHistoryEntry } from "@shared/schema";
 import { parseDrawingContent, drawingStrokeToPath } from "./DrawingModal";
 import {
@@ -31,6 +31,8 @@ export interface CanvasAsset {
   positionY?: number | null;
   provider?: string | null;
   modelLabel?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface AssetMove {
@@ -67,6 +69,32 @@ const RESIZE_MIN_BY_KIND: Record<string, { width: number; height: number }> = {
 };
 const RESIZE_MAX = { width: 800, height: 600 };
 const COMPACT_NO_PREVIEW_SIZE = { width: 180, height: 126 };
+const PROVIDER_LABEL: Record<string, string> = {
+  luma: "Luma",
+  runway: "Runway",
+  veo: "VEO",
+  kling: "Kling",
+  sora2: "Sora 2",
+  seedance: "Seedance",
+  "gemini-image": "Gemini Image",
+  "openai-image": "DALL-E",
+  heygen: "HeyGen",
+  upload: "Upload",
+};
+
+function relativeTime(value?: string | null): string {
+  if (!value) return "just now";
+  const at = new Date(value).getTime();
+  if (!Number.isFinite(at)) return "just now";
+  const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  if (seconds < 45) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 function previewStatusFor(asset: CanvasAsset, videoLoadFailed: boolean): { title: string; detail: string; tone: "error" | "muted" } {
   if (asset.status === "failed" || asset.status === "rejected") {
@@ -134,10 +162,6 @@ interface BoardCanvasProps {
   onDeleteAsset: (id: string) => void;
   onClearRejection: (id: string) => void;
   onSetWinner?: (batchId: string, assetId: string) => void;
-  onReEvaluate?: (
-    batchId: string,
-    payload: { modelHint: ReEvalModel; extraCriteria?: string },
-  ) => void;
   onResizeAsset?: (assetId: string, width: number, height: number) => void;
   /** Persist new positions for one or more tiles after a drag completes. */
   onMoveAssets?: (moves: AssetMove[]) => void;
@@ -185,6 +209,14 @@ interface BoardCanvasProps {
   reEvalPendingBatchId?: string | null;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
+  /** Visual-only flag so empty canvas can show a planning-first helper card. */
+  isPlanMode?: boolean;
+  /** Visual-only CTA in empty-plan state; expected to switch to Build mode. */
+  onSwitchToBuild?: () => void;
+  /** Visual-only estimate shown in the plan helper card. */
+  estimatedOutputCount?: number;
+  /** Visual-only estimate shown in the plan helper card. */
+  estimatedBuildSeconds?: number;
 }
 
 interface MarqueeBox {
@@ -209,7 +241,6 @@ export function BoardCanvas({
   onDeleteAsset,
   onClearRejection,
   onSetWinner,
-  onReEvaluate,
   onResizeAsset,
   onMoveAssets,
   onTileDragging,
@@ -219,6 +250,10 @@ export function BoardCanvas({
   reEvalPendingBatchId,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
+  isPlanMode = false,
+  onSwitchToBuild,
+  estimatedOutputCount = 3,
+  estimatedBuildSeconds = 20,
 }: BoardCanvasProps) {
   // Build a quick lookup so each tile can resolve its source-asset thumbnail
   // (used for the before/after preview on edited image tiles) without a prop
@@ -515,10 +550,10 @@ export function BoardCanvas({
   };
 
   return (
-    <main className="relative flex-1 overflow-hidden bg-[radial-gradient(circle,_rgba(0,0,0,0.06)_1px,_transparent_1px)] dark:bg-[radial-gradient(circle,_rgba(255,255,255,0.06)_1px,_transparent_1px)] [background-size:18px_18px] bg-neutral-100 dark:bg-neutral-950">
+    <main className="relative flex-1 overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] dark:bg-[linear-gradient(180deg,#0b1220_0%,#0a0f1a_100%)] before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_45%)] dark:before:bg-[radial-gradient(circle_at_top,rgba(125,211,252,0.08),transparent_48%)] before:z-0">
       <div
         ref={scrollerRef}
-        className="absolute inset-0 overflow-auto px-8 py-6"
+        className="absolute inset-0 overflow-auto px-12 py-10 bg-[radial-gradient(circle,_rgba(15,23,42,0.06)_1px,_transparent_1px)] [background-size:22px_22px] dark:bg-[radial-gradient(circle,_rgba(148,163,184,0.14)_1px,_transparent_1px)]"
         onMouseDown={onCanvasMouseDown}
         onClick={() => onSelectAsset(null)}
         onMouseMove={handleCursorMoveOverScroller}
@@ -526,9 +561,63 @@ export function BoardCanvas({
         data-testid="canvas-scroller"
       >
         {batches.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-[12px] text-neutral-400 dark:text-neutral-500" data-testid="text-empty-canvas">
-            No assets yet — send a prompt in the chat to start a batch.
-          </div>
+          isPlanMode ? (
+            <div className="h-full flex items-center justify-center" data-testid="text-empty-canvas">
+              <div className="w-full max-w-lg rounded-3xl border border-neutral-200/90 bg-white/95 p-7 shadow-[0_24px_50px_rgba(15,23,42,0.10)] dark:border-neutral-700 dark:bg-neutral-900/95 animate-[batchFadeIn_280ms_ease-out]">
+                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-500/20">
+                    <Brain className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-[12px] font-semibold tracking-wide uppercase">Planning mode</p>
+                    <p className="text-[13px] font-medium text-neutral-900 dark:text-neutral-100">Shape the idea before spending credits</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-[12px] leading-relaxed text-neutral-600 dark:text-neutral-300">
+                  Ask for style direction, composition options, and prompt refinements. When you are ready, switch to Build to generate final assets.
+                </p>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-700 dark:bg-neutral-800/80">
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Credits used</p>
+                    <p className="mt-1 text-[14px] font-semibold text-neutral-900 dark:text-neutral-100">0</p>
+                  </div>
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-700 dark:bg-neutral-800/80">
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Est. images</p>
+                    <p className="mt-1 text-[14px] font-semibold text-neutral-900 dark:text-neutral-100 inline-flex items-center gap-1">
+                      <ImageIcon className="h-3.5 w-3.5 text-neutral-500" />
+                      {estimatedOutputCount}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-2 dark:border-neutral-700 dark:bg-neutral-800/80">
+                    <p className="text-[10px] uppercase tracking-wide text-neutral-500 dark:text-neutral-400">Est. time</p>
+                    <p className="mt-1 text-[14px] font-semibold text-neutral-900 dark:text-neutral-100 inline-flex items-center gap-1">
+                      <Clock3 className="h-3.5 w-3.5 text-neutral-500" />
+                      ~{estimatedBuildSeconds}s
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-neutral-500 dark:text-neutral-400">No assets created yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => onSwitchToBuild?.()}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-500"
+                    data-testid="button-empty-plan-build"
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    Build Images
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center" data-testid="text-empty-canvas">
+              <div className="rounded-3xl border border-neutral-200/90 bg-white/90 px-6 py-5 shadow-[0_18px_40px_rgba(15,23,42,0.07)] dark:border-neutral-700 dark:bg-neutral-900/90">
+                <div className="text-[13px] font-semibold text-neutral-900 dark:text-neutral-100">Creative workspace is ready</div>
+                <div className="mt-1 text-[12px] text-neutral-500 dark:text-neutral-400">Send a Build prompt to create your first organized batch.</div>
+              </div>
+            </div>
+          )
         ) : (
           batches.map((b) => (
             <BatchGroup
@@ -541,9 +630,7 @@ export function BoardCanvas({
               onDeleteAsset={onDeleteAsset}
               onClearRejection={onClearRejection}
               onSetWinner={onSetWinner}
-              onReEvaluate={onReEvaluate}
               onResizeAsset={onResizeAsset}
-              reEvalPending={reEvalPendingBatchId === b.batchId}
               setWinnerPendingAssetId={setWinnerPendingAssetId}
               onUpdateAssetContent={onUpdateAssetContent}
               activeTileDrag={activeTileDrag}
@@ -642,9 +729,7 @@ function BatchGroup({
   onDeleteAsset,
   onClearRejection,
   onSetWinner,
-  onReEvaluate,
   onResizeAsset,
-  reEvalPending,
   setWinnerPendingAssetId,
   onUpdateAssetContent,
   activeTileDrag,
@@ -661,12 +746,7 @@ function BatchGroup({
   onDeleteAsset: (id: string) => void;
   onClearRejection: (id: string) => void;
   onSetWinner?: (batchId: string, assetId: string) => void;
-  onReEvaluate?: (
-    batchId: string,
-    payload: { modelHint: ReEvalModel; extraCriteria?: string },
-  ) => void;
   onResizeAsset?: (assetId: string, width: number, height: number) => void;
-  reEvalPending?: boolean;
   setWinnerPendingAssetId?: string | null;
   onUpdateAssetContent?: (assetId: string, content: string) => void;
   activeTileDrag: { ids: Set<string>; delta: { x: number; y: number } } | null;
@@ -684,11 +764,7 @@ function BatchGroup({
     }
   >;
 }) {
-  const [reEvalOpen, setReEvalOpen] = useState(false);
   const winnerId = pickWinnerId(batch.assets);
-  const canReEval = batch.assets.some(
-    (a) => !!a.assetUrl && (a.status === "ready" || a.status === "rejected"),
-  );
   // Any tile still queued/generating lights up the whole batch box with an
   // animated glow border so the creation moment reads as "alive".
   const batchGenerating = batch.assets.some(
@@ -736,75 +812,14 @@ function BatchGroup({
   }, [tileGeometryKey, liveDragKey]);
 
   return (
-    <div className="mb-5" data-testid={`batch-${batch.batchId}`}>
-      <div className="flex items-center justify-between mb-1.5 ml-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[11px] font-medium text-neutral-700 dark:text-neutral-300 truncate max-w-[280px]" title={batch.batchLabel ?? undefined}>
-            {batch.batchLabel || "Batch"}
-          </span>
-          {(() => {
-            const generatingCount = batch.assets.filter(a => a.status === "queued" || a.status === "generating").length;
-            const total = batch.assets.length;
-            const provider = batch.assets[0]?.provider;
-            const providerLabel: Record<string, string> = {
-              luma: "Luma", runway: "Runway", veo: "VEO", kling: "Kling",
-              sora2: "Sora 2", seedance: "Seedance", "gemini-image": "Gemini",
-              "openai-image": "DALL·E", heygen: "HeyGen", upload: "Upload",
-            };
-            if (generatingCount > 0) {
-              return (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[10px] font-medium shrink-0">
-                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                  {generatingCount === total ? "Generating…" : `${generatingCount}/${total} generating`}
-                  {provider && providerLabel[provider] ? ` · ${providerLabel[provider]}` : ""}
-                </span>
-              );
-            }
-            if (provider && providerLabel[provider]) {
-              return (
-                <span className="px-1.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 text-[10px] shrink-0">
-                  {providerLabel[provider]}
-                </span>
-              );
-            }
-            return null;
-          })()}
-        </div>
-        {onReEvaluate && canReEval && (
-          <div
-            className="relative"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setReEvalOpen((o) => !o)}
-              disabled={reEvalPending}
-              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-neutral-600 hover:bg-neutral-200/60 dark:text-neutral-300 dark:hover:bg-neutral-800/60 disabled:opacity-50"
-              data-testid={`button-re-evaluate-${batch.batchId}`}
-            >
-              <Sparkles className="w-3 h-3" />
-              {reEvalPending ? "Re-evaluating…" : "Re-evaluate this batch"}
-            </button>
-            {reEvalOpen && (
-              <ReEvalPopover
-                batchId={batch.batchId}
-                onCancel={() => setReEvalOpen(false)}
-                onSubmit={(payload) => {
-                  setReEvalOpen(false);
-                  onReEvaluate(batch.batchId, payload);
-                }}
-              />
-            )}
-          </div>
-        )}
-      </div>
+    <div className="mb-8" data-testid={`batch-${batch.batchId}`}>
       <div
         ref={boxRef}
-        className={`bg-white/70 backdrop-blur-sm border border-neutral-200/80 rounded-lg p-2.5 dark:bg-neutral-900/70 dark:border-neutral-800 ${
+        className={`bg-white/80 backdrop-blur-sm border border-neutral-200/90 rounded-2xl p-3.5 dark:bg-neutral-900/80 dark:border-neutral-800 ${
           batchGenerating ? "batch-generating-glow" : ""
         }`}
       >
-        <div ref={flowRef} className="flex flex-wrap gap-2">
+        <div ref={flowRef} className="flex flex-wrap gap-3">
           {batch.assets.map((a) => {
             const source = a.sourceAssetId ? assetsById.get(a.sourceAssetId) ?? null : null;
             const isDragging = activeTileDrag?.ids.has(a.id) ?? false;
@@ -878,77 +893,6 @@ function BatchGroup({
             );
           })}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ReEvalPopover({
-  batchId,
-  onSubmit,
-  onCancel,
-}: {
-  batchId: string;
-  onSubmit: (payload: { modelHint: ReEvalModel; extraCriteria?: string }) => void;
-  onCancel: () => void;
-}) {
-  const [model, setModel] = useState<ReEvalModel>("openai");
-  const [criteria, setCriteria] = useState("");
-  return (
-    <div
-      className="absolute right-0 top-6 z-30 w-[280px] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-lg shadow-lg p-3 space-y-2"
-      data-testid={`popover-re-evaluate-${batchId}`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="text-[11px] font-semibold text-neutral-700 dark:text-neutral-200">
-        Re-evaluate batch
-      </div>
-      <label className="block">
-        <span className="text-[10px] text-neutral-500 dark:text-neutral-400">Model</span>
-        <select
-          value={model}
-          onChange={(e) => setModel(e.target.value as ReEvalModel)}
-          className="mt-0.5 w-full text-[12px] px-2 py-1 rounded border border-neutral-300 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100"
-          data-testid={`select-re-evaluate-model-${batchId}`}
-        >
-          <option value="openai">OpenAI (GPT-4o)</option>
-          <option value="gemini">Gemini</option>
-        </select>
-      </label>
-      <label className="block">
-        <span className="text-[10px] text-neutral-500 dark:text-neutral-400">Extra criteria (optional)</span>
-        <textarea
-          value={criteria}
-          onChange={(e) => setCriteria(e.target.value)}
-          maxLength={600}
-          rows={3}
-          placeholder="e.g. Prefer warm lighting, avoid text overlays"
-          className="mt-0.5 w-full text-[12px] px-2 py-1 rounded border border-neutral-300 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 resize-none"
-          data-testid={`textarea-re-evaluate-criteria-${batchId}`}
-        />
-      </label>
-      <div className="flex justify-end gap-2 pt-0.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-2 py-1 rounded text-[11px] text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          data-testid={`button-re-evaluate-cancel-${batchId}`}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            onSubmit({
-              modelHint: model,
-              extraCriteria: criteria.trim() || undefined,
-            })
-          }
-          className="px-2.5 py-1 rounded text-[11px] font-medium bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-white"
-          data-testid={`button-re-evaluate-submit-${batchId}`}
-        >
-          Re-evaluate
-        </button>
       </div>
     </div>
   );
@@ -1251,7 +1195,7 @@ function AssetTile({
               : isText
                 ? "bg-transparent"
                 : "bg-neutral-200 dark:bg-neutral-800"
-        } cursor-pointer ${selected ? "ring-2 ring-blue-500" : ""}`}
+        } cursor-pointer transition-all duration-200 ${selected ? "ring-2 ring-sky-500 shadow-[0_12px_30px_rgba(56,189,248,0.28)] scale-[1.01]" : "hover:shadow-[0_10px_24px_rgba(15,23,42,0.14)]"}`}
         onMouseDown={(e) => {
           // Prevent the canvas-level mousedown from starting a marquee when
           // the user clicks (or shift-clicks) directly on a tile.
@@ -1488,6 +1432,78 @@ function AssetTile({
           <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-rose-500 border border-white shadow flex items-center justify-center" data-testid={`badge-flag-${asset.id}`}>
             <Flag className="w-2.5 h-2.5 text-white" strokeWidth={3} fill="white" />
           </div>
+        )}
+        {!isSticky && !isText && !isFrame && !isDrawing && !isAudio && (
+          <>
+            <div className="absolute left-1.5 right-1.5 top-1.5 flex items-center justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <div className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white backdrop-blur">
+                <span>{Math.max(1, Math.round(tileWidth))}x{Math.max(1, Math.round(tileHeight))}</span>
+                <span className="opacity-70">·</span>
+                <span>{PROVIDER_LABEL[asset.provider ?? "upload"] ?? (asset.provider ?? "Upload")}</span>
+              </div>
+              <div className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white backdrop-blur">
+                {relativeTime(asset.createdAt ?? asset.updatedAt)}
+              </div>
+            </div>
+            <div className="absolute right-1.5 bottom-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              {[
+                { id: "download", icon: Download, label: "Download" },
+                { id: "variation", icon: Wand2, label: "Create variations" },
+                { id: "edit", icon: Pencil, label: "Edit" },
+                { id: "upscale", icon: ArrowUpRight, label: "Upscale" },
+                { id: "favorite", icon: Heart, label: "Favorite" },
+                { id: "share", icon: Share2, label: "Share" },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (item.id === "download" && asset.assetUrl) {
+                        const a = document.createElement("a");
+                        a.href = asset.assetUrl;
+                        a.download = "";
+                        a.target = "_blank";
+                        a.rel = "noreferrer";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        return;
+                      }
+                      if (item.id === "edit" || item.id === "variation") {
+                        onSelect();
+                        return;
+                      }
+                      if (item.id === "upscale" || item.id === "favorite" || item.id === "share") {
+                        onSelect();
+                      }
+                    }}
+                    className="h-6 w-6 rounded-full bg-white/95 text-neutral-700 border border-neutral-200 hover:bg-white hover:text-neutral-900 shadow-sm flex items-center justify-center dark:bg-neutral-900/95 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    title={item.label}
+                    aria-label={item.label}
+                    data-testid={`button-asset-${item.id}-${asset.id}`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="h-6 w-6 rounded-full bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 shadow-sm flex items-center justify-center dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-300"
+                title="Delete"
+                aria-label="Delete"
+                data-testid={`button-asset-delete-${asset.id}`}
+              >
+                <Tag className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </>
         )}
       </div>
       {history.length > 0 && (

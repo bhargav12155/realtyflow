@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
-import { MoreVertical, Plus, LogOut, Trash2, BellOff, Pencil } from "lucide-react";
+import { MoreVertical, Plus, LogOut, Trash2, BellOff, Pencil, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,18 +64,6 @@ export interface BoardSummary {
   notifyOnCollaboratorChange?: boolean;
 }
 
-const TINTS = [
-  "from-emerald-100 to-amber-50",
-  "from-slate-200 to-slate-100",
-  "from-amber-100 to-rose-50",
-  "from-orange-100 to-amber-50",
-  "from-stone-200 to-stone-100",
-  "from-rose-100 to-pink-50",
-  "from-emerald-100 to-teal-50",
-  "from-blue-100 to-sky-50",
-  "from-emerald-200 to-emerald-50",
-];
-
 const AVATAR_TINTS = [
   "bg-emerald-200 text-emerald-900",
   "bg-amber-200 text-amber-900",
@@ -86,12 +74,6 @@ const AVATAR_TINTS = [
   "bg-teal-200 text-teal-900",
   "bg-pink-200 text-pink-900",
 ];
-
-function pickTint(seed: string) {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  return TINTS[hash % TINTS.length];
-}
 
 function pickAvatarTint(seed: string) {
   let hash = 0;
@@ -124,21 +106,91 @@ function relativeTime(value: string | Date | null | undefined): string {
   return `Edited ${d}d ago`;
 }
 
-function ThumbCollage({ thumbs }: { thumbs: { id: string; thumbnailUrl: string | null }[] }) {
-  const slots = [0, 1, 2, 3].map((i) => thumbs[i]?.thumbnailUrl ?? null);
-  return (
-    <div className="grid grid-cols-2 gap-0.5 sm:gap-1 w-full sm:w-[148px] h-[90px] sm:h-[148px] flex-shrink-0 rounded-lg overflow-hidden">
-      {slots.map((src, i) => (
-        <div key={i} className="bg-neutral-200/80 overflow-hidden dark:bg-neutral-700/60">
-          {src ? (
-            <img src={src} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-neutral-200 dark:bg-neutral-800" />
-          )}
+type Thumb = { id: string; thumbnailUrl: string | null; kind?: string };
+
+function SmartCover({ thumbs, boardTitle }: { thumbs: Thumb[]; boardTitle: string }) {
+  const withMedia = thumbs.filter((t) => !!t.thumbnailUrl);
+  if (withMedia.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center bg-gradient-to-br from-neutral-100 to-neutral-50 text-neutral-500 dark:from-neutral-900 dark:to-neutral-800 dark:text-neutral-300">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <span className="text-xl" aria-hidden="true">✨</span>
+          <p className="text-sm font-medium">No content yet</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">Start creating...</p>
         </div>
-      ))}
+      </div>
+    );
+  }
+
+  const img = (src: string, key: string, cls: string) => (
+    <img
+      key={key}
+      src={src}
+      alt={`${boardTitle} thumbnail`}
+      loading="lazy"
+      className={`${cls} object-cover transition-transform duration-200 ease-out group-hover:scale-[1.02]`}
+    />
+  );
+
+  if (withMedia.length === 1) {
+    return <div className="h-full w-full">{img(withMedia[0].thumbnailUrl as string, withMedia[0].id, "h-full w-full")}</div>;
+  }
+
+  if (withMedia.length === 2) {
+    return (
+      <div className="grid h-full w-full grid-cols-2 gap-1">
+        {withMedia.slice(0, 2).map((t) => img(t.thumbnailUrl as string, t.id, "h-full w-full"))}
+      </div>
+    );
+  }
+
+  if (withMedia.length === 3) {
+    return (
+      <div className="grid h-full w-full grid-cols-3 gap-1">
+        {img(withMedia[0].thumbnailUrl as string, withMedia[0].id, "col-span-2 h-full w-full")}
+        <div className="grid h-full grid-rows-2 gap-1">
+          {img(withMedia[1].thumbnailUrl as string, withMedia[1].id, "h-full w-full")}
+          {img(withMedia[2].thumbnailUrl as string, withMedia[2].id, "h-full w-full")}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid h-full w-full grid-cols-2 grid-rows-2 gap-1">
+      {withMedia.slice(0, 4).map((t) => img(t.thumbnailUrl as string, t.id, "h-full w-full"))}
     </div>
   );
+}
+
+function inferContentType(board: BoardSummary): string {
+  const thumbKinds = new Set((board.thumbnails ?? []).map((t) => t.kind));
+  if (thumbKinds.has("image")) return "Image Project";
+  if (thumbKinds.has("video")) return "Video Project";
+  const title = (board.title ?? "").toLowerCase();
+  if (title.includes("blog") || title.includes("article")) return "Blog Content";
+  if (title.includes("social") || title.includes("post")) return "Social Content";
+  if (title.includes("campaign")) return "Campaign";
+  return "Creative Board";
+}
+
+function assetBadges(board: BoardSummary): Array<{ label: string; count: number }> {
+  const thumbs = board.thumbnails ?? [];
+  const byKind = new Map<string, number>();
+  thumbs.forEach((t) => {
+    if (!t.kind) return;
+    byKind.set(t.kind, (byKind.get(t.kind) ?? 0) + 1);
+  });
+
+  const badges: Array<{ label: string; count: number }> = [];
+  if (byKind.get("image")) badges.push({ label: "🖼", count: byKind.get("image") as number });
+  if (byKind.get("video")) badges.push({ label: "🎥", count: byKind.get("video") as number });
+  if (byKind.get("audio")) badges.push({ label: "🎧", count: byKind.get("audio") as number });
+
+  if (badges.length === 0 && (board.assetCount ?? 0) > 0) {
+    badges.push({ label: "✨", count: board.assetCount as number });
+  }
+  return badges.slice(0, 3);
 }
 
 function Avatar({
@@ -292,11 +344,11 @@ export function BoardCard({
   onRename,
   isRenaming,
 }: BoardCardProps) {
-  const tint = pickTint(board.id);
-  const [first, ...rest] = (board.title || "Untitled board").split(" ");
-  const highlight = rest.join(" ");
   const isOwner = board.isOwner ?? true;
   const collaborators = board.collaborators ?? [];
+  const coverThumbs = board.thumbnails ?? [];
+  const contentTypeLabel = inferContentType(board);
+  const badges = assetBadges(board);
   const showLeave = !!onLeave && isOwner === false;
   // Destructive action: never fall back to "owner" when the flag is missing.
   // If the API ever omits `isOwner`, we must not surface a Delete option that
@@ -327,90 +379,87 @@ export function BoardCard({
     trimmedRename.length === 0 || trimmedRename.length > BOARD_TITLE_MAX;
   const renameUnchanged = trimmedRename === (board.title || "").trim();
   return (
-    <div className="relative">
+    <div className="group relative" data-testid={`board-shell-${board.id}`}>
       <Link href={`/boards/${board.id}`}>
         <a
-          className={`group block bg-gradient-to-br ${tint} rounded-2xl p-4 hover:ring-2 hover:ring-neutral-300 transition cursor-pointer dark:bg-none dark:bg-neutral-900 dark:hover:ring-neutral-700`}
+          className="group block overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05),0_8px_20px_rgba(15,23,42,0.07)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-neutral-300 hover:shadow-[0_2px_8px_rgba(15,23,42,0.08),0_16px_30px_rgba(15,23,42,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
           data-testid={`card-board-${board.id}`}
         >
-          <div className="text-[10px] font-semibold tracking-wider text-neutral-700 mb-0.5 uppercase dark:text-neutral-300 flex items-center gap-1.5">
-            <span>
-              {first} {highlight && <span className="text-neutral-900 dark:text-neutral-100">{highlight}</span>}
-            </span>
-            {showRename && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Rename board"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setRenameOpen(true);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
+          <div className="relative h-44 overflow-hidden rounded-t-2xl bg-neutral-100 dark:bg-neutral-800">
+            <SmartCover thumbs={coverThumbs} boardTitle={board.title || "Untitled board"} />
+          </div>
+
+          <div className="space-y-2.5 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="line-clamp-2 text-[15px] font-semibold leading-5 text-neutral-900 dark:text-neutral-100">
+                  {board.title || "Untitled board"}
+                </h3>
+                <p className="mt-1 text-[12px] text-neutral-500 dark:text-neutral-400">{contentTypeLabel}</p>
+              </div>
+              {showMutedIndicator && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      tabIndex={0}
+                      onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        setRenameOpen(true);
-                      }
-                    }}
-                    className="inline-flex items-center justify-center w-4 h-4 rounded text-neutral-500 dark:text-neutral-400 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600 outline-none transition-opacity hover:text-neutral-800 dark:hover:text-neutral-200"
-                    data-testid={`button-rename-inline-${board.id}`}
+                      }}
+                      className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-neutral-500 outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:text-neutral-400 dark:focus-visible:ring-neutral-600"
+                      aria-label="Collaborator emails muted"
+                      data-testid={`indicator-muted-${board.id}`}
+                    >
+                      <BellOff className="h-3.5 w-3.5" strokeWidth={2} />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="start"
+                    className="max-w-xs"
+                    data-testid={`tooltip-muted-${board.id}`}
                   >
-                    <Pencil className="w-3 h-3" strokeWidth={2} />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="top"
-                  align="start"
-                  data-testid={`tooltip-rename-inline-${board.id}`}
+                    <span className="text-xs">
+                      Collaborator join/leave emails are muted for this board. Open the share dialog to re-enable them.
+                    </span>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {badges.map((badge) => (
+                <span
+                  key={`${board.id}-${badge.label}`}
+                  className="inline-flex items-center rounded-full border border-neutral-200 bg-neutral-50 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
                 >
-                  <span className="text-xs">Rename board</span>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {showMutedIndicator && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    className="inline-flex items-center justify-center w-4 h-4 rounded-full text-neutral-500 dark:text-neutral-400 outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-600"
-                    aria-label="Collaborator emails muted"
-                    data-testid={`indicator-muted-${board.id}`}
-                  >
-                    <BellOff className="w-3 h-3" strokeWidth={2} />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="top"
-                  align="start"
-                  className="max-w-xs"
-                  data-testid={`tooltip-muted-${board.id}`}
-                >
-                  <span className="text-xs">
-                    Collaborator join/leave emails are muted for this board. Open the share dialog to re-enable them.
-                  </span>
-                </TooltipContent>
-              </Tooltip>
-            )}
+                  <span>{badge.label}</span>
+                  <span className="ml-1">{badge.count}</span>
+                </span>
+              ))}
+              {(board.assetCount ?? 0) > 0 && (
+                <span className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400">
+                  {board.assetCount} assets
+                </span>
+              )}
+              {!isOwner && (
+                <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+                  Shared
+                </span>
+              )}
+            </div>
+
+            <div className="text-[12px] text-neutral-500 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
+            {isOwner ? (
+              <CollaboratorStack boardId={board.id} collaborators={collaborators} />
+            ) : board.owner ? (
+              <OwnerBadge boardId={board.id} owner={board.owner} />
+            ) : null}
           </div>
-          <div className="text-[10px] text-neutral-500 mb-3 dark:text-neutral-400">{relativeTime(board.updatedAt)}</div>
-          <ThumbCollage thumbs={board.thumbnails ?? []} />
-          {isOwner ? (
-            <CollaboratorStack boardId={board.id} collaborators={collaborators} />
-          ) : board.owner ? (
-            <OwnerBadge boardId={board.id} owner={board.owner} />
-          ) : null}
         </a>
       </Link>
       {showMenu && (
-        <div className="absolute top-2 right-2">
+        <div className="absolute right-3 top-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -419,7 +468,7 @@ export function BoardCard({
                   e.preventDefault();
                   e.stopPropagation();
                 }}
-                className="w-7 h-7 rounded-full bg-white/80 hover:bg-white text-neutral-700 flex items-center justify-center shadow-sm dark:bg-neutral-800/80 dark:hover:bg-neutral-800 dark:text-neutral-200"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/86 text-neutral-700 opacity-0 shadow-sm transition-all duration-200 ease-out group-hover:opacity-100 hover:bg-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-neutral-800/86 dark:text-neutral-200 dark:hover:bg-neutral-800"
                 aria-label="Board actions"
                 data-testid={`button-board-menu-${board.id}`}
               >
@@ -595,12 +644,20 @@ export function NewBoardCard({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="bg-neutral-100/70 border border-dashed border-neutral-300 rounded-2xl p-4 flex items-center justify-center min-h-[220px] hover:bg-neutral-200/60 transition cursor-pointer dark:bg-neutral-900/40 dark:border-neutral-700 dark:hover:bg-neutral-800/60"
+      className="group flex min-h-[292px] cursor-pointer items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-white p-6 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 ease-out hover:-translate-y-1 hover:scale-[1.02] hover:border-neutral-400 hover:shadow-[0_2px_8px_rgba(15,23,42,0.08),0_14px_24px_rgba(15,23,42,0.1)] dark:border-neutral-700 dark:bg-neutral-900/50 dark:hover:border-neutral-600 dark:hover:bg-neutral-900"
       data-testid="card-new-board"
     >
-      <div className="flex flex-col items-center gap-2">
-        <Plus className="w-8 h-8 text-neutral-700 dark:text-neutral-300" strokeWidth={1.5} />
-        <div className="text-[10px] text-neutral-500 dark:text-neutral-400">New board</div>
+      <div className="flex flex-col items-center gap-2.5">
+        <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 text-neutral-700 transition-colors duration-200 group-hover:bg-neutral-900 group-hover:text-white dark:bg-neutral-800 dark:text-neutral-200 dark:group-hover:bg-neutral-100 dark:group-hover:text-neutral-900">
+          <Plus className="h-7 w-7" strokeWidth={1.6} />
+        </div>
+        <p className="inline-flex items-center gap-1 text-[16px] font-semibold text-neutral-900 dark:text-neutral-100">
+          <Sparkles className="h-4 w-4 text-amber-500" />
+          Create New Board
+        </p>
+        <p className="max-w-[210px] text-[13px] leading-5 text-neutral-500 dark:text-neutral-400">
+          Start organizing your AI projects
+        </p>
       </div>
     </button>
   );

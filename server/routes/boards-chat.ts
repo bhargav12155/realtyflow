@@ -460,6 +460,35 @@ function buildShotSpecPrompt(input: {
   ].join("\n");
 }
 
+function clampPromptForProvider(provider: Provider, prompt: string): string {
+  const maxLength = provider === "luma" || provider === "veo" ? 4800 : 8000;
+  if (prompt.length <= maxLength) return prompt;
+  const truncated = prompt.slice(0, maxLength).trimEnd();
+  console.warn(
+    "[boards-chat] prompt truncated for provider",
+    JSON.stringify({ provider, originalLength: prompt.length, truncatedLength: truncated.length, maxLength }),
+  );
+  return truncated;
+}
+
+function normalizeVideoPrompt(raw: string): string {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function parseDurationSecondsFromLumaDuration(raw?: string): number | undefined {
+  if (!raw) return undefined;
+  const m = raw.match(/^(\d+)s$/i);
+  if (!m) return undefined;
+  const n = Number.parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+
 function deriveScenePromptsFromScript(rawScript: string): string[] {
   const text = rawScript.replace(/\r\n/g, "\n").trim();
   if (!text || text.length < 220) return [];
@@ -775,17 +804,46 @@ export async function dispatchOne(provider: VideoProvider, genMode: GenMode, ctx
     case "veo": {
       if (!firstImage) throw new Error("Veo currently requires a referenced image asset");
       const { veoVideoService } = await import("../services/veo-video");
-      const result = await veoVideoService.generateVideo({ imageUrl: firstImage, prompt: ctx.prompt });
+      const result = await veoVideoService.generateVideo({
+        imageUrl: firstImage,
+        prompt: ctx.prompt,
+        aspectRatio: ctx.lumaOptions?.aspectRatio === "9:16" ? "9:16" : "16:9",
+        duration: parseDurationSecondsFromLumaDuration(ctx.lumaOptions?.duration),
+      });
       if (!result.success || !result.operationId) {
         throw new Error(result.error || "Veo failed to start operation");
       }
-      const opId = result.operationId;
+      let opId = result.operationId;
+      let retriedOnce = false;
       return {
         taskId: opId,
         modelLabel: ctx.forceModel || "veo-3.1",
         poll: async () => {
           const s = await veoVideoService.checkOperationStatus(opId);
           if (s.done && s.videoUrl) return { status: "completed", videoUrl: s.videoUrl };
+          // VEO occasionally completes without a video payload. Treat that as
+          // transient once and automatically retry with a strengthened prompt
+          // so users don't end up with an immediate hard failure.
+          if (
+            s.done &&
+            !retriedOnce &&
+            ((s as { errorType?: string }).errorType === "transient" ||
+              (typeof s.error === "string" && s.error.toLowerCase().includes("no video in response")))
+          ) {
+            retriedOnce = true;
+            const retryPrompt = `High quality cinematic footage. ${ctx.prompt}`;
+            const retry = await veoVideoService.generateVideo({
+              imageUrl: firstImage,
+              prompt: retryPrompt,
+              aspectRatio: ctx.lumaOptions?.aspectRatio === "9:16" ? "9:16" : "16:9",
+              duration: parseDurationSecondsFromLumaDuration(ctx.lumaOptions?.duration),
+            });
+            if (!retry.success || !retry.operationId) {
+              return { status: "failed", error: retry.error || "Veo retry failed to start" };
+            }
+            opId = retry.operationId;
+            return { status: "processing" };
+          }
           if (s.done && s.error) return { status: "failed", error: s.error };
           return { status: "processing" };
         },
@@ -1009,10 +1067,12 @@ function normalizeBoardVideoUrls(args: {
   videoUrl: string;
 }): { assetUrl: string; thumbnailUrl: string } {
   const { boardId, assetId, videoUrl } = args;
+  const normalized = videoUrl.replace(/\\/g, "/");
+  const isLocalTemp = normalized.startsWith("/tmp/") || /^[a-z]:\/tmp\//i.test(normalized);
   // VEO can return local temp paths (e.g. /tmp/veo-output/*.mp4). Browsers
   // cannot play server-local paths directly, so normalize to an authenticated
   // board-scoped streaming endpoint.
-  if (!videoUrl.startsWith("/tmp/")) {
+  if (!isLocalTemp) {
     return { assetUrl: videoUrl, thumbnailUrl: videoUrl };
   }
   const served = `/api/boards/${boardId}/assets/${assetId}/video`;
@@ -1025,15 +1085,22 @@ function normalizeBoardVideoUrls(args: {
   return { assetUrl: videoUrl, thumbnailUrl: served };
 }
 
+function isLocalTempVideoPath(videoPath: string): boolean {
+  const normalized = String(videoPath || "").replace(/\\/g, "/");
+  return normalized.startsWith("/tmp/") || /^[a-z]:\/tmp\//i.test(normalized);
+}
+
 async function ensureQuickTimeCompatibleVideoPath(videoPath: string): Promise<string> {
-  if (!videoPath.startsWith("/tmp/")) return videoPath;
+  if (!isLocalTempVideoPath(videoPath)) return videoPath;
   try {
     const { access } = await import("fs/promises");
     await access(videoPath);
     const { exec } = await import("child_process");
     const { promisify } = await import("util");
+    const os = await import("os");
+    const path = await import("path");
     const execAsync = promisify(exec);
-    const outPath = `/tmp/board-video-h264-${randomUUID().slice(0, 8)}.mp4`;
+    const outPath = path.join(os.tmpdir(), `board-video-h264-${randomUUID().slice(0, 8)}.mp4`);
     await execAsync(
       `ffmpeg -y -i "${videoPath}" -vf "format=yuv420p" -c:v libx264 -preset fast -crf 22 -an -movflags +faststart "${outPath}"`,
       { timeout: 180000 },
@@ -1083,6 +1150,18 @@ async function runBatchInBackground(args: {
   await Promise.all(
     rows.map(async (row) => {
       const rowPrompt = promptByAssetId?.[row.id] ?? prompt;
+      console.info(
+        "[boards-chat] generation prompt length",
+        JSON.stringify({
+          provider,
+          genMode,
+          boardId,
+          batchId,
+          assetId: row.id,
+          promptLength: rowPrompt.length,
+          hasImageReference: refAssets.some((a) => a.kind === "image"),
+        }),
+      );
       let chargedCredits = 0;
       let billedProvider: "luma" | "veo" | null = null;
       const rowRequestId = `${batchId}:${row.id}`;
@@ -1125,12 +1204,47 @@ async function runBatchInBackground(args: {
           return;
         }
         const videoProvider = provider as VideoProvider;
+        console.info(
+          "[boards-chat] dispatching video task",
+          JSON.stringify({
+            provider: videoProvider,
+            genMode,
+            boardId,
+            batchId,
+            assetId: row.id,
+            promptLength: rowPrompt.length,
+          }),
+        );
         const dispatched = await dispatch(videoProvider, genMode, { prompt: rowPrompt, refAssets, forceModel, lumaOptions, seedanceOptions });
+        console.info(
+          "[boards-chat] provider accepted task",
+          JSON.stringify({
+            provider: videoProvider,
+            boardId,
+            batchId,
+            assetId: row.id,
+            taskId: dispatched.taskId,
+            modelLabel: dispatched.modelLabel,
+          }),
+        );
         const labelled = await storage.updateBoardAssetForUser(boardId, row.id, userId, {
           modelLabel: dispatched.modelLabel,
         });
         if (labelled) pushAssetStatus(recipients, boardId, labelled);
         const result = await pollUntilDone(dispatched.poll);
+        console.info(
+          "[boards-chat] poll finished",
+          JSON.stringify({
+            provider: videoProvider,
+            boardId,
+            batchId,
+            assetId: row.id,
+            taskId: dispatched.taskId,
+            status: result.error ? "failed" : "completed",
+            error: result.error || null,
+            hasVideoUrl: Boolean(result.videoUrl),
+          }),
+        );
         if (result.error || !result.videoUrl) {
           if (chargedCredits > 0 && billedProvider) {
             await refundCredits(storage, {
@@ -1606,6 +1720,37 @@ function isProviderDown(id: ChatModelId): boolean {
 }
 
 const CHAT_MODEL_ORDER: ChatModelId[] = ["gemini", "claude", "openai"];
+const DEFAULT_CHAT_PROVIDER_ATTEMPT_TIMEOUT_MS = 12000;
+const parsedChatProviderAttemptTimeoutMs = Number.parseInt(
+  process.env.BOARDS_CHAT_PROVIDER_TIMEOUT_MS ?? "",
+  10,
+);
+const CHAT_PROVIDER_ATTEMPT_TIMEOUT_MS =
+  Number.isFinite(parsedChatProviderAttemptTimeoutMs) &&
+  parsedChatProviderAttemptTimeoutMs >= 3000
+    ? parsedChatProviderAttemptTimeoutMs
+    : DEFAULT_CHAT_PROVIDER_ATTEMPT_TIMEOUT_MS;
+
+async function withTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutLabel: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const guardedTask = task
+    .then((value) => ({ ok: true as const, value }))
+    .catch((error) => ({ ok: false as const, error }));
+  const timeoutTask = new Promise<{ ok: "timeout" }>((resolve) => {
+    timer = setTimeout(() => resolve({ ok: "timeout" }), timeoutMs);
+  });
+  const result = await Promise.race([guardedTask, timeoutTask]);
+  if (timer) clearTimeout(timer);
+  if (result.ok === "timeout") {
+    throw new Error(`${timeoutLabel} timed out after ${timeoutMs}ms`);
+  }
+  if (!result.ok) throw result.error;
+  return result.value;
+}
 
 export function getChatProviderHealthSnapshot(): {
   healthy: ChatModelId[];
@@ -1687,7 +1832,11 @@ async function brainstormReply(
   for (const id of tryOrder) {
     if (firstAttempted === null) firstAttempted = id;
     try {
-      const r = await callers[id]();
+      const r = await withTimeout(
+        callers[id](),
+        CHAT_PROVIDER_ATTEMPT_TIMEOUT_MS,
+        `chat provider '${id}'`,
+      );
       if (r.success && r.message) {
         const fallbackUsed = id !== preferred;
         const notice = fallbackUsed
@@ -2036,7 +2185,7 @@ export function registerBoardsChatRoutes(
           return res.status(404).json({ error: "Video asset not found" });
         }
         const localPath = asset.assetUrl ?? "";
-        if (!localPath.startsWith("/tmp/")) {
+        if (!isLocalTempVideoPath(localPath)) {
           // Already a public/remote URL: redirect so the same endpoint remains
           // usable even after upstream storage behavior changes.
           return res.redirect(localPath);
@@ -2300,6 +2449,7 @@ export function registerBoardsChatRoutes(
 
       // ---------- Create mode ----------
       const refAssets: BoardAsset[] = [];
+      const requestedRefCount = body.referencedAssetIds?.length ?? 0;
       if (body.referencedAssetIds && body.referencedAssetIds.length > 0) {
         for (const id of body.referencedAssetIds) {
           const a = await storage.getBoardAssetByIdForUser(boardId, id, userId);
@@ -2326,11 +2476,30 @@ export function registerBoardsChatRoutes(
         provider = "gemini-image";
       }
       const isImage = isImageProvider(provider);
+      const hasImageReference = refAssets.some((a) => a.kind === "image");
       // Image providers don't have a meaningful generation mode; force a label-only value.
       // For video providers, prefer explicit UI selection when provided; otherwise infer.
-      const genMode: GenMode = isImage
+      const requestedGenMode: GenMode = isImage
         ? "text-to-video"
         : (selectedGenMode as GenMode | undefined) ?? inferredGenMode;
+      // If the user has selected an image reference and picked a video model,
+      // prefer image-to-video so the selected image is the visual anchor.
+      const forceImageToVideoFromSelection =
+        !isImage &&
+        (provider === "luma" || provider === "veo") &&
+        requestedRefCount > 0;
+      const genMode: GenMode =
+        forceImageToVideoFromSelection || (!isImage && hasImageReference && (provider === "luma" || provider === "veo"))
+          ? "image-to-video"
+          : requestedGenMode;
+
+      if (forceImageToVideoFromSelection && !hasImageReference) {
+        return res.status(400).json({
+          error:
+            "Selected reference could not be used as an image anchor. Select a ready image tile and try again.",
+          code: "selected_image_anchor_missing",
+        });
+      }
 
       // Hard rule: v2v is disabled in this build across providers.
       if (!isImage && genMode === "video-to-video") {
@@ -2349,7 +2518,6 @@ export function registerBoardsChatRoutes(
             allowedModes: ["image-to-video"],
           });
         }
-        const hasImageReference = refAssets.some((a) => a.kind === "image");
         if (!hasImageReference) {
           return res.status(400).json({
             error: "Google VEO requires a selected image reference. Select an image on the board and retry.",
@@ -2467,25 +2635,18 @@ export function registerBoardsChatRoutes(
         }
       }
 
-      const structuredPrompt = buildShotSpecPrompt({
-        prompt: effectiveMessage,
-        provider,
-        genMode,
-        refAssets,
-        cameraMotion: body.lumaOptions?.cameraMotion,
-      });
+      // Only send the user's final/refined instruction to video providers.
+      const generationPrompt = normalizeVideoPrompt(effectiveMessage);
+      const structuredPrompt = clampPromptForProvider(provider, generationPrompt);
 
       const structuredPromptByAssetId: Record<string, string> = {};
       if (isSceneSplitBatch) {
         for (let i = 0; i < rows.length; i++) {
           const scenePrompt = effectivePrompts[i] ?? effectiveMessage;
-          structuredPromptByAssetId[rows[i].id] = buildShotSpecPrompt({
-            prompt: scenePrompt,
+          structuredPromptByAssetId[rows[i].id] = clampPromptForProvider(
             provider,
-            genMode,
-            refAssets,
-            cameraMotion: body.lumaOptions?.cameraMotion,
-          });
+            normalizeVideoPrompt(scenePrompt),
+          );
         }
       }
 

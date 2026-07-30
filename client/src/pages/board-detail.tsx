@@ -37,7 +37,7 @@ import {
 } from "@/lib/boardUpload";
 import { DrawingModal } from "@/components/boards/DrawingModal";
 import { RecordModal } from "@/components/boards/RecordModal";
-import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId } from "@/components/boards/ChatPanel";
+import { ChatPanel, type ChatMessage, type ChatMode, type ChatModelId, type WorkflowStage } from "@/components/boards/ChatPanel";
 import { PresenceAvatars } from "@/components/boards/PresenceAvatars";
 import { detectCreateSelfAvatarIntent } from "@shared/avatarIntent";
 import { ShareBoardDialog } from "@/components/boards/ShareBoardDialog";
@@ -148,6 +148,8 @@ export default function BoardDetailPage() {
     };
   }, [location, boardId]);
   const seedAppliedRef = useRef<string | null>(null);
+  const providerAutoAppliedRef = useRef<string | null>(null);
+  const providerManuallyPickedRef = useRef(false);
   const { user } = useAuth();
   const { toast } = useToast();
   const { theme, toggle: toggleTheme } = useBoardsTheme();
@@ -164,7 +166,7 @@ export default function BoardDetailPage() {
   const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const selectedAssetId = selectedAssetIds.length === 1 ? selectedAssetIds[0] : null;
   const selectedAssetSet = useMemo(() => new Set(selectedAssetIds), [selectedAssetIds]);
-  const [mode, setMode] = useState<ChatMode>("create");
+  const [mode, setMode] = useState<ChatMode>("brainstorm");
   const [provider, setProvider] = useState<ProviderId>("luma");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text-to-video");
   const [seedanceOptions, setSeedanceOptions] = useState<SeedanceOptions>(DEFAULT_SEEDANCE_OPTIONS);
@@ -971,6 +973,11 @@ export default function BoardDetailPage() {
     new Map<string, { total: number; provider: string; isImageEdit: boolean }>(),
   );
 
+  const handleProviderChange = useCallback((next: ProviderId) => {
+    providerManuallyPickedRef.current = true;
+    setProvider(next);
+  }, []);
+
   const sendChat = useMutation({
     mutationFn: async (text: string) => {
       const controller = new AbortController();
@@ -1689,6 +1696,8 @@ export default function BoardDetailPage() {
   // Reset selection when board changes
   useEffect(() => {
     setSelectedAssetIds([]);
+    providerManuallyPickedRef.current = false;
+    providerAutoAppliedRef.current = null;
   }, [boardId]);
 
   const bottomToolbarRef = useRef<BoardBottomToolbarHandle>(null);
@@ -1972,14 +1981,23 @@ export default function BoardDetailPage() {
     if (!seedParams || !boardId) return;
     if (seedAppliedRef.current === boardId) return;
     seedAppliedRef.current = boardId;
-    if (seedParams.provider) setProvider(seedParams.provider);
+    if (seedParams.provider) {
+      setProvider(seedParams.provider);
+      providerAutoAppliedRef.current = boardId;
+    } else if (seedParams.intent === "image") {
+      // Image-intent boards should start on an image provider so pressing send
+      // generates images rather than defaulting to Luma text-to-video.
+      setProvider("gemini-image");
+      providerAutoAppliedRef.current = boardId;
+    }
     if (seedParams.mode) setGenerationMode(seedParams.mode);
     if (seedParams.refs.length > 0) {
       setSelectedAssetIds(seedParams.refs);
     }
-    // Plan-mode intents (Social Post / Blog Article) land in conversational
-    // brainstorm mode; build/generation intents land in create mode.
-    setMode(seedParams.chatMode === "plan" ? "brainstorm" : "create");
+    // Default to Think unless Build is explicitly requested. This keeps the
+    // board detail experience conversational-first while preserving existing
+    // build-mode handoffs (`chatMode=build`).
+    setMode(seedParams.chatMode === "build" ? "create" : "brainstorm");
     const intentLabels: Record<string, string> = {
       "social-post": "Social Post",
       "blog-article": "Blog Article",
@@ -1996,9 +2014,20 @@ export default function BoardDetailPage() {
       const intentLabel = seedParams.intent
         ? intentLabels[seedParams.intent] ?? seedParams.intent
         : null;
-      const planningQuestion = intentLabel
-        ? `Let's plan your ${intentLabel.toLowerCase()}. Who's the audience, which channel will it run on, and what tone are you going for?`
-        : `Let's plan this out. Who's the audience, which channel will it run on, and what tone are you going for?`;
+      const planningQuestion =
+        seedParams.intent === "image"
+          ? "Your image prompt is ready. Review or refine it, then click Build to start generating images."
+          : seedParams.intent === "video"
+            ? [
+                "Here's how the video flow works:",
+                "1) Generate image options from your prompt.",
+                "2) Click the image you like best on the board.",
+                "3) Pick Luma or Google VEO in the Build bar.",
+                "4) Send again to animate that image into a video.",
+              ].join("\n")
+            : intentLabel
+              ? `Let's plan your ${intentLabel.toLowerCase()}. Who's the audience, which channel will it run on, and what tone are you going for?`
+              : "Let's plan this out. Who's the audience, which channel will it run on, and what tone are you going for?";
       setMessages((m) => [
         ...m,
         {
@@ -2040,6 +2069,30 @@ export default function BoardDetailPage() {
       window.history.replaceState({}, "", `/boards/${boardId}`);
     }
   }, [seedParams, boardId]);
+
+  useEffect(() => {
+    if (!boardId || !boardQuery.data) return;
+    if (providerManuallyPickedRef.current) return;
+    if (providerAutoAppliedRef.current === boardId) return;
+
+    const title = (boardQuery.data.title || "").toLowerCase();
+    const looksLikeImageBoard = title.startsWith("image:") || title.includes("create an image");
+    if (looksLikeImageBoard) {
+      setProvider("gemini-image");
+      providerAutoAppliedRef.current = boardId;
+      return;
+    }
+
+    // If existing assets are image-led, default to the board's last image
+    // provider so regenerate cycles keep the same media type.
+    const imageProvider = boardQuery.data.assets.find(
+      (a) => a.kind === "image" && typeof a.provider === "string" && isProviderId(a.provider),
+    )?.provider;
+    if (imageProvider && isProviderId(imageProvider)) {
+      setProvider(imageProvider);
+      providerAutoAppliedRef.current = boardId;
+    }
+  }, [boardId, boardQuery.data]);
 
   const selectedAsset = useMemo(() => {
     if (!selectedAssetId || !boardQuery.data) return null;
@@ -2084,6 +2137,19 @@ export default function BoardDetailPage() {
   }
 
   const board = boardQuery.data;
+  const hasGeneratedResults = board.batches.some((batch) =>
+    batch.assets.some(
+      (asset) => asset.status === "ready" || asset.status === "failed" || asset.status === "rejected",
+    ),
+  );
+  const workflowStage: WorkflowStage =
+    mode === "brainstorm"
+      ? "plan"
+      : sendChat.isPending
+        ? "build"
+        : hasGeneratedResults
+          ? "results"
+          : "build";
   const titleParts = (board.title || "Untitled board").split(" ");
   const titleHead = titleParts[0]?.toUpperCase() ?? "BOARD";
   const titleTail = titleParts.slice(1).join(" ").toUpperCase();
@@ -2236,9 +2302,6 @@ export default function BoardDetailPage() {
             onDeleteAsset={(id) => deleteAsset.mutate(id)}
             onClearRejection={(id) => clearRejection.mutate(id)}
             onSetWinner={(batchId, assetId) => setWinner.mutate({ batchId, assetId })}
-            onReEvaluate={(batchId, payload) =>
-              reEvaluateBatch.mutate({ batchId, ...payload })
-            }
             onResizeAsset={(assetId, width, height) =>
               resizeAsset.mutate({ assetId, width, height })
             }
@@ -2267,6 +2330,10 @@ export default function BoardDetailPage() {
               updateAssetContent.mutate({ assetId, content })
             }
             compileOrderByAssetId={compileOrderByAssetId}
+            isPlanMode={mode === "brainstorm"}
+            onSwitchToBuild={() => setMode("create")}
+            estimatedOutputCount={3}
+            estimatedBuildSeconds={20}
           />
           {selectedAssetIds.length === 1 && selectedAsset && (
             <AssetToolbar
@@ -2332,7 +2399,7 @@ export default function BoardDetailPage() {
             mode={mode}
             onModeChange={setMode}
             provider={provider}
-            onProviderChange={setProvider}
+            onProviderChange={handleProviderChange}
             generationMode={generationMode}
             onGenerationModeChange={setGenerationMode}
             seedanceOptions={seedanceOptions}
@@ -2370,6 +2437,9 @@ export default function BoardDetailPage() {
             onAttachFiles={handleChatAttachFiles}
             onOpenRecord={() => setRecordOpen(true)}
             onCollapse={() => setChatOpen(false)}
+            workflowStage={workflowStage}
+            estimatedOutputCount={3}
+            estimatedBuildSeconds={20}
           />
         )}
       </div>

@@ -52,10 +52,30 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       setAuthState((prev) => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await fetch("/api/auth/check", {
+      const authHeaders = getAuthHeaders();
+      const headerEntries =
+        authHeaders instanceof Headers
+          ? Array.from(authHeaders.entries())
+          : Array.isArray(authHeaders)
+            ? authHeaders
+            : Object.entries(authHeaders ?? {});
+      const hasBearer = headerEntries.some(([key]) => key.toLowerCase() === "authorization");
+      const fallbackHeaders = Object.fromEntries(
+        headerEntries.filter(([key]) => key.toLowerCase() !== "authorization"),
+      );
+
+      let response = await fetch("/api/auth/check", {
         credentials: "include",
-        headers: getAuthHeaders(),
+        headers: authHeaders,
       });
+
+      if (response.status === 401 && hasBearer) {
+        clearAuthToken();
+        response = await fetch("/api/auth/check", {
+          credentials: "include",
+          headers: fallbackHeaders,
+        });
+      }
 
       if (response.ok) {
         const data = await response.json();

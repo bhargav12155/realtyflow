@@ -124,6 +124,33 @@ class UnifiedAIService {
       if (request.keywords && request.keywords.length > 0) prompt += `\n\nInclude these keywords: ${request.keywords.join(", ")}`;
       if (request.seoOptimized) prompt += `\n\nOptimize for SEO with proper headings, meta descriptions, and keyword placement.`;
       if (request.propertyData) prompt += `\n\nProperty details: ${JSON.stringify(request.propertyData)}`;
+      if (request.type === "social") {
+        prompt += `\n\nSocial post requirements:
+- Produce concise, platform-ready social content.
+- Do NOT output a blog article, landing page, or long sales page.
+- Use exactly this section order in the content body:
+  Headline
+  Caption
+  CTA
+  Hashtags
+- Keep language engaging and conversational.`;
+      }
+      if (request.type === "blog") {
+        prompt += `\n\nBlog requirements:
+- Produce structured long-form article content.
+- Use this hierarchy in order:
+  Title
+  Introduction
+  Section Headings
+  Body
+  Conclusion
+  Optional CTA
+- Use markdown heading hierarchy for readability and SEO.`;
+      }
+      prompt += `\n\nStrict factuality rules:
+- Treat user-provided prompt content as the primary source of truth.
+- Do not invent amenities, schools, neighborhoods, or property features.
+- Specifically do not fabricate gyms, rooftop lounges, concierge service, smart-home features, gourmet kitchens, or nearby schools unless explicitly provided in the request.`;
       prompt += `\n\nRespond with a JSON object containing: title, content, keywords (array), metaDescription, seoScore (0-100), wordCount`;
 
       const response = await this.generate(prompt, {

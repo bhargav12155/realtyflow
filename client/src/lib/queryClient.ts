@@ -8,6 +8,42 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+async function fetchWithAuthFallback(
+  url: string,
+  init: RequestInit,
+  authHeaders: HeadersInit,
+): Promise<Response> {
+  const headerEntries =
+    authHeaders instanceof Headers
+      ? Array.from(authHeaders.entries())
+      : Array.isArray(authHeaders)
+        ? authHeaders
+        : Object.entries(authHeaders ?? {});
+
+  const hasBearer = headerEntries.some(([key]) => key.toLowerCase() === "authorization");
+  const fallbackHeaders = Object.fromEntries(
+    headerEntries.filter(([key]) => key.toLowerCase() !== "authorization"),
+  );
+
+  let res = await fetch(url, {
+    ...init,
+    headers: authHeaders,
+    credentials: "include",
+  });
+
+  // Recover from stale localStorage bearer tokens by retrying once with cookie auth only.
+  if (res.status === 401 && hasBearer) {
+    clearAuthToken();
+    res = await fetch(url, {
+      ...init,
+      headers: fallbackHeaders,
+      credentials: "include",
+    });
+  }
+
+  return res;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -23,13 +59,15 @@ export async function apiRequest(
       ? { "Content-Type": "application/json", ...authHeaders }
       : { ...authHeaders };
   
-  const res = await fetch(url, {
-    method,
+  const res = await fetchWithAuthFallback(
+    url,
+    {
+      method,
+      body: isFormData ? (data as FormData) : (data ? JSON.stringify(data) : undefined),
+      signal: options?.signal,
+    },
     headers,
-    body: isFormData ? data as FormData : (data ? JSON.stringify(data) : undefined),
-    credentials: "include",
-    signal: options?.signal,
-  });
+  );
 
   await throwIfResNotOk(res);
   return res;
@@ -42,11 +80,12 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const authHeaders = getAuthHeaders();
-    
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-      headers: authHeaders,
-    });
+
+    const res = await fetchWithAuthFallback(
+      queryKey.join("/") as string,
+      { method: "GET" },
+      authHeaders,
+    );
 
     if (res.status === 401) {
       if (unauthorizedBehavior === "returnNull") {

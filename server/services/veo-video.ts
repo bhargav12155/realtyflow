@@ -10,6 +10,12 @@ interface VeoVideoRequest {
 
 type VeoErrorType = "safety_filter" | "transient" | "quota_exceeded" | "unknown";
 
+type VeoClassifiedError = {
+  message: string;
+  errorType: VeoErrorType;
+  quotaExceeded?: boolean;
+};
+
 interface VeoVideoResult {
   success: boolean;
   videoUrl?: string;
@@ -29,8 +35,84 @@ interface VeoOperationStatus {
 
 export class VeoVideoService {
   private client: GoogleGenAI | null = null;
-  private pendingOperations: Map<string, any> = new Map();
+  private pendingOperations: Map<string, { operation: any; startedAt: number; pollCount: number }> = new Map();
   private lastApiKey: string | null = null;
+
+  private classifyError(input: unknown): VeoClassifiedError {
+    const err = input as any;
+    const serialized = JSON.stringify(err || {}).toLowerCase();
+    const msg = String(err?.message || input || "Unknown VEO error");
+    const lower = msg.toLowerCase();
+
+    const isQuota =
+      err?.status === 429 ||
+      err?.code === 429 ||
+      serialized.includes("resource_exhausted") ||
+      serialized.includes("quota") ||
+      lower.includes("quota") ||
+      lower.includes("rate limit") ||
+      lower.includes("resource exhausted");
+    if (isQuota) {
+      return {
+        message: "Gemini VEO quota exceeded. Please wait for reset or upgrade your API plan.",
+        errorType: "quota_exceeded",
+        quotaExceeded: true,
+      };
+    }
+
+    const isSafety =
+      serialized.includes("blockedreason") ||
+      serialized.includes("safety") ||
+      serialized.includes("content policy") ||
+      serialized.includes("prohibited_content") ||
+      lower.includes("blocked") ||
+      lower.includes("safety");
+    if (isSafety) {
+      return {
+        message: "Video was blocked by content filters. Try rephrasing prompt or using a different image.",
+        errorType: "safety_filter",
+      };
+    }
+
+    const isTransient =
+      lower.includes("timed out") ||
+      lower.includes("timeout") ||
+      lower.includes("temporar") ||
+      lower.includes("internal") ||
+      lower.includes("unavailable") ||
+      lower.includes("no video in response");
+    if (isTransient) {
+      return {
+        message: msg,
+        errorType: "transient",
+      };
+    }
+
+    return { message: msg, errorType: "unknown" };
+  }
+
+  private extractGeneratedVideoHandle(response: any): { videoHandle?: any; directUrl?: string } {
+    const candidates = [
+      response?.generatedVideos,
+      response?.generated_videos,
+      response?.videos,
+      response?.outputs,
+    ].find((arr) => Array.isArray(arr) && arr.length > 0) as any[] | undefined;
+
+    if (!candidates || candidates.length === 0) return {};
+
+    const first = candidates[0] || {};
+    const videoHandle = first?.video || first?.videoFile || first?.file;
+    const directUrl =
+      (typeof first?.videoUrl === "string" && first.videoUrl) ||
+      (typeof first?.url === "string" && first.url) ||
+      (typeof first?.video?.uri === "string" && first.video.uri) ||
+      (typeof first?.video?.url === "string" && first.video.url) ||
+      (typeof first?.file?.uri === "string" && first.file.uri) ||
+      (typeof first?.file?.url === "string" && first.file.url);
+
+    return { videoHandle, directUrl };
+  }
 
   private getClient(): GoogleGenAI | null {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -60,6 +142,21 @@ export class VeoVideoService {
 
     try {
       console.log(`🎬 [VeoVideo] Starting VEO 3.1 video generation from image`);
+      console.log(
+        "[VeoVideo] request summary",
+        JSON.stringify({
+          promptLength: request.prompt.length,
+          aspectRatio: request.aspectRatio || "16:9",
+          requestedDuration: request.duration ?? 8,
+          imageUrlHost: (() => {
+            try {
+              return new URL(request.imageUrl).host;
+            } catch {
+              return "unknown";
+            }
+          })(),
+        }),
+      );
       console.log(`📝 [VeoVideo] Prompt: ${request.prompt.substring(0, 100)}...`);
       console.log(`🖼️ [VeoVideo] Image URL: ${request.imageUrl.substring(0, 80)}...`);
       if (request.agentPhotoUrl) {
@@ -96,7 +193,11 @@ export class VeoVideoService {
       });
 
       const operationId = `veo-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      this.pendingOperations.set(operationId, operation);
+      this.pendingOperations.set(operationId, {
+        operation,
+        startedAt: Date.now(),
+        pollCount: 0,
+      });
 
       console.log(`✅ [VeoVideo] VEO 3.1 operation started successfully: ${operationId}`);
 
@@ -107,61 +208,66 @@ export class VeoVideoService {
     } catch (error: any) {
       const errorStr = JSON.stringify(error);
       console.error("❌ [VeoVideo] VEO 3.1 generation error:", errorStr);
-      
-      // Check for quota exceeded / rate limit errors
-      if (
-        error.status === 429 || 
-        error.code === 429 ||
-        errorStr.includes("429") ||
-        errorStr.includes("RESOURCE_EXHAUSTED") ||
-        errorStr.includes("quota") ||
-        error.message?.includes("quota") ||
-        error.message?.includes("rate limit") ||
-        error.message?.includes("exceeded")
-      ) {
-        console.error("⚠️ [VeoVideo] QUOTA EXCEEDED - Gemini API rate limit hit");
-        return { 
-          success: false, 
-          error: "Gemini VEO quota exceeded. Please wait for your quota to reset or upgrade your API plan.", 
-          quotaExceeded: true 
-        };
-      }
-      
+
       if (error.message?.includes("API key")) {
         return { success: false, error: "Invalid Gemini API key. Please check your GEMINI_API_KEY secret." };
       }
-      return { success: false, error: error.message || "Unknown VEO error" };
+      const classified = this.classifyError(error);
+      return {
+        success: false,
+        error: classified.message,
+        errorType: classified.errorType,
+        quotaExceeded: classified.quotaExceeded,
+      };
     }
   }
 
   async checkOperationStatus(operationId: string): Promise<VeoOperationStatus> {
-    const operation = this.pendingOperations.get(operationId);
-    if (!operation) {
-      return { done: false, error: "Operation not found" };
+    const operationRecord = this.pendingOperations.get(operationId);
+    if (!operationRecord) {
+      return {
+        done: true,
+        error: "Veo operation not found or expired before completion. Please retry generation.",
+        errorType: "unknown",
+      };
     }
 
     try {
       const client = this.getClient();
       if (!client) {
-        return { done: false, error: "Client not initialized" };
+        return { done: true, error: "Gemini client is not initialized", errorType: "unknown" };
       }
 
       console.log(`🔄 [VeoVideo] Checking VEO operation status: ${operationId}`);
       
       const updatedOperation = await client.operations.getVideosOperation({
-        operation: operation,
+        operation: operationRecord.operation,
       });
+      operationRecord.pollCount += 1;
       
       if (updatedOperation.done) {
         this.pendingOperations.delete(operationId);
         console.log(`✅ [VeoVideo] VEO operation completed: ${operationId}`);
 
+        if ((updatedOperation as any).error) {
+          const classifiedOpError = this.classifyError((updatedOperation as any).error);
+          console.error(
+            "❌ [VeoVideo] operation finished with API error",
+            JSON.stringify({ operationId, errorType: classifiedOpError.errorType, message: classifiedOpError.message }),
+          );
+          return {
+            done: true,
+            error: classifiedOpError.message,
+            errorType: classifiedOpError.errorType,
+            quotaExceeded: classifiedOpError.quotaExceeded,
+          };
+        }
+
         const response = updatedOperation.response as any;
-        const generatedVideos = response?.generatedVideos || response?.generated_videos;
-        if (generatedVideos && generatedVideos.length > 0) {
-          const video = generatedVideos[0].video;
-          
-          if (video) {
+        const { videoHandle, directUrl } = this.extractGeneratedVideoHandle(response);
+
+        if (videoHandle) {
+          try {
             const fs = await import("fs");
             const path = await import("path");
             
@@ -174,13 +280,26 @@ export class VeoVideoService {
             const filepath = path.join(outputDir, filename);
             
             console.log(`📥 [VeoVideo] Downloading VEO video to: ${filepath}`);
-            await client.files.download({ file: video, downloadPath: filepath });
+            await client.files.download({ file: videoHandle, downloadPath: filepath });
             
             console.log(`✅ [VeoVideo] VEO 3.1 video saved: ${filepath}`);
             // Return local file path for internal use (ffmpeg combining)
             // The API route /api/property-tour/veo-video/ can serve these files externally
             return { done: true, videoUrl: filepath };
+          } catch (downloadErr: any) {
+            console.warn(
+              "[VeoVideo] Failed to download video handle, attempting direct URL fallback",
+              JSON.stringify({ operationId, error: downloadErr?.message || String(downloadErr), hasDirectUrl: Boolean(directUrl) }),
+            );
+            if (directUrl) {
+              return { done: true, videoUrl: directUrl };
+            }
           }
+        }
+
+        if (directUrl) {
+          console.log(`✅ [VeoVideo] Using direct VEO output URL for operation ${operationId}`);
+          return { done: true, videoUrl: directUrl };
         }
         
         console.error(`❌ [VeoVideo] No video in VEO response. Full response: ${JSON.stringify(response, null, 2)}`);
@@ -221,29 +340,38 @@ export class VeoVideoService {
         return { done: true, error: "No video in response", errorType: "transient" as VeoErrorType };
       }
 
-      this.pendingOperations.set(operationId, updatedOperation);
-      console.log(`⏳ [VeoVideo] VEO operation still processing: ${operationId}`);
+      this.pendingOperations.set(operationId, {
+        operation: updatedOperation,
+        startedAt: operationRecord.startedAt,
+        pollCount: operationRecord.pollCount,
+      });
+      console.log(
+        "⏳ [VeoVideo] VEO operation still processing",
+        JSON.stringify({
+          operationId,
+          pollCount: operationRecord.pollCount,
+          elapsedMs: Date.now() - operationRecord.startedAt,
+        }),
+      );
 
       return { done: false };
     } catch (error: any) {
       const errorStr = JSON.stringify(error);
       console.error("❌ [VeoVideo] VEO status check error:", errorStr);
-      
-      // Check for quota exceeded during operation polling
-      if (
-        error.status === 429 || 
-        error.code === 429 ||
-        errorStr.includes("429") ||
-        errorStr.includes("RESOURCE_EXHAUSTED") ||
-        errorStr.includes("quota") ||
-        error.message?.includes("quota") ||
-        error.message?.includes("rate limit")
-      ) {
-        console.error("⚠️ [VeoVideo] QUOTA EXCEEDED during operation polling");
-        return { done: true, error: "Quota exceeded during video processing", quotaExceeded: true };
+
+      const classified = this.classifyError(error);
+      if (classified.quotaExceeded || classified.errorType === "safety_filter") {
+        return {
+          done: true,
+          error: classified.message,
+          errorType: classified.errorType,
+          quotaExceeded: classified.quotaExceeded,
+        };
       }
-      
-      return { done: false, error: error.message || "Unknown status check error" };
+
+      // Transient polling errors should keep the operation alive and allow
+      // subsequent poll attempts to succeed.
+      return { done: false };
     }
   }
 

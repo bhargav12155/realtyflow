@@ -90,6 +90,8 @@ import {
   scorePlatform,
 } from "@/lib/platform-intelligence";
 import type { PlatformScore as PlatformScoreType } from "@shared/schema";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const renderInlineMarkdown = (text: string) => {
   const tokens = text.split(/(\[[^\]]+\]\([^\)]+\)|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/g);
@@ -119,137 +121,67 @@ const renderInlineMarkdown = (text: string) => {
   });
 };
 
-const renderMarkdownContent = (content: string): ReactNode => {
-  const lines = content.replace(/\r/g, "").split("\n");
-  const blocks: ReactNode[] = [];
-  let i = 0;
-  let blockKey = 0;
-
-  while (i < lines.length) {
-    const currentLine = lines[i] ?? "";
-    const trimmed = currentLine.trim();
-
-    if (!trimmed) {
-      i += 1;
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const headingText = headingMatch[2];
-      const Tag = `h${Math.min(level, 6)}` as keyof JSX.IntrinsicElements;
-      const sizeClass =
-        level === 1
-          ? "text-2xl font-semibold"
-          : level === 2
-            ? "text-xl font-semibold"
-            : "text-lg font-semibold";
-      blocks.push(
-        <Tag key={`md-heading-${blockKey++}`} className={`${sizeClass} mt-5 first:mt-0`}>
-          {renderInlineMarkdown(headingText)}
-        </Tag>,
-      );
-      i += 1;
-      continue;
-    }
-
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
-      blocks.push(<hr key={`md-hr-${blockKey++}`} className="my-4 border-border" />);
-      i += 1;
-      continue;
-    }
-
-    if (/^>\s+/.test(trimmed)) {
-      const quoteLines: string[] = [];
-      while (i < lines.length && /^>\s+/.test((lines[i] ?? "").trim())) {
-        quoteLines.push((lines[i] ?? "").trim().replace(/^>\s+/, ""));
-        i += 1;
-      }
-      blocks.push(
-        <blockquote key={`md-quote-${blockKey++}`} className="border-l-4 border-primary/40 pl-4 italic text-muted-foreground">
-          {quoteLines.map((line, idx) => (
-            <p key={`md-quote-line-${idx}`} className="leading-7">
-              {renderInlineMarkdown(line)}
-            </p>
-          ))}
-        </blockquote>,
-      );
-      continue;
-    }
-
-    if (/^[-*+]\s+/.test(trimmed)) {
-      const items: string[] = [];
-      while (i < lines.length) {
-        const line = (lines[i] ?? "").trim();
-        const match = line.match(/^[-*+]\s+(.+)$/);
-        if (!match) break;
-        items.push(match[1]);
-        i += 1;
-      }
-      blocks.push(
-        <ul key={`md-ul-${blockKey++}`} className="list-disc pl-6 space-y-1">
-          {items.map((item, idx) => (
-            <li key={`md-ul-item-${idx}`} className="leading-7">
-              {renderInlineMarkdown(item)}
-            </li>
-          ))}
-        </ul>,
-      );
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(trimmed)) {
-      const items: string[] = [];
-      while (i < lines.length) {
-        const line = (lines[i] ?? "").trim();
-        const match = line.match(/^\d+\.\s+(.+)$/);
-        if (!match) break;
-        items.push(match[1]);
-        i += 1;
-      }
-      blocks.push(
-        <ol key={`md-ol-${blockKey++}`} className="list-decimal pl-6 space-y-1">
-          {items.map((item, idx) => (
-            <li key={`md-ol-item-${idx}`} className="leading-7">
-              {renderInlineMarkdown(item)}
-            </li>
-          ))}
-        </ol>,
-      );
-      continue;
-    }
-
-    const paragraphLines: string[] = [];
-    while (i < lines.length) {
-      const line = lines[i] ?? "";
-      const lineTrimmed = line.trim();
-      if (!lineTrimmed) break;
-      if (/^(#{1,6})\s+/.test(lineTrimmed)) break;
-      if (/^[-*+]\s+/.test(lineTrimmed)) break;
-      if (/^\d+\.\s+/.test(lineTrimmed)) break;
-      if (/^>\s+/.test(lineTrimmed)) break;
-      if (/^(-{3,}|\*{3,}|_{3,})$/.test(lineTrimmed)) break;
-      paragraphLines.push(lineTrimmed);
-      i += 1;
-    }
-    if (paragraphLines.length > 0) {
-      blocks.push(
-        <p key={`md-p-${blockKey++}`} className="leading-8 text-[0.98rem] text-foreground/95">
-          {renderInlineMarkdown(paragraphLines.join(" "))}
-        </p>,
-      );
-    }
-    if (i < lines.length && !(lines[i] ?? "").trim()) {
-      i += 1;
-    }
+const normalizeMarkdownInput = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
   }
-
-  return <div className="space-y-3">{blocks}</div>;
+  return "";
 };
 
-const plainTextFromMarkdown = (content: string) =>
-  content
+const renderMarkdownContent = (content: unknown): ReactNode => (
+  <ReactMarkdown
+    remarkPlugins={[remarkGfm]}
+    components={{
+      h1: ({ children }) => <h1 className="mt-6 first:mt-0 text-[2rem] font-bold tracking-tight text-foreground leading-tight">{children}</h1>,
+      h2: ({ children }) => <h2 className="mt-5 first:mt-0 text-[1.65rem] font-bold tracking-tight text-foreground leading-tight">{children}</h2>,
+      h3: ({ children }) => <h3 className="mt-4 first:mt-0 text-[1.25rem] font-semibold tracking-tight text-foreground leading-tight">{children}</h3>,
+      h4: ({ children }) => <h4 className="mt-4 first:mt-0 text-[1.1rem] font-semibold tracking-tight text-foreground leading-tight">{children}</h4>,
+      h5: ({ children }) => <h5 className="mt-3 first:mt-0 text-[1rem] font-semibold tracking-tight text-foreground leading-tight">{children}</h5>,
+      h6: ({ children }) => <h6 className="mt-3 first:mt-0 text-[0.95rem] font-semibold tracking-tight text-foreground leading-tight">{children}</h6>,
+      p: ({ children }) => <p className="mt-3 first:mt-0 text-[0.98rem] leading-8 text-foreground/95">{children}</p>,
+      ul: ({ children }) => <ul className="mt-3 first:mt-0 list-disc space-y-1 pl-6 text-[0.98rem] leading-8 text-foreground/95">{children}</ul>,
+      ol: ({ children }) => <ol className="mt-3 first:mt-0 list-decimal space-y-1 pl-6 text-[0.98rem] leading-8 text-foreground/95">{children}</ol>,
+      li: ({ children }) => <li className="leading-8">{children}</li>,
+      blockquote: ({ children }) => <blockquote className="mt-4 border-l-4 border-primary/40 pl-4 italic text-muted-foreground">{children}</blockquote>,
+      hr: () => <hr className="my-5 border-border" />,
+      a: ({ href, children }) => (
+        <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80">
+          {children}
+        </a>
+      ),
+      table: ({ children }) => (
+        <div className="my-4 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full border-collapse text-sm">{children}</table>
+        </div>
+      ),
+      thead: ({ children }) => <thead className="bg-muted/40">{children}</thead>,
+      th: ({ children }) => <th className="border-b border-border px-3 py-2 text-left font-semibold text-foreground">{children}</th>,
+      td: ({ children }) => <td className="border-b border-border px-3 py-2 align-top text-foreground/95">{children}</td>,
+      code: ({ inline, className, children }) => {
+        if (inline) {
+          return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground">{children}</code>;
+        }
+        return (
+          <pre className="my-4 overflow-x-auto rounded-lg bg-neutral-950 px-4 py-3 text-sm text-neutral-100 shadow-sm">
+            <code className={className ? `${className} font-mono` : "font-mono"}>{children}</code>
+          </pre>
+        );
+      },
+    }}
+  >
+    {normalizeMarkdownInput(content)}
+  </ReactMarkdown>
+);
+
+const plainTextFromMarkdown = (content: unknown) =>
+  normalizeMarkdownInput(content)
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1")
@@ -260,6 +192,87 @@ const plainTextFromMarkdown = (content: string) =>
     .replace(/\*\*|__|\*|_/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+type GeneratedViewKind =
+  | "social"
+  | "blog"
+  | "email"
+  | "property"
+  | "landing"
+  | "marketing"
+  | "generic";
+
+function detectGeneratedViewKind(contentType: string, markdown: unknown): GeneratedViewKind {
+  const markdownSafe = normalizeMarkdownInput(markdown);
+  if (contentType === "social") return "social";
+  if (contentType === "blog") return "blog";
+  if (contentType === "property_feature") return "property";
+
+  const lower = markdownSafe.toLowerCase();
+  if (/\bsubject\s*:/i.test(markdownSafe) || /\bdear\b|\bhello\b|\bbest regards\b|\bsincerely\b/.test(lower)) return "email";
+  if (/\bmeta description\b|\bsuggested slug\b|\bintroduction\b|\bconclusion\b/.test(lower)) return "blog";
+  if (/#[a-z0-9_]+/i.test(markdownSafe) || /\bcaption\b|\bhashtag\b|\binstagram\b|\bfacebook\b/.test(lower)) return "social";
+  if (/\bbedroom\b|\bbathroom\b|\bsq\s?ft\b|\bmls\b|\bopen house\b|\bproperty\b/.test(lower)) return "property";
+  if (/\bhero\b|\bfeatures\b|\bpricing\b|\bfaq\b|\bheadline\b/.test(lower)) return "landing";
+  if (/\boffer\b|\bbenefit\b|\bcall to action\b|\bcta\b/.test(lower)) return "marketing";
+  return "generic";
+}
+
+function extractHashtags(markdown: unknown): string[] {
+  const tags = normalizeMarkdownInput(markdown).match(/#[a-zA-Z0-9_]+/g) ?? [];
+  return Array.from(new Set(tags));
+}
+
+function parseMarkdownSections(markdown: unknown): Record<string, string> {
+  const lines = normalizeMarkdownInput(markdown).split(/\r?\n/);
+  const sections: Record<string, string> = {};
+  let current = "body";
+  let buf: string[] = [];
+
+  const flush = () => {
+    const value = buf.join("\n").trim();
+    if (value) {
+      sections[current] = sections[current] ? `${sections[current]}\n\n${value}` : value;
+    }
+    buf = [];
+  };
+
+  for (const line of lines) {
+    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/);
+    if (heading) {
+      flush();
+      current = heading[1]
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .replace(/\s+/g, " ");
+      continue;
+    }
+    buf.push(line);
+  }
+  flush();
+  return sections;
+}
+
+function findSectionValue(sections: Record<string, string>, names: string[]): string {
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (sections[key]) return sections[key];
+  }
+  return "";
+}
+
+function extractLikelyCta(markdown: unknown, sections?: Record<string, string>): string {
+  const markdownSafe = normalizeMarkdownInput(markdown);
+  const byHeading = sections ? findSectionValue(sections, ["cta", "call to action", "next steps", "conclusion"]) : "";
+  if (byHeading) return byHeading;
+  const lines = markdownSafe
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const ctaLine = lines.find((line) => /\b(book|schedule|contact|call|visit|learn more|dm|message|register|start|subscribe)\b/i.test(line));
+  return ctaLine ?? "";
+}
 
 function ContentHistory() {
   const { toast } = useToast();
@@ -602,6 +615,21 @@ const WIZARD_STEPS = [
   { id: 4, label: "Share", description: "Post to platforms" },
 ];
 
+type ContentTypeId = "blog" | "social" | "property_feature";
+type EntrySource = "direct" | "boards" | "quick-action";
+
+const TOPIC_PLACEHOLDERS: Record<ContentTypeId, string> = {
+  blog: "Top 10 reasons to invest in luxury villas in Arizona",
+  social: "Luxury villa launch in Scottsdale",
+  property_feature: "Luxury waterfront listing in Scottsdale",
+};
+
+const TOPIC_EXAMPLES: Record<ContentTypeId, string[]> = {
+  blog: ["Investment property tips", "Neighborhood spotlight", "Market trends and price updates", "Open house announcement"],
+  social: ["Luxury villa launch", "Open house announcement", "Beachfront condos", "Neighborhood spotlight", "Investment property tips"],
+  property_feature: ["Modern Scottsdale estate", "Waterfront listing spotlight", "Luxury condo feature", "Newly listed family home"],
+};
+
 const neighborhoods = [
   "All Omaha Areas",
   "Dundee",
@@ -666,6 +694,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const { businessType, terms } = useBusinessType();
   const isRealEstate = terms.features.mlsSearch;
   const routedPromptRef = useRef(false);
+  const topicInputRef = useRef<HTMLInputElement>(null);
 
   const dynamicContentTypes = useMemo(() => [
     { value: "blog", label: "Blog Post", icon: FileText, description: "Long-form articles for your website", color: "from-blue-500 to-blue-600" },
@@ -675,8 +704,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
   // Wizard step state
   const [currentStep, setCurrentStep] = useState(1);
-  
-  const [contentType, setContentType] = useState("blog");
+  const [contentType, setContentType] = useState<ContentTypeId>("blog");
 
   // Handle URL parameters for quick actions (e.g., ?type=blog)
   useEffect(() => {
@@ -684,21 +712,21 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
       const urlParams = new URLSearchParams(window.location.search);
       const typeParam = urlParams.get('type');
       const promptParam = urlParams.get('prompt');
-      if (typeParam && ['blog', 'social', 'property_feature'].includes(typeParam)) {
-        setContentType(typeParam);
-        setCurrentStep(1); // Reset to first step when switching content type
-        // Clear the URL parameter after using it
-        const newUrl = window.location.pathname + window.location.hash;
-        window.history.replaceState({}, '', newUrl);
-      }
+      const resolvedType: ContentTypeId =
+        typeParam === "social" || typeParam === "property_feature" || typeParam === "blog"
+          ? typeParam
+          : "blog";
+
       if (promptParam) {
         routedPromptRef.current = true;
         try {
           const decodedPrompt = decodeURIComponent(promptParam);
           const details = extractPromptDetails(decodedPrompt);
+          setContentType(resolvedType);
+          setCurrentStep(2);
           setPromptDetails(details);
           setSourcePrompt(decodedPrompt);
-          setTopic(buildPromptTopic(details, decodedPrompt));
+          setTopic(decodedPrompt);
           setAiPrompt(buildStructuredPrompt(decodedPrompt, details));
           setContentStyles((prev) => ({
             ...prev,
@@ -706,15 +734,28 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
           }));
         } catch {
           const details = extractPromptDetails(promptParam);
+          setContentType(resolvedType);
+          setCurrentStep(2);
           setPromptDetails(details);
           setSourcePrompt(promptParam);
-          setTopic(buildPromptTopic(details, promptParam));
+          setTopic(promptParam);
           setAiPrompt(buildStructuredPrompt(promptParam, details));
           setContentStyles((prev) => ({
             ...prev,
             social: "Professional",
           }));
         }
+      } else if (typeParam && ["blog", "social", "property_feature"].includes(typeParam)) {
+        setContentType(resolvedType);
+        setCurrentStep(2);
+        setSourcePrompt("");
+        setPromptDetails(null);
+        setTopic("");
+      }
+
+      if (typeParam || promptParam) {
+        const newUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, "", newUrl);
       }
     };
 
@@ -762,10 +803,15 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
         property_feature: prev.property_feature === "None" ? defaultStyle : prev.property_feature,
       }));
     }
-    if (!topic && !routedPromptRef.current && industryContent.suggestedTopics.length > 0) {
-      setTopic(industryContent.suggestedTopics[0]);
-    }
   }, [businessType]);
+
+  useEffect(() => {
+    if (currentStep !== 2 || contentType === "property_feature") return;
+    const frame = window.requestAnimationFrame(() => {
+      topicInputRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentStep, contentType]);
   const [lastGenerated, setLastGenerated] = useState<GeneratedContent | null>(
     null
   );
@@ -787,6 +833,7 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const [previewPlatform, setPreviewPlatform] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<Date | null>(null);
   const postingSectionRef = useRef<HTMLDivElement | null>(null);
+  const [socialPreviewPlatform, setSocialPreviewPlatform] = useState<"Instagram" | "Facebook" | "LinkedIn" | "X (Twitter)">("Instagram");
 
   // Photo upload dialog states
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
@@ -829,7 +876,41 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const activeContentBody = isEditing ? editedContent : lastGenerated?.content || "";
+  const topicPlaceholder = TOPIC_PLACEHOLDERS[contentType] ?? terms.topicPlaceholder;
+  const topicExamples = TOPIC_EXAMPLES[contentType] ?? [];
+  const showTopicExamples = currentStep === 2 && contentType !== "property_feature" && !topic.trim();
+  const topicHelperMessage = sourcePrompt.trim()
+    ? "We've used your Boards prompt as the starting point. You can edit or refine it before continuing."
+    : "Enter the topic or keywords you'd like to create content about.";
+
+  const activeContentBody = normalizeMarkdownInput(isEditing ? editedContent : lastGenerated?.content);
+  const contentViewKind = useMemo(
+    () => detectGeneratedViewKind(contentType, activeContentBody),
+    [contentType, activeContentBody],
+  );
+  const parsedSections = useMemo(() => parseMarkdownSections(activeContentBody), [activeContentBody]);
+  const detectedHashtags = useMemo(() => extractHashtags(activeContentBody), [activeContentBody]);
+  const socialHeadline = useMemo(
+    () => findSectionValue(parsedSections, ["headline", "title", "hook"]),
+    [parsedSections],
+  );
+  const socialCaption = useMemo(() => {
+    const byHeading = findSectionValue(parsedSections, ["caption", "post", "body", "content"]);
+    if (byHeading) return byHeading;
+    return activeContentBody
+      .split(/\r?\n/)
+      .filter((line) => !/#[a-zA-Z0-9_]+/.test(line))
+      .join("\n")
+      .trim();
+  }, [parsedSections, activeContentBody]);
+  const socialCta = useMemo(
+    () => extractLikelyCta(activeContentBody, parsedSections),
+    [activeContentBody, parsedSections],
+  );
+  const estimatedReadingMinutes = useMemo(
+    () => Math.max(1, Math.ceil((lastGenerated?.wordCount ?? 0) / 200)),
+    [lastGenerated?.wordCount],
+  );
   const previewText = useMemo(() => {
     const normalized = plainTextFromMarkdown(activeContentBody);
     if (!normalized) return "";
@@ -2188,29 +2269,34 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   </Label>
                   <Input
                     id="topic"
-                    placeholder={terms.topicPlaceholder}
+                    placeholder={topicPlaceholder}
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     className="w-full text-lg py-6"
                     data-testid="input-topic"
+                    ref={topicInputRef}
                   />
-                  <div className="flex flex-wrap gap-1.5 mt-2" data-testid="suggested-topics">
-                    {industryContent.suggestedTopics.map((suggestedTopic, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        className={`text-xs px-2.5 py-1 rounded-full transition-all ${
-                          topic === suggestedTopic
-                            ? "bg-primary/15 text-primary border border-primary/30"
-                            : "bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-transparent"
-                        }`}
-                        onClick={() => setTopic(suggestedTopic)}
-                        data-testid={`suggested-topic-${idx}`}
-                      >
-                        {suggestedTopic}
-                      </button>
-                    ))}
-                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground" data-testid="text-topic-helper">
+                    {topicHelperMessage}
+                  </p>
+                  {showTopicExamples && (
+                    <div className="mt-4 space-y-2" data-testid="topic-example-section">
+                      <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Example Topics</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {topicExamples.map((suggestedTopic, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="text-xs px-2.5 py-1 rounded-full transition-all bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-transparent"
+                            onClick={() => setTopic(suggestedTopic)}
+                            data-testid={`suggested-topic-${idx}`}
+                          >
+                            {suggestedTopic}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {promptDetails && sourcePrompt.trim() && (
@@ -2490,11 +2576,121 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
 
             <div className="px-5 py-4 space-y-4">
               <div className="rounded-lg border bg-muted/20 overflow-hidden">
-                <div
-                  className={`relative px-4 py-4 transition-all duration-300 ease-in-out ${showFullContent ? "max-h-[1400px]" : "max-h-[260px] overflow-hidden"}`}
-                  style={{ transitionDuration: "280ms" }}
-                >
-                  {isEditing ? (
+                <div className="px-4 py-4">
+                  {contentViewKind === "blog" ? (
+                    <Tabs
+                      value={isEditing ? "editor" : "reading"}
+                      onValueChange={(value) => setIsEditing(value === "editor")}
+                    >
+                      <TabsList className="mb-4">
+                        <TabsTrigger value="reading" data-testid="tab-blog-reading-view">Reading View</TabsTrigger>
+                        <TabsTrigger value="editor" data-testid="tab-blog-editor-view">Editor View</TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="reading">
+                        <article className="mx-auto max-w-3xl rounded-xl border bg-card px-6 py-6 shadow-sm">
+                          <div className="mb-6 border-b pb-4">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Blog Article</p>
+                            <h1 className="mt-2 text-[32px] font-bold leading-tight tracking-tight text-foreground">
+                              {lastGenerated.title}
+                            </h1>
+                            <div className="mt-3 flex flex-wrap items-center gap-3 text-[14px] text-muted-foreground">
+                              <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {estimatedReadingMinutes} min read</span>
+                              <span>{lastGenerated.wordCount} words</span>
+                              {lastGenerated.seoScore ? <span>SEO {lastGenerated.seoScore}%</span> : null}
+                            </div>
+                          </div>
+                          <div className="prose prose-neutral max-w-none text-[16px] leading-[1.75] dark:prose-invert">
+                            {renderMarkdownContent(lastGenerated.content)}
+                          </div>
+                          {extractLikelyCta(lastGenerated.content, parsedSections) ? (
+                            <div className="mt-6 rounded-lg border border-amber-300/70 bg-amber-50/70 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">Call To Action</p>
+                              <div className="mt-1 text-sm text-amber-900 dark:text-amber-100">
+                                {renderMarkdownContent(extractLikelyCta(lastGenerated.content, parsedSections))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </article>
+                      </TabsContent>
+                      <TabsContent value="editor">
+                        <Textarea
+                          value={editedContent}
+                          onChange={(e) => setEditedContent(e.target.value)}
+                          rows={14}
+                          className="resize-none text-sm"
+                          placeholder="Edit your generated content..."
+                        />
+                      </TabsContent>
+                    </Tabs>
+                  ) : contentViewKind === "social" ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background px-4 py-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Social Media Preview</p>
+                          <p className="text-sm text-foreground">Instagram · Facebook · LinkedIn · X</p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(["Instagram", "Facebook", "LinkedIn", "X (Twitter)"] as const).map((platform) => (
+                            <Button
+                              key={platform}
+                              variant={socialPreviewPlatform === platform ? "default" : "outline"}
+                              size="sm"
+                              className="h-7 px-2.5 text-xs"
+                              onClick={() => setSocialPreviewPlatform(platform)}
+                            >
+                              {platform === "Instagram" ? "Instagram" : platform === "Facebook" ? "Facebook" : platform === "LinkedIn" ? "LinkedIn" : "X"}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="mx-auto max-w-2xl rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:-translate-y-px hover:shadow-md">
+                        <p className="text-xs text-muted-foreground">Generated by AI • {socialPreviewPlatform}</p>
+                        {socialHeadline ? (
+                          <div className="mt-3">
+                            <p className="mb-1.5 inline-flex rounded-full border border-violet-400/50 bg-violet-500/10 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.15em] text-violet-900 dark:border-violet-400/40 dark:bg-violet-500/20 dark:text-violet-200">Headline</p>
+                            <h2 className="text-[28px] font-bold leading-tight tracking-tight text-foreground">
+                              {plainTextFromMarkdown(socialHeadline)}
+                            </h2>
+                          </div>
+                        ) : null}
+                        <div className="mt-4">
+                          <p className="mb-2 inline-flex rounded-full border border-slate-400/50 bg-slate-500/10 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-[0.15em] text-slate-800 dark:border-slate-400/40 dark:bg-slate-500/20 dark:text-slate-200">Caption</p>
+                          <div className="text-[16px] leading-[1.75] text-foreground/95">
+                          {renderMarkdownContent(socialCaption || lastGenerated.content)}
+                          </div>
+                        </div>
+                        {socialCta ? (
+                          <div className="mt-5 rounded-lg border border-sky-300/70 bg-sky-50/70 px-4 py-3 dark:border-sky-500/40 dark:bg-sky-500/10">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-sky-800 dark:text-sky-300">Call To Action</p>
+                            <div className="mt-1 text-sm text-sky-900 dark:text-sky-100">
+                              {renderMarkdownContent(socialCta)}
+                            </div>
+                          </div>
+                        ) : null}
+                        {detectedHashtags.length > 0 ? (
+                          <div className="mt-5">
+                            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hashtags</p>
+                            <div className="flex flex-wrap gap-2">
+                              {detectedHashtags.map((tag) => (
+                                <button
+                                  key={tag}
+                                  type="button"
+                                  className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/15"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(tag);
+                                    toast({ title: "Hashtag copied", description: tag });
+                                  }}
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : isEditing ? (
                     <Textarea
                       value={editedContent}
                       onChange={(e) => setEditedContent(e.target.value)}
@@ -2503,35 +2699,12 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                       placeholder="Edit your generated content..."
                     />
                   ) : (
-                    <div className="max-w-3xl text-foreground/95 leading-relaxed space-y-3">
-                      {showFullContent ? renderMarkdownContent(lastGenerated.content) : (
-                        <p className="text-sm md:text-[0.96rem] leading-7 whitespace-pre-wrap">{previewText || "No content available."}</p>
-                      )}
-                    </div>
+                    <article className="mx-auto max-w-3xl rounded-xl border bg-card px-6 py-6 shadow-sm">
+                      <div className="prose prose-neutral max-w-none text-[16px] leading-[1.75] dark:prose-invert">
+                        {renderMarkdownContent(lastGenerated.content)}
+                      </div>
+                    </article>
                   )}
-                  {!showFullContent && !isEditing && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card via-card/85 to-transparent" />
-                  )}
-                </div>
-                <div className="border-t px-4 py-3">
-                  <Button
-                    variant="ghost"
-                    className="h-8 px-0 text-sm font-medium text-primary hover:text-primary/80"
-                    onClick={() => setShowFullContent((prev) => !prev)}
-                    data-testid="button-toggle-content"
-                  >
-                    {showFullContent ? (
-                      <>
-                        <ChevronUp className="mr-2 h-4 w-4" />
-                        Show Less
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="mr-2 h-4 w-4" />
-                        Continue Reading
-                      </>
-                    )}
-                  </Button>
                 </div>
               </div>
 
@@ -2543,9 +2716,10 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
                   hasMedia={false}
                   hasVideo={false}
                   onContentFix={(fixedContent) => {
-                    setEditedContent(fixedContent);
+                    const safeFixedContent = normalizeMarkdownInput(fixedContent);
+                    setEditedContent(safeFixedContent);
                     if (!isEditing) {
-                      setIsEditing(true);
+                      setLastGenerated((prev) => (prev ? { ...prev, content: safeFixedContent } : prev));
                     }
                   }}
                   showGuidelines={false}
@@ -2553,6 +2727,32 @@ export function AIContentGenerator({ isGenerating }: AIContentGeneratorProps) {
               )}
 
               <div className="flex flex-wrap items-center gap-2 pt-1" data-testid="quick-actions-row">
+                {contentViewKind === "social" && socialCaption ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(plainTextFromMarkdown(socialCaption));
+                      toast({ title: "Copied", description: "Caption copied to clipboard." });
+                    }}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy Caption
+                  </Button>
+                ) : null}
+                {contentViewKind === "social" && detectedHashtags.length > 0 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(detectedHashtags.join(" "));
+                      toast({ title: "Copied", description: "Hashtags copied to clipboard." });
+                    }}
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy Hashtags
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
